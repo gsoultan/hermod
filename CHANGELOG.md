@@ -7,6 +7,13 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+## [1.16.0] — 2026-09-28
+
+A workflow can list a panmail tenant's email providers. The new **Panmail
+Providers** node writes each provider's `id`, `name`, `type` and
+`allowedDomains` into the message, so the provider id a panmail sink sends with
+no longer has to be copied off the Email Providers page.
+
 A node that writes a field the way the editor names it — `after.<column>` — no
 longer wipes the rest of the row for every node after it. An `api_lookup` behind
 such a node sent its body with every `{{.after.x}}` empty, so Refresh and Run
@@ -21,6 +28,11 @@ message on the straight branch, depending on the order its edges were drawn. A
 empty text, so `=` was false for every row. An If node that gives every message
 the same answer — no conditions, a condition with no field, or an operator
 Hermod does not know — is now refused when its workflow is saved or started.
+
+A join fires when one of its branches filters the message out or fails. Such a
+branch was never counted as done, so the join never fired and the message the
+other branch brought was never written. Opening an If or Filter saved through
+the API no longer takes the editor down.
 
 ### Upgrading
 
@@ -54,6 +66,19 @@ A condition, filter, switch case or router rule whose value holds a `{{ }}`
 token for anything but one of the row's own columns — `{{.after.x}}`,
 `{{.before.x}}`, `{{.operation}}`, `{{.table}}`, `{{.meta.x}}` — now compares
 against that value instead of empty text, so its answer can change.
+
+**A join fires when one of its branches filters the message out or fails.** A
+workflow with such a join now writes the message its other branches brought,
+where it used to write nothing. A join none of whose branches delivered anything
+still writes nothing, and a failed node's message still goes to the dead-letter
+sink.
+
+**The panmail sink words two refusals differently**, because panmail-sdk moved
+to a newer commit for the Panmail Providers node. A refusal the gateway sends
+without a message says "the gateway refused the request" where it said "the
+gateway refused the send", and a send to a suppressed recipient now says "a
+recipient is suppressed, so the whole message was refused". The sink treats
+both as the gateway refusing the message, as before.
 
 ### Writing to `after.<column>` wiped the rest of the row
 
@@ -4957,6 +4982,7 @@ Stated here rather than discovered later. All three are also in `README.md` or
   were left alone rather than changed mechanically. Treat a restart as
   potentially lossy for these. They are Experimental in `README.md`.
 
+[1.16.0]: https://github.com/gsoultan/hermod/releases/tag/v1.16.0
 [1.15.2]: https://github.com/gsoultan/hermod/releases/tag/v1.15.2
 [1.15.1]: https://github.com/gsoultan/hermod/releases/tag/v1.15.1
 [1.15.0]: https://github.com/gsoultan/hermod/releases/tag/v1.15.0
