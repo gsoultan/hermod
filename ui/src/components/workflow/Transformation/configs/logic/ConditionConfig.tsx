@@ -39,6 +39,7 @@ export function ConditionConfig({
           conditions={parseConditions(config.conditions)}
           availableFields={availableFields}
           onChange={(val: any) => updateNodeConfig(nodeId, { conditions: val })}
+          emptyText="No conditions yet, so every message takes the TRUE branch. Add one — the workflow can't be saved without it."
         />
       </Suspense>
     </Stack>

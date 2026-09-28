@@ -32,9 +32,9 @@ const renderForm = (Form: Form, conditions: unknown) => {
 }
 
 describe.each([
-  ['If (ConditionConfig)', ConditionConfig],
-  ['Filter (FilterConfig)', FilterConfig],
-])('%s reads conditions saved as a JSON string', (_name, Form) => {
+  ['If (ConditionConfig)', ConditionConfig, /every message takes the TRUE branch/i],
+  ['Filter (FilterConfig)', FilterConfig, /no filters defined/i],
+])('%s reads conditions saved as a JSON string', (_name, Form, emptyText) => {
   it('renders each condition from the string', async () => {
     renderForm(Form, JSON.stringify([{ field: 'after.status', operator: '=', value: 'paid' }]))
     expect(await screen.findByDisplayValue('paid')).toBeInTheDocument()
@@ -52,6 +52,6 @@ describe.each([
     ['an empty string', ''],
   ])('shows an empty list for %s instead of crashing', async (_label, raw) => {
     renderForm(Form, raw)
-    expect(await screen.findByText(/no filters defined/i)).toBeInTheDocument()
+    expect(await screen.findByText(emptyText)).toBeInTheDocument()
   })
 })
