@@ -7,6 +7,17 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### The Set Fields editor has room to work in
+
+The transformation panel split the screen three ways, so a Set Fields mapping
+got about a third of it between the source data and the live preview. The
+**Focus editor** button beside the node's help icon now gives the configuration
+the full width and brings the side panels back when pressed again; the choice
+is remembered. Set Fields and Advanced nodes also get a wider middle column by
+default. In each row, an expression wraps onto more lines instead of being cut
+off, and a JSON value starts taller and has **Format** and a larger editor. The
+Fields (JSON) view starts at twenty lines.
+
 ## [1.16.1] — 2026-09-28
 
 A Set Fields value written as a JSON object reads the `source.` paths and

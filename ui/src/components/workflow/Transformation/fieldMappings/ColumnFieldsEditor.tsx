@@ -141,8 +141,8 @@ export function ColumnFieldsEditor({
           value={columnFields}
           onChange={replaceColumnFields}
           toolbar
-          minRows={14}
-          maxRows={32}
+          minRows={20}
+          maxRows={40}
           styles={MONO_XS}
         />
       )}
