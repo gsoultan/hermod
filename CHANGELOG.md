@@ -7,6 +7,16 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+## [1.16.2] — 2026-09-29
+
+The Set Fields editor has room to work in. A **Focus editor** button gives a
+node's configuration the full width of the panel, and long expressions and JSON
+values wrap or grow instead of being cut off.
+
+### Upgrading
+
+Nothing to do. The change is in the editor only; saved workflows are unchanged.
+
 ### The Set Fields editor has room to work in
 
 The transformation panel split the screen three ways, so a Set Fields mapping
@@ -5054,6 +5064,7 @@ Stated here rather than discovered later. All three are also in `README.md` or
   were left alone rather than changed mechanically. Treat a restart as
   potentially lossy for these. They are Experimental in `README.md`.
 
+[1.16.2]: https://github.com/gsoultan/hermod/releases/tag/v1.16.2
 [1.16.1]: https://github.com/gsoultan/hermod/releases/tag/v1.16.1
 [1.16.0]: https://github.com/gsoultan/hermod/releases/tag/v1.16.0
 [1.15.2]: https://github.com/gsoultan/hermod/releases/tag/v1.15.2
