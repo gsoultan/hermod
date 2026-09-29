@@ -234,9 +234,10 @@ export function SetFieldEditor({
                       allowArray
                       value={field.value as JsonColumnValue}
                       onChange={(next) => updateFieldValue(field.fullKey, next)}
-                      minRows={3}
-                      maxRows={14}
+                      minRows={6}
+                      maxRows={24}
                       styles={MONO_XS}
+                      toolbar
                     />
                   ) : (
                     <TemplateField
@@ -246,7 +247,7 @@ export function SetFieldEditor({
                       onChange={(val) => updateFieldValue(field.fullKey, val)}
                       availableFields={availableFields}
                       buildToken={(p) => `source.${p}`}
-                      multiline={isAdvanced}
+                      multiline
                     />
                   )}
                 </Stack>
