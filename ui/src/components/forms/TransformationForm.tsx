@@ -24,7 +24,7 @@ const QuickActions = lazy(() =>
 // new component type every render, so React unmounts and remounts whatever it
 // wraps — here, the whole help modal, on every keystroke.
 const HelpContent = lazy(() => import('../workflow/Transformation/HelpContent'));
-import { IconCode, IconDatabase, IconFunction, IconHelpCircle, IconInfoCircle, IconList, IconPlus, IconRefresh, IconSearch, IconSettings, IconVariable } from '@tabler/icons-react';
+import { IconArrowsMaximize, IconArrowsMinimize, IconCode, IconDatabase, IconFunction, IconHelpCircle, IconInfoCircle, IconList, IconPlus, IconRefresh, IconSearch, IconSettings, IconVariable } from '@tabler/icons-react';
 import { preparePayload, getValByPath } from '@/utils/transformationUtils';
 import { guideFor } from '@/lib/transformationGuide';
 import { UpstreamNotRunNotice } from '@/components/common/UpstreamNotRunNotice';
@@ -130,6 +130,21 @@ interface TransformationFormProps {
   inputSkipped?: number;
 }
 
+/**
+ * Focus editor: the configuration takes the whole width and the source data
+ * and live preview step aside. Remembered per browser, since someone who wants
+ * the room for one node tends to want it for the next.
+ */
+const FOCUS_KEY = 'hermod.transformationForm.focus';
+
+function readFocus(): boolean {
+  try {
+    return localStorage.getItem(FOCUS_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimulation: _onRunSimulation, availableFields = [], incomingPayload, sources = [], sinkSchema, onRefreshFields, isRefreshing, inputSkipped = 0 }: TransformationFormProps) {
   const [testing, setTesting] = useState(false);
   // The last Test API Call's outcome, which the editor keeps on screen: a toast
@@ -149,6 +164,14 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [configSearch, setConfigSearch] = useState('');
+  const [focus, setFocus] = useState(readFocus);
+  const toggleFocus = () => {
+    const next = !focus;
+    setFocus(next);
+    try {
+      localStorage.setItem(FOCUS_KEY, next ? '1' : '0');
+    } catch {}
+  };
   // Accessibility: IDs for help modal labelling
   const helpTitleId = 'transformation-help-modal-title';
   const helpDescId = 'transformation-help-modal-desc';
@@ -195,6 +218,9 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
   const previewMutation = usePreviewTransformation();
 
   const transType = selectedNode?.data?.transType || selectedNode?.type || '';
+  // Field mappings are rows of long paths and JSON values; they get the wider
+  // middle column even when the side panels are showing.
+  const wideConfig = transType === 'set' || transType === 'advanced';
 
   // The node's own type, not just transType: a `foreach` node and a
   // `transformation` with transType foreach both compute transType "foreach"
@@ -436,6 +462,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
     <>
     <Grid gap="lg" style={{ minHeight: 'calc(100vh - 180px)' }}>
       {/* Column 1: Source Data */}
+      {!focus && (
       <Grid.Col span={{ base: 12, md: 4, lg: 3 }}>
         <Stack gap="lg" h="100%">
           <Group justify="space-between" px="xs">
@@ -519,9 +546,10 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
           </Card>
         </Stack>
       </Grid.Col>
+      )}
 
       {/* Column 2: Configuration */}
-      <Grid.Col span={{ base: 12, md: 8, lg: 5 }}>
+      <Grid.Col span={focus ? 12 : { base: 12, md: 8, lg: wideConfig ? 6 : 5 }}>
         <Card withBorder shadow="md" radius="md" p="md" h="100%" style={{ display: 'flex', flexDirection: 'column' }}>
           <Stack gap="lg" h="100%">
             <Group justify="space-between" px="xs">
@@ -530,6 +558,17 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
                 <Text size="sm" fw={700}>TRANSFORM LOGIC</Text>
               </Group>
               <Group gap="xs">
+                <MantineTooltip label={focus ? 'Show source data and preview' : 'Give the editor the full width'} position="left">
+                  <ActionIcon
+                    aria-label="Focus editor"
+                    aria-pressed={focus}
+                    variant={focus ? 'filled' : 'light'}
+                    color="blue"
+                    onClick={toggleFocus}
+                  >
+                    {focus ? <IconArrowsMinimize size="1rem" /> : <IconArrowsMaximize size="1rem" />}
+                  </ActionIcon>
+                </MantineTooltip>
                 <MantineTooltip label="How to use this transformation" position="left">
                   <ActionIcon aria-label="Open transformation help" variant="light" color="blue" onClick={() => setHelpOpen(true)}>
                     <IconHelpCircle size="1rem" />
@@ -634,7 +673,8 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
       </Card>
     </Grid.Col>
 
-      <Grid.Col span={{ base: 12, md: 12, lg: 4 }}>
+      {!focus && (
+      <Grid.Col span={{ base: 12, md: 12, lg: wideConfig ? 3 : 4 }}>
         <Suspense fallback={<Text size="sm" c="dimmed">Loading preview…</Text>}>
           <PreviewPanel
             title="3. LIVE PREVIEW"
@@ -647,6 +687,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
           />
         </Suspense>
       </Grid.Col>
+      )}
     </Grid>
 
     <Modal 
