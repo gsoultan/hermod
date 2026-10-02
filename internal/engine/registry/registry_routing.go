@@ -484,8 +484,32 @@ func (r *Registry) runWorkflowNode(root context.Context, workflowID string, node
 			m.Retain()
 		}
 	}
+	inheritVHost(msg, msgs)
 
 	return msgs, branch, err
+}
+
+// inheritVHost marks the messages a node produced with the vhost of the
+// message it was given. A node that builds new messages -- a fan-out, a
+// lookup that replaces the record -- hands them on in the same workflow, and
+// secret() further down has to keep answering for that workflow's vhost.
+func inheritVHost(from hermod.Message, to []hermod.Message) {
+	src, ok := from.(hermod.VHostScoped)
+	if !ok {
+		return
+	}
+	vhost := src.VHost()
+	if vhost == "" {
+		return
+	}
+	for _, m := range to {
+		if m == nil || m == from {
+			continue
+		}
+		if dst, ok := m.(hermod.VHostScoped); ok && dst.VHost() == "" {
+			dst.SetVHost(vhost)
+		}
+	}
 }
 
 // --- Helper Functions ---

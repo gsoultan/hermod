@@ -154,10 +154,12 @@ type Registry struct {
 	idleMonitorStop chan struct{}
 	stateStore      hermod.StateStore
 	secretManager   secrets.Manager
-	schemaRegistry  schema.Registry
-	optimizer       *optimizer.Optimizer
-	dqScorer        *governance.Scorer
-	meshManager     *mesh.Manager
+	// expressionSecrets is the cache secret() and env() read through.
+	expressionSecrets *secrets.CachedManager
+	schemaRegistry    schema.Registry
+	optimizer         *optimizer.Optimizer
+	dqScorer          *governance.Scorer
+	meshManager       *mesh.Manager
 
 	discoveryService *service.DiscoveryService
 
@@ -249,6 +251,7 @@ func (r *Registry) GetSourceFactoryConfig(ctx context.Context, id string) (facto
 	return factory.SourceConfig{
 		ID:     src.ID,
 		Type:   src.Type,
+		VHost:  src.VHost,
 		Config: src.Config,
 	}, nil
 }
@@ -347,6 +350,7 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 	go reg.optimizer.Start(reg.ctx)
 	go reg.runStatusFlusher()
 	go reg.runDashboardSampler(dashboardSampleInterval())
+	reg.publishExpressionSecrets()
 	return reg
 }
 
@@ -755,9 +759,62 @@ func (r *Registry) SetLogStorage(s storage.Storage) {
 
 func (r *Registry) SetSecretManager(mgr secrets.Manager) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.secretManager = mgr
-	publishExpressionSecrets(mgr)
+	r.mu.Unlock()
+	r.publishExpressionSecrets()
+}
+
+// vhostSecrets answers a secret for a vhost: from the secrets that vhost holds
+// in storage, then from the global manager. Storage and the manager are read
+// each time, because both can be replaced while the registry runs.
+func (r *Registry) vhostSecrets() *secrets.VHostManager {
+	r.mu.RLock()
+	global := r.secretManager
+	r.mu.RUnlock()
+	return &secrets.VHostManager{Store: registryVHostStore{r}, Global: global}
+}
+
+// registryVHostStore reads a vhost's secret out of whatever storage the
+// registry currently has. A backend with no vhost secrets holds none.
+type registryVHostStore struct{ r *Registry }
+
+func (s registryVHostStore) VHostSecret(ctx context.Context, vhost, name string) (string, bool, error) {
+	store, ok := s.r.store().(storage.VHostSecretStore)
+	if !ok {
+		return "", false, nil
+	}
+	secret, err := store.GetVHostSecret(ctx, vhost, name)
+	if errors.Is(err, storage.ErrNotFound) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return secret.Value, true, nil
+}
+
+// expressionSecretSource is what secret() and env() read: the registry's
+// vhost-then-global lookup, asked afresh on a cache miss.
+type expressionSecretSource struct{ r *Registry }
+
+func (s expressionSecretSource) Get(ctx context.Context, key string) (string, error) {
+	return s.r.vhostSecrets().Get(ctx, key)
+}
+
+func (s expressionSecretSource) GetScoped(ctx context.Context, vhost, key string) (string, error) {
+	return s.r.vhostSecrets().GetScoped(ctx, vhost, key)
+}
+
+// InvalidateVHostSecret forgets what expressions cached for one vhost's
+// secret. The API calls it after a secret is saved or deleted, so the next
+// message reads the new value instead of waiting out the cache.
+func (r *Registry) InvalidateVHostSecret(vhost, name string) {
+	r.mu.RLock()
+	cache := r.expressionSecrets
+	r.mu.RUnlock()
+	if cache != nil {
+		cache.Invalidate(vhost, name)
+	}
 }
 
 // How long, how many and how patiently the expression functions secret() and
@@ -768,16 +825,17 @@ const (
 	expressionSecretTimeout = 2 * time.Second
 )
 
-// publishExpressionSecrets points secret() and env() at mgr, through a cache:
-// an expression reads its secrets once per message, and against Vault or AWS
-// every read is a network call. Connector configs keep reading mgr directly --
-// they resolve once, when the connector is built.
-func publishExpressionSecrets(mgr secrets.Manager) {
-	if mgr == nil {
-		evaluator.SetSecretSource(nil)
-		return
-	}
-	evaluator.SetSecretSource(secrets.NewCachedManager(mgr, expressionSecretTTL, expressionSecretMaxKeys, expressionSecretTimeout))
+// publishExpressionSecrets points secret() and env() at this registry's
+// secrets, through a cache: an expression reads its secrets once per message,
+// and both storage and Vault or AWS are a round trip. The cache is keyed by
+// vhost and name. Connector configs read the lookup directly -- they resolve
+// once, when the connector is built.
+func (r *Registry) publishExpressionSecrets() {
+	cache := secrets.NewCachedManager(expressionSecretSource{r}, expressionSecretTTL, expressionSecretMaxKeys, expressionSecretTimeout)
+	r.mu.Lock()
+	r.expressionSecrets = cache
+	r.mu.Unlock()
+	evaluator.SetSecretSource(cache)
 }
 
 func (r *Registry) SetStateStore(ss hermod.StateStore) {
@@ -904,7 +962,7 @@ func (r *Registry) GetOrOpenDB(src storage.Source) (*sql.DB, error) {
 		}
 
 		// Resolve secrets in config
-		resolvedConfig := r.resolveSecrets(context.Background(), config)
+		resolvedConfig := r.resolveSecrets(context.Background(), src.VHost, config)
 		connStr := factory.BuildConnectionString(resolvedConfig, sourceType)
 
 		// Resolve the actual database/sql driver name from the user-facing type using
@@ -953,13 +1011,17 @@ func (r *Registry) SetFactories(sourceFactory SourceFactory, sinkFactory SinkFac
 	r.sinkFactory = sinkFactory
 }
 
-func (r *Registry) resolveSecrets(ctx context.Context, config map[string]string) map[string]string {
-	if r.secretManager == nil || config == nil {
+// resolveSecrets replaces every `secret:NAME` value in a connector's config,
+// reading the secrets of the vhost the connector belongs to and then the
+// global manager.
+func (r *Registry) resolveSecrets(ctx context.Context, vhost string, config map[string]string) map[string]string {
+	if config == nil {
 		return config
 	}
+	mgr := r.vhostSecrets()
 	resolved := make(map[string]string)
 	for k, v := range config {
-		resolved[k] = secrets.ResolveSecret(ctx, r.secretManager, v)
+		resolved[k] = secrets.ResolveSecretScoped(ctx, mgr, vhost, v)
 	}
 	return resolved
 }
@@ -997,7 +1059,7 @@ func (r *Registry) requireNonCDCDelegate(ctx context.Context, cfg factory.Source
 
 func (r *Registry) createSource(ctx context.Context, cfg factory.SourceConfig) (hermod.Source, error) {
 	// Resolve secrets in config
-	cfg.Config = r.resolveSecrets(ctx, cfg.Config)
+	cfg.Config = r.resolveSecrets(ctx, cfg.VHost, cfg.Config)
 
 	r.mu.Lock()
 	logger := r.logger
@@ -1037,7 +1099,7 @@ func (r *Registry) createSource(ctx context.Context, cfg factory.SourceConfig) (
 
 func (r *Registry) createSourceInternal(ctx context.Context, cfg factory.SourceConfig) (hermod.Source, error) {
 	// Resolve secrets in config
-	cfg.Config = r.resolveSecrets(ctx, cfg.Config)
+	cfg.Config = r.resolveSecrets(ctx, cfg.VHost, cfg.Config)
 
 	var src hermod.Source
 	var err error
@@ -1098,7 +1160,7 @@ func (r *Registry) createSink(ctx context.Context, cfg factory.SinkConfig) (herm
 
 func (r *Registry) createSinkInternal(ctx context.Context, cfg factory.SinkConfig) (hermod.Sink, error) {
 	// Resolve secrets in config
-	cfg.Config = r.resolveSecrets(ctx, cfg.Config)
+	cfg.Config = r.resolveSecrets(ctx, cfg.VHost, cfg.Config)
 
 	if cfg.Type == "txgroup" {
 		return r.createTxGroupSink(ctx, cfg)
@@ -1169,6 +1231,7 @@ func (r *Registry) resolveAndCreateTxGroupMember(ctx context.Context, id string)
 	return factory.CreateSinkForTransactionGroup(factory.SinkConfig{
 		ID:     dbSnk.ID,
 		Type:   dbSnk.Type,
+		VHost:  dbSnk.VHost,
 		Config: dbSnk.Config,
 	})
 }
@@ -1184,6 +1247,7 @@ func (r *Registry) resolveAndCreateSink(ctx context.Context, id string) (hermod.
 	snkCfg := factory.SinkConfig{
 		ID:     dbSnk.ID,
 		Type:   dbSnk.Type,
+		VHost:  dbSnk.VHost,
 		Config: dbSnk.Config,
 	}
 	return r.createSinkInternal(ctx, snkCfg)
@@ -2055,6 +2119,7 @@ func (r *Registry) checkDLQPrioritization(ctx context.Context, wf storage.Workfl
 	// We use a dummy config for validation.
 	testSrc, err := r.createSourceInternal(context.Background(), factory.SourceConfig{
 		Type:   dlqSink.Type,
+		VHost:  dlqSink.VHost,
 		Config: dlqSink.Config,
 	})
 	if err != nil {

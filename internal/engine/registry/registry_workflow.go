@@ -57,6 +57,7 @@ func (r *Registry) buildWorkflowSources(ctx context.Context, wf storage.Workflow
 		srcCfg := factory.SourceConfig{
 			ID:     dbSrc.ID,
 			Type:   dbSrc.Type,
+			VHost:  dbSrc.VHost,
 			Config: dbSrc.Config,
 			State:  dbSrc.State,
 		}
@@ -140,6 +141,7 @@ func (r *Registry) discoverWorkflowSinks(ctx context.Context, wf storage.Workflo
 			snkCfg := factory.SinkConfig{
 				ID:     dbSnk.ID,
 				Type:   dbSnk.Type,
+				VHost:  dbSnk.VHost,
 				Config: dbSnk.Config,
 			}
 			snk, err := r.createSinkInternal(ctx, snkCfg)
@@ -394,6 +396,7 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 
 	eng := pkgengine.NewEngine(ms, sinks, buf)
 	eng.SetConfig(r.config)
+	eng.SetVHost(wf.VHost)
 
 	// Apply workflow level overrides
 	engCfg := r.config
@@ -426,6 +429,7 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 			dlsCfg := factory.SinkConfig{
 				ID:     dbDls.ID,
 				Type:   dbDls.Type,
+				VHost:  dbDls.VHost,
 				Config: dbDls.Config,
 			}
 			dls, err := r.createSinkInternal(ctx, dlsCfg)
@@ -1146,7 +1150,7 @@ func (r *Registry) RebuildWorkflow(ctx context.Context, workflowID string, fromO
 		if node.Type == "sink" && node.ID != eventStoreNode.ID {
 			dbSnk, err := r.GetSinkConfig(ctx, node.RefID)
 			if err == nil {
-				snk, err := r.createSinkInternal(ctx, factory.SinkConfig{ID: dbSnk.ID, Type: dbSnk.Type, Config: dbSnk.Config})
+				snk, err := r.createSinkInternal(ctx, factory.SinkConfig{ID: dbSnk.ID, Type: dbSnk.Type, VHost: dbSnk.VHost, Config: dbSnk.Config})
 				if err == nil {
 					sinkNodeToIndex[node.ID] = len(sinks)
 					sinks = append(sinks, snk)
@@ -1164,6 +1168,7 @@ func (r *Registry) RebuildWorkflow(ctx context.Context, workflowID string, fromO
 	srcCfg := factory.SourceConfig{
 		ID:     eventStoreSink.ID,
 		Type:   "eventstore",
+		VHost:  eventStoreSink.VHost,
 		Config: eventStoreSink.Config,
 	}
 	if srcCfg.Config == nil {
@@ -1348,7 +1353,7 @@ func (r *Registry) ResumeApproval(ctx context.Context, app storage.Approval, bra
 				}
 				return fmt.Errorf("failed to get sink %s: %w", n.RefID, e)
 			}
-			snkCfg := factory.SinkConfig{ID: dbSnk.ID, Type: dbSnk.Type, Config: dbSnk.Config}
+			snkCfg := factory.SinkConfig{ID: dbSnk.ID, Type: dbSnk.Type, VHost: dbSnk.VHost, Config: dbSnk.Config}
 			s, e := r.createSinkInternal(ctx, snkCfg)
 			if e != nil {
 				for _, s2 := range sinks {
@@ -1466,6 +1471,8 @@ func (r *Registry) validateForSimulation(ctx context.Context, wf storage.Workflo
 type simulation struct {
 	r    *Registry
 	wfID string
+	// vhost is the simulated workflow's vhost: what secret() answers for.
+	vhost string
 	// root is the context every node runs on: context.Background(), plus the
 	// preview's overlay on the state store when a store is configured.
 	root    context.Context
@@ -1488,6 +1495,7 @@ func newSimulation(r *Registry, wf storage.Workflow) *simulation {
 	s := &simulation{
 		r:        r,
 		wfID:     wf.ID,
+		vhost:    wf.VHost,
 		root:     context.Background(),
 		nodes:    make(map[string]*storage.WorkflowNode, len(wf.Nodes)),
 		outEdges: make(map[string][]storage.WorkflowEdge),
@@ -1549,7 +1557,13 @@ func (s *simulation) seed(in SimulationInput) error {
 			// being handed another source's sample.
 			continue
 		}
-		s.waiting[sn.ID] = s.own(seed.Clone())
+		clone := seed.Clone()
+		// A simulation walks a workflow that belongs to a vhost, so secret()
+		// answers for that vhost, as it does when the workflow runs.
+		if scoped, ok := clone.(hermod.VHostScoped); ok && s.vhost != "" {
+			scoped.SetVHost(s.vhost)
+		}
+		s.waiting[sn.ID] = s.own(clone)
 		s.r.broadcastLiveMessageFromHermod(s.wfID, sn.ID, seed, false, "")
 		s.steps = append(s.steps, WorkflowStepResult{
 			NodeID:   sn.ID,
