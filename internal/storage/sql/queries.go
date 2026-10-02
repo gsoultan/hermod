@@ -85,13 +85,14 @@ const (
 	QueryDeleteVHost = "DeleteVHost"
 	QueryGetVHost    = "GetVHost"
 
-	// VHost secrets
+	// VHost secrets. These are names of queries, not credentials: gosec's G101
+	// goes by the word "Secret" in the identifier.
 	QueryListVHostSecrets   = "ListVHostSecrets"
 	QueryGetVHostSecret     = "GetVHostSecret"
-	QueryInsertVHostSecret  = "InsertVHostSecret"
-	QueryUpdateVHostSecret  = "UpdateVHostSecret"
-	QueryDeleteVHostSecret  = "DeleteVHostSecret"
-	QueryDeleteVHostSecrets = "DeleteVHostSecrets"
+	QueryInsertVHostSecret  = "InsertVHostSecret"  //nolint:gosec // G101: a query name
+	QueryUpdateVHostSecret  = "UpdateVHostSecret"  //nolint:gosec // G101: a query name
+	QueryDeleteVHostSecret  = "DeleteVHostSecret"  //nolint:gosec // G101: a query name
+	QueryDeleteVHostSecrets = "DeleteVHostSecrets" //nolint:gosec // G101: a query name
 
 	// Workflows
 	QueryListWorkflows        = "ListWorkflows"

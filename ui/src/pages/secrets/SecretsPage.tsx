@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import {
-  ActionIcon, Alert, Box, Button, Code, CopyButton, Group, Loader, Paper, Select, Stack, Table, Text, Title,
+  ActionIcon, Alert, Badge, Box, Button, Code, CopyButton, Group, Loader, Paper, Select, Stack, Table, Text, Title,
   Tooltip,
 } from '@mantine/core'
 import { IconAlertCircle, IconCheck, IconCopy, IconKey, IconPlus, IconRefresh, IconTrash } from '@tabler/icons-react'
@@ -113,7 +113,14 @@ export function SecretsPage() {
             <Group gap="sm" align="flex-start">
               <IconKey size="2rem" color="var(--mantine-color-blue-filled)" />
               <Box style={{ flex: 1 }}>
-                <Title order={2} fw={800}>Secrets</Title>
+                <Group gap="sm" align="center">
+                  <Title order={2} fw={800}>Secrets</Title>
+                  {vhost && (
+                    <Badge variant="light" size="lg" radius="sm" tt="none" aria-label="VHost shown">
+                      {vhost}
+                    </Badge>
+                  )}
+                </Group>
                 <Text size="sm" c="dimmed">
                   API keys, passwords and tokens a vhost keeps for its own workflows. A value is encrypted,
                   and is never shown again once saved. Use one as <Code>{'secret("NAME")'}</Code> in an

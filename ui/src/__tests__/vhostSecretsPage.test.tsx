@@ -87,6 +87,8 @@ describe('Secrets page', () => {
 
     const row = (await screen.findByText('API_KEY')).closest('tr')!
     expect(within(row).getByText('ada')).toBeInTheDocument()
+    // Where a secret lives is the point of the page, so it says which vhost this is.
+    expect(screen.getByLabelText('VHost shown')).toHaveTextContent('tenant-a')
     expect(within(row).getByText('secret("API_KEY")')).toBeInTheDocument()
     expect(screen.queryByText('OTHER')).toBeNull()
   })

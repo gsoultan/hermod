@@ -1,6 +1,6 @@
 # Secrets per vhost — design
 
-Date: 2026-10-02 · Status: awaiting review · Builds on: #217 (merged)
+Date: 2026-10-02 · Status: approved, implemented · Builds on: #217 (merged)
 
 ## Problem
 
@@ -148,3 +148,20 @@ memory.
    secrets must follow the same rule.
 4. Pebble and MongoDB have no migrations; confirm how new collections are
    introduced there.
+
+## As built — where it differs from the above
+
+- **Storage:** SQL and MongoDB. Pebble has no vhosts at all (every vhost method
+  there returns "not implemented"), so it has no vhost secrets and the API
+  answers 501 on it.
+- **Unknown vhost:** not a 404. `default` is a vhost every workflow may belong
+  to without a row of its own, so the API authorises with the existing
+  `HasVHostAccess` rule and refuses only an empty or `all` vhost.
+- **SQL migration:** the table is created with `CREATE TABLE IF NOT EXISTS` at
+  start-up like every other; there is no separate down migration because this
+  codebase has none. The schema version was not bumped (reasoning in
+  `schema_downgrade_test.go`).
+- **Added:** a worker-only route that returns a value, for a worker running in
+  its own process.
+- **Not done:** Test Connection and discovery on a source or sink still resolve
+  `secret:NAME` from the global manager only.
