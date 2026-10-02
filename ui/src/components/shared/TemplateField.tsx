@@ -1,6 +1,14 @@
-import { useMemo, useRef, useState } from 'react'
-import { ActionIcon, Group, Popover, Stack, Text, TextInput, Textarea, Tooltip as MantineTooltip, ScrollArea, Badge } from '@mantine/core'
-import { IconSearch, IconVariable } from '@tabler/icons-react'
+import { createContext, useContext, useMemo, useRef, useState } from 'react'
+import { ActionIcon, Group, Popover, Stack, Text, TextInput, Textarea, Tooltip as MantineTooltip, ScrollArea, Badge, UnstyledButton } from '@mantine/core'
+import { IconKey, IconSearch, IconVariable } from '@tabler/icons-react'
+
+/**
+ * The names of the secrets the workflow being edited can read: its vhost's.
+ * Provided once, above the node's form, so every field that can insert a
+ * variable can insert a secret too. Names only -- the browser never holds a
+ * value.
+ */
+export const SecretNamesContext = createContext<string[]>([])
 
 type CommonProps = {
   label?: string
@@ -27,9 +35,18 @@ export interface TemplateFieldProps extends CommonProps {
    */
   buildToken?: (fieldPath: string) => string
   /**
+   * Called to build the insertion text from a selected secret name.
+   * Default is a template token: {{secret("NAME")}}
+   */
+  buildSecretToken?: (name: string) => string
+  /**
    * When true, renders a textarea instead of a text input.
    */
   multiline?: boolean
+}
+
+function defaultBuildSecretToken(name: string) {
+  return `{{secret("${name}")}}`
 }
 
 function defaultBuildToken(fieldPath: string) {
@@ -49,6 +66,7 @@ export function TemplateField({
   onChange,
   availableFields = [],
   buildToken = defaultBuildToken,
+  buildSecretToken = defaultBuildSecretToken,
   multiline,
   'aria-label': ariaLabel,
 }: TemplateFieldProps) {
@@ -63,6 +81,12 @@ export function TemplateField({
       return !query || path.toLowerCase().includes(query)
     })
   }, [q, availableFields])
+
+  const secretNames = useContext(SecretNamesContext)
+  const filteredSecrets = useMemo(() => {
+    const query = q.trim().toLowerCase()
+    return secretNames.filter((name) => !query || name.toLowerCase().includes(query))
+  }, [q, secretNames])
 
   const insertAtCursor = (text: string) => {
     const el: any = inputRef.current
@@ -135,6 +159,39 @@ export function TemplateField({
             <Text size="xs" c="dimmed" px={4}>
               No fields match "{q}"
             </Text>
+          )}
+          {filteredSecrets.length > 0 && (
+            <Stack
+              component="fieldset"
+              gap={4}
+              mt={6}
+              style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}
+            >
+              <Text component="legend" size="xs" fw={600} c="dimmed" px={4} mb={4}>
+                Secrets of this vhost
+              </Text>
+              {filteredSecrets.map((name) => (
+                <UnstyledButton
+                  key={name}
+                  p={6}
+                  style={{ borderRadius: 6, border: '1px solid var(--mantine-color-default-border)' }}
+                  onClick={() => {
+                    insertAtCursor(buildSecretToken(name))
+                    setOpened(false)
+                  }}
+                >
+                  <Group justify="space-between" wrap="nowrap">
+                    <Group gap={6} wrap="nowrap" style={{ overflow: 'hidden' }}>
+                      <IconKey size="0.8rem" />
+                      <Text size="xs" fw={500} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {name}
+                      </Text>
+                    </Group>
+                    <Badge variant="light" size="xs" color="grape">Insert</Badge>
+                  </Group>
+                </UnstyledButton>
+              ))}
+            </Stack>
           )}
         </Stack>
       </ScrollArea>

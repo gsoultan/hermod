@@ -8,6 +8,8 @@ interface PreviewVars {
     config: any;
   };
   message: any;
+  /** The vhost of the workflow being edited: whose secrets the preview reads. */
+  vhost?: string;
 }
 
 export function usePreviewTransformation() {
