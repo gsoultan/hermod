@@ -676,6 +676,25 @@ type UnitTestResult struct {
 	Elapsed time.Duration  `json:"elapsed"`
 }
 
+// mayPreviewVHost reports whether the caller may run a preview as vhost, and
+// answers 403 when not.
+//
+// A preview shows what an expression produced, so one that resolves
+// secret("NAME") shows a secret -- the only place a stored value can still be
+// seen. It therefore runs as a vhost only for someone who has that vhost. An
+// empty vhost needs no check: a message with no vhost reads no vhost's secrets.
+func (h *WorkflowHandler) mayPreviewVHost(w http.ResponseWriter, r *http.Request, vhost string) bool {
+	if vhost == "" {
+		return true
+	}
+	role, vhosts := h.GetRoleAndVHosts(r)
+	if role == storage.RoleAdministrator || h.HasVHostAccess(vhost, vhosts) {
+		return true
+	}
+	h.JsonError(w, "Forbidden: you do not have access to this vhost", http.StatusForbidden)
+	return false
+}
+
 func (h *WorkflowHandler) RunNodeUnitTests(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	nodeID := r.PathValue("node_id")
@@ -683,6 +702,9 @@ func (h *WorkflowHandler) RunNodeUnitTests(w http.ResponseWriter, r *http.Reques
 	wf, err := h.Storage.GetWorkflow(r.Context(), id)
 	if err != nil {
 		h.JsonError(w, "Workflow not found", http.StatusNotFound)
+		return
+	}
+	if !h.mayPreviewVHost(w, r, wf.VHost) {
 		return
 	}
 
@@ -711,6 +733,7 @@ func (h *WorkflowHandler) RunNodeUnitTests(w http.ResponseWriter, r *http.Reques
 		start := time.Now()
 		msg := message.AcquireMessage()
 		message.PopulateFromMap(msg, ut.Input)
+		msg.SetVHost(wf.VHost)
 
 		// Create a temporary transformation from the node config
 		trans := storage.Transformation{
@@ -1180,6 +1203,11 @@ func (h *WorkflowHandler) TestWorkflow(w http.ResponseWriter, r *http.Request) {
 		h.JsonError(w, "Failed to decode request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	// The simulation runs as the workflow's vhost, and the workflow is the
+	// request's own claim.
+	if !h.mayPreviewVHost(w, r, req.Workflow.VHost) {
+		return
+	}
 
 	var acquired []*message.DefaultMessage
 	defer func() {
@@ -1228,6 +1256,9 @@ func (h *WorkflowHandler) TestWorkflowByID(w http.ResponseWriter, r *http.Reques
 		h.JsonError(w, "Failed to load workflow: "+err.Error(), http.StatusNotFound)
 		return
 	}
+	if !h.mayPreviewVHost(w, r, wf.VHost) {
+		return
+	}
 
 	var req struct {
 		Message map[string]any `json:"message"`
@@ -1255,15 +1286,24 @@ func (h *WorkflowHandler) TestTransformation(w http.ResponseWriter, r *http.Requ
 	var req struct {
 		Transformation storage.Transformation `json:"transformation"`
 		Message        map[string]any         `json:"message"`
+		// VHost is the vhost of the workflow being edited: secret("NAME") in the
+		// previewed node is answered from that vhost's secrets.
+		VHost string `json:"vhost"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.JsonError(w, "Failed to decode request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !h.mayPreviewVHost(w, r, req.VHost) {
 		return
 	}
 
 	msg := message.AcquireMessage()
 	defer message.ReleaseMessage(msg)
 	message.PopulateFromMap(msg, req.Message)
+	// After the sample is loaded, and from the request's own field: nothing in
+	// the sample can choose the vhost.
+	msg.SetVHost(req.VHost)
 
 	transType := req.Transformation.Type
 	if transType == "transformation" {
