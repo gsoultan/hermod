@@ -153,7 +153,14 @@ type Registry struct {
 	rebuildWorkflow func(ctx context.Context, id string, wf storage.Workflow) error
 	idleMonitorStop chan struct{}
 	stateStore      hermod.StateStore
-	secretManager   secrets.Manager
+
+	// secretMu guards secretManager and expressionSecrets, and nothing else.
+	//
+	// They are read while a connector is built, and StartWorkflow builds its
+	// connectors holding mu. Reading them under mu made every workflow whose
+	// source had a config wait on itself. Same split, same reason, as storeMu.
+	secretMu      sync.RWMutex
+	secretManager secrets.Manager
 	// expressionSecrets is the cache secret() and env() read through.
 	expressionSecrets *secrets.CachedManager
 	schemaRegistry    schema.Registry
@@ -758,9 +765,9 @@ func (r *Registry) SetLogStorage(s storage.Storage) {
 }
 
 func (r *Registry) SetSecretManager(mgr secrets.Manager) {
-	r.mu.Lock()
+	r.secretMu.Lock()
 	r.secretManager = mgr
-	r.mu.Unlock()
+	r.secretMu.Unlock()
 	r.publishExpressionSecrets()
 }
 
@@ -768,9 +775,9 @@ func (r *Registry) SetSecretManager(mgr secrets.Manager) {
 // in storage, then from the global manager. Storage and the manager are read
 // each time, because both can be replaced while the registry runs.
 func (r *Registry) vhostSecrets() *secrets.VHostManager {
-	r.mu.RLock()
+	r.secretMu.RLock()
 	global := r.secretManager
-	r.mu.RUnlock()
+	r.secretMu.RUnlock()
 	return &secrets.VHostManager{Store: registryVHostStore{r}, Global: global}
 }
 
@@ -809,9 +816,9 @@ func (s expressionSecretSource) GetScoped(ctx context.Context, vhost, key string
 // secret. The API calls it after a secret is saved or deleted, so the next
 // message reads the new value instead of waiting out the cache.
 func (r *Registry) InvalidateVHostSecret(vhost, name string) {
-	r.mu.RLock()
+	r.secretMu.RLock()
 	cache := r.expressionSecrets
-	r.mu.RUnlock()
+	r.secretMu.RUnlock()
 	if cache != nil {
 		cache.Invalidate(vhost, name)
 	}
@@ -832,9 +839,9 @@ const (
 // once, when the connector is built.
 func (r *Registry) publishExpressionSecrets() {
 	cache := secrets.NewCachedManager(expressionSecretSource{r}, expressionSecretTTL, expressionSecretMaxKeys, expressionSecretTimeout)
-	r.mu.Lock()
+	r.secretMu.Lock()
 	r.expressionSecrets = cache
-	r.mu.Unlock()
+	r.secretMu.Unlock()
 	evaluator.SetSecretSource(cache)
 }
 
