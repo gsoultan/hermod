@@ -139,8 +139,6 @@ find a claim that outruns the code, fix the claim.
   document whose text is read only when it starts with `source.` or holds `{{`
   (`"007"` must stay text). The node used to hand its configured object to the
   message by reference, so a later node's write leaked into the next message.
-  Open: the `env()`/`secret()` functions read the server environment from any
-  expression.
 - [What a worker reports about its machine](worker_resource_reporting.md) — capacity at
   registration, load only from the health check; zero means "did not say"
 - [The workflow Reliability Policy](reliability_policy.md) — dry-run means read
@@ -205,6 +203,12 @@ find a claim that outruns the code, fix the claim.
   webhook URL, rode every network error into the workflow status and the alert
   fanned out to every channel. `httpclient.RedactURLError` at the call site;
   the social connectors' audit findings (2026-09-27) are listed there too.
+- [Secrets: one path, prefix only](secrets_env_prefix.md) — `env()`/`secret()`
+  in any expression and a connector's `secret:X` read the configured manager,
+  and the env manager reads only `HERMOD_SECRET_*`; `env('HERMOD_JWT_SECRET')`
+  used to return the JWT key to any editor. Expression lookups are cached
+  (60 s, 256 keys, 2 s timeout); `HERMOD_SECRETS_ALLOW_UNPREFIXED` is the
+  one-release escape hatch.
 - [Branches that meet again](branch_rejoin_join_barrier.md) — the join
   barrier pruned a node whose last in-edge was a prune even with a message
   waiting in it, so a condition's straight-to-sink branch lost every message

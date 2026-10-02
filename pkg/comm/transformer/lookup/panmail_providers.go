@@ -76,7 +76,8 @@ type panmailProvidersRequest struct {
 func resolvePanmailProvidersRequest(config map[string]any, msg hermod.Message) (panmailProvidersRequest, error) {
 	// The gateway and the key decide where a tenant credential is sent, so row
 	// data must not be able to choose either. They resolve against no data:
-	// {{env.X}} and {{secret("X")}} work, {{.field}} renders empty.
+	// {{secret("X")}} reads the secret manager (HERMOD_SECRET_X by default),
+	// {{.field}} and {{env.X}} render empty.
 	req := panmailProvidersRequest{
 		baseURL:     strings.TrimSpace(evaluator.ResolveTemplate(core.GetConfigString(config, "baseUrl"), nil)),
 		apiKey:      strings.TrimSpace(evaluator.ResolveTemplate(core.GetConfigString(config, "apiKey"), nil)),

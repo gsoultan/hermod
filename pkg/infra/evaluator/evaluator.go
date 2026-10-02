@@ -2,6 +2,7 @@ package evaluator
 
 import (
 	"bytes"
+	"context"
 	"crypto/md5" //nolint:gosec // G501: hash() offers md5 as a fingerprint for matching systems that already store it, not for security
 	"crypto/sha256"
 	"encoding/hex"
@@ -9,17 +10,18 @@ import (
 	"fmt"
 	"maps"
 	"math"
-	"os"
 	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/security/secrets"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -31,6 +33,46 @@ type Evaluator struct {
 
 func NewEvaluator() *Evaluator {
 	return &Evaluator{}
+}
+
+// SecretSource is where the expression functions secret() and env() read from.
+// secrets.Manager satisfies it.
+type SecretSource interface {
+	Get(ctx context.Context, key string) (string, error)
+}
+
+type secretSourceBox struct{ src SecretSource }
+
+var configuredSecrets atomic.Pointer[secretSourceBox]
+
+// defaultSecrets answers until a source is set: the HERMOD_SECRET_ variables,
+// which is what the registry reads when no secret manager is configured.
+var defaultSecrets SecretSource = &secrets.EnvManager{}
+
+// SetSecretSource makes secret() and env() read from src, the secret manager
+// the operator configured; nil restores the default. The registry calls it
+// whenever its manager changes. It is process-wide because the evaluators are:
+// transformers, templates and conditions each make their own.
+func SetSecretSource(src SecretSource) {
+	if src == nil {
+		configuredSecrets.Store(nil)
+		return
+	}
+	configuredSecrets.Store(&secretSourceBox{src: src})
+}
+
+// readSecret answers secret(key) and env(key). A lookup that fails answers
+// nothing, the same as a secret that does not exist.
+func readSecret(key string) string {
+	src := defaultSecrets
+	if b := configuredSecrets.Load(); b != nil {
+		src = b.src
+	}
+	v, err := src.Get(context.Background(), key)
+	if err != nil {
+		return ""
+	}
+	return v
 }
 
 // ... existing helpers ...
@@ -333,25 +375,14 @@ func (e *Evaluator) CallFunction(name string, args []any) any {
 		return uuid.New().String()
 	case "timestamp":
 		return time.Now().Unix()
-	case "env":
+	case "env", "secret":
+		// Both read the secret manager -- the HERMOD_SECRET_ variables unless the
+		// operator configured another -- and never the raw process environment.
+		// env() was os.Getenv and secret() fell back to it, so
+		// env('HERMOD_JWT_SECRET') in any transformation, condition or template
+		// answered with the JWT signing key to whoever could edit a workflow.
 		if len(args) > 0 {
-			key := fmt.Sprintf("%v", args[0])
-			val := os.Getenv(key)
-			if val == "" && len(args) > 1 {
-				return args[1]
-			}
-			return val
-		}
-		return ""
-	case "secret":
-		if len(args) > 0 {
-			key := fmt.Sprintf("%v", args[0])
-			// First try direct env match
-			val := os.Getenv(key)
-			if val == "" {
-				// Then try with HERMOD_SECRET_ prefix
-				val = os.Getenv("HERMOD_SECRET_" + key)
-			}
+			val := readSecret(fmt.Sprintf("%v", args[0]))
 			if val == "" && len(args) > 1 {
 				return args[1]
 			}

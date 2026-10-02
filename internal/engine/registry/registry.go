@@ -305,7 +305,7 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 		logger:              telemetry.NewDefaultLogger(),
 		idleMonitorStop:     make(chan struct{}),
 		startTime:           time.Now(),
-		secretManager:       &secrets.EnvManager{Prefix: "HERMOD_SECRET_"},
+		secretManager:       &secrets.EnvManager{Prefix: secrets.DefaultEnvPrefix},
 		schemaRegistry:      schema.NewStorageRegistry(s),
 		dqScorer:            governance.NewScorer(),
 		meshManager:         mesh.NewManager(telemetry.NewDefaultLogger()),
@@ -757,6 +757,27 @@ func (r *Registry) SetSecretManager(mgr secrets.Manager) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.secretManager = mgr
+	publishExpressionSecrets(mgr)
+}
+
+// How long, how many and how patiently the expression functions secret() and
+// env() remember what the secret manager answered.
+const (
+	expressionSecretTTL     = time.Minute
+	expressionSecretMaxKeys = 256
+	expressionSecretTimeout = 2 * time.Second
+)
+
+// publishExpressionSecrets points secret() and env() at mgr, through a cache:
+// an expression reads its secrets once per message, and against Vault or AWS
+// every read is a network call. Connector configs keep reading mgr directly --
+// they resolve once, when the connector is built.
+func publishExpressionSecrets(mgr secrets.Manager) {
+	if mgr == nil {
+		evaluator.SetSecretSource(nil)
+		return
+	}
+	evaluator.SetSecretSource(secrets.NewCachedManager(mgr, expressionSecretTTL, expressionSecretMaxKeys, expressionSecretTimeout))
 }
 
 func (r *Registry) SetStateStore(ss hermod.StateStore) {

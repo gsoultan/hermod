@@ -37,7 +37,7 @@ export function PanmailProvidersConfig({ config, updateNodeConfig, nodeId }: Pan
         value={config.apiKey || ''}
         onChange={(e) => set({ apiKey: e.currentTarget.value })}
         required
-        description={'Needs the providers:read scope. Prefer {{secret("PANMAIL_API_KEY")}} over pasting the key.'}
+        description={'Needs the providers:read scope. Prefer {{secret("PANMAIL_API_KEY")}} over pasting the key: it reads HERMOD_SECRET_PANMAIL_API_KEY, or your configured secret manager.'}
       />
       <TextInput
         label="Name contains"
