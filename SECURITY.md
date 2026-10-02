@@ -295,6 +295,20 @@ currently a session-compromise vector, not just a defacement one.
   interpolation.
 - Use least-privilege credentials for every connected system.
 
+### Workflows read secrets, not the process environment
+
+Anything a workflow editor writes — an expression's `secret()` or `env()`, a
+`{{secret("X")}}` template, a connector's `secret:X` — resolves through the
+configured secret manager (`pkg/security/secrets`). The env manager reads only
+variables carrying its prefix, `HERMOD_SECRET_` unless Settings → Security sets
+another, so `HERMOD_JWT_SECRET`, database DSNs and the crypto master key are not
+reachable by name. Up to 1.16, every one of those lookups fell back to the bare
+variable, and `env()` read the environment directly. Expression lookups go
+through a bounded cache (60 s, 256 names, 2 s timeout) because they run once per
+message. `HERMOD_SECRETS_ALLOW_UNPREFIXED=true` restores the bare-name fallback
+for one release; it is set in the process environment, which no workflow can
+write.
+
 ### A table name can come from a message
 
 When a SQL sink is not pinned to a table it takes one from the message, and a

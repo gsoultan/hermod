@@ -40,12 +40,11 @@ back.
 
 - `{{env.X}}` resolves to nothing here, as in every template, and a value read
   from the message is never scanned again (single forward pass).
-- **Open:** the `env()` and `secret()` *functions* (`CallFunction`) read the
-  server's process environment. They are reachable from any expression — a set
-  value `env('HERMOD_JWT_SECRET')` returns it to anyone with editor rights via
-  the Test/preview endpoint — and `{{env('X')}}` routes to them too, because the
-  `env.` guard only matches the dotted spelling. Pre-existing and out of scope
-  for the fix that wrote this; needs an allowlist or removal.
+- The `env()` and `secret()` *functions* used to read the server's process
+  environment from any expression (`env('HERMOD_JWT_SECRET')` through the Test
+  button; `{{env('X')}}` slipped past the dotted-only `env.` guard). Fixed: both
+  now read the secret manager, prefix only — see
+  [secrets_env_prefix](secrets_env_prefix.md).
 
 ## The editor
 

@@ -7,6 +7,35 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Upgrading
+
+**Secrets are read from the secret manager, and the env manager reads only its
+prefix.** `secret("X")` and `env("X")` in an expression, and `secret:X` in a
+connector's config, read `HERMOD_SECRET_X` — or the prefix set under
+Settings → Security — and never the bare variable `X`. Rename every variable a
+workflow reads this way, for example `PANMAIL_API_KEY` to
+`HERMOD_SECRET_PANMAIL_API_KEY`. Until you have, start Hermod with
+`HERMOD_SECRETS_ALLOW_UNPREFIXED=true`: bare names are read again and the log
+names the first one read that way. That switch will be removed. A blank prefix
+under Settings → Security now means `HERMOD_SECRET_`; it used to mean every
+variable.
+
+### A workflow can no longer read the server's environment
+
+`env('X')` was `os.Getenv`, and `secret('X')` and a connector's `secret:X` fell
+back to it, so anyone who could edit a workflow could read any variable of the
+Hermod process. `env('HERMOD_JWT_SECRET')` in a Set Fields value returned the
+JWT signing key through the editor's Test button, and a condition value could
+test it for equality. `{{env.X}}` was the only spelling refused. Every spelling
+now reads the secret manager, which reads only its prefix.
+
+`secret()` in an expression now also reads the manager you configured — Vault,
+OpenBao, AWS or Azure — where it only ever read environment variables. An
+expression reads its secrets once per message, so answers are kept for a minute
+(at most 256 names), concurrent lookups of one name share a call, and a lookup
+gives up after two seconds rather than holding messages behind a manager that
+does not answer.
+
 ### The trace exporter no longer logs its endpoint URL
 
 OpenTelemetry's OTLP trace exporters logged their configuration at info level,

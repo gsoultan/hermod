@@ -1,6 +1,7 @@
 package evaluator
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -484,5 +485,68 @@ func TestResolveJSONTemplateMsgLeavesNonJSONBodies(t *testing.T) {
 	}
 	if got := ResolveTemplateMsg(`{"profile": {{.after.profile}}}`, msg); !strings.Contains(got, `"name":"Ada"`) {
 		t.Errorf("the raw form stopped rendering an unquoted object: %s", got)
+	}
+}
+
+// fakeSecretSource answers from a map, the way a configured Vault would.
+type fakeSecretSource map[string]string
+
+func (f fakeSecretSource) Get(_ context.Context, key string) (string, error) { return f[key], nil }
+
+// secret() and env() read the secret manager -- by default the HERMOD_SECRET_
+// variables -- and never the raw process environment. env() was os.Getenv and
+// secret() fell back to it, so env('HERMOD_JWT_SECRET') in a transformation, a
+// condition value or a connector template answered with the JWT signing key to
+// whoever could edit a workflow.
+func TestSecretFunctionsDoNotReadTheProcessEnvironment(t *testing.T) {
+	SetSecretSource(nil)
+	t.Setenv("HERMOD_SECRET_EVAL_TOKEN", "tok")
+	t.Setenv("HERMOD_EVAL_TEST_PLAIN", "plain")
+	msg := message.AcquireMessage()
+	t.Cleanup(msg.Release)
+	msg.SetData("guess", "plain")
+	e := NewEvaluator()
+
+	exprs := []struct {
+		expr string
+		want any
+	}{
+		{"secret('EVAL_TOKEN')", "tok"},
+		{"env('EVAL_TOKEN')", "tok"},
+		{"env('HERMOD_EVAL_TEST_PLAIN')", ""},
+		{"secret('HERMOD_EVAL_TEST_PLAIN')", ""},
+		{"env('HERMOD_EVAL_TEST_PLAIN', 'fallback')", "fallback"},
+	}
+	for _, tc := range exprs {
+		t.Run(tc.expr, func(t *testing.T) {
+			if got := e.ParseAndEvaluate(msg, tc.expr); got != tc.want {
+				t.Errorf("%s = %#v, want %#v", tc.expr, got, tc.want)
+			}
+		})
+	}
+
+	// The same functions reached through a template -- a connector's config
+	// resolves with ResolveTemplate, a condition's value with its own reader.
+	if got := ResolveTemplate(`{{secret("EVAL_TOKEN")}}`, nil); got != "tok" {
+		t.Errorf(`{{secret("EVAL_TOKEN")}} = %q, want "tok"`, got)
+	}
+	if got := ResolveTemplate(`{{env("HERMOD_EVAL_TEST_PLAIN")}}`, nil); got != "" {
+		t.Errorf(`{{env("HERMOD_EVAL_TEST_PLAIN")}} = %q: a template read the process environment`, got)
+	}
+	cond := []map[string]any{{"field": "guess", "operator": "=", "value": "{{env('HERMOD_EVAL_TEST_PLAIN')}}"}}
+	if EvaluateConditions(msg, cond) {
+		t.Error("a condition value read the process environment through env()")
+	}
+}
+
+func TestSecretFunctionsReadTheConfiguredSource(t *testing.T) {
+	t.Cleanup(func() { SetSecretSource(nil) })
+	SetSecretSource(fakeSecretSource{"PANMAIL_API_KEY": "from-vault"})
+
+	if got := NewEvaluator().ParseAndEvaluate(nil, "secret('PANMAIL_API_KEY')"); got != "from-vault" {
+		t.Errorf("secret('PANMAIL_API_KEY') = %#v, want \"from-vault\"", got)
+	}
+	if got := ResolveTemplate(`{{secret("PANMAIL_API_KEY")}}`, nil); got != "from-vault" {
+		t.Errorf(`{{secret("PANMAIL_API_KEY")}} = %q, want "from-vault"`, got)
 	}
 }
