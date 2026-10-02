@@ -8,6 +8,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/gsoultan/hermod/internal/storage/configsecrets"
+	"github.com/gsoultan/hermod/pkg/security/crypto"
 )
 
 // ReEncryptSecrets rewrites every stored credential under newKey.
@@ -53,6 +54,14 @@ func (s *mongoStorage) ReEncryptSecrets(ctx context.Context, newKey string) erro
 		}
 	}
 
+	// A vhost's secrets are encrypted under the same key. Left out, they would
+	// become unreadable the moment the caller installs the new one. As above,
+	// every value is re-encrypted before anything is written.
+	secretValues, err := s.reEncryptVHostSecrets(ctx, newKey)
+	if err != nil {
+		return err
+	}
+
 	for _, u := range updates {
 		if _, err := s.db.Collection(u.collection).UpdateOne(ctx,
 			bson.M{"_id": u.id},
@@ -60,5 +69,39 @@ func (s *mongoStorage) ReEncryptSecrets(ctx context.Context, newKey string) erro
 			return fmt.Errorf("rewriting %s %s: %w", u.collection, u.id, err)
 		}
 	}
+	for id, value := range secretValues {
+		if _, err := s.db.Collection(vhostSecretsCollection).UpdateOne(ctx,
+			bson.M{"_id": id},
+			bson.M{"$set": bson.M{"value": value}}); err != nil {
+			return fmt.Errorf("rewriting %s %s: %w", vhostSecretsCollection, id, err)
+		}
+	}
 	return nil
+}
+
+// reEncryptVHostSecrets returns every vhost secret's value encrypted under
+// newKey, keyed by document id. One value that cannot be read under the
+// current key fails the rotation before anything is written.
+func (s *mongoStorage) reEncryptVHostSecrets(ctx context.Context, newKey string) (map[string]string, error) {
+	cur, err := s.db.Collection(vhostSecretsCollection).Find(ctx, bson.M{})
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", vhostSecretsCollection, err)
+	}
+	var docs []vhostSecretDoc
+	if err := cur.All(ctx, &docs); err != nil {
+		return nil, fmt.Errorf("reading %s: %w", vhostSecretsCollection, err)
+	}
+	out := make(map[string]string, len(docs))
+	for _, d := range docs {
+		plain, err := crypto.Decrypt(d.Value)
+		if err != nil {
+			return nil, fmt.Errorf("%s %s cannot be read under the current key: %w", vhostSecretsCollection, d.ID, err)
+		}
+		next, err := crypto.EncryptWith(newKey, plain)
+		if err != nil {
+			return nil, fmt.Errorf("%s %s: %w", vhostSecretsCollection, d.ID, err)
+		}
+		out[d.ID] = next
+	}
+	return out, nil
 }

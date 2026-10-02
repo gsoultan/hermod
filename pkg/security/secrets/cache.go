@@ -47,24 +47,33 @@ func NewCachedManager(inner Manager, ttl time.Duration, maxKeys int, timeout tim
 	}
 }
 
+// Get answers without a vhost: whatever inner holds globally.
 func (c *CachedManager) Get(ctx context.Context, key string) (string, error) {
-	if v, ok := c.cached(key); ok {
+	return c.GetScoped(ctx, "", key)
+}
+
+// GetScoped answers key for vhost. The cache is keyed by both: keyed by name
+// alone, the first vhost to read API_KEY would decide what every other vhost
+// was given until the entry expired.
+func (c *CachedManager) GetScoped(ctx context.Context, vhost, key string) (string, error) {
+	entry := cacheKey(vhost, key)
+	if v, ok := c.cached(entry); ok {
 		return v, nil
 	}
-	v, err, _ := c.group.Do(key, func() (any, error) {
+	v, err, _ := c.group.Do(entry, func() (any, error) {
 		// Another caller may have filled it while this one waited to enter.
-		if v, ok := c.cached(key); ok {
+		if v, ok := c.cached(entry); ok {
 			return v, nil
 		}
 		// The lookup is shared, so it must not end with whichever caller
 		// happened to start it: only the timeout bounds it.
 		lctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), c.timeout)
 		defer cancel()
-		v, err := c.inner.Get(lctx, key)
+		v, err := c.lookup(lctx, vhost, key)
 		if err != nil {
 			return "", err
 		}
-		c.store(key, v)
+		c.store(entry, v)
 		return v, nil
 	})
 	if err != nil {
@@ -72,6 +81,28 @@ func (c *CachedManager) Get(ctx context.Context, key string) (string, error) {
 	}
 	s, _ := v.(string)
 	return s, nil
+}
+
+func (c *CachedManager) lookup(ctx context.Context, vhost, key string) (string, error) {
+	if scoped, ok := c.inner.(ScopedManager); ok {
+		return scoped.GetScoped(ctx, vhost, key)
+	}
+	return c.inner.Get(ctx, key)
+}
+
+// Invalidate forgets what was cached for one vhost's secret, so a rotation or a
+// deletion is seen by the next message rather than when the entry expires.
+func (c *CachedManager) Invalidate(vhost, key string) {
+	entry := cacheKey(vhost, key)
+	c.mu.Lock()
+	delete(c.entries, entry)
+	c.mu.Unlock()
+	c.group.Forget(entry)
+}
+
+// cacheKey joins a vhost and a secret name with a byte neither can hold.
+func cacheKey(vhost, key string) string {
+	return vhost + "\x00" + key
 }
 
 func (c *CachedManager) cached(key string) (string, bool) {

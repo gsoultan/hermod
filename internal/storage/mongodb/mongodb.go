@@ -817,9 +817,21 @@ func (s *mongoStorage) UpdateVHost(ctx context.Context, vhost storage.VHost) err
 	return err
 }
 
+// DeleteVHost removes the vhost and the secrets it holds. Secrets are keyed by
+// the vhost's name, so one left behind would be inherited by the next vhost
+// created under that name.
 func (s *mongoStorage) DeleteVHost(ctx context.Context, id string) error {
+	vhost, err := s.GetVHost(ctx, id)
+	if err != nil && !errors.Is(err, storage.ErrNotFound) {
+		return err
+	}
+	if err == nil && vhost.Name != "" {
+		if err := s.DeleteVHostSecrets(ctx, vhost.Name); err != nil {
+			return err
+		}
+	}
 	coll := s.db.Collection("vhosts")
-	_, err := coll.DeleteOne(ctx, bson.M{"_id": id})
+	_, err = coll.DeleteOne(ctx, bson.M{"_id": id})
 	return err
 }
 

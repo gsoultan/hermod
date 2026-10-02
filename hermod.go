@@ -302,6 +302,15 @@ type Logger interface {
 	Error(msg string, keysAndValues ...any)
 }
 
+// VHostScoped is implemented by a message that knows which vhost's workflow it
+// is running in. The engine sets it when the message is read; it is not part of
+// the message's data or metadata, so a payload cannot set it. secret() uses it
+// to answer from that vhost's own secrets.
+type VHostScoped interface {
+	VHost() string
+	SetVHost(vhost string)
+}
+
 // Loggable defines an optional interface for things that support structured logging.
 type Loggable interface {
 	SetLogger(Logger)

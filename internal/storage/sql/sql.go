@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -199,6 +200,7 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		s.queries.get(QueryInitFormSubmissionsTable),
 		s.queries.get(QueryInitUsersTable),
 		s.queries.get(QueryInitVHostsTable),
+		s.queries.get(QueryInitVHostSecretsTable),
 		s.queries.get(QueryInitWorkersTable),
 		s.queries.get(QueryInitApprovalsTable),
 		s.queries.get(QueryInitSettingsTable),
@@ -1488,8 +1490,20 @@ func (s *sqlStorage) UpdateVHost(ctx context.Context, vhost storage.VHost) error
 	return err
 }
 
+// DeleteVHost removes the vhost and the secrets it holds. Secrets are keyed by
+// the vhost's name, so one left behind would be inherited by the next vhost
+// created under that name.
 func (s *sqlStorage) DeleteVHost(ctx context.Context, id string) error {
-	_, err := s.exec(ctx, s.queries.get(QueryDeleteVHost), id)
+	vhost, err := s.GetVHost(ctx, id)
+	if err != nil && !errors.Is(err, storage.ErrNotFound) {
+		return err
+	}
+	if err == nil && vhost.Name != "" {
+		if err := s.DeleteVHostSecrets(ctx, vhost.Name); err != nil {
+			return err
+		}
+	}
+	_, err = s.exec(ctx, s.queries.get(QueryDeleteVHost), id)
 	return err
 }
 

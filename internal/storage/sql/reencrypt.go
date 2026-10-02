@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/gsoultan/hermod/internal/storage/configsecrets"
+	"github.com/gsoultan/hermod/pkg/security/crypto"
 )
 
 // secretTables are the tables holding connector configuration. Both are
@@ -14,9 +15,15 @@ import (
 // safe.
 var secretTables = []string{"sources", "sinks"}
 
-// configRow is one row's raw, still-encrypted configuration.
+// vhostSecretsTable holds one encrypted value per row rather than a config
+// document; see vhost_secrets.go.
+const vhostSecretsTable = "vhost_secrets"
+
+// configRow is one row's raw, still-encrypted content: a connector's config
+// document, or a vhost secret's value.
 type configRow struct {
 	table  string
+	column string
 	id     string
 	config string
 }
@@ -44,13 +51,23 @@ func (s *sqlStorage) ReEncryptSecrets(ctx context.Context, newKey string) error 
 	if err != nil {
 		return err
 	}
-
 	updates, err := reEncryptRows(rows, newKey)
 	if err != nil {
 		return err
 	}
 
-	return s.writeConfigRows(ctx, updates)
+	// A vhost's secrets are encrypted under the same key. Left out, they would
+	// become unreadable the moment the caller installs the new one.
+	secretRows, err := s.readTableColumn(ctx, vhostSecretsTable, "value")
+	if err != nil {
+		return err
+	}
+	secretUpdates, err := reEncryptValues(secretRows, newKey)
+	if err != nil {
+		return err
+	}
+
+	return s.writeConfigRows(ctx, append(updates, secretUpdates...))
 }
 
 // readConfigRows reads the raw config column, bypassing the decryption that the
@@ -58,7 +75,7 @@ func (s *sqlStorage) ReEncryptSecrets(ctx context.Context, newKey string) error 
 func (s *sqlStorage) readConfigRows(ctx context.Context) ([]configRow, error) {
 	var out []configRow
 	for _, table := range secretTables {
-		rows, err := s.readTableConfig(ctx, table)
+		rows, err := s.readTableColumn(ctx, table, "config")
 		if err != nil {
 			return nil, err
 		}
@@ -67,9 +84,9 @@ func (s *sqlStorage) readConfigRows(ctx context.Context) ([]configRow, error) {
 	return out, nil
 }
 
-func (s *sqlStorage) readTableConfig(ctx context.Context, table string) ([]configRow, error) {
-	//nolint:gosec // table comes from secretTables, not from a caller.
-	rs, err := s.query(ctx, "SELECT id, config FROM "+table)
+func (s *sqlStorage) readTableColumn(ctx context.Context, table, column string) ([]configRow, error) {
+	//nolint:gosec // table and column are literals in this file, not caller input.
+	rs, err := s.query(ctx, "SELECT id, "+column+" FROM "+table)
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", table, err)
 	}
@@ -77,7 +94,7 @@ func (s *sqlStorage) readTableConfig(ctx context.Context, table string) ([]confi
 
 	var out []configRow
 	for rs.Next() {
-		r := configRow{table: table}
+		r := configRow{table: table, column: column}
 		if err := rs.Scan(&r.id, &r.config); err != nil {
 			return nil, fmt.Errorf("scanning %s: %w", table, err)
 		}
@@ -112,7 +129,26 @@ func reEncryptRows(rows []configRow, newKey string) ([]configRow, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s %s: %w", r.table, r.id, err)
 		}
-		updates = append(updates, configRow{table: r.table, id: r.id, config: string(encoded)})
+		updates = append(updates, configRow{table: r.table, column: r.column, id: r.id, config: string(encoded)})
+	}
+	return updates, nil
+}
+
+// reEncryptValues produces the new ciphertext for rows whose column is one
+// encrypted value. As with reEncryptRows, one unreadable value fails the whole
+// rotation and nothing is written.
+func reEncryptValues(rows []configRow, newKey string) ([]configRow, error) {
+	updates := make([]configRow, 0, len(rows))
+	for _, r := range rows {
+		plain, err := crypto.Decrypt(r.config)
+		if err != nil {
+			return nil, fmt.Errorf("%s %s cannot be read under the current key: %w", r.table, r.id, err)
+		}
+		next, err := crypto.EncryptWith(newKey, plain)
+		if err != nil {
+			return nil, fmt.Errorf("%s %s: %w", r.table, r.id, err)
+		}
+		updates = append(updates, configRow{table: r.table, column: r.column, id: r.id, config: next})
 	}
 	return updates, nil
 }
@@ -127,8 +163,8 @@ func (s *sqlStorage) writeConfigRows(ctx context.Context, updates []configRow) e
 	for _, u := range updates {
 		// Rebind placeholders for the driver, exactly as s.exec does outside a
 		// transaction; a raw '?' reaches Postgres as a syntax error.
-		//nolint:gosec // u.table comes from secretTables, not from a caller.
-		stmt := s.prepareQuery("UPDATE " + u.table + " SET config = ? WHERE id = ?")
+		//nolint:gosec // u.table and u.column are literals in this file, not caller input.
+		stmt := s.prepareQuery("UPDATE " + u.table + " SET " + u.column + " = ? WHERE id = ?")
 		if _, err := tx.ExecContext(ctx, stmt, u.config, u.id); err != nil {
 			return fmt.Errorf("rewriting %s %s: %w", u.table, u.id, err)
 		}
