@@ -7,6 +7,13 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### The trace exporter no longer logs its endpoint URL
+
+OpenTelemetry's OTLP trace exporters logged their configuration at info level,
+endpoint URL included (GO-2026-6505), and a collector URL can carry a token.
+`otlptrace`, `otlptracegrpc` and `otlptracehttp` move to v1.45.0, where that is
+fixed; the OpenTelemetry core packages move to v1.45.0 with them.
+
 ## [1.16.2] — 2026-09-29
 
 The Set Fields editor has room to work in. A **Focus editor** button gives a
