@@ -299,7 +299,7 @@ func (h *InfraHandler) UpdateSecretConfig(w http.ResponseWriter, r *http.Request
 		}
 	} else {
 		// Use default EnvManager if disabled
-		h.Registry.SetSecretManager(&secrets.EnvManager{Prefix: "HERMOD_SECRET_"})
+		h.Registry.SetSecretManager(&secrets.EnvManager{Prefix: secrets.DefaultEnvPrefix})
 	}
 
 	w.WriteHeader(http.StatusNoContent)

@@ -66,7 +66,7 @@ export function SecurityTab({ ctx }: { ctx: SettingsController }) {
                     placeholder="e.g. HERMOD_SECRET_"
                     value={envPrefix}
                     onChange={(e) => setEnvPrefix(e.currentTarget.value)}
-                    description="Only env vars starting with this prefix will be searched."
+                    description={'Secrets are read only from variables with this prefix (HERMOD_SECRET_ when blank): secret("API_KEY") reads HERMOD_SECRET_API_KEY.'}
                   />
                 )}
                 {secretType === 'vault' && (
