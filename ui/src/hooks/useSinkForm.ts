@@ -5,6 +5,7 @@ import { notifications } from '@mantine/notifications';
 import { apiFetch } from '@/api';
 import { humanizeError } from '@/api/errors';
 import type { Sink, Workflow } from '@/types';
+import { missingNewSinkDefaults } from '@/lib/newSinkDefaults';
 
 const API_BASE = '/api';
 
@@ -44,6 +45,8 @@ export function useSinkForm({ initialData, isEditing = false, embedded = false, 
         max_retries: '3', 
         retry_interval: '1s',
         sequential: initialData?.config?.sequential ?? false,
+        // Only for a sink being created: a saved one keeps what it relies on.
+        ...(isEditing ? {} : missingNewSinkDefaults(initialData?.type || 'stdout', initialData?.config)),
         ...(initialData?.config || {})
       },
       ...(initialData?.id ? { id: initialData.id } : {})
@@ -206,6 +209,14 @@ export function useSinkForm({ initialData, isEditing = false, embedded = false, 
 
   const handleSinkChange = (field: string, value: any) => {
     form.setFieldValue(field as any, value);
+    // Picking a type on a sink being created brings that type's starting
+    // settings, unless the config already says otherwise.
+    if (field === 'type' && !isEditing) {
+      const current = form.getFieldValue('config' as any) as Record<string, unknown> | undefined;
+      for (const [key, defaultValue] of Object.entries(missingNewSinkDefaults(value, current))) {
+        form.setFieldValue(`config.${key}` as any, defaultValue);
+      }
+    }
   };
 
   return {

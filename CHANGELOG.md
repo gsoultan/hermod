@@ -72,6 +72,44 @@ endpoint URL included (GO-2026-6505), and a collector URL can carry a token.
 `otlptrace`, `otlptracegrpc` and `otlptracehttp` move to v1.45.0, where that is
 fixed; the OpenTelemetry core packages move to v1.45.0 with them.
 
+### The Firebase (FCM) sink form says what a row becomes before a run does
+
+The form laid out forty-five fields in one scroll and its defaults did not fit
+together: the data setting sent the whole row, the oversize setting failed the
+message, and FCM accepts 4096 bytes. A row wider than that failed at run time
+with an error naming `on_oversize`, a key the form never showed.
+
+The form is now in the order the decisions are made — the project, who receives
+the message, what they see, what the app is handed — with the Android, APNs,
+Web push and delivery options folded under it. A folded section says how many
+of its settings are in use and opens by itself when a saved sink has any. The
+data choices are described by what the app receives, extra values are entered
+as rows rather than typed as JSON, and any templated field can take a column
+from the upstream sample.
+
+**Check with a sample row** builds the message for the row the editor has, or
+one you paste, and shows it with its data weighed against the limit and the
+largest entries named. It is built by the sink's own code, sends nothing and
+needs no credentials. `POST /api/sinks/fcm/preview` is the endpoint behind it.
+
+A sink created from now on starts with **Only the values listed below**, written
+into its config, so it cannot exceed the limit until something is added. A saved
+sink that never named the setting keeps sending the whole row, as it always has.
+
+The oversize error now names the largest entry and its size, and the two places
+in the form that change the outcome.
+
+A topic or a condition could not be chosen in the form: the picker read the
+destination back out of the fields, found them all empty and returned to Device
+token. It keeps the choice now, and a sink switched from a subscribe action
+back to sending no longer keeps a second destination in a field that is not
+shown.
+
+The SMTP sink's **Preview template** answered every request from the sink form
+with `cannot unmarshal bool`, because the form's settings include a boolean and
+the endpoint read them as text. Both previews read the form's settings as the
+save path does.
+
 ## [1.16.2] — 2026-09-29
 
 The Set Fields editor has room to work in. A **Focus editor** button gives a
