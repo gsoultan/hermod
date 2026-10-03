@@ -55,13 +55,15 @@ func (h *SinkHandler) PreviewFcmMessage(w http.ResponseWriter, r *http.Request) 
 	}
 	msg := message.AcquireMessage()
 	defer message.ReleaseMessage(msg)
+	// Defaults first, then the sample through the populator every other
+	// preview uses: a captured change event's own operation, table and
+	// before/after images land where a run's message keeps them, not as two
+	// extra columns named "after" and "before".
 	msg.SetID("preview")
 	msg.SetOperation(hermod.OpCreate)
 	msg.SetTable("orders")
 	msg.SetSchema("public")
-	for k, v := range sample {
-		msg.SetData(k, v)
-	}
+	message.PopulateFromMap(msg, sample)
 
 	preview, err := factory.PreviewFCMMessage(factory.SinkConfig{Type: req.Type, Config: req.Config}, msg)
 	if err != nil {

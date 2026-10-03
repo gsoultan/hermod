@@ -2,6 +2,7 @@ package fcm
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"sort"
@@ -89,7 +90,12 @@ func collectFields(node parse.Node, seen map[string]bool) {
 	case *parse.CommandNode:
 		collectCommand(n, seen)
 	case *parse.FieldNode:
-		if len(n.Ident) > 0 {
+		switch {
+		case len(n.Ident) > 1 && (n.Ident[0] == "after" || n.Ident[0] == "before"):
+			// `.after.fcm_token` reads the fcm_token column through the
+			// change event's image; the column is the second word.
+			seen[n.Ident[1]] = true
+		case len(n.Ident) > 0:
 			seen[n.Ident[0]] = true
 		}
 	default:
@@ -162,18 +168,62 @@ func (t tmpl) render(data map[string]any) (string, error) {
 
 // renderData is what a template sees.
 //
-// The envelope goes in first and the message's own fields are copied over the
-// top, so a row with a column called `table` or `id` keeps its own value.
-// Writing the envelope last is how a CDC row's `table` column was replaced by
-// the envelope's table name in the preview path.
+// The envelope goes in first and the row's own fields are copied over the top,
+// so a row with a column called `table` or `id` keeps its own value. Writing
+// the envelope last is how a CDC row's `table` column was replaced by the
+// envelope's table name in the preview path.
+//
+// `after` and `before` are the change event's two images, and `meta` is
+// `metadata` under the name the rest of Hermod uses. The editor offers a CDC
+// row's columns as `after.<column>` because that is the shape of the sample it
+// captured; without these keys every such field failed every message.
 func renderData(msg hermod.Message) map[string]any {
+	metadata := msg.Metadata()
+	after := msg.Data()
+	before := imageOf(msg.Before())
 	data := map[string]any{
 		"id":        msg.ID(),
 		"operation": string(msg.Operation()),
 		"table":     msg.Table(),
 		"schema":    msg.Schema(),
-		"metadata":  msg.Metadata(),
+		"metadata":  metadata,
+		"meta":      metadata,
+		"after":     after,
 	}
-	maps.Copy(data, msg.Data())
+	if before != nil {
+		data["before"] = before
+	}
+	maps.Copy(data, pickRow(after, before))
 	return data
+}
+
+// rowOf is the row a message is about: see pickRow.
+func rowOf(msg hermod.Message) map[string]any {
+	row := msg.Data()
+	if len(row) > 0 {
+		return row
+	}
+	return imageOf(msg.Before())
+}
+
+// pickRow is the data map, or for a delete — which carries its row only as a
+// before-image, so its data map is empty — the before-image.
+func pickRow(after, before map[string]any) map[string]any {
+	if len(after) > 0 {
+		return after
+	}
+	return before
+}
+
+// imageOf decodes a change event's image. Nil when there is none or it is not
+// a JSON object, which leaves a template reading it to fail and say so.
+func imageOf(raw []byte) map[string]any {
+	if len(raw) == 0 {
+		return nil
+	}
+	var image map[string]any
+	if err := json.Unmarshal(raw, &image); err != nil {
+		return nil
+	}
+	return image
 }

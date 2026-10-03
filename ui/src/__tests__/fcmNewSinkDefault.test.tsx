@@ -58,7 +58,7 @@ describe('a new fcm sink', () => {
     renderForm({ initialData: { name: 'push', type: 'fcm', vhost: '', config: {} }, isEditing: false })
     fireEvent.click(await screen.findByRole('button', { name: /next step/i }))
 
-    expect(await screen.findByRole('radio', { name: /only the values listed below/i })).toBeChecked()
+    expect(await screen.findByRole('radio', { name: /selected fields/i })).toBeChecked()
   })
 
   // The Add Sink page, where the type is picked rather than given.
@@ -70,7 +70,7 @@ describe('a new fcm sink', () => {
     fireEvent.click(await screen.findByRole('option', { name: 'Firebase (FCM)' }))
     fireEvent.click(await screen.findByRole('button', { name: /next step/i }))
 
-    expect(await screen.findByRole('radio', { name: /only the values listed below/i })).toBeChecked()
+    expect(await screen.findByRole('radio', { name: /selected fields/i })).toBeChecked()
   })
 
   // The default is for sinks made from now on. A saved sink that never named
@@ -82,6 +82,6 @@ describe('a new fcm sink', () => {
     })
     fireEvent.click(await screen.findByRole('button', { name: /next step/i }))
 
-    expect(await screen.findByRole('radio', { name: /the whole row as one json text/i })).toBeChecked()
+    expect(await screen.findByRole('radio', { name: /whole row as json/i })).toBeChecked()
   })
 })

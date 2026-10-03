@@ -87,12 +87,12 @@ data choices are described by what the app receives, extra values are entered
 as rows rather than typed as JSON, and any templated field can take a column
 from the upstream sample.
 
-**Check with a sample row** builds the message for the row the editor has, or
-one you paste, and shows it with its data weighed against the limit and the
-largest entries named. It is built by the sink's own code, sends nothing and
-needs no credentials. `POST /api/sinks/fcm/preview` is the endpoint behind it.
+A **Preview** builds the message for the row the editor has, or one you paste,
+and shows it with its data weighed against the limit and the largest entries
+named. It is built by the sink's own code, sends nothing and needs no
+credentials. `POST /api/sinks/fcm/preview` is the endpoint behind it.
 
-A sink created from now on starts with **Only the values listed below**, written
+A sink created from now on starts with **Selected fields**, written
 into its config, so it cannot exceed the limit until something is added. A saved
 sink that never named the setting keeps sending the whole row, as it always has.
 
@@ -126,6 +126,43 @@ redelivers it does not spin. The circuit breaker no longer counts these
 refusals: a run of stale device tokens used to open it and stop delivery to
 every live device behind them. A sink marks such an error by wrapping
 `hermod.ErrPermanent`.
+
+### The FCM sink sends change events, and its data section says what data is
+
+**Templates failed on every change event.** The workflow editor offers a CDC
+row's columns as `after.<column>` and `before.<column>`, and the sink rendered
+its templates over the data map alone, which has neither key. A token, title or
+any other field inserted that way failed every message with `map has no entry
+for key "after"`. Templates now see `after` and `before` — the change event's
+two images — and `meta` beside `metadata`.
+
+**A delete could not be addressed.** A delete carries its row only as a
+before-image, so `{{.fcm_token}}` found nothing and the message failed — on the
+very event the form names as the reason to unsubscribe a device. A delete's row
+is now its before-image, for templates and for **All fields** data alike.
+
+Addressing a message by `{{.after.fcm_token}}` now keeps `fcm_token` out of
+its data, as `{{.fcm_token}}` always did. A registration token is a capability;
+it is not sent to the device it addresses.
+
+The preview built its message by adding every key of the sample as a column, so
+a captured change event previewed with `after` and `before` as two data keys a
+run never sends. It builds the message the way a run receives it.
+
+The **App data** section opens by saying what data is — hidden key–value pairs
+for the app's code, never shown to people — and asks one question: which fields
+the app gets. The choices are **Selected fields**, **All fields** and **Whole
+row as JSON**; with Selected fields, ticking a column of the incoming row adds
+it under its own name. The column a message is addressed by is not offered.
+
+The **Preview** no longer waits for a button. It follows the form as it is
+edited and shows the notification as a phone draws it, who receives it, the
+data as a table, and whether the row would be sent. A form with no recipient
+yet asks for one instead of reporting a failure.
+
+The service account key can be uploaded as the file Firebase downloads, and a
+key that is not JSON, or is JSON without a `private_key`, is said beside the
+field instead of at save or on the first message.
 
 ## [1.16.2] — 2026-09-29
 
