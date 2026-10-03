@@ -124,6 +124,19 @@ func New(cfg Config) (*Sink, error) {
 		return nil, err
 	}
 
+	s, err := newUnconnected(cfg)
+	if err != nil {
+		return nil, err
+	}
+	s.projectID = projectID
+	return s, nil
+}
+
+// newUnconnected builds everything about a sink that does not depend on which
+// Firebase project it talks to: the destination rules and the compiled
+// templates. New adds the project; PreviewMessage does not need one, because
+// rendering a message authenticates to nothing.
+func newUnconnected(cfg Config) (*Sink, error) {
 	switch cfg.Action {
 	case ActionSubscribe, ActionUnsubscribe:
 		// These take both: the tokens name the devices to move and the topic
@@ -146,7 +159,6 @@ func New(cfg Config) (*Sink, error) {
 	s := &Sink{
 		cfg:       cfg,
 		formatter: cfg.Formatter,
-		projectID: projectID,
 		now:       time.Now,
 		data:      make(map[string]tmpl, len(cfg.Data)),
 	}
