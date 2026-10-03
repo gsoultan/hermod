@@ -258,6 +258,41 @@ func (s *Sink) baseData(msg hermod.Message, data map[string]any) (map[string]str
 
 // dataMap builds the FCM data map and enforces the size limit.
 func (s *Sink) dataMap(msg hermod.Message, data map[string]any) (map[string]string, error) {
+	out, err := s.assembleData(msg, data)
+	if err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+
+	limit := s.dataLimit()
+	size := dataBytes(out)
+	if size <= limit {
+		return out, nil
+	}
+
+	switch s.cfg.OnOversize {
+	case OversizeTruncate:
+		return truncateData(out, limit), nil
+	case OversizeDrop:
+		return nil, nil
+	default:
+		// The words in quotes are the form's own labels. The refusal used to
+		// name only the on_oversize key, which the form never shows, and not
+		// the value that was too big.
+		culprit := largestData(out, 1)[0]
+		return nil, permanentf(
+			"fcm sink: the data for message %s is %d bytes and FCM accepts at most %d. "+
+				"The largest entry is %q at %d bytes. "+
+				`Send less under "Data sent to the app", or set "If the data does not fit" (on_oversize) to truncate or drop`,
+			msg.ID(), size, limit, culprit.Key, culprit.Bytes)
+	}
+}
+
+// assembleData is the data map a message asks for, before the size limit has a
+// say: what the mode produces, with the operator's own values over the top.
+func (s *Sink) assembleData(msg hermod.Message, data map[string]any) (map[string]string, error) {
 	out, err := s.baseData(msg, data)
 	if err != nil {
 		return nil, err
@@ -273,30 +308,33 @@ func (s *Sink) dataMap(msg hermod.Message, data map[string]any) (map[string]stri
 
 	// A key with an empty value costs bytes and tells the device nothing.
 	maps.DeleteFunc(out, func(_, v string) bool { return v == "" })
+	return out, nil
+}
 
-	if len(out) == 0 {
-		return nil, nil
+// dataLimit is the size the data map is held to: FCM's own unless the sink was
+// configured with a smaller one.
+func (s *Sink) dataLimit() int {
+	if s.cfg.MaxDataBytes > 0 {
+		return s.cfg.MaxDataBytes
 	}
+	return defaultMaxDataBytes
+}
 
-	limit := s.cfg.MaxDataBytes
-	if limit <= 0 {
-		limit = defaultMaxDataBytes
+// largestData is the n keys costing the most against the limit, largest first.
+// Each is charged the way FCM charges it: the key and its value.
+func largestData(data map[string]string, n int) []DataKeySize {
+	sizes := make([]DataKeySize, 0, len(data))
+	for k, v := range data {
+		sizes = append(sizes, DataKeySize{Key: k, Bytes: len(k) + len(v)})
 	}
-	size := dataBytes(out)
-	if size <= limit {
-		return out, nil
-	}
-
-	switch s.cfg.OnOversize {
-	case OversizeTruncate:
-		return truncateData(out, limit), nil
-	case OversizeDrop:
-		return nil, nil
-	default:
-		return nil, permanentf(
-			"fcm sink: the data for message %s is %d bytes and FCM accepts at most %d; set on_oversize to truncate or drop, or narrow the payload with a transformer",
-			msg.ID(), size, limit)
-	}
+	// Ties broken by name so the answer does not depend on map iteration order.
+	sort.Slice(sizes, func(i, j int) bool {
+		if sizes[i].Bytes != sizes[j].Bytes {
+			return sizes[i].Bytes > sizes[j].Bytes
+		}
+		return sizes[i].Key < sizes[j].Key
+	})
+	return sizes[:min(n, len(sizes))]
 }
 
 func (s *Sink) format(msg hermod.Message) ([]byte, error) {

@@ -36,6 +36,7 @@ func (h *SinkHandler) RegisterSinkRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sinks/{id}/workflows", h.ListWorkflowsReferencingSink)
 	mux.Handle("POST /api/sinks/smtp/preview", h.EditorOnly(h.PreviewSmtpTemplate))
 	mux.Handle("POST /api/sinks/smtp/validate", h.EditorOnly(h.ValidateEmail))
+	mux.Handle("POST /api/sinks/fcm/preview", h.EditorOnly(h.PreviewFcmMessage))
 	mux.Handle("DELETE /api/sinks/{id}", h.EditorOnly(h.DeleteSink))
 }
 
@@ -608,9 +609,12 @@ type emailRenderer interface {
 // code reading the same config.
 func (h *SinkHandler) PreviewSmtpTemplate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Type   string            `json:"type"`
-		Config map[string]string `json:"config"`
-		Sample map[string]any    `json:"sample"`
+		Type string `json:"type"`
+		// StringMap, not map[string]string: the form's config holds a boolean
+		// (`sequential`), and a plain string map refused every preview asked
+		// for from the real form.
+		Config hermod.StringMap `json:"config"`
+		Sample map[string]any   `json:"sample"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.JsonError(w, err.Error(), http.StatusBadRequest)

@@ -10,7 +10,11 @@ import (
 	"testing"
 )
 
-const uiFormPath = "../../../../ui/src/components/workflow/Sink/FcmSinkConfig.tsx"
+// uiFormGlob is every file the editor's FCM form is made of. The form is split
+// — the per-platform options have a file of their own — and a gate that read
+// only the first of them would report every field in the others as missing, or
+// worse, pass a field written under the wrong name in a file it never opened.
+const uiFormGlob = "../../../../ui/src/components/workflow/Sink/Fcm*.tsx"
 
 var updateConfigRE = regexp.MustCompile(`updateConfig\(\s*'([a-z0-9_]+)'`)
 
@@ -33,14 +37,24 @@ const batchKey = "batch"
 // can reach from the UI. Twelve sink types once rendered the wrong form
 // entirely and nothing failed.
 func TestUIFormMatchesConfigKeys(t *testing.T) {
-	src, err := os.ReadFile(filepath.Clean(uiFormPath))
+	files, err := filepath.Glob(uiFormGlob)
 	if err != nil {
-		t.Fatalf("cannot read the editor's FCM form at %s: %v", uiFormPath, err)
+		t.Fatalf("globbing %s: %v", uiFormGlob, err)
+	}
+	if len(files) == 0 {
+		t.Fatalf("no file matches %s; has the editor's FCM form moved?", uiFormGlob)
 	}
 
-	matches := updateConfigRE.FindAllStringSubmatch(string(src), -1)
+	var matches [][]string
+	for _, file := range files {
+		src, err := os.ReadFile(filepath.Clean(file))
+		if err != nil {
+			t.Fatalf("cannot read the editor's FCM form at %s: %v", file, err)
+		}
+		matches = append(matches, updateConfigRE.FindAllStringSubmatch(string(src), -1)...)
+	}
 	if len(matches) == 0 {
-		t.Fatalf("no updateConfig calls found in %s; has the form been reformatted?", uiFormPath)
+		t.Fatalf("no updateConfig calls found in %v; has the form been reformatted?", files)
 	}
 
 	written := map[string]bool{}

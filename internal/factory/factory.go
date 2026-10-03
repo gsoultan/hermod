@@ -776,6 +776,31 @@ func CreateSinkForPreview(cfg SinkConfig) (hermod.Sink, error) {
 	return createSinkBase(cfg)
 }
 
+// PreviewFCMMessage reports what an FCM sink stored as cfg would send for msg.
+//
+// It does not go through CreateSinkForPreview: building the sink itself needs
+// the service account, and a preview authenticates to nothing. What it shares
+// with the worker's path is everything that shapes the message — the config
+// parser and the formatter — so the size it reports is the size a run sends.
+func PreviewFCMMessage(cfg SinkConfig, msg hermod.Message) (sinkfcm.Preview, error) {
+	fcmCfg, err := sinkfcm.FromMap(cfg.Config)
+	if err != nil {
+		return sinkfcm.Preview{}, err
+	}
+	// The one formatter that is built by connecting to something. Refused
+	// rather than built: whoever can edit a sink would otherwise be able to
+	// point the server at an address of their choosing by asking for a preview.
+	if cfg.Config["format"] == "schema_registry" {
+		return sinkfcm.Preview{}, errors.New("a sink formatted through a schema registry cannot be previewed; the registry is only contacted when the workflow runs")
+	}
+	fmttr, err := buildFormatter(cfg.Config)
+	if err != nil {
+		return sinkfcm.Preview{}, err
+	}
+	fcmCfg.Formatter = fmttr
+	return sinkfcm.PreviewMessage(fcmCfg, msg)
+}
+
 // buildFormatter selects a sink's serialiser from its stored config.
 //
 // A nil formatter is a valid result and means "publish the raw payload bytes",
