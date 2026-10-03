@@ -256,3 +256,50 @@ func TestPreviewEndpointsAcceptTheConfigTheFormSends(t *testing.T) {
 		}
 	})
 }
+
+// The editor's sample of a change event is the captured envelope: `after` and
+// `before` nested, the after-image's columns hoisted beside them, and the
+// event's own operation and table. Added key by key as plain columns, `after`
+// and `before` became data keys a run never sends, and the hard-coded
+// "orders"/create replaced the event's own table and operation. The preview
+// must build the message the way a run receives it.
+func TestPreviewFcmMessage_BuildsAChangeEventTheWayARunReceivesIt(t *testing.T) {
+	got := decodeFcmPreview(t, postFcmPreview(t, map[string]any{
+		"type": "fcm",
+		"config": map[string]string{
+			"device_token": "{{.after.fcm_token}}",
+			"title":        "{{.before.status}} → {{.after.status}}",
+			"data_mode":    "fields",
+		},
+		"sample": map[string]any{
+			"operation": "update",
+			"table":     "devices",
+			"schema":    "public",
+			"before":    map[string]any{"fcm_token": "tok-1", "status": "paid"},
+			"after":     map[string]any{"fcm_token": "tok-1", "status": "shipped", "sku": "A-17"},
+			"fcm_token": "tok-1",
+			"status":    "shipped",
+			"sku":       "A-17",
+		},
+	}))
+
+	if got.Refused != "" {
+		t.Fatalf("refused: %s", got.Refused)
+	}
+	notification, _ := got.Message["notification"].(map[string]any)
+	if notification["title"] != "paid → shipped" {
+		t.Errorf("title = %v, want %q", notification["title"], "paid → shipped")
+	}
+	data, _ := got.Message["data"].(map[string]any)
+	for _, envelope := range []string{"after", "before"} {
+		if _, ok := data[envelope]; ok {
+			t.Errorf("data carries %q, which a run never sends: %v", envelope, data)
+		}
+	}
+	if data["table"] != "devices" || data["operation"] != "update" {
+		t.Errorf("table = %v, operation = %v; want the sample's own devices/update", data["table"], data["operation"])
+	}
+	if data["sku"] != "A-17" {
+		t.Errorf("data.sku = %v, want A-17", data["sku"])
+	}
+}

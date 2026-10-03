@@ -83,8 +83,23 @@ column with a transformer.
 ## Templating
 
 Every destination and notification field is a Go template over `renderData` —
-the envelope (`id`, `operation`, `table`, `schema`, `metadata`) with the row's
-own fields copied over the top, so a column named `table` keeps its own value.
+the envelope (`id`, `operation`, `table`, `schema`, `metadata`, and `meta` as an
+alias) plus `after` (the data map) and `before` (the decoded before-image), with
+the row's own fields copied over the top, so a column named `table` keeps its
+own value.
+
+`after`/`before` exist because the editor offers a CDC sample's columns as
+`after.<col>` (`preparePayload` keeps the nesting and also hoists). Before they
+were in scope every such field failed with `map has no entry for key "after"`
+under `missingkey=error`. A **delete** has an empty data map — Postgres
+`handleDelete` only calls `SetBefore` — so `rowOf`/`pickRow` use the
+before-image as the row; `DataFields` uses the same row. `collectFields` treats
+`.after.col`/`.before.col` as column `col`, so withholding still applies.
+
+Test these with a real `message.DefaultMessage` built via `SetAfter`/`SetBefore`
+(`cdc_test.go`), never the `mockMessage`: its `Before()` is nil and its data map
+is whatever the test wrote, which is how every template test passed while real
+updates and deletes failed.
 
 Templates are compiled in `New`, so a broken one is refused at save and no
 message pays to re-parse it. They use `missingkey=error`: Go's default renders
@@ -96,6 +111,23 @@ with `{{index . "name"}}`.
 made-up token. `reachedFCM` is what separates a refusal about the *message*
 (the round trip worked — a pass) from one about the *credentials* (the failure
 Ping exists to find).
+
+## The preview endpoint must build the message like a run
+
+`internal/sink/transport/http/fcm_preview.go` builds its message with
+`message.PopulateFromMap` (after setting defaults). It used `SetData` per key,
+which turned a CDC sample's `after`/`before` into two data keys a run never
+sends. Any new preview for a sink should use the same populator.
+
+## The form (ui/src/components/workflow/Sink/Fcm*.tsx)
+
+`FcmSinkConfig` → `FcmDataSection` (App data: mode cards labelled Selected
+fields / All fields / Whole row as JSON for `none`/`fields`/`envelope`, column
+chips that toggle `{"col":"{{.col}}"}` in `data_json`, KeyValueEditor, oversize)
+→ `FcmMessagePreview` (auto-runs 350ms after the form settles, newest request
+wins). Chip helpers are in `fcmData.ts`; the chips skip CDC envelope keys and
+the destination columns (`destinationColumns` mirrors `destinationFields`).
+The oversize error quotes the section name "App data" — keep the two in step.
 
 ## Config keys and the UI
 

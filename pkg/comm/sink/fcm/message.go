@@ -229,8 +229,9 @@ func (s *Sink) baseData(msg hermod.Message, data map[string]any) (map[string]str
 			out[k] = fmt.Sprint(data[k])
 		}
 		// The row's own columns go over the envelope, not under it: a table
-		// with an `id` or `table` column keeps its own value.
-		for k, v := range msg.Data() {
+		// with an `id` or `table` column keeps its own value. A delete's row is
+		// its before-image, so the device is told what went.
+		for k, v := range rowOf(msg) {
 			if slices.Contains(s.destFields, k) {
 				// The column this message is addressed by. Sending it to the
 				// device it addresses is at best waste and at worst a leak.
@@ -285,7 +286,7 @@ func (s *Sink) dataMap(msg hermod.Message, data map[string]any) (map[string]stri
 		return nil, permanentf(
 			"fcm sink: the data for message %s is %d bytes and FCM accepts at most %d. "+
 				"The largest entry is %q at %d bytes. "+
-				`Send less under "Data sent to the app", or set "If the data does not fit" (on_oversize) to truncate or drop`,
+				`Send less under "App data", or set "If the data does not fit" (on_oversize) to truncate or drop`,
 			msg.ID(), size, limit, culprit.Key, culprit.Bytes)
 	}
 }

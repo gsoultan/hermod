@@ -24,7 +24,7 @@ func TestOversizeErrorNamesTheCulpritAndTheFix(t *testing.T) {
 	for _, want := range []string{
 		`"payload"`,                // the value that is too big
 		"5009 bytes",               // and what it costs: the key and its value
-		"Data sent to the app",     // where in the form to send less
+		"App data",                 // where in the form to send less
 		"If the data does not fit", // the field's label
 		"on_oversize",              // and its key, for a sink saved through the API
 	} {

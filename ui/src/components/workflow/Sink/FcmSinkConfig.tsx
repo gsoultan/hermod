@@ -3,10 +3,11 @@ import {
   Accordion,
   Alert,
   Badge,
+  Button,
   Code,
+  FileButton,
   Fieldset,
   Group,
-  Input,
   NumberInput,
   Radio,
   Select,
@@ -16,20 +17,20 @@ import {
   Textarea,
   TextInput,
 } from '@mantine/core';
-import { IconAlertTriangle, IconBrandFirebase } from '@tabler/icons-react';
+import { IconAlertTriangle, IconBrandFirebase, IconCircleCheck, IconUpload } from '@tabler/icons-react';
 import { FormRow } from '@/components/common/FormRow';
 import { InsertFieldButton } from '../Transformation/configs/enrichment/apiLookup/InsertFieldButton';
-import { KeyValueEditor } from '../Transformation/configs/enrichment/apiLookup/KeyValueEditor';
 import { fieldToken } from '../Transformation/configs/enrichment/apiLookup/jsonText';
 import { FcmAndroidOptions, FcmApnsOptions, FcmWebpushOptions } from './FcmPlatformOptions';
-import { FcmMessageCheck } from './FcmMessageCheck';
+import { FcmDataSection } from './FcmDataSection';
+import { FcmMessagePreview } from './FcmMessagePreview';
 
 interface FcmSinkConfigProps {
   config: any;
   updateConfig: (key: string, value: any) => void;
   /** The fields the editor says reach this sink; offered as `{{ }}` tokens. */
-  availableFields?: Array<{ path: string }>;
-  /** The row the editor says reaches this sink; what the check is run against. */
+  availableFields?: Array<{ path: string; type?: string }>;
+  /** The row the editor says reaches this sink; what the preview is built from. */
   incomingPayload?: unknown;
 }
 
@@ -43,14 +44,30 @@ const isSet = (value: unknown) => typeof value === 'string' && value.trim() !== 
 const countSet = (config: Record<string, unknown>, belongs: (key: string) => boolean) =>
   Object.keys(config).filter((key) => belongs(key) && isSet(config[key])).length;
 
-/** The project a pasted service account names, or '' while it is not JSON yet. */
-function projectOf(credentials: string): string {
+/**
+ * What a pasted service account says: the project it sends to, or what is
+ * wrong with it. Said beside the field, because the backend's version of the
+ * same news arrives as a failed save or a failed first message.
+ */
+function checkCredentials(credentials: string): { project: string; problem: string } {
+  if (!credentials.trim()) return { project: '', problem: '' };
+  let parsed: any;
   try {
-    const parsed = JSON.parse(credentials);
-    return typeof parsed?.project_id === 'string' ? parsed.project_id : '';
+    parsed = JSON.parse(credentials);
   } catch {
-    return '';
+    return { project: '', problem: 'This is not valid JSON. Paste the whole key file, from { to }, or upload it.' };
   }
+  if (!parsed || typeof parsed !== 'object' || typeof parsed.private_key !== 'string') {
+    return {
+      project: '',
+      problem:
+        'This JSON has no private_key, so it is not a service account key. Use Project settings → Service accounts → Generate new private key.',
+    };
+  }
+  if (typeof parsed.project_id !== 'string' || !parsed.project_id) {
+    return { project: '', problem: 'This key names no project_id. Paste the whole file as Firebase downloaded it.' };
+  }
+  return { project: parsed.project_id, problem: '' };
 }
 
 /** A text field that is a template, with the upstream fields one click away. */
@@ -136,7 +153,7 @@ export function FcmSinkConfig({ config, updateConfig, availableFields = [], inco
   const action = config.action || 'send';
   const sending = action === 'send';
   const usingADC = config.use_default_credentials === 'true';
-  const project = projectOf(config.credentials_json || '');
+  const credentials = checkCredentials(config.credentials_json || '');
   const fieldPaths = availableFields.map((field) => field.path);
 
   // FCM accepts exactly one destination per message, so the form offers one
@@ -188,26 +205,46 @@ export function FcmSinkConfig({ config, updateConfig, availableFields = [], inco
       <Fieldset legend="Firebase project" radius="md">
         <Stack gap="md">
           <Textarea
-            label="Service account JSON"
+            label="Service account key"
             placeholder='{"type":"service_account","project_id":"…","private_key":"…"}'
             minRows={4}
             autosize
             maxRows={8}
             value={config.credentials_json || ''}
             onChange={(e) => updateConfig('credentials_json', e.currentTarget.value)}
-            description={
-              project && !usingADC ? (
-                <>
-                  Messages go to the project <Code>{project}</Code>.
-                </>
-              ) : (
-                'Firebase console → Project settings → Service accounts → Generate new private key. The project it names is the project messages go to.'
-              )
-            }
+            description="Firebase console → Project settings → Service accounts → Generate new private key. Paste the file's contents or upload it."
+            error={usingADC ? undefined : credentials.problem || undefined}
             leftSection={<IconBrandFirebase size="1rem" />}
+            styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)', fontSize: 'var(--mantine-font-size-xs)' } }}
             required={!usingADC}
             disabled={usingADC}
           />
+          {!usingADC && (
+            <Group justify="space-between" gap="xs">
+              {credentials.project ? (
+                <Group gap={6}>
+                  <IconCircleCheck size="1rem" color="var(--mantine-color-teal-6)" aria-hidden />
+                  <Text size="sm">
+                    Messages go to the project <Code>{credentials.project}</Code>
+                  </Text>
+                </Group>
+              ) : (
+                <span />
+              )}
+              <FileButton
+                accept="application/json,.json"
+                onChange={(file) => {
+                  void file?.text().then((text) => updateConfig('credentials_json', text.trim()));
+                }}
+              >
+                {(props) => (
+                  <Button {...props} size="xs" variant="light" leftSection={<IconUpload size="0.9rem" />}>
+                    Upload key file
+                  </Button>
+                )}
+              </FileButton>
+            </Group>
+          )}
           <Switch
             label="Use the machine's ambient Google credentials instead"
             checked={usingADC}
@@ -242,16 +279,16 @@ export function FcmSinkConfig({ config, updateConfig, availableFields = [], inco
 
       {sending ? (
         <>
-          <Fieldset legend="Who receives it" radius="md">
+          <Fieldset legend="Recipients" radius="md">
             <Stack gap="md">
               {/* Radios in a wrapping row, not a segmented control: in a narrow
                   drawer a segmented control cannot wrap and clipped its last
                   option off the edge. */}
               <Radio.Group aria-label="Send to" value={target} onChange={(v) => setTarget(v as Target)}>
                 <Group gap="lg">
-                  <Radio value="token" label="Devices" />
+                  <Radio value="token" label="Specific devices" />
                   <Radio value="topic" label="A topic" />
-                  <Radio value="condition" label="A condition" />
+                  <Radio value="condition" label="A combination of topics" />
                 </Group>
               </Radio.Group>
               {target === 'token' && (
@@ -261,7 +298,7 @@ export function FcmSinkConfig({ config, updateConfig, availableFields = [], inco
                   value={config.device_token || ''}
                   onChange={(v) => updateConfig('device_token', v)}
                   fieldPaths={fieldPaths}
-                  description="The column holding the device's registration token. Several tokens separated by commas reach up to 500 devices."
+                  description="The field holding each device's FCM registration token — the one your app gets from Firebase and stores. A field with several, separated by commas, reaches up to 500 devices."
                 />
               )}
               {target === 'topic' && (
@@ -284,14 +321,17 @@ export function FcmSinkConfig({ config, updateConfig, availableFields = [], inco
                 />
               )}
               <Text size="xs" c="dimmed">
-                Leave this empty only when an earlier step sets <Code>fcm_token</Code>, <Code>fcm_topic</Code> or{' '}
-                <Code>fcm_condition</Code> metadata on each message. Metadata always wins over what is set here.
+                Advanced: an earlier step that sets <Code>fcm_token</Code>, <Code>fcm_topic</Code> or{' '}
+                <Code>fcm_condition</Code> metadata overrides this for that message.
               </Text>
             </Stack>
           </Fieldset>
 
-          <Fieldset legend="What the person sees" radius="md">
+          <Fieldset legend="Notification" radius="md">
             <Stack gap="md">
+              <Text size="sm" c="dimmed">
+                What people see on their lock screen.
+              </Text>
               <FormRow cols={2}>
                 <TemplateInput
                   label="Title"
@@ -316,73 +356,16 @@ export function FcmSinkConfig({ config, updateConfig, availableFields = [], inco
                 fieldPaths={fieldPaths}
               />
               <Text size="xs" c="dimmed">
-                Leave the title and body empty to send silently: the app receives the data and draws its own
-                notification, or none. A <Code>{'{{.column}}'}</Code> is replaced with that column of the row;{' '}
-                <Code>id</Code>, <Code>operation</Code>, <Code>table</Code>, <Code>schema</Code> and{' '}
-                <Code>metadata</Code> are there too. A column that may be missing is written{' '}
-                <Code>{'{{index . "name"}}'}</Code>.
+                Leave the title and body empty for a silent push: nothing is shown, and the app gets the data below.
+                Use the <Code>{'{ }'}</Code> button to insert a field; <Code>{'{{.column}}'}</Code> is replaced by that
+                column of the row. A column that may be missing is written <Code>{'{{index . "name"}}'}</Code>.
               </Text>
             </Stack>
           </Fieldset>
 
-          <Fieldset legend="Data sent to the app" radius="md">
-            <Stack gap="md">
-              <Radio.Group
-                label="What to send"
-                description="FCM accepts at most 4,096 bytes of data, names included, and every value is sent as text."
-                value={config.data_mode || 'envelope'}
-                onChange={(v) => updateConfig('data_mode', v)}
-              >
-                <Stack gap="xs" mt="xs">
-                  <Radio
-                    value="none"
-                    label="Only the values listed below"
-                    description="Nothing from the row unless you add it. With no values listed, the message is the notification alone."
-                  />
-                  <Radio
-                    value="fields"
-                    label="Every column of the row"
-                    description="Each column is its own value. The column the message is addressed by is left out."
-                  />
-                  <Radio
-                    value="envelope"
-                    label="The whole row as one JSON text"
-                    description="Under the name payload, beside id, operation, table and schema. A wide row will not fit."
-                  />
-                </Stack>
-              </Radio.Group>
+          <FcmDataSection config={config} updateConfig={updateConfig} availableFields={availableFields} />
 
-              <Input.Wrapper
-                label="Values to add"
-                description="Sent on top of the choice above. A value is text, a {{ }} field, or both."
-              >
-                <KeyValueEditor
-                  value={config.data_json || ''}
-                  onChange={(next) => updateConfig('data_json', next)}
-                  noun="Value"
-                  jsonLabel="Values as JSON"
-                  jsonPlaceholder='{"deeplink":"app://orders/{{.id}}"}'
-                  emptyHint="No values added. A deep link is the usual one: name it deeplink and give it app://orders/{{.id}}."
-                  fieldPaths={fieldPaths}
-                />
-              </Input.Wrapper>
-
-              <Select
-                label="If the data does not fit"
-                value={config.on_oversize || 'error'}
-                onChange={(v) => updateConfig('on_oversize', v || 'error')}
-                data={[
-                  { value: 'error', label: 'Fail the message' },
-                  { value: 'truncate', label: 'Shorten the largest values until it fits' },
-                  { value: 'drop', label: 'Send the notification without the data' },
-                ]}
-                allowDeselect={false}
-                description="A row over the limit is the same size on every attempt, so a failed message stays failed. Shortening keeps id, operation, table and schema whole."
-              />
-            </Stack>
-          </Fieldset>
-
-          <FcmMessageCheck config={config} incomingPayload={incomingPayload} />
+          <FcmMessagePreview config={config} incomingPayload={incomingPayload} />
 
           <Switch
             label="Dry run"
