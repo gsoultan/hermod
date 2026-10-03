@@ -30,7 +30,19 @@ import (
 // is computed from the DDL itself, so changing the schema fails this test and
 // forces the question to be asked out loud.
 //
-// Last moved by: adding cpu_cores, memory_total_bytes, memory_used_bytes,
+// Last moved by: adding the vhost_secrets table, the secrets a vhost holds for
+// its own workflows. currentSchemaVersion was left alone deliberately.
+//
+// It is a standalone table: no earlier code path reads or writes it, nothing
+// existing changed shape, and no foreign key points at it. The previous release
+// would not misread it; it would not look at it. What a rollback costs is the
+// feature: secret("NAME") stops finding a vhost's own secrets and reads the
+// global manager only, so a workflow that depends on one resolves it as empty
+// until the newer binary returns. That is the loss any rollback past a feature
+// carries, not a misread of live data, and refusing start-up would block
+// exactly the rollback the version exists to keep safe.
+//
+// The note before that: adding cpu_cores, memory_total_bytes, memory_used_bytes,
 // storage_total_bytes and storage_used_bytes to workers, so the dashboard and
 // the workers page can say how big a machine is and not only how busy it is.
 // currentSchemaVersion was left alone deliberately.
@@ -104,7 +116,7 @@ import (
 // unpopulated — a gap in a chart that fills itself in when the newer binary
 // returns — so bumping the version would buy nothing and cost a refused
 // start-up during exactly the rollback it was supposed to make safe.
-const knownSchemaFingerprint = "2aa5526a00ff89cdb6d8c3817e336915c7809bb927f30091b313171a3e0633bc"
+const knownSchemaFingerprint = "3a13d2d0f406f59fe99fc25891b6678a04e4e1bc89a9f0237a98df080752091e"
 
 func TestSchemaVersionIsReconsideredWhenTheSchemaChanges(t *testing.T) {
 	if got := SchemaFingerprint(); got != knownSchemaFingerprint {

@@ -140,7 +140,9 @@ type DefaultMessage struct {
 	payload   []byte
 	metadata  map[string]string
 	data      map[string]any
-	refCount  atomic.Int32
+	// vhost is the engine's mark, not content: see hermod.VHostScoped.
+	vhost    string
+	refCount atomic.Int32
 }
 
 func (m *DefaultMessage) ID() string {
@@ -442,6 +444,7 @@ func (m *DefaultMessage) Clone() hermod.Message {
 	clone.operation = m.operation
 	clone.table = m.table
 	clone.schema = m.schema
+	clone.vhost = m.vhost
 	clone.before = append(clone.before[:0], m.before...)
 	clone.payload = append(clone.payload[:0], m.payload...)
 
@@ -715,6 +718,7 @@ func (m *DefaultMessage) Reset() {
 	m.operation = ""
 	m.table = ""
 	m.schema = ""
+	m.vhost = ""
 	m.clearPayloads()
 	if len(m.metadata) > maxPooledMapEntries {
 		m.metadata = make(map[string]string)
@@ -778,6 +782,21 @@ func ReleaseMessage(m hermod.Message) {
 		dm.Reset()
 		messagePool.Put(dm)
 	}
+}
+
+// VHost is the vhost of the workflow this message is running in, or "" when
+// nothing has marked it. See hermod.VHostScoped.
+func (m *DefaultMessage) VHost() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.vhost
+}
+
+// SetVHost marks the message with its workflow's vhost.
+func (m *DefaultMessage) SetVHost(vhost string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.vhost = vhost
 }
 
 // Setters for DefaultMessage

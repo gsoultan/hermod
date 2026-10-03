@@ -55,6 +55,14 @@ func (h *AuthHandler) RegisterAuthRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/vhosts/", h.AdminOnly(h.CreateVHost))
 	mux.Handle("PUT /api/vhosts/{id}", h.AdminOnly(h.UpdateVHost))
 	mux.Handle("DELETE /api/vhosts/{id}", h.AdminOnly(h.DeleteVHost))
+
+	// A vhost's secrets. EditorOnly is the role floor; each handler also checks
+	// that the caller has the vhost. The worker route is the only one that
+	// returns a value, and it answers a worker's token only.
+	mux.Handle("GET /api/vhosts/{vhost}/secrets", h.EditorOnly(h.ListVHostSecrets))
+	mux.Handle("PUT /api/vhosts/{vhost}/secrets/{name}", h.EditorOnly(h.PutVHostSecret))
+	mux.Handle("DELETE /api/vhosts/{vhost}/secrets/{name}", h.EditorOnly(h.DeleteVHostSecret))
+	mux.HandleFunc("GET /api/worker/vhosts/{vhost}/secrets/{name}", h.GetVHostSecretForWorker)
 }
 
 // sessionCookie delegates to the shared builder in handlers, so login, 2FA,

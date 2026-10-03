@@ -550,3 +550,56 @@ func TestSecretFunctionsReadTheConfiguredSource(t *testing.T) {
 		t.Errorf(`{{secret("PANMAIL_API_KEY")}} = %q, want "from-vault"`, got)
 	}
 }
+
+// fakeScopedSource answers per vhost: "vhost/key" -> value, "/key" globally.
+type fakeScopedSource map[string]string
+
+func (f fakeScopedSource) Get(ctx context.Context, key string) (string, error) {
+	return f.GetScoped(ctx, "", key)
+}
+
+func (f fakeScopedSource) GetScoped(_ context.Context, vhost, key string) (string, error) {
+	return f[vhost+"/"+key], nil
+}
+
+// secret() answers from the vhost of the workflow the message is running in.
+// Every way an expression is reached has to carry that: a column expression, a
+// template token, a condition's value, and the no-data template a connector
+// uses for its own credentials.
+func TestSecretFunctionsAnswerForTheMessagesVHost(t *testing.T) {
+	t.Cleanup(func() { SetSecretSource(nil) })
+	SetSecretSource(fakeScopedSource{
+		"tenant-a/API_KEY": "a-key",
+		"tenant-b/API_KEY": "b-key",
+		"/API_KEY":         "global-key",
+	})
+
+	for vhost, want := range map[string]string{"tenant-a": "a-key", "tenant-b": "b-key", "": "global-key"} {
+		t.Run("vhost="+vhost, func(t *testing.T) {
+			msg := message.AcquireMessage()
+			t.Cleanup(msg.Release)
+			msg.SetVHost(vhost)
+			// Content naming another vhost changes nothing.
+			msg.SetData("vhost", "tenant-b")
+			msg.SetMetadata("vhost", "tenant-b")
+			msg.SetData("guess", want)
+
+			if got := NewEvaluator().ParseAndEvaluate(msg, "secret('API_KEY')"); got != want {
+				t.Errorf("secret('API_KEY') = %#v, want %q", got, want)
+			}
+			if got := NewEvaluator().ParseAndEvaluate(msg, "concat('Bearer ', env('API_KEY'))"); got != "Bearer "+want {
+				t.Errorf("nested env('API_KEY') = %#v, want %q", got, "Bearer "+want)
+			}
+			if got := ResolveTemplateMsg(`{{secret("API_KEY")}}`, msg); got != want {
+				t.Errorf(`ResolveTemplateMsg {{secret("API_KEY")}} = %q, want %q`, got, want)
+			}
+			if got := ResolveTemplateScoped(`{{secret("API_KEY")}}/{{.guess}}`, msg); got != want+"/" {
+				t.Errorf(`ResolveTemplateScoped = %q, want %q: the vhost's secret, and no row data`, got, want+"/")
+			}
+			cond := []map[string]any{{"field": "guess", "operator": "=", "value": "{{secret('API_KEY')}}"}}
+			if !EvaluateConditions(msg, cond) {
+				t.Errorf("a condition value's secret('API_KEY') did not read %q", want)
+			}
+		})
+	}
+}

@@ -5,6 +5,9 @@ import { notifications } from '@mantine/notifications';
 import { apiFetch } from '@/api';
 import { usePreviewTransformation } from '../../pages/workflows/WorkflowEditor/hooks/usePreviewTransformation';
 import { useTargetSchema } from '../../pages/workflows/WorkflowEditor/hooks/useTargetSchema';
+import { useWorkflowStore } from '../../pages/workflows/WorkflowEditor/store/useWorkflowStore';
+import { useVHostSecretNames } from '@/lib/vhostSecrets';
+import { SecretNamesContext } from '@/components/shared/TemplateField';
 import { resolveConfigComponent } from '../workflow/Transformation/configs/registry';
 import { nextColumnFieldName } from '../workflow/Transformation/fieldMappings/columnFields';
 // Lazy-load heavy UI components to reduce initial bundle size (Junie compliance)
@@ -217,6 +220,11 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
 
   const previewMutation = usePreviewTransformation();
 
+  // The vhost of the workflow being edited: whose secrets secret("NAME") reads
+  // in a preview, and whose secret names the value fields offer.
+  const editorVHost = useWorkflowStore((s) => s.vhost);
+  const secretNames = useVHostSecretNames(editorVHost);
+
   const transType = selectedNode?.data?.transType || selectedNode?.type || '';
   // Field mappings are rows of long paths and JSON values; they get the wider
   // middle column even when the side panels are showing.
@@ -241,6 +249,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
           config: selectedNode.data,
         },
         message: incomingPayload,
+        vhost: editorVHost,
       },
       {
         onSuccess: (data: any) => {
@@ -262,7 +271,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
         onSettled: () => setTesting(false),
       }
     );
-  }, [runPreviewRequest, incomingPayload, selectedNode.data, transType]);
+  }, [runPreviewRequest, incomingPayload, selectedNode.data, transType, editorVHost]);
 
   // Schedule off *content*, never off callback identity.
   //
@@ -354,7 +363,8 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
             type: transType,
             config: selectedNode.data
           },
-          message: incomingPayload
+          message: incomingPayload,
+          vhost: editorVHost
         })
       });
       const data = await res.json();
@@ -635,7 +645,9 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
                   </Suspense>
                   <Divider label="Configuration" labelPosition="center" />
                   
-                  {renderConfiguration()}
+                  <SecretNamesContext.Provider value={secretNames}>
+                    {renderConfiguration()}
+                  </SecretNamesContext.Provider>
 
                   <Divider label="Advanced" labelPosition="center" mt="xl" />
 

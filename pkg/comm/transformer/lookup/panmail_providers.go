@@ -79,8 +79,8 @@ func resolvePanmailProvidersRequest(config map[string]any, msg hermod.Message) (
 	// {{secret("X")}} reads the secret manager (HERMOD_SECRET_X by default),
 	// {{.field}} and {{env.X}} render empty.
 	req := panmailProvidersRequest{
-		baseURL:     strings.TrimSpace(evaluator.ResolveTemplate(core.GetConfigString(config, "baseUrl"), nil)),
-		apiKey:      strings.TrimSpace(evaluator.ResolveTemplate(core.GetConfigString(config, "apiKey"), nil)),
+		baseURL:     strings.TrimSpace(evaluator.ResolveTemplateScoped(core.GetConfigString(config, "baseUrl"), msg)),
+		apiKey:      strings.TrimSpace(evaluator.ResolveTemplateScoped(core.GetConfigString(config, "apiKey"), msg)),
 		targetField: core.GetConfigString(config, "targetField"),
 		timeout:     core.GetConfigString(config, "timeout"),
 		// A name filter is only a search, so it may come from the row.

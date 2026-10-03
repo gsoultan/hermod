@@ -643,6 +643,12 @@ func (r *Runner) runSourceToBuffer(ctx context.Context) {
 
 			r.engine.recordSourceActivity()
 
+			// The mark secret() answers for. It is set here, from the engine's
+			// own configuration, and never from what the source delivered.
+			if scoped, ok := m.(hermod.VHostScoped); ok && r.engine.vhost != "" {
+				scoped.SetVHost(r.engine.vhost)
+			}
+
 			// Where a trace begins — but only if nothing upstream already
 			// started one. The registry's multiplexer stamps a record as it
 			// takes it from a sub-source; stamping again here would overwrite

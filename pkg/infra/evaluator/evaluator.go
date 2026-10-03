@@ -61,18 +61,59 @@ func SetSecretSource(src SecretSource) {
 	configuredSecrets.Store(&secretSourceBox{src: src})
 }
 
-// readSecret answers secret(key) and env(key). A lookup that fails answers
-// nothing, the same as a secret that does not exist.
-func readSecret(key string) string {
+// readSecret answers secret(key) and env(key) for the vhost asking; "" asks
+// the global manager only. A lookup that fails answers nothing, the same as a
+// secret that does not exist.
+func readSecret(vhost, key string) string {
 	src := defaultSecrets
 	if b := configuredSecrets.Load(); b != nil {
 		src = b.src
 	}
-	v, err := src.Get(context.Background(), key)
+	var (
+		v   string
+		err error
+	)
+	if scoped, ok := src.(secrets.ScopedManager); ok {
+		v, err = scoped.GetScoped(context.Background(), vhost, key)
+	} else {
+		v, err = src.Get(context.Background(), key)
+	}
 	if err != nil {
 		return ""
 	}
 	return v
+}
+
+// messageVHost is the vhost of the workflow msg is running in, or "" when it
+// carries none. The mark is the engine's (hermod.VHostScoped), never the
+// message's data or metadata, so a payload cannot choose whose secrets it reads.
+func messageVHost(msg hermod.Message) string {
+	if scoped, ok := msg.(hermod.VHostScoped); ok && scoped != nil {
+		return scoped.VHost()
+	}
+	return ""
+}
+
+// isSecretFunction reports whether name is secret() or env(): the two functions
+// answered from the secret manager, and so the two that need to know the vhost.
+func isSecretFunction(name string) bool {
+	switch strings.ToLower(name) {
+	case "env", "secret":
+		return true
+	}
+	return false
+}
+
+// secretFunction is secret(key[, fallback]) and env(key[, fallback]) for vhost.
+func secretFunction(vhost string, args []any) any {
+	if len(args) == 0 {
+		return ""
+	}
+	val := readSecret(vhost, fmt.Sprintf("%v", args[0]))
+	if val == "" && len(args) > 1 {
+		return args[1]
+	}
+	return val
 }
 
 // ... existing helpers ...
@@ -220,6 +261,11 @@ func (e *Evaluator) ParseAndEvaluate(msg hermod.Message, expr string) any {
 				evaluatedArgs := make([]any, len(args))
 				for i, arg := range args {
 					evaluatedArgs[i] = e.ParseAndEvaluate(msg, arg)
+				}
+				// CallFunction is not handed the message, and these two
+				// answer for the vhost the message is running in.
+				if isSecretFunction(funcName) {
+					return secretFunction(messageVHost(msg), evaluatedArgs)
 				}
 				return e.CallFunction(funcName, evaluatedArgs)
 			}
@@ -381,14 +427,11 @@ func (e *Evaluator) CallFunction(name string, args []any) any {
 		// env() was os.Getenv and secret() fell back to it, so
 		// env('HERMOD_JWT_SECRET') in any transformation, condition or template
 		// answered with the JWT signing key to whoever could edit a workflow.
-		if len(args) > 0 {
-			val := readSecret(fmt.Sprintf("%v", args[0]))
-			if val == "" && len(args) > 1 {
-				return args[1]
-			}
-			return val
-		}
-		return ""
+		//
+		// Called here there is no message, so no vhost: the global manager
+		// only. ParseAndEvaluate answers these two itself, for the message's
+		// vhost, before it would reach this.
+		return secretFunction("", args)
 	case "add":
 		if len(args) >= 2 {
 			v1, _ := ToFloat64(args[0])
@@ -1261,6 +1304,28 @@ func ResolveTemplate(temp string, data map[string]any) string {
 // An expression token -- fn(...) -- is evaluated against the real message here
 // instead of a mock built from its data map, so source.* and the virtual fields
 // are reachable from an expression too.
+// ResolveTemplateScoped resolves temp against no data at all, for the vhost msg
+// is running in: {{secret("X")}} answers from that vhost's secrets, and every
+// field token renders empty.
+//
+// It is for a value that decides where a credential is sent -- a gateway URL,
+// an API key -- which row data must not be able to choose. ResolveTemplate with
+// nil data did that, but it has no message and so no vhost, and a vhost's own
+// secret could never be the key.
+func ResolveTemplateScoped(temp string, msg hermod.Message) string {
+	scope := &mockMessage{vhost: messageVHost(msg)}
+	return scanTemplate(temp, func(path string) string {
+		if strings.HasPrefix(path, "env.") {
+			// Environment variable access is disabled for security reasons
+			return ""
+		}
+		if strings.Contains(path, "(") && strings.HasSuffix(path, ")") {
+			return stringify(NewEvaluator().ParseAndEvaluate(scope, path))
+		}
+		return ""
+	})
+}
+
 func ResolveTemplateMsg(temp string, msg hermod.Message) string {
 	if msg == nil {
 		return ResolveTemplate(temp, nil)
@@ -1685,8 +1750,11 @@ type mockMessage struct {
 	schema   string
 	data     map[string]any
 	metadata map[string]string
+	vhost    string
 }
 
+func (m *mockMessage) VHost() string                  { return m.vhost }
+func (m *mockMessage) SetVHost(v string)              { m.vhost = v }
 func (m *mockMessage) ID() string                     { return m.id }
 func (m *mockMessage) Operation() hermod.Operation    { return m.op }
 func (m *mockMessage) Table() string                  { return m.table }

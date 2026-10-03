@@ -36,9 +36,11 @@ type Engine struct {
 	dqScorer       *governance.Scorer
 
 	workflowID string
-	sourceID   string
-	sinkIDs    []string
-	sinkTypes  []string
+	// vhost is the workflow's vhost; see SetVHost.
+	vhost     string
+	sourceID  string
+	sinkIDs   []string
+	sinkTypes []string
 
 	onStatusChange func(telemetry.StatusUpdate)
 	// onStall is the supervisor hook: see SetOnStall.
@@ -267,6 +269,12 @@ func (e *Engine) SetCheckpointHandler(fn func(context.Context, map[string]string
 
 func (e *Engine) SetWorkflowID(id string) {
 	e.workflowID = id
+}
+
+// SetVHost tells the engine which vhost its workflow belongs to. Every message
+// it reads is marked with it, so secret() answers from that vhost's secrets.
+func (e *Engine) SetVHost(vhost string) {
+	e.vhost = vhost
 }
 
 func (e *Engine) SetSourceID(id string) {

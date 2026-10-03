@@ -14,6 +14,7 @@ DELETE /api/sinks/{id}
 DELETE /api/sources/{id}
 DELETE /api/users/{id}
 DELETE /api/vhosts/{id}
+DELETE /api/vhosts/{vhost}/secrets/{name}
 DELETE /api/workers/{id}
 DELETE /api/workflows/{id}
 DELETE /api/workspaces/{id}
@@ -56,8 +57,10 @@ GET /api/version
 GET /api/vhosts
 GET /api/vhosts/
 GET /api/vhosts/{id}
+GET /api/vhosts/{vhost}/secrets
 GET /api/webhooks/requests
 GET /api/webhooks/{path...}
+GET /api/worker/vhosts/{vhost}/secrets/{name}
 GET /api/workers
 GET /api/workers/recommend
 GET /api/workers/{id}
@@ -181,6 +184,7 @@ PUT /api/sources/{id}/sample
 PUT /api/users/{id}
 PUT /api/users/{id}/password
 PUT /api/vhosts/{id}
+PUT /api/vhosts/{vhost}/secrets/{name}
 PUT /api/workers/{id}
 PUT /api/workflows/{id}
 PUT /api/workspaces/{id}

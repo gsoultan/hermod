@@ -47,6 +47,9 @@ export function SecurityTab({ ctx }: { ctx: SettingsController }) {
                 <Text size="sm" c="dimmed">
                   Configure external secret managers to securely resolve sensitive configuration values (marked with <Code>secret:</Code> prefix).
                 </Text>
+                <Text size="sm" c="dimmed">
+                  This is the global manager, shared by every vhost. A secret saved for a vhost on the Secrets page is read first; a name that vhost does not hold is read from here.
+                </Text>
                 <Select
                   label="Manager Type"
                   placeholder="Select manager"

@@ -2,6 +2,7 @@ package secrets
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -107,4 +108,64 @@ func ResolveSecret(ctx context.Context, mgr Manager, value string) string {
 		}
 	}
 	return value
+}
+
+// ResolveSecretScoped is ResolveSecret for a connector that belongs to a vhost:
+// `secret:KEY` and `{{secret:KEY}}` are read from that vhost's secrets first.
+func ResolveSecretScoped(ctx context.Context, mgr ScopedManager, vhost, value string) string {
+	trimmed := strings.TrimSpace(value)
+	if strings.HasPrefix(trimmed, "{{") && strings.HasSuffix(trimmed, "}}") {
+		trimmed = strings.TrimSpace(trimmed[2 : len(trimmed)-2])
+	}
+	if key, ok := strings.CutPrefix(trimmed, "secret:"); ok && mgr != nil {
+		if val, err := mgr.GetScoped(ctx, vhost, key); err == nil && val != "" {
+			return val
+		}
+	}
+	return value
+}
+
+// VHostStore reads one secret a vhost holds; found is false when it has none
+// by that name.
+type VHostStore interface {
+	VHostSecret(ctx context.Context, vhost, name string) (value string, found bool, err error)
+}
+
+// ScopedManager answers a secret for the vhost asking for it.
+type ScopedManager interface {
+	GetScoped(ctx context.Context, vhost, key string) (string, error)
+}
+
+// VHostManager answers a secret from the asking vhost's own store, and from the
+// global manager when that vhost holds none by the name. A vhost can therefore
+// keep its own API_KEY, override a shared one, and still read the
+// HERMOD_SECRET_ variables or Vault entries it read before. It is never
+// answered from another vhost's store.
+type VHostManager struct {
+	Store  VHostStore
+	Global Manager
+}
+
+// Get answers without a vhost: the global manager only.
+func (m *VHostManager) Get(ctx context.Context, key string) (string, error) {
+	return m.GetScoped(ctx, "", key)
+}
+
+// GetScoped answers key for vhost. A store that fails is an error rather than a
+// fall-through: the global manager may hold a different value under the same
+// name, and handing that one over would be worse than handing over nothing.
+func (m *VHostManager) GetScoped(ctx context.Context, vhost, key string) (string, error) {
+	if vhost != "" && m.Store != nil {
+		value, found, err := m.Store.VHostSecret(ctx, vhost, key)
+		if err != nil {
+			return "", fmt.Errorf("reading secret %q of vhost %q: %w", key, vhost, err)
+		}
+		if found {
+			return value, nil
+		}
+	}
+	if m.Global == nil {
+		return "", nil
+	}
+	return m.Global.Get(ctx, key)
 }

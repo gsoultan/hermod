@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/gsoultan/hermod"
@@ -323,6 +324,82 @@ type User struct {
 	// CreatedAt is the sort key the user list pages on. Storage stamps it when a
 	// caller leaves it zero and never rewrites it on update. See Workflow.CreatedAt.
 	CreatedAt time.Time `json:"created_at" bson:"created_at"`
+}
+
+// VHostSecret is one secret a vhost holds: saved from the UI, encrypted at
+// rest, and readable only by that vhost's workflows.
+//
+// Value is the plaintext while it is in memory. It carries `json:"-"` so that no
+// handler can return it by encoding the struct: the API lists names, and a
+// value leaves storage only to be used.
+type VHostSecret struct {
+	VHost     string    `json:"vhost"`
+	Name      string    `json:"name"`
+	Value     string    `json:"-"`
+	UpdatedBy string    `json:"updated_by"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// Limits on a vhost secret. The name is what an expression writes inside
+// secret("..."), so it is kept to what needs no quoting anywhere.
+const (
+	MaxVHostSecretNameLen  = 128
+	MaxVHostSecretValueLen = 64 * 1024
+)
+
+// ErrVHostSecretsUnsupported is returned by a storage backend that has no
+// vhosts to hold secrets for.
+var ErrVHostSecretsUnsupported = errors.New("this storage backend does not support vhost secrets")
+
+// ValidateVHostSecret reports what is wrong with a secret about to be saved.
+func ValidateVHostSecret(s VHostSecret) error {
+	if s.VHost == "" {
+		return errors.New("a vhost is required")
+	}
+	if !ValidVHostSecretName(s.Name) {
+		return fmt.Errorf("a secret name is letters, digits and underscores, starts with a letter or underscore, and is at most %d characters", MaxVHostSecretNameLen)
+	}
+	if s.Value == "" {
+		return errors.New("a secret value is required")
+	}
+	if len(s.Value) > MaxVHostSecretValueLen {
+		return fmt.Errorf("a secret value is at most %d bytes", MaxVHostSecretValueLen)
+	}
+	return nil
+}
+
+// ValidVHostSecretName reports whether name is [A-Za-z_][A-Za-z0-9_]*, within
+// the length limit.
+func ValidVHostSecretName(name string) bool {
+	if name == "" || len(name) > MaxVHostSecretNameLen {
+		return false
+	}
+	for i, c := range name {
+		letter := (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_'
+		if !letter && (i == 0 || c < '0' || c > '9') {
+			return false
+		}
+	}
+	return true
+}
+
+// VHostSecretStore is implemented by a storage backend that can hold secrets
+// per vhost. It is separate from Storage so that a backend without vhosts does
+// not have to pretend; callers find it with a type assertion.
+type VHostSecretStore interface {
+	// ListVHostSecrets returns the vhost's secrets ordered by name, without
+	// their values.
+	ListVHostSecrets(ctx context.Context, vhost string) ([]VHostSecret, error)
+	// GetVHostSecret returns one secret with its value, or ErrNotFound.
+	GetVHostSecret(ctx context.Context, vhost, name string) (VHostSecret, error)
+	// PutVHostSecret creates the secret, or replaces its value if the vhost
+	// already holds the name.
+	PutVHostSecret(ctx context.Context, secret VHostSecret) error
+	// DeleteVHostSecret removes one secret, or returns ErrNotFound.
+	DeleteVHostSecret(ctx context.Context, vhost, name string) error
+	// DeleteVHostSecrets removes every secret the vhost holds.
+	DeleteVHostSecrets(ctx context.Context, vhost string) error
 }
 
 type VHost struct {
