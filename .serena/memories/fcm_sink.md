@@ -111,7 +111,10 @@ literal, or the gate cannot see it.
 
 The form's three data choices are the three `data_mode` values; "Only the values
 listed below" is `none` plus `data_json`, which is how a payload is narrowed
-without a transformer. The destination choice is component state seeded from
+without a transformer. A new sink is written `data_mode: none` by `ui/src/lib/newSinkDefaults.ts`
+(applied in `useSinkForm` only when not editing — on mount and when a type is
+picked). The backend default stays `envelope`, because a saved sink with no
+`data_mode` has always meant that. The destination choice is component state seeded from
 the config — derived from the config it snapped back to Device token whenever
 all three keys were empty, so a topic could never be entered.
 

@@ -63,6 +63,10 @@ one you paste, and shows it with its data weighed against the limit and the
 largest entries named. It is built by the sink's own code, sends nothing and
 needs no credentials. `POST /api/sinks/fcm/preview` is the endpoint behind it.
 
+A sink created from now on starts with **Only the values listed below**, written
+into its config, so it cannot exceed the limit until something is added. A saved
+sink that never named the setting keeps sending the whole row, as it always has.
+
 The oversize error now names the largest entry and its size, and the two places
 in the form that change the outcome.
 
