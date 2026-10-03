@@ -35,9 +35,10 @@
 // FCM distinguishes refusals that another attempt could satisfy — UNAVAILABLE,
 // INTERNAL, the two rate limits — from those it could not. A token belonging to
 // an app that was uninstalled is gone for good; a payload over the size limit
-// will be over it again. Those are returned wrapped in ErrPermanent so a caller
-// that can tell the difference dead-letters immediately instead of spending the
-// retry budget to reach the same answer.
+// will be over it again. Those are returned wrapped in ErrPermanent, which is
+// hermod.ErrPermanent to the engine: it dead-letters them on the first refusal
+// instead of spending the retry budget to reach the same answer, and does not
+// count them against the circuit breaker.
 package fcm
 
 import (

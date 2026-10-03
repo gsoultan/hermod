@@ -344,6 +344,24 @@ func (e *Engine) writeToDLQ(ctx context.Context, sinkID string, msgs ...hermod.M
 	return firstErr
 }
 
+// retryDelay is how long to wait after failed attempt j (0-based) to sink i:
+// the sink's own schedule when it has one, else a linear backoff on base, with
+// ±20% jitter so writers that failed together do not retry together.
+func (e *Engine) retryDelay(i, j int, base time.Duration) time.Duration {
+	var interval time.Duration
+	if i >= 0 && i < len(e.sinkConfigs) && len(e.sinkConfigs[i].RetryIntervals) > 0 {
+		if j < len(e.sinkConfigs[i].RetryIntervals) {
+			interval = e.sinkConfigs[i].RetryIntervals[j]
+		} else {
+			interval = e.sinkConfigs[i].RetryIntervals[len(e.sinkConfigs[i].RetryIntervals)-1]
+		}
+	} else {
+		interval = time.Duration(j+1) * base
+	}
+	jitter := 0.8 + rand.Float64()*0.4 //nolint:gosec // G404: jitter only spreads retries out; nothing relies on it being unpredictable.
+	return time.Duration(float64(interval) * jitter)
+}
+
 // writeToSink writes a single message to the sink with retry/reconnect.
 // Optional onAttemptError observers are invoked on every individual sink write
 // failure (including transient failures that a later retry recovers from). This
@@ -448,32 +466,46 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 		err := snk.Write(ctx, msg)
 		if err != nil {
 			lastErr = err
+			telemetry.SinkWriteErrors.WithLabelValues(e.workflowID, sinkID).Inc()
+			if errors.Is(err, hermod.ErrPermanent) {
+				// The sink refused this message for what it is, and will refuse
+				// it again: straight to the dead letter, without waiting out the
+				// backoff. Not reported to the observers either — the circuit
+				// breaker is one of them, and a refusal about a message says
+				// nothing about whether the sink is up. Nor is the sink marked
+				// reconnecting: it never disconnected.
+				e.logger.Warn("Sink refused the message; another attempt would get the same answer",
+					"workflow_id", e.workflowID, "sink_id", sinkID, "message_id", msg.ID(), "error", err)
+				if e.deadLetterSink == nil {
+					// Nothing will park it, so it goes back unacknowledged and the
+					// source redelivers it. The retry backoff was what paced that;
+					// returning now would turn one unsendable row into a tight loop
+					// against the sink. Keep the wait, skip the calls.
+					var pace time.Duration
+					for k := j; k < maxRetries; k++ {
+						pace += e.retryDelay(i, k, retryInterval)
+					}
+					select {
+					case <-time.After(pace):
+					case <-ctx.Done():
+						span.RecordError(ctx.Err())
+						span.SetStatus(codes.Error, ctx.Err().Error())
+						return ctx.Err()
+					}
+				}
+				break
+			}
 			for _, observe := range onAttemptError {
 				if observe != nil {
 					observe()
 				}
 			}
-			telemetry.SinkWriteErrors.WithLabelValues(e.workflowID, sinkID).Inc()
 			e.setSinkStatus(sinkID, "reconnecting")
 			e.setStatus("reconnecting:sink:" + sinkID)
 			e.logger.Warn("Sink write error, retrying", "workflow_id", e.workflowID, "attempt", j+1, "sink_id", sinkID, "error", err)
 
-			var interval time.Duration
-			if i >= 0 && i < len(e.sinkConfigs) && len(e.sinkConfigs[i].RetryIntervals) > 0 {
-				if j < len(e.sinkConfigs[i].RetryIntervals) {
-					interval = e.sinkConfigs[i].RetryIntervals[j]
-				} else {
-					interval = e.sinkConfigs[i].RetryIntervals[len(e.sinkConfigs[i].RetryIntervals)-1]
-				}
-			} else {
-				interval = time.Duration(j+1) * retryInterval
-			}
-			// Add jitter (±20%) to avoid thundering herd
-			jitter := 0.8 + rand.Float64()*0.4
-			interval = time.Duration(float64(interval) * jitter)
-
 			select {
-			case <-time.After(interval):
+			case <-time.After(e.retryDelay(i, j, retryInterval)):
 				continue
 			case <-ctx.Done():
 				span.RecordError(ctx.Err())
@@ -526,7 +558,9 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 		break
 	}
 	if lastErr != nil {
-		e.logger.Error("Sink write failed after retries", "workflow_id", e.workflowID, "sink_id", sinkID, "error", lastErr)
+		if !errors.Is(lastErr, hermod.ErrPermanent) {
+			e.logger.Error("Sink write failed after retries", "workflow_id", e.workflowID, "sink_id", sinkID, "error", lastErr)
+		}
 		span.RecordError(lastErr)
 		span.SetStatus(codes.Error, lastErr.Error())
 		if e.deadLetterSink != nil {
@@ -649,6 +683,11 @@ func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msg
 		if err := snk.WriteBatch(ctx, msgs); err != nil {
 			lastErr = err
 			telemetry.SinkWriteErrors.WithLabelValues(e.workflowID, sinkID).Add(float64(len(msgs)))
+			if errors.Is(err, hermod.ErrPermanent) {
+				// Nothing in the batch can succeed on another attempt. The
+				// per-message pass below still runs, which parks each one.
+				break
+			}
 			e.setSinkStatus(sinkID, "reconnecting")
 			e.setStatus("reconnecting:sink:" + sinkID)
 			e.logger.Warn("Sink batch write error, retrying", "workflow_id", e.workflowID, "attempt", j+1, "sink_id", sinkID, "batch_size", len(msgs), "error", err)
@@ -1074,11 +1113,15 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 		var err error
 		transientFailure := false
 		observeAttemptErr := func() { transientFailure = true }
+		// healthFailure is a failure that says the sink may be down. A
+		// permanent refusal is not one: see hermod.ErrPermanent.
+		healthFailure := false
 		var perMsgErr []error
 		isBatch := false
 		if bs, ok := w.sink.(hermod.BatchSink); ok && len(msgsReuse) > 1 {
 			isBatch = true
 			err = w.engine.writeBatchToSink(writeCtx, bs, msgsReuse, w.sinkID, w.index)
+			healthFailure = err != nil && !errors.Is(err, hermod.ErrPermanent)
 		} else {
 			perMsgErr = make([]error, len(msgsReuse))
 			for i, m := range msgsReuse {
@@ -1086,6 +1129,9 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 				perMsgErr[i] = e
 				if e != nil {
 					err = e
+					if !errors.Is(e, hermod.ErrPermanent) {
+						healthFailure = true
+					}
 				}
 			}
 		}
@@ -1095,8 +1141,12 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 			// The sink was never called, so this run is evidence of nothing.
 			// Recording it either way would have a dry run trip the circuit
 			// breaker, or reset one that had legitimately opened.
-		case err != nil || transientFailure:
+		case healthFailure || transientFailure:
 			w.recordFailure()
+		case err != nil:
+			// Only permanent refusals: the sink answered and refused the
+			// message. That is evidence of neither a failing sink nor a
+			// healthy one, so the breaker is left as it is.
 		default:
 			w.recordSuccess()
 		}
