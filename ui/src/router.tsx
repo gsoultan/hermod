@@ -36,6 +36,7 @@ import {lazy, Suspense} from "react"
 const SettingsPage = lazy(async () => ({ default: (await import('./pages/system/SettingsPage')).SettingsPage }))
 const LogsPage = lazy(async () => ({ default: (await import('./pages/monitoring/LogsPage')).LogsPage }))
 const SchemasPage = lazy(async () => ({ default: (await import('./pages/system/SchemasPage')).SchemasPage }))
+const SecretsPage = lazy(async () => ({ default: (await import('./pages/secrets/SecretsPage')).SecretsPage }))
 const AuditLogsPage = lazy(async () => ({ default: (await import('./pages/monitoring/AuditLogsPage')).AuditLogsPage }))
 const LineagePage = lazy(async () => ({ default: (await import('./pages/monitoring/LineagePage')).LineagePage }))
 const GlobalHealthPage = lazy(async () => ({ default: (await import('./pages/monitoring/GlobalHealthPage')).default }))
@@ -452,6 +453,24 @@ const schemasRoute = createRoute({
   ),
 })
 
+// A vhost's secrets are managed by Administrators and by Editors who have the
+// vhost; the API refuses everyone else, and so does the route.
+const secretsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/secrets',
+  beforeLoad: () => {
+    const role = getSessionRole()
+    if (role !== 'Administrator' && role !== 'Editor') {
+      throw redirect({ to: '/' })
+    }
+  },
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader /></Center>}>
+      <SecretsPage />
+    </Suspense>
+  ),
+})
+
 const auditLogsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/audit-logs',
@@ -618,6 +637,7 @@ const routeTree = rootRoute.addChildren([
   logsRoute,
   auditLogsRoute,
   schemasRoute,
+  secretsRoute,
   lineageRoute,
   healthRoute,
   complianceRoute,

@@ -26,6 +26,7 @@ const (
 	QueryInitSinksTable              = "InitSinksTable"
 	QueryInitUsersTable              = "InitUsersTable"
 	QueryInitVHostsTable             = "InitVHostsTable"
+	QueryInitVHostSecretsTable       = "InitVHostSecretsTable"
 	QueryInitWorkersTable            = "InitWorkersTable"
 	QueryInitLogsTable               = "InitLogsTable"
 	QueryInitWorkflowsTable          = "InitWorkflowsTable"
@@ -83,6 +84,15 @@ const (
 	QueryUpdateVHost = "UpdateVHost"
 	QueryDeleteVHost = "DeleteVHost"
 	QueryGetVHost    = "GetVHost"
+
+	// VHost secrets. These are names of queries, not credentials: gosec's G101
+	// goes by the word "Secret" in the identifier.
+	QueryListVHostSecrets   = "ListVHostSecrets"
+	QueryGetVHostSecret     = "GetVHostSecret"
+	QueryInsertVHostSecret  = "InsertVHostSecret"  //nolint:gosec // G101: a query name
+	QueryUpdateVHostSecret  = "UpdateVHostSecret"  //nolint:gosec // G101: a query name
+	QueryDeleteVHostSecret  = "DeleteVHostSecret"  //nolint:gosec // G101: a query name
+	QueryDeleteVHostSecrets = "DeleteVHostSecrets" //nolint:gosec // G101: a query name
 
 	// Workflows
 	QueryListWorkflows        = "ListWorkflows"
@@ -256,6 +266,18 @@ var commonQueries = map[string]string{
 			name TEXT UNIQUE,
 			description TEXT,
 			created_at TIMESTAMP
+		)`,
+	// id is vhost + "/" + name. A secret name cannot hold a slash, so the last
+	// one always separates them, and a single TEXT key is what every dialect
+	// here already accepts.
+	QueryInitVHostSecretsTable: `CREATE TABLE IF NOT EXISTS vhost_secrets (
+			id TEXT PRIMARY KEY,
+			vhost TEXT,
+			name TEXT,
+			value TEXT,
+			updated_by TEXT,
+			created_at TIMESTAMP,
+			updated_at TIMESTAMP
 		)`,
 	QueryInitWorkersTable: `CREATE TABLE IF NOT EXISTS workers (
 			id TEXT PRIMARY KEY,
@@ -555,7 +577,14 @@ var commonQueries = map[string]string{
 	QueryCreateVHost: "INSERT INTO vhosts (id, name, description, created_at) VALUES (?, ?, ?, ?)",
 	QueryUpdateVHost: "UPDATE vhosts SET name = ?, description = ? WHERE id = ?",
 	QueryDeleteVHost: "DELETE FROM vhosts WHERE id = ?",
-	QueryGetVHost:    "SELECT id, name, description, created_at FROM vhosts WHERE id = ?",
+
+	QueryListVHostSecrets:   "SELECT name, updated_by, created_at, updated_at FROM vhost_secrets WHERE vhost = ? ORDER BY name",
+	QueryGetVHostSecret:     "SELECT value, updated_by, created_at, updated_at FROM vhost_secrets WHERE id = ?",
+	QueryInsertVHostSecret:  "INSERT INTO vhost_secrets (id, vhost, name, value, updated_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+	QueryUpdateVHostSecret:  "UPDATE vhost_secrets SET value = ?, updated_by = ?, updated_at = ? WHERE id = ?",
+	QueryDeleteVHostSecret:  "DELETE FROM vhost_secrets WHERE id = ?",
+	QueryDeleteVHostSecrets: "DELETE FROM vhost_secrets WHERE vhost = ?",
+	QueryGetVHost:           "SELECT id, name, description, created_at FROM vhosts WHERE id = ?",
 
 	QueryListWorkflows:        "SELECT id, name, vhost, active, status, worker_id, owner_id, lease_until, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request, total_processed, total_errors, total_lag, created_at FROM workflows",
 	QueryCountWorkflows:       "SELECT COUNT(*) FROM workflows",

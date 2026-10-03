@@ -20,6 +20,35 @@ names the first one read that way. That switch will be removed. A blank prefix
 under Settings → Security now means `HERMOD_SECRET_`; it used to mean every
 variable.
 
+### Added — a vhost keeps its own secrets
+
+There was nowhere in Hermod to save a secret. `secret("NAME")` read the
+server's environment or an external manager, the same for every vhost, so a new
+API key meant changing the server's configuration. The new **Secrets** page
+saves secrets per vhost:
+
+- A value is encrypted with the crypto master key, and is never returned by the
+  API or shown again; the page lists names, who changed them and when. Rotating
+  means typing the new value.
+- Administrators manage any vhost's secrets; Editors manage those of the vhosts
+  they have. Viewers see nothing, the names included.
+- A workflow reads its own vhost's secrets first and the global secret manager
+  after, so existing `HERMOD_SECRET_*` variables and Vault entries keep working
+  and a vhost can override a shared name. It never reads another vhost's.
+- A rotation or a deletion is seen by the next message, without a restart.
+- In the workflow editor, **Insert variable** also lists the vhost's secret
+  names.
+
+A preview shows what an expression produced, so Test, Live Preview and Run
+Simulation run as a vhost only for someone who has it. Anyone who can write a
+workflow that uses a secret can still see its value in that workflow's preview;
+the page's write-only rule protects the stored value, not a value in use.
+
+Not covered yet: Test Connection on a source or sink resolves `secret:NAME`
+from the global manager only, while the running workflow also reads the
+vhost's; and the Pebble storage backend, which has no vhosts, has no vhost
+secrets. Deleting a vhost deletes its secrets.
+
 ### A workflow can no longer read the server's environment
 
 `env('X')` was `os.Getenv`, and `secret('X')` and a connector's `secret:X` fell

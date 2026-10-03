@@ -309,6 +309,34 @@ message. `HERMOD_SECRETS_ALLOW_UNPREFIXED=true` restores the bare-name fallback
 for one release; it is set in the process environment, which no workflow can
 write.
 
+### A vhost's secrets
+
+A vhost can hold its own secrets (`vhost_secrets`), saved from the Secrets page.
+What keeps them where they belong:
+
+- **At rest:** the value is encrypted with the crypto master key, and is
+  re-encrypted with everything else when that key is rotated.
+- **Over the API:** `GET /api/vhosts/{vhost}/secrets` lists names; no route a
+  person can call returns a value. Saving and deleting need the Administrator
+  role, or the Editor role and the vhost. Every change is audited by name.
+- **For a worker:** `GET /api/worker/vhosts/{vhost}/secrets/{name}` returns a
+  value to a worker's token and to nothing else. A remote worker needs it to
+  run a workflow, as it already receives decrypted connector configs.
+- **In a running workflow:** the engine marks each message it reads with its
+  workflow's vhost, in a field that is neither data nor metadata, so a payload
+  cannot choose whose secrets it reads. `secret()` answers for that mark: the
+  vhost's own store, then the global manager. The expression cache is keyed by
+  vhost and name.
+- **In a preview:** Test, Live Preview, Run Simulation and node unit tests run
+  as a vhost only for a caller who has that vhost. This is the check that
+  matters most: a preview shows what an expression produced, so it is the one
+  place a stored value can still be seen.
+
+The limit to be clear about: write-only protects a stored value from the API
+and the UI. Someone who can author a workflow that uses a secret can read it in
+that workflow's preview, or send it wherever the workflow sends data. Give the
+Editor role on a vhost only to people who may know its secrets.
+
 ### A table name can come from a message
 
 When a SQL sink is not pinned to a table it takes one from the message, and a
