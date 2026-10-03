@@ -10,6 +10,7 @@
 #   ./scripts/dev.sh --stop      stop a running stack and exit
 #   ./scripts/dev.sh --print-ports  show the ports this run would use, then exit
 #   ./scripts/dev.sh --print-dsn    show the database DSN this run would use, then exit
+#   ./scripts/dev.sh --sync-config  point the stored config at this run's database, then exit
 #
 # Ports are chosen, not assumed. It prefers 4005 (API), 50051 (gRPC) and 5175
 # (UI), and steps up to the next free number for any of them that is taken, so
@@ -40,11 +41,12 @@
 #   HERMOD_DEV_PG_CONTAINER  container name (default: postgres-dev)
 #   HERMOD_DEV_PG_HOST       host for Postgres    (default: the container's IP)
 #   HERMOD_DEV_PG_PORT       host port for Postgres (default: auto-detected)
+#   HERMOD_DEV_DIR           state directory      (default: .dev in the repo)
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEV_DIR="$REPO_ROOT/.dev"
+DEV_DIR="${HERMOD_DEV_DIR:-$REPO_ROOT/.dev}"
 LOG_DIR="$DEV_DIR/logs"
 BIN="$DEV_DIR/hermod"
 
@@ -98,6 +100,7 @@ DO_BUILD_UI=0
 DO_DETACH=0
 DO_PRINT_PORTS=0
 DO_PRINT_DSN=0
+DO_SYNC_CONFIG=0
 for arg in "$@"; do
   case "$arg" in
     --sqlite) USE_SQLITE=1 ;;
@@ -107,6 +110,7 @@ for arg in "$@"; do
     --detach)   DO_DETACH=1 ;;
     --print-ports) DO_PRINT_PORTS=1 ;;
     --print-dsn) DO_PRINT_DSN=1 ;;
+    --sync-config) DO_SYNC_CONFIG=1 ;;
     -h|--help) awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "unknown option: $arg (try --help)" >&2; exit 2 ;;
   esac
@@ -121,6 +125,53 @@ say()  { echo "${BOLD}▸${RESET} $*"; }
 ok()   { echo "  ${GREEN}✓${RESET} $*"; }
 warn() { echo "  ${YELLOW}!${RESET} $*"; }
 die()  { echo "  ${RED}✗${RESET} $*" >&2; exit 1; }
+
+# --- stored config -------------------------------------------------------------
+
+# Needs DB_TYPE and DB_CONN.
+sync_stored_config() {
+  # Hermod persists its chosen database to db_config.yaml and prefers that over
+  # the CLI flags on later starts, DSN included. Two things make the stored one
+  # wrong: switching between --sqlite and Postgres, and a container IP that moved
+  # across restarts. Either way only the type and conn lines are rewritten.
+  #
+  # The file is never deleted for this. It also holds jwt_secret and
+  # crypto_master_key, and without it the backend reports a first run and this
+  # script re-runs setup — which fails with a duplicate admin against a database
+  # that already has one. Keeping it keeps sessions and stored credentials too.
+  DB_STAMP="$DEV_DIR/.db-type"
+  DB_CONFIG_FILE="$HERMOD_CONFIG_DIR/db_config.yaml"
+  local stamped=""
+  [[ -f "$DB_STAMP" ]] && stamped="$(cat "$DB_STAMP")"
+
+  if [[ -f "$DB_CONFIG_FILE" ]]; then
+    if ! command -v python3 >/dev/null 2>&1; then
+      # No way to edit it safely; a deleted config at least connects.
+      if [[ -n "$stamped" && "$stamped" != "$DB_TYPE" ]]; then
+        warn "database type changed ($stamped → $DB_TYPE) and python3 is missing; resetting stored config"
+        rm -f "$DB_CONFIG_FILE" 2>/dev/null || true
+      fi
+    elif CHANGED="$(DB_CONFIG_FILE="$DB_CONFIG_FILE" DB_TYPE="$DB_TYPE" DB_CONN="$DB_CONN" python3 -c '
+import io,os,sys
+path=os.environ["DB_CONFIG_FILE"]
+want={"type":os.environ["DB_TYPE"],"conn":os.environ["DB_CONN"]}
+lines=io.open(path,encoding="utf-8").read().splitlines(True)
+changed=[]
+for i,l in enumerate(lines):
+    for k,v in want.items():
+        if l.startswith(k+": "):
+            old=l[len(k)+2:].strip()
+            if old!=v:
+                lines[i]="%s: %s\n" % (k,v)
+                changed.append("%s %s" % (k,old))
+if not changed: sys.exit(1)
+io.open(path,"w",encoding="utf-8").write("".join(lines))
+print("; ".join(changed))' 2>/dev/null)"; then
+      warn "stored config pointed at ${CHANGED} — repointed to $DB_TYPE $DB_CONN"
+    fi
+  fi
+  echo "$DB_TYPE" > "$DB_STAMP"
+}
 
 # --- port selection ------------------------------------------------------------
 
@@ -414,6 +465,25 @@ if [[ "$DO_PRINT_DSN" == "1" ]]; then
   exit 0
 fi
 
+# The stored-config step on its own, so a test can run it against a scratch
+# HERMOD_DEV_DIR without building or starting anything.
+if [[ "$DO_SYNC_CONFIG" == "1" ]]; then
+  if [[ "$USE_SQLITE" == "1" ]]; then
+    DB_TYPE="sqlite"
+    DB_CONN="$SQLITE_PATH"
+  else
+    require_container_cli
+    rt_ls_running | grep -qx "$PG_CONTAINER" \
+      || die "container '$PG_CONTAINER' is not running — start the stack first"
+    resolve_pg_dsn
+    DB_TYPE="postgres"
+    DB_CONN="$PG_DSN"
+  fi
+  mkdir -p "$DEV_DIR" "$HERMOD_CONFIG_DIR"
+  sync_stored_config
+  exit 0
+fi
+
 # --- preflight ----------------------------------------------------------------
 
 say "Checking prerequisites"
@@ -507,40 +577,7 @@ else
   verify_pg_dsn
 fi
 
-# Hermod persists its chosen database to db_config.yaml and prefers that over
-# the CLI flags on later starts. Switching between --sqlite and Postgres would
-# therefore keep using the previous database and fail to connect, so drop the
-# stored config whenever the requested type differs from the recorded one.
-DB_STAMP="$DEV_DIR/.db-type"
-if [[ -f "$DB_STAMP" && "$(cat "$DB_STAMP")" != "$DB_TYPE" ]]; then
-  warn "database type changed ($(cat "$DB_STAMP") → $DB_TYPE); resetting stored config"
-  rm -f "$HERMOD_CONFIG_DIR/db_config.yaml" "$HERMOD_CONFIG_DIR/config.yaml" 2>/dev/null || true
-fi
-
-# Hermod persists the DSN too, and prefers the stored one over --db-conn on
-# later starts. A container's IP is not stable across restarts, so a stored DSN
-# outlives the address it names: refresh it here rather than let the next run
-# connect to whatever now answers there. Rewriting the one line keeps the
-# generated jwt_secret, so sessions opened before this survive.
-DB_CONFIG_FILE="$HERMOD_CONFIG_DIR/db_config.yaml"
-if [[ -f "$DB_CONFIG_FILE" ]] && command -v python3 >/dev/null 2>&1; then
-  if STALE="$(DB_CONFIG_FILE="$DB_CONFIG_FILE" DB_CONN="$DB_CONN" python3 -c '
-import io,os,sys
-path=os.environ["DB_CONFIG_FILE"]; want=os.environ["DB_CONN"]
-lines=io.open(path,encoding="utf-8").read().splitlines(True)
-old=""
-for i,l in enumerate(lines):
-    if l.startswith("conn: "):
-        old=l[len("conn: "):].strip()
-        if old==want: sys.exit(1)
-        lines[i]="conn: %s\n" % want
-        io.open(path,"w",encoding="utf-8").write("".join(lines))
-        print(old); sys.exit(0)
-sys.exit(1)' 2>/dev/null)"; then
-    warn "stored DSN pointed at $STALE — repointed to $DB_CONN"
-  fi
-fi
-echo "$DB_TYPE" > "$DB_STAMP"
+sync_stored_config
 
 # --- build --------------------------------------------------------------------
 
@@ -611,6 +648,23 @@ SETUP_CODE="$(curl -s -o "$LOG_DIR/setup.json" -w '%{http_code}' \
 case "$SETUP_CODE" in
   200) ok "created admin user '$ADMIN_USER'" ;;
   401) ok "already configured — existing admin kept" ;;
+  500)
+    # The database already has this admin but the stored config was missing
+    # (a fresh .dev/, e.g. a new worktree, against a shared database). The
+    # setup request writes the config before it creates the admin, so the next
+    # start is configured. Postgres says "duplicate key", SQLite "UNIQUE
+    # constraint".
+    if grep -qE 'duplicate key|UNIQUE constraint' "$LOG_DIR/setup.json" 2>/dev/null; then
+      die "first-run setup found user '$ADMIN_USER' already in the database (HTTP 500).
+    $(cat "$LOG_DIR/setup.json" 2>/dev/null)
+    Nothing is lost: the database is set up, only .dev/config was missing, and
+    setup has written it now. Run ./scripts/dev.sh again — not --reset, which
+    drops the database."
+    fi
+    die "first-run setup failed (HTTP $SETUP_CODE).
+    $(cat "$LOG_DIR/setup.json" 2>/dev/null)
+    No admin user exists, so the login page would reject every password —
+    which is why this stops here instead of printing a ready banner." ;;
   *)   die "first-run setup failed (HTTP $SETUP_CODE).
     $(cat "$LOG_DIR/setup.json" 2>/dev/null)
     No admin user exists, so the login page would reject every password —

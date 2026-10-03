@@ -290,6 +290,12 @@ jobs:
       # runtime, so this is safe on a bare runner.
       - name: Dev script cleanup
         run: ./scripts/dev_cleanup_test.sh
+      # A database type switch used to delete dev.sh's stored config, secrets
+      # and all, so the next run re-ran first-run setup against a database that
+      # already had its admin and stopped on a duplicate key. --sqlite
+      # --sync-config needs neither a container nor a build.
+      - name: Dev script config sync
+        run: ./scripts/dev_config_sync_test.sh
 
       # The pr-base workflow only ever exercises one path per run — whichever the
       # pull request under review happens to be. This covers the rest of them, so
