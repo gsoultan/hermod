@@ -5,17 +5,30 @@ import (
 	"fmt"
 
 	"firebase.google.com/go/v4/messaging"
+	"github.com/gsoultan/hermod"
 )
 
 // ErrPermanent marks a failure that retrying cannot fix: a dead registration
 // token, a payload over FCM's size limit, credentials for the wrong project.
 //
-// Hermod's RetrySink treats every error alike, so without this distinction a
-// message addressed to a device that was uninstalled months ago burns the full
-// retry budget on every attempt before reaching the dead-letter sink. Callers
-// that can tell the difference should check errors.Is(err, ErrPermanent) and
-// dead-letter immediately.
-var ErrPermanent = errors.New("fcm: permanent failure")
+// Without this distinction a message addressed to a device that was
+// uninstalled months ago burns the full retry budget before reaching the
+// dead-letter sink.
+//
+// It is hermod.ErrPermanent to anything above this package — errors.Is(err,
+// hermod.ErrPermanent) holds for every error that wraps it — and that is what
+// the retry decorator, the engine's retry loop and its circuit breaker act on.
+// It used to be a value of its own, which none of them could see, so a refusal
+// that said it could never succeed was retried anyway.
+var ErrPermanent error = permanentMark{}
+
+// permanentMark is ErrPermanent's type. It keeps the "fcm: permanent failure"
+// text the operator reads while matching hermod.ErrPermanent.
+type permanentMark struct{}
+
+func (permanentMark) Error() string { return "fcm: permanent failure" }
+
+func (permanentMark) Is(target error) bool { return target == hermod.ErrPermanent }
 
 // UnregisteredTokenError names a registration token FCM says no longer exists.
 //
@@ -35,7 +48,9 @@ func (e *UnregisteredTokenError) Unwrap() error { return e.Err }
 
 // Is makes errors.Is(err, ErrPermanent) true for a dead token without the
 // caller having to know this type exists.
-func (e *UnregisteredTokenError) Is(target error) bool { return target == ErrPermanent }
+func (e *UnregisteredTokenError) Is(target error) bool {
+	return target == ErrPermanent || target == hermod.ErrPermanent
+}
 
 // permanent wraps err so errors.Is(err, ErrPermanent) holds, preserving the
 // original for errors.As and for the message the operator reads.

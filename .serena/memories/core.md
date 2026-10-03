@@ -74,6 +74,9 @@ find a claim that outruns the code, fix the claim.
   toast. One refresh now carries a new sample through every node's fields and
   Live Preview. It sends a `partial` run with per-source-node `messages`; the
   toolbar Test stays strict on purpose.
+- [Permanent refusals](permanent_refusals.md) — wrap `hermod.ErrPermanent` and the
+  retry decorator, the engine's retry loop and the circuit breaker all skip it;
+  without a dead-letter sink the backoff wait is kept so redelivery cannot spin.
 - [Sink form fall-through, and the panmail sink](sink_form_fallthrough_and_panmail.md)
   — `configComponents[type] || 'database'` silently rendered the database form
   for twelve sink types, making two of them unconfigurable; and why the panmail

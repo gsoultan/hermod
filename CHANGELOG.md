@@ -110,6 +110,23 @@ with `cannot unmarshal bool`, because the form's settings include a boolean and
 the endpoint read them as text. Both previews read the form's settings as the
 save path does.
 
+### A refusal that cannot succeed is not retried
+
+A sink can say a message will be refused on every attempt — FCM does for a
+payload over its size limit and for a device token that no longer exists. The
+engine could not see that, so it retried anyway: the sink's own retry wrapper
+three times, then the workflow's retry loop with its backoff, and the error read
+"sink write failed after 3 retries: fcm: permanent failure". For a dead FCM
+token every one of those attempts was another call to FCM.
+
+Such a refusal now goes to the dead-letter sink on the first attempt. Without a
+dead-letter sink it is reported at once and the message is left unacknowledged
+as before, after the same wait the retries would have taken, so a source that
+redelivers it does not spin. The circuit breaker no longer counts these
+refusals: a run of stale device tokens used to open it and stop delivery to
+every live device behind them. A sink marks such an error by wrapping
+`hermod.ErrPermanent`.
+
 ## [1.16.2] — 2026-09-29
 
 The Set Fields editor has room to work in. A **Focus editor** button gives a
