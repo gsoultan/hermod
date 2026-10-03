@@ -9,6 +9,17 @@ import (
 
 var (
 	ErrNotSupported = errors.New("not supported")
+
+	// ErrPermanent marks a sink failure another attempt cannot fix: the
+	// destination refused this message for what it is — too large, addressed
+	// to a device that no longer exists — not because it could not be reached.
+	//
+	// The retry layers stop on it, so the message goes to the dead-letter sink
+	// on the first refusal instead of after the whole retry budget, and the
+	// circuit breaker does not count it: a refusal about one message says
+	// nothing about the sink's health. A sink reports it by wrapping it with
+	// %w, or with an error type whose Is method matches it.
+	ErrPermanent = errors.New("permanent failure")
 )
 
 // Operation defines the type of CDC operation.
