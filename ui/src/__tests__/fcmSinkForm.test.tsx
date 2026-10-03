@@ -51,7 +51,7 @@ const ui = (initial: Record<string, string> = {}, rest: Omit<Parameters<typeof H
 describe('the fcm form shows what is needed first', () => {
   it('keeps the per-platform options folded away until they are asked for', async () => {
     ui()
-    expect(screen.getByLabelText(/service account json/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/service account key/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/^title/i)).toBeInTheDocument()
     expect(screen.queryByLabelText(/notification channel/i)).not.toBeInTheDocument()
     expect(screen.queryByLabelText(/collapse id/i)).not.toBeInTheDocument()
@@ -97,7 +97,7 @@ describe('the fcm destination picker', () => {
 
   it('opens on the destination a saved sink already has', () => {
     ui({ condition: "'orders' in topics" })
-    expect(screen.getByRole('radio', { name: /a condition/i })).toBeChecked()
+    expect(screen.getByRole('radio', { name: /combination of topics/i })).toBeChecked()
     expect(screen.getByLabelText(/^condition/i)).toHaveValue("'orders' in topics")
   })
 
@@ -138,52 +138,142 @@ describe('the fcm destination picker', () => {
 })
 
 /**
- * "Envelope", "Fields" and "None" named the implementation. What an operator
- * is deciding is how much of the row goes to the handset, and the default —
- * all of it, as one string — is the choice that does not fit.
+ * The data section is where people got stuck: three choices named after the
+ * implementation, then a second list of "values to add", and nothing saying
+ * what data is for. It is now one question -- which fields does the app get --
+ * answered by ticking the incoming row's columns.
  */
-describe('the fcm data choices', () => {
-  it('describes each choice by what the app receives and writes the key the sink reads', () => {
+describe('the fcm app data section', () => {
+  it('says what data is before asking anything about it', () => {
+    ui()
+    const section = screen.getByRole('group', { name: /app data/i })
+    expect(within(section).getByText(/never shown to people/i)).toBeInTheDocument()
+  })
+
+  it('names each choice by what the app receives and writes the key the sink reads', () => {
     const written: Written = []
     ui({}, { written })
 
-    const whole = screen.getByRole('radio', { name: /the whole row as one json text/i })
     // No data_mode is the sink's default, and the form must show it as such.
-    expect(whole).toBeChecked()
-    expect(screen.getByRole('radio', { name: /every column of the row/i })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /whole row as json/i })).toBeChecked()
+    expect(screen.getByRole('radio', { name: /all fields/i })).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('radio', { name: /only the values listed below/i }))
+    fireEvent.click(screen.getByRole('radio', { name: /selected fields/i }))
     expect(written).toContainEqual(['data_mode', 'none'])
   })
 
-  it('takes a value as a row and stores the JSON object the sink parses', () => {
+  it('adds a column of the incoming row in one click and takes it out again', () => {
+    const written: Written = []
+    ui(
+      { data_mode: 'none' },
+      {
+        written,
+        availableFields: [
+          { path: 'order_no', type: 'string' },
+          { path: 'after', type: 'object' },
+          { path: 'after.order_no', type: 'string' },
+        ],
+      },
+    )
+
+    const chip = screen.getByRole('checkbox', { name: 'order_no' })
+    // The change event's image is not a column; a chip for it would send the
+    // whole row as one string.
+    expect(screen.queryByRole('checkbox', { name: 'after' })).not.toBeInTheDocument()
+
+    fireEvent.click(chip)
+    const added = written.filter(([key]) => key === 'data_json').pop()
+    expect(JSON.parse(added![1] as string)).toEqual({ order_no: '{{.order_no}}' })
+    expect(screen.getByRole('checkbox', { name: 'order_no' })).toBeChecked()
+    // The editor below shows the same entry, so the two never disagree.
+    expect(screen.getByLabelText('Key 1 name')).toHaveValue('order_no')
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'order_no' }))
+    expect(written.filter(([key]) => key === 'data_json').pop()).toEqual(['data_json', ''])
+  })
+
+  it('does not offer the column the message is addressed by', () => {
+    ui(
+      { data_mode: 'none', device_token: '{{.after.fcm_token}}' },
+      { availableFields: [{ path: 'order_no', type: 'string' }, { path: 'fcm_token', type: 'string' }] },
+    )
+    expect(screen.getByRole('checkbox', { name: 'order_no' })).toBeInTheDocument()
+    expect(screen.queryByRole('checkbox', { name: 'fcm_token' })).not.toBeInTheDocument()
+  })
+
+  it('offers no column chips when every column is already sent', () => {
+    ui({ data_mode: 'fields' }, { availableFields: [{ path: 'order_no', type: 'string' }] })
+    expect(screen.queryByRole('checkbox', { name: 'order_no' })).not.toBeInTheDocument()
+    expect(screen.getByText('Extra keys')).toBeInTheDocument()
+  })
+
+  it('takes a custom value as a row and stores the JSON object the sink parses', () => {
     const written: Written = []
     ui({ data_mode: 'none' }, { written })
 
-    fireEvent.click(screen.getByRole('button', { name: /add value/i }))
-    fireEvent.change(screen.getByLabelText('Value 1 name'), { target: { value: 'deeplink' } })
-    fireEvent.change(screen.getByLabelText('Value 1 value'), { target: { value: 'app://orders/{{.id}}' } })
+    fireEvent.click(screen.getByRole('button', { name: /add key/i }))
+    fireEvent.change(screen.getByLabelText('Key 1 name'), { target: { value: 'deeplink' } })
+    fireEvent.change(screen.getByLabelText('Key 1 value'), { target: { value: 'app://orders/{{.id}}' } })
 
     const last = written.filter(([key]) => key === 'data_json').pop()
-    expect(last).toBeDefined()
     expect(JSON.parse(last![1] as string)).toEqual({ deeplink: 'app://orders/{{.id}}' })
   })
 
   // The run's refusal points at this field by this name.
   it('puts the oversize choice beside the data it is about', () => {
-    const written: Written = []
-    ui({}, { written })
-    const section = screen.getByRole('group', { name: /data sent to the app/i })
+    ui()
+    const section = screen.getByRole('group', { name: /app data/i })
     expect(within(section).getByLabelText(/if the data does not fit/i)).toBeInTheDocument()
   })
 })
 
+describe('the fcm service account', () => {
+  it('says when what was pasted is not the key file', () => {
+    ui({ credentials_json: '{"type":"service_account"' })
+    expect(screen.getByText(/not valid json/i)).toBeInTheDocument()
+  })
+
+  it('says when the JSON is not a service account key', () => {
+    ui({ credentials_json: '{"project_id":"demo"}' })
+    expect(screen.getByText(/no private_key/i)).toBeInTheDocument()
+  })
+
+  it('names the project a valid key sends to', () => {
+    ui({ credentials_json: '{"type":"service_account","project_id":"demo-app","private_key":"k","client_email":"a@b"}' })
+    expect(screen.getByText('demo-app')).toBeInTheDocument()
+  })
+
+  it('reads an uploaded key file into the field', async () => {
+    const written: Written = []
+    const { container } = ui({}, { written })
+    const key = '{"type":"service_account","project_id":"from-file","private_key":"k","client_email":"a@b"}'
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [new File([key], 'key.json', { type: 'application/json' })] } })
+
+    await waitFor(() => expect(written).toContainEqual(['credentials_json', key]))
+    expect(await screen.findByText('from-file')).toBeInTheDocument()
+  })
+})
+
 /**
- * FCM refuses more than 4096 bytes of data and the only thing that said a row
- * was too wide was the run that dead-lettered it. The check asks the server,
- * which builds the message with the sink's own code.
+ * FCM refuses more than 4096 bytes of data, and a message is easier to get
+ * right when it can be seen. The preview builds the message with the sink's own
+ * code on the server, as the form changes, without a button to find first.
  */
-describe('checking the fcm message against a sample row', () => {
+describe('the live fcm message preview', () => {
+  const sent = {
+    message: {
+      token: 'tok-1',
+      notification: { title: 'Order A-17', body: 'Ana' },
+      data: { deeplink: 'app://orders/A-17' },
+    },
+    recipients: 2,
+    data_bytes: 25,
+    sent_data_bytes: 25,
+    limit: 4096,
+    largest: [{ key: 'deeplink', bytes: 25 }],
+    sample: { order_no: 'A-17' },
+  }
   const refused = {
     recipients: 0,
     data_bytes: 4633,
@@ -197,64 +287,61 @@ describe('checking the fcm message against a sample row', () => {
     sample: { id: '7' },
   }
 
-  it('says a row is too big, how big, and what is taking the room', async () => {
+  it('shows the message the incoming row becomes without being asked', async () => {
     let posted: any = null
     server.use(
       http.post('/api/sinks/fcm/preview', async ({ request }) => {
         posted = await request.json()
-        return HttpResponse.json(refused)
+        return HttpResponse.json(sent)
       }),
     )
 
     ui(
-      { credentials_json: '{"private_key":"secret"}', topic: 'orders' },
-      { incomingPayload: { id: '7', notes: 'long' } },
+      { credentials_json: '{"private_key":"secret"}', device_token: '{{.push_token}}' },
+      { incomingPayload: { order_no: 'A-17', push_token: 'tok-1' } },
     )
-    fireEvent.click(screen.getByRole('button', { name: /check with a sample row/i }))
 
-    expect(await screen.findByText(/4,633 of 4,096 bytes/)).toBeInTheDocument()
-    expect(screen.getByText(/this row would fail/i)).toBeInTheDocument()
-    expect(screen.getByText(/payload \(4,580 bytes\)/)).toBeInTheDocument()
+    const preview = await screen.findByRole('region', { name: /message preview/i })
+    expect(await within(preview).findByText('Order A-17')).toBeInTheDocument()
+    expect(within(preview).getByText(/ready to send/i)).toBeInTheDocument()
+    expect(within(preview).getByText(/2 devices/)).toBeInTheDocument()
+    expect(within(preview).getByText('deeplink')).toBeInTheDocument()
+    expect(within(preview).getByText('app://orders/A-17')).toBeInTheDocument()
+    expect(within(preview).getByText(/25 of 4,096 bytes/)).toBeInTheDocument()
+    expect(within(preview).getByText(/previous step sends here/i)).toBeInTheDocument()
 
     // The row the editor says reaches this sink, not an invented one.
     expect(posted.type).toBe('fcm')
-    expect(posted.sample).toEqual({ id: '7', notes: 'long' })
-    expect(posted.config.topic).toBe('orders')
+    expect(posted.sample).toEqual({ order_no: 'A-17', push_token: 'tok-1' })
     // Rendering a message authenticates to nothing; the key stays in the form.
     expect(posted.config).not.toHaveProperty('credentials_json')
   })
 
-  it('shows the message a row that fits would send', async () => {
+  it('follows the form as it is edited', async () => {
+    const titles: string[] = []
     server.use(
-      http.post('/api/sinks/fcm/preview', () =>
-        HttpResponse.json({
-          message: {
-            token: 'tok-1',
-            notification: { title: 'Order A-17', body: 'Ana' },
-            data: { deeplink: 'app://orders/A-17' },
-          },
-          recipients: 2,
-          data_bytes: 25,
-          sent_data_bytes: 25,
-          limit: 4096,
-          largest: [{ key: 'deeplink', bytes: 25 }],
-          sample: { order_no: 'A-17' },
-        }),
-      ),
+      http.post('/api/sinks/fcm/preview', async ({ request }) => {
+        const body: any = await request.json()
+        titles.push(body.config.title ?? '')
+        return HttpResponse.json({ ...sent, message: { ...sent.message, notification: { title: body.config.title } } })
+      }),
     )
 
-    ui({ device_token: '{{.push_token}}' })
-    fireEvent.click(screen.getByRole('button', { name: /check with a sample row/i }))
+    ui({ topic: 'orders', title: 'First' })
+    expect(await screen.findByText('First', { selector: 'p' })).toBeInTheDocument()
 
-    expect(await screen.findByText(/this row would be sent/i)).toBeInTheDocument()
-    expect(screen.getByText(/25 of 4,096 bytes/)).toBeInTheDocument()
-    expect(screen.getByText(/2 devices/)).toBeInTheDocument()
-    // Exact: the wire JSON below it holds the same title inside a longer text.
-    expect(screen.getByText('Order A-17')).toBeInTheDocument()
-    // With no row from the editor the server says what it used, and it is editable.
-    await waitFor(() =>
-      expect((screen.getByRole('textbox', { name: /sample row/i }) as HTMLTextAreaElement).value).toContain('A-17'),
-    )
+    fireEvent.change(screen.getByLabelText(/^title/i), { target: { value: 'Second' } })
+    expect(await screen.findByText('Second', { selector: 'p' })).toBeInTheDocument()
+    expect(titles).toEqual(['First', 'Second'])
+  })
+
+  it('says a row is too big, how big, and what is taking the room', async () => {
+    server.use(http.post('/api/sinks/fcm/preview', () => HttpResponse.json(refused)))
+    ui({ topic: 'orders' }, { incomingPayload: { id: '7', notes: 'long' } })
+
+    expect(await screen.findByText('Would fail')).toBeInTheDocument()
+    expect(screen.getByText(/4,633 of 4,096 bytes/)).toBeInTheDocument()
+    expect(screen.getByText(/payload \(4,580 bytes\)/)).toBeInTheDocument()
   })
 
   it('says when the data was shortened to fit rather than sent whole', async () => {
@@ -270,25 +357,59 @@ describe('checking the fcm message against a sample row', () => {
         }),
       ),
     )
-
     ui({ topic: 'orders', on_oversize: 'truncate' })
-    fireEvent.click(screen.getByRole('button', { name: /check with a sample row/i }))
 
-    expect(await screen.findByText(/this row would be sent/i)).toBeInTheDocument()
-    expect(screen.getByText(/shortened from 4,633 bytes/i)).toBeInTheDocument()
+    expect(await screen.findByText(/shortened from 4,633 bytes/i)).toBeInTheDocument()
+    expect(screen.getByText(/topic orders/i)).toBeInTheDocument()
   })
 
-  it('shows a configuration the server cannot build beside the button', async () => {
+  it('says a message with no title or body shows nothing on screen', async () => {
+    server.use(
+      http.post('/api/sinks/fcm/preview', () =>
+        HttpResponse.json({ ...sent, message: { topic: 'orders', data: { id: '7' } }, recipients: 0 }),
+      ),
+    )
+    ui({ topic: 'orders' })
+    expect(await screen.findByText(/silent push/i)).toBeInTheDocument()
+  })
+
+  it('shows a configuration the server cannot build', async () => {
     server.use(
       http.post('/api/sinks/fcm/preview', () =>
         HttpResponse.json({ error: 'fcm sink: the title template is not valid: unclosed action' }, { status: 400 }),
       ),
     )
-
     ui({ topic: 'orders', title: '{{.id' })
-    fireEvent.click(screen.getByRole('button', { name: /check with a sample row/i }))
-
     expect(await screen.findByText(/unclosed action/)).toBeInTheDocument()
+  })
+
+  it('uses an example row when the editor has none, and says so', async () => {
+    server.use(http.post('/api/sinks/fcm/preview', () => HttpResponse.json(sent)))
+    ui({ topic: 'orders' })
+    expect(await screen.findByText(/example row/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /sample row/i }))
+    await waitFor(() =>
+      expect((screen.getByRole('textbox', { name: /sample row/i }) as HTMLTextAreaElement).value).toContain('A-17'),
+    )
+  })
+
+  // A form nobody has filled in yet is not a failure, and red says it is.
+  it('asks for a recipient rather than calling an empty form a failure', async () => {
+    server.use(
+      http.post('/api/sinks/fcm/preview', () =>
+        HttpResponse.json({
+          ...refused,
+          data_bytes: 0,
+          largest: [],
+          refused: 'fcm sink: no fcm destination for message 1042: the sink has no default token, topic or condition',
+        }),
+      ),
+    )
+    ui({})
+    expect(await screen.findByText('Needs a recipient')).toBeInTheDocument()
+    expect(screen.queryByText('Would fail')).not.toBeInTheDocument()
+    // The package prefix is for logs, not for the person reading the form.
+    expect(screen.getByText(/^no fcm destination for message 1042/)).toBeInTheDocument()
   })
 
   it('refuses a sample row that is not JSON without asking the server', async () => {
@@ -296,17 +417,14 @@ describe('checking the fcm message against a sample row', () => {
     server.use(
       http.post('/api/sinks/fcm/preview', () => {
         calls++
-        return HttpResponse.json({ ...refused, refused: undefined, message: { topic: 'orders' } })
+        return HttpResponse.json(sent)
       }),
     )
-
-    ui({ topic: 'orders' })
-    fireEvent.click(screen.getByRole('button', { name: /check with a sample row/i }))
-    const sample = await screen.findByRole('textbox', { name: /sample row/i })
+    ui({ topic: 'orders' }, { incomingPayload: { id: '7' } })
     await waitFor(() => expect(calls).toBe(1))
 
-    fireEvent.change(sample, { target: { value: '{not json' } })
-    fireEvent.click(screen.getByRole('button', { name: /check again/i }))
+    fireEvent.click(screen.getByRole('button', { name: /sample row/i }))
+    fireEvent.change(await screen.findByRole('textbox', { name: /sample row/i }), { target: { value: '{not json' } })
 
     expect(await screen.findByText(/not valid json/i)).toBeInTheDocument()
     expect(calls).toBe(1)
