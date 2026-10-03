@@ -127,6 +127,7 @@ POST /api/sinks/browse
 POST /api/sinks/discover/columns
 POST /api/sinks/discover/databases
 POST /api/sinks/discover/tables
+POST /api/sinks/fcm/preview
 POST /api/sinks/query
 POST /api/sinks/sample
 POST /api/sinks/smtp/preview

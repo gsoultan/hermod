@@ -101,10 +101,45 @@ Ping exists to find).
 
 `ConfigKeys()` is derived from `FromMap` — the parser records every key it
 reads — rather than restated beside it. `TestUIFormMatchesConfigKeys` reads
-`ui/src/components/workflow/Sink/FcmSinkConfig.tsx`, extracts the
+every `ui/src/components/workflow/Sink/Fcm*.tsx` (the form is split: the
+per-platform options live in `FcmPlatformOptions.tsx`), extracts the
 `updateConfig('key'` calls and fails in both directions: a form field nothing
 reads, or a sink capability no field can reach. `token` is an alias of
-`device_token`; `batch` is read by the factory, not `FromMap`.
+`device_token`; `batch` is read by the factory, not `FromMap`. A new form file
+must match the glob, and an `updateConfig` call must keep its key a string
+literal, or the gate cannot see it.
+
+The form's three data choices are the three `data_mode` values; "Only the values
+listed below" is `none` plus `data_json`, which is how a payload is narrowed
+without a transformer. The destination choice is component state seeded from
+the config — derived from the config it snapped back to Device token whenever
+all three keys were empty, so a topic could never be entered.
+
+## Preview
+
+`PreviewMessage(cfg, msg)` builds the message through `build` — the code Write
+sends with — and reports the data size before and after the oversize policy. It
+uses `newUnconnected`, which is `New` without `resolveProject`, so it needs no
+credentials and the form withholds `credentials_json` from the request. A row
+the sink would refuse is `Preview.Refused`, not an error; the error is for a
+config no row could build.
+
+`POST /api/sinks/fcm/preview` goes through `factory.PreviewFCMMessage` so the
+formatter matches the worker's: the sink form always sets `format: json`, which
+changes the `payload` size. `format=schema_registry` is refused there, because
+formatting through it contacts the registry (one request, measured) and a
+preview must contact nothing.
+
+The request's config is decoded as `hermod.StringMap`. The sink form's config
+holds a boolean (`sequential`), and `map[string]string` refused every request
+the real form made — the SMTP preview had the same defect and no test saw it,
+because every test posted an all-string config. Only pressing the button in a
+browser found it.
+
+Not done: `ErrPermanent` is still consumed by nothing outside this package.
+`RetrySink` (3 attempts, `factory.CreateSink`) and the engine's own loop
+(`pkg/engine/writer.go`) both retry a permanent refusal, which is why the
+reported error read "failed after 3 retries: fcm: permanent failure".
 
 `FromMap` refuses every value it cannot parse rather than defaulting to zero.
 A duration that silently means "off" is how the trace purge stopped running.
