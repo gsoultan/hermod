@@ -1,4 +1,11 @@
-syntax = "proto3";
+/**
+ * The gRPC source's wire contract, as text the form can show and copy.
+ *
+ * It is a copy of pkg/comm/source/grpc/proto/source.proto. A copy can drift, so
+ * grpcSourceGuide.test.tsx compares it with that file byte for byte; change the
+ * .proto and this together.
+ */
+export const GRPC_SOURCE_PROTO = `syntax = "proto3";
 
 package hermod.source.grpc.v1;
 
@@ -50,4 +57,27 @@ message PublishResponse {
   string id = 1;
   // "dispatched" when the record was queued for the workflow.
   string status = 2;
+}
+`;
+
+/** base64 of {"order_id":1} — `payload` is a bytes field. */
+export const SAMPLE_PAYLOAD_JSON = '{"order_id":1}';
+export const SAMPLE_PAYLOAD_BASE64 = 'eyJvcmRlcl9pZCI6MX0=';
+
+/** The path a client is told to send when the form has none yet. */
+export const GRPC_EXAMPLE_PATH = '/grpc/my-source';
+
+/**
+ * grpcPublishCommand builds a `buf curl` call for the given source path. A keyed
+ * source gets the metadata flag with a placeholder: the command is rendered on
+ * screen and copied into terminals, so the key itself never goes into it.
+ */
+export function grpcPublishCommand(path: string, hasApiKey: boolean): string {
+  const body = JSON.stringify({ path: path || GRPC_EXAMPLE_PATH, payload: SAMPLE_PAYLOAD_BASE64 });
+  return [
+    'buf curl --protocol grpc --http2-prior-knowledge --schema source.proto \\',
+    ...(hasApiKey ? ["  -H 'x-api-key: YOUR_API_KEY' \\"] : []),
+    `  -d '${body}' \\`,
+    '  http://HERMOD_HOST:50051/hermod.source.grpc.v1.SourceService/Publish',
+  ].join('\n');
 }
