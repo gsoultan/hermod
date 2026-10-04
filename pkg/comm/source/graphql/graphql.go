@@ -4,70 +4,50 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
+	"sync/atomic"
 
 	"github.com/gsoultan/hermod"
 	sourcebuf "github.com/gsoultan/hermod/pkg/comm/source"
 )
 
-var (
-	registry = make(map[string]chan hermod.Message)
-	mu       sync.RWMutex
-)
+// paths routes what arrives for a path to the source that holds it. See
+// sourcebuf.PathRegistry for who holds a path, and why a source that is built
+// but never read does not take one from a source that is receiving.
+var paths = sourcebuf.NewPathRegistry(sourcebuf.DefaultSourceBuffer)
 
-// Register creates a new channel for a GraphQL source path, superseding any existing
-// registration. The newest registration owns the path: when a workflow moves
-// between workers, the one taking the lease over is the one that should receive.
-//
-// It used to return the existing channel instead, which meant the worker taking
-// over and the worker being replaced read from the same one — so the outgoing
-// teardown closed the channel its successor was reading.
+// Register creates the channel a GraphQL source reads its path from. It holds
+// the path if nothing else does, and otherwise waits to take it over.
 func Register(path string) chan hermod.Message {
-	mu.Lock()
-	defer mu.Unlock()
-	ch := make(chan hermod.Message, sourcebuf.DefaultSourceBuffer)
-	registry[path] = ch
-	return ch
+	return paths.Register(path)
 }
 
-// Unregister releases a path, but only if ch is still the channel registered
-// for it.
-//
-// The ownership check is what makes a handover safe. Nothing orders the outgoing
-// worker's teardown against the incoming worker's registration, so deleting by
-// path alone let a worker that had already lost the lease close and remove its
-// successor's channel. The successor was then reading from a closed channel that
-// no longer appeared in the registry: the workflow reported itself running and
-// never received another message.
+// Unregister releases a channel's claim on a path. Only the channel that holds
+// the path removes it, so an outgoing engine's teardown cannot remove the
+// source that took over from it.
 func Unregister(path string, ch chan hermod.Message) {
-	mu.Lock()
-	defer mu.Unlock()
-	if current, ok := registry[path]; ok && current == ch {
-		close(current)
-		delete(registry, path)
-	}
+	paths.Unregister(path, ch)
 }
 
-// Dispatch sends a message to the channel registered for the given path.
+// Dispatch sends a message to the source that holds the given path.
 func Dispatch(path string, msg hermod.Message) error {
-	mu.RLock()
-	ch, ok := registry[path]
-	mu.RUnlock()
-	if !ok {
+	err := paths.Dispatch(path, msg)
+	switch {
+	case errors.Is(err, sourcebuf.ErrPathNotRegistered):
 		return fmt.Errorf("no GraphQL source registered for path: %s", path)
-	}
-	select {
-	case ch <- msg:
-		return nil
-	default:
+	case errors.Is(err, sourcebuf.ErrPathBufferFull):
 		return fmt.Errorf("GraphQL source buffer full for path: %s", path)
 	}
+	return err
 }
 
 // GraphQLSource implements the hermod.Source interface for receiving GraphQL requests.
 type GraphQLSource struct {
 	Path string
 	ch   chan hermod.Message
+
+	// reading is set by the first Read, which is when a source that was built
+	// while another held its path takes the path over.
+	reading atomic.Bool
 }
 
 // NewGraphQLSource creates a new GraphQLSource.
@@ -82,6 +62,9 @@ func NewGraphQLSource(path string) *GraphQLSource {
 }
 
 func (s *GraphQLSource) Read(ctx context.Context) (hermod.Message, error) {
+	if !s.reading.Swap(true) {
+		paths.TakeOver(s.Path, s.ch)
+	}
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
