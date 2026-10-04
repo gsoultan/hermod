@@ -164,6 +164,44 @@ The service account key can be uploaded as the file Firebase downloads, and a
 key that is not JSON, or is JSON without a `private_key`, is said beside the
 field instead of at save or on the first message.
 
+### The gRPC source checks its API key on a fresh install, and says how to call it
+
+**A fresh install checked no API key until it was restarted.** The gRPC ingress
+took its copy of the storage when the listener started. On a first run that is
+before any database exists, and first-time setup handed the new database to
+everything except the ingress. With no store to read keys from it skipped the
+check, so a gRPC source with an API key accepted calls carrying no key, or the
+wrong one, until the process was restarted. The ingress now asks for the current
+store on every call. The same stale copy meant that after a database switch the
+ingress went on reading keys from the previous database; it reads the current
+one now.
+
+A path the current database holds no gRPC source for is refused with `no gRPC
+source is configured for path`. It used to mean "no key required", which left a
+keyed path open whenever the database and the running workflows disagreed. A
+source saved with an empty path is keyed under `/grpc/default`, where it
+listens; its key used to be skipped.
+
+If you set up Hermod and have not restarted it since, restart it or upgrade:
+until then the gRPC port accepts unauthenticated publishes to keyed sources.
+
+**A record sent as `after` arrived empty.** `PublishRequest` has `after` and
+`payload`, and the message has one body. The handler stored `after` and then
+stored `payload` over it, so a producer that sent only `after` got `dispatched`
+back and the sink received an id, an operation and a table with no row. The row
+is now taken from `payload`, or from `after` when `payload` is empty.
+
+**The source form says how to call it.** It used to say "Logical gRPC path for
+the source" and show `/api/grpc/my-source` as its example — a placeholder copied
+from the webhook form, where the path is a URL. Here it is a label the client
+sends in `PublishRequest.path`. The form now says that, and below the fields:
+that Hermod serves one fixed service so there is no `.proto` to upload, which
+port to call, that the source only receives while its workflow runs, that the
+reply does not wait for the sinks, a `buf curl` command built from the path
+typed, and the contract to copy. The setup instructions for a gRPC source show
+the same guide; they used to ask for a source type. `source.proto` documents
+every field, and the README has a full section.
+
 ## [1.16.2] — 2026-09-29
 
 The Set Fields editor has room to work in. A **Focus editor** button gives a

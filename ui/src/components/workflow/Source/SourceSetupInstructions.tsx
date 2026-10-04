@@ -1,5 +1,6 @@
 import { Stack, Title, Text, List, Code, TextInput, Select, Group } from '@mantine/core';
 import { IconInfoCircle } from '@tabler/icons-react';
+import { GrpcCallGuide } from './GrpcCallGuide';
 interface SourceSetupInstructionsProps {
   sourceType: string;
   useCDCChecked: boolean;
@@ -8,7 +9,7 @@ interface SourceSetupInstructionsProps {
 }
 
 export function SourceSetupInstructions({ sourceType, useCDCChecked, config, updateConfig }: SourceSetupInstructionsProps) {
-  if (!useCDCChecked && !['http', 'sap', 'dynamics365', 'mainframe', 'kafka', 'nats', 'redis', 'rabbitmq', 'rabbitmq_queue', 'csv', 'eventstore', 'discord', 'slack', 'twitter', 'facebook', 'instagram', 'linkedin', 'tiktok'].includes(sourceType)) {
+  if (!useCDCChecked && !['http', 'sap', 'dynamics365', 'mainframe', 'kafka', 'nats', 'redis', 'rabbitmq', 'rabbitmq_queue', 'csv', 'eventstore', 'discord', 'slack', 'twitter', 'facebook', 'instagram', 'linkedin', 'tiktok', 'grpc'].includes(sourceType)) {
      return (
       <Group gap="xs" c="dimmed">
         <IconInfoCircle size="1.2rem" />
@@ -18,6 +19,8 @@ export function SourceSetupInstructions({ sourceType, useCDCChecked, config, upd
   }
 
   switch (sourceType) {
+    case 'grpc':
+      return <GrpcCallGuide path={config.path} hasApiKey={Boolean(config.api_key)} />;
     case 'postgres':
     case 'yugabyte':
       return (
