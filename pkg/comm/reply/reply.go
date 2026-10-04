@@ -111,6 +111,25 @@ func IDOf(msg hermod.Message) (string, bool) {
 	return id, ok && id != ""
 }
 
+// Take returns the reply id of an awaited message and removes it from the
+// message. The engine calls it as it starts on a message: the id is how it
+// finds the caller, and from there on it is nobody else's business — left on
+// the message it is written to every sink and handed back in the record.
+func Take(msg hermod.Message) (string, bool) {
+	id, ok := IDOf(msg)
+	if !ok {
+		return "", false
+	}
+	if d, can := msg.(interface{ DeleteMetadata(key string) }); can {
+		d.DeleteMetadata(MetaReplyID)
+	} else {
+		// A message that cannot drop a key carries it empty, which IDOf
+		// reads as not awaited.
+		msg.SetMetadata(MetaReplyID, "")
+	}
+	return id, true
+}
+
 // Resolve hands an outcome to the caller waiting under id, and reports whether
 // there was one. A message is resolved once: the waiter is removed as it is
 // answered, so a replayed message carrying the same id reaches nobody.

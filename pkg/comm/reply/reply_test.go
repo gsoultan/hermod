@@ -143,3 +143,29 @@ func TestModeOf(t *testing.T) {
 		})
 	}
 }
+
+// The engine takes the id as it starts on a message, and the message goes on
+// without it.
+func TestTakeRemovesTheIDFromTheMessage(t *testing.T) {
+	msg := message.AcquireMessage()
+	defer message.ReleaseMessage(msg)
+	p, err := Expect(msg)
+	if err != nil {
+		t.Fatalf("Expect: %v", err)
+	}
+	defer p.Cancel()
+
+	id, ok := Take(msg)
+	if !ok || id == "" {
+		t.Fatal("Take found no id on an awaited message")
+	}
+	if _, still := msg.Metadata()[MetaReplyID]; still {
+		t.Error("the message still carries the reply id after it was taken")
+	}
+	if _, again := Take(msg); again {
+		t.Error("the id was taken twice")
+	}
+	if !Resolve(id, Outcome{Status: Delivered}) {
+		t.Error("the id that was taken does not resolve the waiter")
+	}
+}

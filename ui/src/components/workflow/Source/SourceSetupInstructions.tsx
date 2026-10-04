@@ -20,7 +20,7 @@ export function SourceSetupInstructions({ sourceType, useCDCChecked, config, upd
 
   switch (sourceType) {
     case 'grpc':
-      return <GrpcCallGuide path={config.path} hasApiKey={Boolean(config.api_key)} />;
+      return <GrpcCallGuide path={config.path} hasApiKey={Boolean(config.api_key)} waits={config.response_mode === 'sync'} />;
     case 'postgres':
     case 'yugabyte':
       return (

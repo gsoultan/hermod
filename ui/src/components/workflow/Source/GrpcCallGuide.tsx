@@ -6,6 +6,8 @@ import { GRPC_EXAMPLE_PATH, GRPC_SOURCE_PROTO, SAMPLE_PAYLOAD_JSON, grpcPublishC
 interface GrpcCallGuideProps {
   path?: string;
   hasApiKey: boolean;
+  /** The source responds synchronously: the reply carries the workflow's result. */
+  waits?: boolean;
 }
 
 function CopyIcon({ value, label }: { value: string; label: string }) {
@@ -27,7 +29,7 @@ function CopyIcon({ value, label }: { value: string; label: string }) {
  * has to send, where, and what it gets back. Hermod serves a fixed service, so
  * the contract is shown here rather than uploaded.
  */
-export function GrpcCallGuide({ path, hasApiKey }: GrpcCallGuideProps) {
+export function GrpcCallGuide({ path, hasApiKey, waits = false }: GrpcCallGuideProps) {
   const [contractOpen, setContractOpen] = useState(false);
   const command = grpcPublishCommand(path?.trim() || GRPC_EXAMPLE_PATH, hasApiKey);
 
@@ -47,9 +49,17 @@ export function GrpcCallGuide({ path, hasApiKey }: GrpcCallGuideProps) {
           <Code>HERMOD_GRPC_PORT</Code>. The port is plaintext.
         </List.Item>
         <List.Item>The source receives only while its workflow is running.</List.Item>
-        <List.Item>
-          The reply <Code>dispatched</Code> means the record was queued. It does not wait for transformations or sinks.
-        </List.Item>
+        {waits ? (
+          <List.Item>
+            The call waits for the workflow. The reply carries its <Code>status</Code>, an <Code>error</Code> when the
+            record failed, and the final <Code>record</Code>.
+          </List.Item>
+        ) : (
+          <List.Item>
+            The reply <Code>dispatched</Code> means the record was queued. It does not wait for transformations or
+            sinks.
+          </List.Item>
+        )}
       </List>
 
       <Group justify="space-between" align="center" mt={4}>

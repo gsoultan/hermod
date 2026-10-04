@@ -10,6 +10,7 @@ import (
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/comm/reply"
 	sourcebuf "github.com/gsoultan/hermod/pkg/comm/source"
 	"github.com/gsoultan/hermod/pkg/comm/source/grpc/proto"
 	"google.golang.org/grpc/metadata"
@@ -128,6 +129,9 @@ func (s *Server) Publish(ctx context.Context, req *proto.PublishRequest) (*proto
 	// that skips the check. A store that exists but cannot be read fails
 	// closed: skipping here turned a storage hiccup into anonymous ingress
 	// on an endpoint the operator had put a key on.
+	// config is the stored source's configuration. It says how the source
+	// answers; standalone use, with no store, answers once the record is queued.
+	var config map[string]string
 	if store := s.keyStore(); store != nil {
 		sources, _, err := store.ListSources(ctx, storage.CommonFilter{})
 		if err != nil {
@@ -146,6 +150,7 @@ func (s *Server) Publish(ctx context.Context, req *proto.PublishRequest) (*proto
 			}
 			if stored == path {
 				apiKey = src.Config["api_key"]
+				config = src.Config
 				known = true
 				break
 			}
@@ -171,14 +176,16 @@ func (s *Server) Publish(ctx context.Context, req *proto.PublishRequest) (*proto
 		}
 	}
 
-	msg := message.AcquireMessage()
-	if req.Id != "" {
-		msg.SetID(req.Id)
-	} else {
-		// An empty ID reaches SQL sinks as an empty primary key, where every
-		// anonymous record upserts the same row.
-		msg.SetID(uuid.NewString())
+	// An empty ID reaches SQL sinks as an empty primary key, where every
+	// anonymous record upserts the same row. The id is kept here as well as on
+	// the message: once dispatched, the message is the engine's and may be back
+	// in the pool before this function reads it again.
+	id := req.Id
+	if id == "" {
+		id = uuid.NewString()
 	}
+	msg := message.AcquireMessage()
+	msg.SetID(id)
 	msg.SetOperation(hermod.Operation(req.Operation))
 	msg.SetTable(req.Table)
 	msg.SetSchema(req.Schema)
@@ -193,7 +200,27 @@ func (s *Server) Publish(ctx context.Context, req *proto.PublishRequest) (*proto
 	}
 	msg.SetPayload(body)
 	for k, v := range req.Metadata {
+		// The reply id names the caller waiting for a message. It is set
+		// below, by this server, and never taken from a request.
+		if k == reply.MetaReplyID {
+			continue
+		}
 		msg.SetMetadata(k, v)
+	}
+
+	// A source set to respond synchronously holds the call until the workflow
+	// has finished with the record. The waiter is registered before the
+	// dispatch, or a fast workflow could finish first and answer nobody.
+	wait, timeout := reply.ModeOf(config)
+	var pending *reply.Pending
+	if wait {
+		p, err := reply.Expect(msg)
+		if err != nil {
+			message.ReleaseMessage(msg)
+			return nil, err
+		}
+		pending = p
+		defer pending.Cancel()
 	}
 
 	if err := Dispatch(path, msg); err != nil {
@@ -201,8 +228,23 @@ func (s *Server) Publish(ctx context.Context, req *proto.PublishRequest) (*proto
 		return nil, err
 	}
 
+	if pending == nil {
+		return &proto.PublishResponse{Id: id, Status: "dispatched"}, nil
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	outcome, err := pending.Wait(waitCtx)
+	if err != nil {
+		// The wait ran out. The record is still the workflow's and may yet be
+		// delivered, so this is not an error: a producer that retries an error
+		// sends the record twice.
+		return &proto.PublishResponse{Id: id, Status: "pending"}, nil
+	}
 	return &proto.PublishResponse{
-		Id:     msg.ID(),
-		Status: "dispatched",
+		Id:     id,
+		Status: string(outcome.Status),
+		Error:  outcome.Error,
+		Record: outcome.Record,
 	}, nil
 }

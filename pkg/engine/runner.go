@@ -803,7 +803,7 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 	// once, on the way out, whichever way out that is — including a panic,
 	// which leaves the outcome at what it starts as here.
 	rs := replyState{out: reply.Outcome{Status: reply.Failed, Error: "the workflow stopped before it finished with the message"}}
-	rs.id, rs.awaited = reply.IDOf(m)
+	rs.id, rs.awaited = reply.Take(m)
 	defer rs.resolve()
 
 	start := time.Now()

@@ -111,9 +111,43 @@ func outcomeOf(t *testing.T, eng *Engine, src *awaitedSource) reply.Outcome {
 	return o
 }
 
+// metadataSink records the metadata keys of what it is sent.
+type metadataSink struct {
+	mu   sync.Mutex
+	n    int
+	keys map[string]bool
+}
+
+func (s *metadataSink) Write(_ context.Context, msg hermod.Message) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.n++
+	if s.keys == nil {
+		s.keys = make(map[string]bool)
+	}
+	for k := range msg.Metadata() {
+		s.keys[k] = true
+	}
+	return nil
+}
+func (*metadataSink) Ping(context.Context) error { return nil }
+func (*metadataSink) Close() error               { return nil }
+
+func (s *metadataSink) count() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.n
+}
+
+func (s *metadataSink) sawMetadata(key string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.keys[key]
+}
+
 func TestAWaitingCallerIsToldTheMessageWasDelivered(t *testing.T) {
 	src := &awaitedSource{}
-	sink := newTallySink()
+	sink := &metadataSink{}
 	eng := NewEngine(src, []hermod.Sink{sink}, buffer.NewRingBuffer(8))
 
 	o := outcomeOf(t, eng, src)
@@ -126,6 +160,15 @@ func TestAWaitingCallerIsToldTheMessageWasDelivered(t *testing.T) {
 	}
 	if !strings.Contains(string(o.Record), `"order_id":7`) {
 		t.Errorf("the reply does not carry the record that was delivered: %s", o.Record)
+	}
+	// The reply id is how the engine finds the caller. It is plumbing: it is
+	// taken off the message before the workflow sees it, so neither a sink nor
+	// the caller is handed it.
+	if strings.Contains(string(o.Record), reply.MetaReplyID) {
+		t.Errorf("the record handed back carries the reply id: %s", o.Record)
+	}
+	if sink.sawMetadata(reply.MetaReplyID) {
+		t.Error("the sink was sent the reply id")
 	}
 	if sink.count() != 1 {
 		t.Errorf("the caller was told delivered and the sink was written %d times", sink.count())
