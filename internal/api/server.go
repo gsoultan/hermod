@@ -58,7 +58,6 @@ func IsUIEmbedded() bool {
 // It wires routing, middleware, and access to the storage and engine registry.
 type Server struct {
 	Handler    *handlers.Handler
-	Storage    storage.Storage
 	GrpcServer *googlegrpc.Server
 
 	// stopBackups ends the scheduled-backup writer. Nil when no backup
@@ -75,9 +74,9 @@ func NewServer(registry *registry.Registry, store storage.Storage, cfg *config.C
 	if logStore == nil {
 		logStore = store
 	}
-	s := &Server{
-		Storage: store,
-	}
+	// The server keeps no storage of its own. The handler's is the one setup
+	// and a database switch replace, and a second copy here went stale.
+	s := &Server{}
 	s.Handler = &handlers.Handler{
 		Storage:       store,
 		LogStorage:    logStore,
@@ -355,6 +354,15 @@ func (s *Server) StartGRPC(addr string) error {
 	if err != nil {
 		return err
 	}
+	srv := s.newGRPCServer()
+	fmt.Printf("Starting Hermod gRPC server on %s...\n", addr)
+	return srv.Serve(lis)
+}
+
+// newGRPCServer builds the ingress server and registers the source service on
+// it. It is separate from StartGRPC so the server the process really runs can
+// be served on an in-process listener by a test.
+func (s *Server) newGRPCServer() *googlegrpc.Server {
 	// Constructed with options, because grpc.NewServer() with none leaves the
 	// same shape of exposure the HTTP server had: this port is EXPOSEd by the
 	// Dockerfile, and the only authentication is a per-path API key checked
@@ -391,9 +399,19 @@ func (s *Server) StartGRPC(addr string) error {
 			PermitWithoutStream: true,
 		}),
 	)
-	proto.RegisterSourceServiceServer(s.GrpcServer, &grpcsource.Server{Storage: s.Storage})
-	fmt.Printf("Starting Hermod gRPC server on %s...\n", addr)
-	return s.GrpcServer.Serve(lis)
+	// The store is looked up per publish, not copied here. This runs at process
+	// start, when a first run has no database yet; the store setup installs
+	// later is the one holding the API keys.
+	proto.RegisterSourceServiceServer(s.GrpcServer, &grpcsource.Server{StorageFunc: s.currentStorage})
+	return s.GrpcServer
+}
+
+// currentStorage returns the store the handler holds right now, which
+// first-time setup and a database switch both replace while the server runs.
+func (s *Server) currentStorage() storage.Storage {
+	s.Handler.StoreMu.RLock()
+	defer s.Handler.StoreMu.RUnlock()
+	return s.Handler.Storage
 }
 
 func (s *Server) Stop() {
