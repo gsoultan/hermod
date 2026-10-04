@@ -60,7 +60,16 @@ message when nothing was routed.
 - Read a message's id **before** dispatching it. After, it is the engine's and
   may be back in the pool; both transports used to read it afterwards.
 
-## Not done yet
+## The WebSocket source
 
-WebSocket: the existing source is a client (Hermod dials out) and can reply on
-its connection; an inbound WebSocket source does not exist.
+It is a client: Hermod dials a URL and reads frames. With `response_mode: sync`
+(`Source.SetResponse`, set by the factory from `reply.ModeOf`) `emit` calls
+`reply.Expect` on each message before handing it to the engine and starts one
+goroutine (`answer`) that waits and writes a result frame —
+`{"id","status","error","record"}`, `id` being the frame's envelope id — back on
+the connection the frame arrived on. Writes are serialised by `writeMu`; a
+connection takes one data writer at a time. A reconnect is a new conversation:
+an answer for a frame from the old connection is dropped. The reachability test
+is `internal/factory/websocket_sync_reachability_test.go`.
+
+An inbound WebSocket source — one callers connect to — does not exist yet.
