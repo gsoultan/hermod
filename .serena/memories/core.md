@@ -74,6 +74,9 @@ find a claim that outruns the code, fix the claim.
   toast. One refresh now carries a new sample through every node's fields and
   Live Preview. It sends a `partial` run with per-source-node `messages`; the
   toolbar Test stays strict on purpose.
+- [Push sources hold a path](push_source_path_registry.md) — gRPC, webhook,
+  GraphQL and form share `sourcebuf.PathRegistry`; a source built while another
+  holds the path waits and takes over on its first Read, so a probe takes nothing.
 - [Permanent refusals](permanent_refusals.md) — wrap `hermod.ErrPermanent` and the
   retry decorator, the engine's retry loop and the circuit breaker all skip it;
   without a dead-letter sink the backoff wait is kept so redelivery cannot spin.

@@ -127,6 +127,30 @@ refusals: a run of stale device tokens used to open it and stop delivery to
 every live device behind them. A sink marks such an error by wrapping
 `hermod.ErrPermanent`.
 
+### Test Connection no longer cuts off a source that is receiving
+
+Pressing **Test Connection** on a gRPC, webhook, GraphQL or form source whose
+workflow was running stopped the source receiving. The workflow went on
+reporting itself as running; every request for its path was refused — `no gRPC
+source registered for path`, or a 404 from the webhook endpoint — until the
+workflow was restarted.
+
+These sources have nothing to connect to. Each holds a path, and what arrives
+for the path is handed to it. The test builds a second source from the same
+configuration, pings it and closes it, and building one took the path: the
+newest registration owned it, so that a workflow moving between engines is
+received by the one taking over. The probe was the newest, and when it closed it
+owned the path and removed it. Sampling a source and the worker's health check
+build a source the same way.
+
+A source built while another holds its path now waits, and takes the path over
+when it starts reading or when the holder closes. A probe is never read, so it
+takes nothing. A source built while the path is free still receives at once.
+
+Three of the four registries released their lock before sending, so a request
+arriving as a source closed could send on a closed channel. All four now share
+one registry that holds the lock across the send.
+
 ### The FCM sink sends change events, and its data section says what data is
 
 **Templates failed on every change event.** The workflow editor offers a CDC
