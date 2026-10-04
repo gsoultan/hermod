@@ -2016,16 +2016,70 @@ The entire request body is captured as the message payload, and if it's a valid 
 
 ### gRPC Source
 
-Hermod runs a gRPC server (default port `50051`) that implements the `SourceService`.
+A gRPC source receives records that your service pushes to Hermod. Hermod does
+not call your service, and it does not load a `.proto` of yours: it serves one
+fixed service, `hermod.source.grpc.v1.SourceService`, and your record travels
+inside it as JSON.
 
-**Service Definition:**
+**The contract** is [`pkg/comm/source/grpc/proto/source.proto`](pkg/comm/source/grpc/proto/source.proto).
+Generate your client from that file; the source form also shows it with a copy
+button.
+
 ```proto
 service SourceService {
   rpc Publish(PublishRequest) returns (PublishResponse);
 }
 ```
 
-You can push structured messages directly from your gRPC clients. Use the `path` field in the request to route to a specific Hermod gRPC source configuration.
+**Setting it up**
+
+1. Create a source of type **gRPC** and give it a path, for example
+   `/grpc/orders`. The path is a label, not a URL: the client sends it in
+   `PublishRequest.path`, exactly as written. An empty path in a request means
+   `/grpc/default`.
+2. Optionally set an API key. Clients then send it as gRPC metadata `x-api-key`.
+3. Put the source in a workflow and start the workflow. The path exists only
+   while the workflow runs; before that every call fails with
+   `no gRPC source registered for path: /grpc/orders`.
+4. Call `Publish` on the gRPC port: `50051`, or whatever `--grpc-port` /
+   `HERMOD_GRPC_PORT` set. The port is plaintext and has no server reflection,
+   so tools need the `.proto`.
+
+```bash
+buf curl --protocol grpc --http2-prior-knowledge \
+  --schema pkg/comm/source/grpc/proto/source.proto \
+  -H 'x-api-key: YOUR_API_KEY' \
+  -d '{"path":"/grpc/orders","payload":"eyJvcmRlcl9pZCI6MX0="}' \
+  http://localhost:50051/hermod.source.grpc.v1.SourceService/Publish
+# {"id":"…","status":"dispatched"}
+```
+
+`payload` is a `bytes` field. A generated client passes the JSON text as it is
+(`Payload: []byte(`{"order_id":1}`)` in Go); a JSON tool such as `buf curl` needs
+it base64-encoded, which is what the value above is.
+
+**What the workflow sees**
+
+| You send | The record in the workflow |
+| :--- | :--- |
+| `payload` only | Its fields at the top level: `order_id` |
+| `payload` and `operation` (`create`, `update`, `delete`, `snapshot`) | A change event: `after.order_id`, and `before.…` if you sent `before` |
+| `after` instead of `payload` | The same as `payload`; `payload` wins when both are set |
+| `payload` that is not a JSON object | One string field, `payload` |
+| no `id` | A generated UUID, returned in the response |
+
+**What the reply means.** `dispatched` means the record was queued for the
+workflow. `Publish` does not wait for transformations or sinks, so it cannot
+report whether they succeeded; follow the record by its `id` in the workflow's
+message trace or its dead-letter sink. A call that fails returns an error whose
+message says why:
+
+| Message | Meaning |
+| :--- | :--- |
+| `invalid api key` | The source has an API key and `x-api-key` was missing or wrong |
+| `no gRPC source is configured for path: …` | No gRPC source has that path; check it character for character |
+| `no gRPC source registered for path: …` | The source exists but its workflow is not running |
+| `gRPC source buffer full for path: …` | The workflow is behind; retry the call |
 
 ## Advanced Transformation Nodes
 

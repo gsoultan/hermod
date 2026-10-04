@@ -202,3 +202,161 @@ func TestAnAnonymousPublishGetsAnID(t *testing.T) {
 		ids[msg.ID()] = true
 	}
 }
+
+// A producer that describes its record as a row image — `after`, and no
+// `payload` — must not lose the row. The handler stored `after` and then stored
+// `payload` unconditionally; on the message those are one field, so the empty
+// payload erased the image it had just been given. The call still answered
+// "dispatched", and the sink received an id, an operation and a table with no
+// row in it.
+func TestARecordSentAsAfterKeepsItsRow(t *testing.T) {
+	cases := []struct {
+		name string
+		req  *proto.PublishRequest
+		want string
+	}{
+		{
+			name: "after only",
+			req:  &proto.PublishRequest{After: []byte(`{"order_id":2}`)},
+			want: `{"order_id":2}`,
+		},
+		{
+			// Both set has always meant the payload; that must not change for
+			// the producers already sending it.
+			name: "payload and after",
+			req:  &proto.PublishRequest{Payload: []byte(`{"order_id":3}`), After: []byte(`{"stale":true}`)},
+			want: `{"order_id":3}`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			const path = "/grpc/after"
+			src := NewGrpcSource(path)
+			t.Cleanup(func() { _ = src.Close() })
+			client := wireServer(t, nil)
+
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+
+			tc.req.Path = path
+			tc.req.Operation = "create"
+			tc.req.Table = "orders"
+			if _, err := client.Publish(ctx, tc.req); err != nil {
+				t.Fatalf("publish: %v", err)
+			}
+			msg, err := src.Read(ctx)
+			if err != nil {
+				t.Fatalf("read: %v", err)
+			}
+			if got := string(msg.Payload()); got != tc.want {
+				t.Errorf("the row arrived as %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// sourcesStorage holds exactly the sources it is given.
+type sourcesStorage struct {
+	storage.Storage
+	sources []storage.Source
+}
+
+func (s sourcesStorage) ListSources(context.Context, storage.CommonFilter) ([]storage.Source, int, error) {
+	return s.sources, len(s.sources), nil
+}
+
+// A path that is receiving but that the key store holds no source for must be
+// refused. "No source for this path" used to mean "no key required", so the
+// check failed open whenever the store and the running workflows disagreed —
+// which is what a database switch produces: the workflow keeps running, the new
+// database has never heard of its source, and a keyed path took publishes with
+// no key at all.
+func TestAPathTheKeyStoreDoesNotKnowIsRefused(t *testing.T) {
+	src := NewGrpcSource("/grpc/unstored")
+	t.Cleanup(func() { _ = src.Close() })
+	client := wireServer(t, keyedStorage{})
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	_, err := client.Publish(ctx, &proto.PublishRequest{Path: "/grpc/unstored", Payload: []byte(`{}`)})
+	if err == nil {
+		t.Fatal("a publish was accepted on a path the key store has no source for")
+	}
+	if !strings.Contains(err.Error(), "/grpc/unstored") {
+		t.Errorf("the refusal does not name the path: %v", err)
+	}
+}
+
+// A source saved without a path listens on the default one, so its key must be
+// found under the default one. Compared as stored, the empty path matched
+// nothing and the source's key was never asked for.
+func TestASourceWithNoPathIsKeyedUnderTheDefaultPath(t *testing.T) {
+	src := NewGrpcSource("")
+	t.Cleanup(func() { _ = src.Close() })
+	client := wireServer(t, sourcesStorage{sources: []storage.Source{{
+		Type:   "grpc",
+		Config: map[string]string{"api_key": "sesame"},
+	}}})
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	req := &proto.PublishRequest{Payload: []byte(`{}`)}
+	if _, err := client.Publish(ctx, req); err == nil {
+		t.Error("a publish with no key was accepted on a keyed source that has no path")
+	}
+	right := metadata.AppendToOutgoingContext(ctx, "x-api-key", "sesame")
+	if _, err := client.Publish(right, req); err != nil {
+		t.Errorf("the correct key was refused: %v", err)
+	}
+}
+
+// swappableStorage stands in for the handler's storage, which is nil on a
+// first run and replaced when setup or a database switch installs another.
+type swappableStorage struct{ current storage.Storage }
+
+func (s *swappableStorage) get() storage.Storage { return s.current }
+
+// The key check must use the store that is current when the publish arrives,
+// not the one that existed when the server was built. The store is hot-swapped
+// by first-time setup and by a database switch, and an ingress holding the old
+// one either skips the check (it was nil) or goes on reading keys from a
+// database the install has moved off.
+func TestTheKeyCheckUsesTheStoreCurrentAtPublish(t *testing.T) {
+	src := NewGrpcSource("/grpc/keyed")
+	t.Cleanup(func() { _ = src.Close() })
+
+	holder := &swappableStorage{}
+	lis := bufconn.Listen(1 << 20)
+	srv := grpc.NewServer()
+	proto.RegisterSourceServiceServer(srv, &Server{StorageFunc: holder.get})
+	go func() { _ = srv.Serve(lis) }()
+	t.Cleanup(srv.Stop)
+
+	conn, err := grpc.NewClient("passthrough:///bufnet",
+		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+			return lis.DialContext(ctx)
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("dialing the in-process server: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	client := proto.NewSourceServiceClient(conn)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	// The store arrives after the server is already serving.
+	holder.current = keyedStorage{}
+
+	req := &proto.PublishRequest{Path: "/grpc/keyed", Id: "rec-1", Payload: []byte(`{}`)}
+	if _, err := client.Publish(ctx, req); err == nil {
+		t.Error("a publish with no key was accepted after a keyed store was installed")
+	}
+	right := metadata.AppendToOutgoingContext(ctx, "x-api-key", "sesame")
+	if _, err := client.Publish(right, req); err != nil {
+		t.Errorf("the correct key was refused: %v", err)
+	}
+}

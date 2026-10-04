@@ -1,6 +1,8 @@
-import { TextInput, Stack, Group, Select, JsonInput, Text, Divider, Button, Badge, List, Paper, Box, Fieldset, SimpleGrid } from '@mantine/core';
+import { TextInput, Stack, Group, Select, JsonInput, Text, Divider, Button, Badge, List, Paper, Box, Fieldset, SimpleGrid, Code } from '@mantine/core';
 import { CronInput } from '../../shared/CronInput';
 import { GenerateToken } from '../../shared/GenerateToken';
+import { GrpcCallGuide } from './GrpcCallGuide';
+import { GRPC_EXAMPLE_PATH } from './grpcContract';
 import { FormLayoutBuilder, type FormFieldItem } from '../../forms/FormLayoutBuilder';
 import { useState } from 'react';
 import { IconLayout } from '@tabler/icons-react';
@@ -44,10 +46,10 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
       <Stack gap="md">
         <TextInput 
           label={`${sourceType === 'webhook' ? 'Webhook' : sourceType === 'form' ? 'Form' : 'gRPC'} Path`}
-          placeholder={`/api/${sourceType === 'webhook' ? 'webhooks' : sourceType === 'form' ? 'forms' : 'grpc'}/my-source`}
-          value={config.path} 
-          onChange={(e) => updateConfig('path', e.target.value)} 
-          description={sourceType === 'grpc' ? 'Logical gRPC path for the source.' : `Relative path for the ${sourceType}. Full URL will be: http://hermod-host:8080/api/${sourceType === 'webhook' ? 'webhooks' : 'forms'}/YOUR_PATH.`}
+          placeholder={sourceType === 'grpc' ? GRPC_EXAMPLE_PATH : `/api/${sourceType === 'webhook' ? 'webhooks' : 'forms'}/my-source`}
+          value={config.path}
+          onChange={(e) => updateConfig('path', e.target.value)}
+          description={sourceType === 'grpc' ? 'A name for this source, not a URL. Clients send it in PublishRequest.path, exactly as written here.' : `Relative path for the ${sourceType}. Full URL will be: http://hermod-host:8080/api/${sourceType === 'webhook' ? 'webhooks' : 'forms'}/YOUR_PATH.`}
           required 
         />
         {sourceType === 'webhook' && (
@@ -131,7 +133,15 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
           value={config.api_key || ''}
           onChange={(val) => updateConfig('api_key', val)}
         />
-        <Text size="xs" c="dimmed">If provided, requests must include 'X-API-Key' header with this value.</Text>
+        {sourceType === 'grpc' ? (
+          <>
+            <Text size="xs" c="dimmed">If provided, every call must carry this value as gRPC metadata <Code>x-api-key</Code>.</Text>
+            <Divider my="xs" />
+            <GrpcCallGuide path={config.path} hasApiKey={Boolean(config.api_key)} />
+          </>
+        ) : (
+          <Text size="xs" c="dimmed">If provided, requests must include 'X-API-Key' header with this value.</Text>
+        )}
       </Stack>
     );
   }
