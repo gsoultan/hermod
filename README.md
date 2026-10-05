@@ -2014,6 +2014,31 @@ Hermod exposes a GraphQL endpoint at `/api/graphql/{path}`. You can send standar
 
 The entire request body is captured as the message payload, and if it's a valid GraphQL JSON, the `query` and `variables` are extracted into the message data.
 
+### Webhook Source
+
+A webhook source receives HTTP requests at `/api/webhooks/<path>`; the source's
+path is the whole request path. It answers `202 {"status":"dispatched"}` once
+the request is queued, or with the workflow's result when its **Response** is
+**Synchronous** (see
+[Synchronous responses](#synchronous-responses-webhook-grpc-and-websocket)).
+
+A source can ask for either credential, both, or neither:
+
+| Credential | Config key | The request must carry |
+| :--- | :--- | :--- |
+| API key | `api_key` | `X-API-Key: <key>` |
+| Signing secret | `secret` | `X-Hub-Signature-256: sha256=<hex>` (or `X-Webhook-Signature`), the HMAC-SHA256 of the request body |
+
+A request that fails either is answered 401. If the store holding the
+credentials cannot be read, the request is answered 503 rather than let through.
+
+```bash
+BODY='{"order_id":7}'
+SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" | sed 's/^.* //')
+curl -X POST http://localhost:4000/api/webhooks/orders \
+  -H "X-API-Key: $KEY" -H "X-Hub-Signature-256: sha256=$SIG" -d "$BODY"
+```
+
 ### gRPC Source
 
 A gRPC source receives records that your service pushes to Hermod. Hermod does
@@ -2081,6 +2106,30 @@ says why:
 | `no gRPC source is configured for path: …` | No gRPC source has that path; check it character for character |
 | `no gRPC source registered for path: …` | The source exists but its workflow is not running |
 | `gRPC source buffer full for path: …` | The workflow is behind; retry the call |
+
+**Many records: `PublishStream`.** `PublishStream` is `Publish` over one
+long-lived, bidirectional stream, with the same request and response messages.
+Every record sent is answered with one response under that record's `id`:
+`dispatched`, or for a synchronous source what the workflow did with it.
+
+- Answers are sent as each record is answered, so for a synchronous source they
+  can arrive in a different order from the requests. Match them by `id`.
+- A record that cannot be queued — the workflow is not running, or its buffer is
+  full — is answered `rejected` with the reason, and the stream stays open.
+- The API key is sent once, as `x-api-key` metadata when the stream is opened.
+  A record the key does not cover ends the stream with the error. A key that is
+  changed or removed stops working on open streams within 30 seconds.
+- When the producer closes its side, the stream ends once every record already
+  sent has been answered.
+
+```bash
+printf '%s\n' \
+  '{"path":"/grpc/orders","id":"a","payload":"eyJvcmRlcl9pZCI6MX0="}' \
+  '{"path":"/grpc/orders","id":"b","payload":"eyJvcmRlcl9pZCI6MX0="}' |
+buf curl --protocol grpc --http2-prior-knowledge \
+  --schema pkg/comm/source/grpc/proto/source.proto -d @- \
+  http://localhost:50051/hermod.source.grpc.v1.SourceService/PublishStream
+```
 
 ### Synchronous responses (webhook, gRPC and WebSocket)
 

@@ -20,6 +20,12 @@ names the first one read that way. That switch will be removed. A blank prefix
 under Settings → Security now means `HERMOD_SECRET_`; it used to mean every
 variable.
 
+**A webhook source's API key is now checked.** If a webhook source has an API
+key saved — the form has always offered one — its endpoint now answers 401 to a
+request that does not carry it in the `X-API-Key` header. It used to accept
+every request. Before upgrading, make sure each sender of a keyed webhook sends
+the header, or clear the key on the source.
+
 ### Added — a vhost keeps its own secrets
 
 There was nowhere in Hermod to save a secret. `secret("NAME")` read the
@@ -80,6 +86,15 @@ null.
 The Mask node's field said "Field or expression" and suggested
 `lower(source.email)`. It is read as a path, so that named no field and the
 node passed every record through unmasked. It says "Path of the field" now.
+
+### Run Preview says when it has nothing to run on
+
+A node behind a queue has no sample until someone asks for one: the editor
+never reads a queue on its own. With no sample, **Run Preview** returned without
+doing or saying anything and the panel stayed on "No preview yet"; the reason was
+in another column of the drawer. The preview panel now says there is no sample
+and has a **Fetch a sample** button, and Run Preview is disabled until there is
+one. The preview runs by itself once the sample arrives.
 
 ### Execute SQL keeps the rows its statement returns
 
@@ -214,6 +229,25 @@ waiting for costs the engine one metadata lookup.
 A failed write parked in the dead-letter sink now carries its reason as
 `_hermod_last_error`. The parked row named the sink and the time and not why.
 
+### Added — the gRPC source takes a stream of records
+
+A producer with many records opened one `Publish` call for each. `PublishStream`
+is the same exchange over one long-lived, bidirectional stream, with the same
+request and response messages: every record sent is answered with one response
+under that record's `id` — `dispatched`, or for a source that responds
+synchronously, what the workflow did with it. Answers are matched by `id`; for a
+synchronous source they can arrive out of order.
+
+A record that cannot be queued is answered `rejected` and the stream stays open.
+A record the source's API key does not cover ends the stream with the error.
+When the producer closes its side, the stream ends once everything already sent
+has been answered. The key is checked when a path is first used on a stream and
+again every 30 seconds, so a key that is changed or removed stops working on
+open streams within that long.
+
+Existing `Publish` clients are unaffected. Clients generated from the previous
+`source.proto` keep working; regenerate to get `PublishStream`.
+
 ### Test Connection no longer cuts off a source that is receiving
 
 Pressing **Test Connection** on a gRPC, webhook, GraphQL or form source whose
@@ -343,6 +377,27 @@ reply does not wait for the sinks, a `buf curl` command built from the path
 typed, and the contract to copy. The setup instructions for a gRPC source show
 the same guide; they used to ask for a source type. `source.proto` documents
 every field, and the README has a full section.
+
+### A webhook source's API key is checked, and its signing secret can be set
+
+**The API key did nothing.** The webhook source form has an "API Key (Optional)"
+field and said requests must include it as `X-API-Key`. The key was saved and the
+endpoint never read it: an operator who generated one had an endpoint that took
+any request, and a form saying otherwise. The endpoint now refuses a request
+without the key with 401. See *Upgrading*.
+
+**The credential the endpoint did check could not be set in the form.** That is
+the signing secret: an HMAC-SHA256 of the request body, sent as
+`X-Hub-Signature-256` or `X-Webhook-Signature`. The form has a **Signing secret**
+field now. A source with both a key and a secret asks for both.
+
+**An unreadable store opened the endpoint.** The credentials are in the source's
+stored configuration. When the store could not be read, the webhook and GraphQL
+endpoints treated the request as one for a source with no credentials and
+accepted it. They answer 503 now.
+
+The form source no longer shows an API key field. Its endpoint answers browsers
+and has never checked one.
 
 ## [1.16.2] — 2026-09-29
 

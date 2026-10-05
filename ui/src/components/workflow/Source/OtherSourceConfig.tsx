@@ -1,4 +1,4 @@
-import { TextInput, Stack, Group, Select, JsonInput, Text, Divider, Button, Badge, List, Paper, Box, Fieldset, SimpleGrid, Code } from '@mantine/core';
+import { TextInput, Stack, Group, Select, JsonInput, Text, Divider, Button, Badge, List, Paper, Box, Fieldset, SimpleGrid, Code, PasswordInput } from '@mantine/core';
 import { CronInput } from '../../shared/CronInput';
 import { GenerateToken } from '../../shared/GenerateToken';
 import { GrpcCallGuide } from './GrpcCallGuide';
@@ -129,11 +129,14 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
           </Stack>
         )}
 
-        <GenerateToken 
-          label="API Key (Optional)"
-          value={config.api_key || ''}
-          onChange={(val) => updateConfig('api_key', val)}
-        />
+        {/* A form source answers browsers and checks no key, so it is not offered one. */}
+        {sourceType !== 'form' && (
+          <GenerateToken
+            label="API Key (Optional)"
+            value={config.api_key || ''}
+            onChange={(val) => updateConfig('api_key', val)}
+          />
+        )}
         {sourceType === 'grpc' ? (
           <>
             <Text size="xs" c="dimmed">If provided, every call must carry this value as gRPC metadata <Code>x-api-key</Code>.</Text>
@@ -146,17 +149,24 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
               waits={config.response_mode === RESPONSE_MODE_SYNC}
             />
           </>
-        ) : (
+        ) : sourceType === 'webhook' ? (
           <>
-            <Text size="xs" c="dimmed">If provided, requests must include 'X-API-Key' header with this value.</Text>
-            {sourceType === 'webhook' && (
-              <>
-                <Divider my="xs" />
-                <ResponseModeFields config={config} updateConfig={updateConfig} />
-              </>
-            )}
+            <Text size="xs" c="dimmed">If provided, every request must carry this value in the <Code>X-API-Key</Code> header.</Text>
+            <PasswordInput
+              label="Signing secret (Optional)"
+              placeholder="Shared with the sender"
+              value={config.secret || ''}
+              onChange={(e) => updateConfig('secret', e.target.value)}
+              description="If provided, every request must be signed with it: the HMAC-SHA256 of the request body, hex-encoded, sent as sha256=<hex>."
+            />
+            <Text size="xs" c="dimmed">
+              The signature travels in <Code>X-Hub-Signature-256</Code>, or <Code>X-Webhook-Signature</Code>. A source with
+              both a key and a signing secret asks for both.
+            </Text>
+            <Divider my="xs" />
+            <ResponseModeFields config={config} updateConfig={updateConfig} />
           </>
-        )}
+        ) : null}
       </Stack>
     );
   }

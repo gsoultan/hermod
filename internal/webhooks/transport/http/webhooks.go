@@ -19,30 +19,44 @@ import (
 	"github.com/gsoultan/hermod/pkg/infra/compression"
 )
 
-// webhookSourceConfig returns the configuration of the webhook source that
-// holds fullPath, or nil when there is none or the store cannot be read.
-func (h *WebhookHandler) webhookSourceConfig(r *http.Request, fullPath string) map[string]string {
+// sourceConfig returns the configuration of the source of the given type that
+// holds fullPath, or nil when no source does.
+//
+// An error means the store could not be read, which is not the same as there
+// being no such source. The configuration is where a source's credentials are,
+// so a caller that cannot read it does not know whether the path has any, and
+// must refuse the request rather than treat it as an open endpoint.
+func (h *WebhookHandler) sourceConfig(r *http.Request, sourceType, fullPath string) (map[string]string, error) {
 	sources, _, err := h.Storage.ListSources(r.Context(), storage.CommonFilter{})
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	for _, src := range sources {
-		if src.Type == "webhook" && src.Config["path"] == fullPath {
-			return src.Config
+		if src.Type == sourceType && src.Config["path"] == fullPath {
+			return src.Config, nil
 		}
 	}
-	return nil
+	return nil, nil
 }
 
-// authenticateWebhook verifies the HMAC signature of an incoming webhook against
-// the secret configured on its source. It returns an HTTP status and a
-// client-facing message; an empty message means authentication succeeded.
+// msgCannotAuthenticate is what a caller is told when the store holding an
+// endpoint's credentials cannot be read.
+const msgCannotAuthenticate = "the endpoint's credentials cannot be checked right now"
+
+// authenticateWebhook holds an incoming webhook to the credentials configured
+// on its source: an API key, sent as X-API-Key, and an HMAC signing secret,
+// sent as X-Hub-Signature-256 or X-Webhook-Signature. A source may have
+// either, both or neither, and every one it has must be satisfied. It returns
+// an HTTP status and a client-facing message; an empty message means the
+// request is authenticated.
+//
+// The API key is the credential the source form offers. It was saved and never
+// checked: only the signing secret was, and no field in the form writes one.
 func (h *WebhookHandler) authenticateWebhook(r *http.Request, config map[string]string, body []byte) (int, string) {
-	if config != nil {
-		secret := config["secret"]
-		if secret == "" {
-			return http.StatusOK, ""
-		}
+	if key := config["api_key"]; key != "" && !handlers.ConstantTimeCompare(r.Header.Get("X-API-Key"), key) {
+		return http.StatusUnauthorized, "Invalid API key"
+	}
+	if secret := config["secret"]; secret != "" {
 		signature := r.Header.Get("X-Hub-Signature-256")
 		if signature == "" {
 			signature = r.Header.Get("X-Webhook-Signature")
@@ -53,7 +67,6 @@ func (h *WebhookHandler) authenticateWebhook(r *http.Request, config map[string]
 		if !handlers.VerifyWebhookSignature(secret, body, signature) {
 			return http.StatusUnauthorized, "Invalid signature"
 		}
-		return http.StatusOK, ""
 	}
 	return http.StatusOK, ""
 }
@@ -153,8 +166,13 @@ func (h *WebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		Body:      body,
 	})
 
-	// Authenticate the request against the configured source secret (if any).
-	config := h.webhookSourceConfig(r, fullPath)
+	// Authenticate the request against its source's credentials, if any.
+	config, err := h.sourceConfig(r, "webhook", fullPath)
+	if err != nil {
+		message.ReleaseMessage(msg)
+		h.JsonError(w, msgCannotAuthenticate, http.StatusServiceUnavailable)
+		return
+	}
 	if status, authMsg := h.authenticateWebhook(r, config, body); authMsg != "" {
 		message.ReleaseMessage(msg)
 		h.JsonError(w, authMsg, status)
@@ -235,23 +253,17 @@ func writeOutcome(w http.ResponseWriter, status int, body syncResponse) {
 
 // authenticateGraphQL validates the X-API-Key header against the api_key
 // configured on the matching GraphQL source using a constant-time comparison.
-// It returns true when the request is authorized (including when no key is set).
-func (h *WebhookHandler) authenticateGraphQL(r *http.Request, fullPath string) bool {
-	sources, _, err := h.Storage.ListSources(r.Context(), storage.CommonFilter{})
+// It returns an HTTP status and a client-facing message; an empty message
+// means the request is authorized, which includes a source with no key.
+func (h *WebhookHandler) authenticateGraphQL(r *http.Request, fullPath string) (int, string) {
+	config, err := h.sourceConfig(r, "graphql", fullPath)
 	if err != nil {
-		return true
+		return http.StatusServiceUnavailable, msgCannotAuthenticate
 	}
-	var apiKey string
-	for _, src := range sources {
-		if src.Type == "graphql" && src.Config["path"] == fullPath {
-			apiKey = src.Config["api_key"]
-			break
-		}
+	if key := config["api_key"]; key != "" && !handlers.ConstantTimeCompare(r.Header.Get("X-API-Key"), key) {
+		return http.StatusUnauthorized, "Unauthorized"
 	}
-	if apiKey == "" {
-		return true
-	}
-	return handlers.ConstantTimeCompare(r.Header.Get("X-API-Key"), apiKey)
+	return http.StatusOK, ""
 }
 
 func (h *WebhookHandler) HandleGraphQL(w http.ResponseWriter, r *http.Request) {
@@ -277,9 +289,9 @@ func (h *WebhookHandler) HandleGraphQL(w http.ResponseWriter, r *http.Request) {
 	msg.SetMetadata("http_method", r.Method)
 
 	// Authenticate against the configured API key (if any).
-	if !h.authenticateGraphQL(r, fullPath) {
+	if status, authMsg := h.authenticateGraphQL(r, fullPath); authMsg != "" {
 		message.ReleaseMessage(msg)
-		h.JsonError(w, "Unauthorized", http.StatusUnauthorized)
+		h.JsonError(w, authMsg, status)
 		return
 	}
 
