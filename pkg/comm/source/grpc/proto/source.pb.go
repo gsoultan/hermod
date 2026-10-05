@@ -152,6 +152,7 @@ type PublishResponse struct {
 	// responds synchronously reports what the workflow did instead: "delivered",
 	// "completed" (it ran and had nothing to write), "dead_lettered" or "failed",
 	// or "pending" when the wait ran out before the workflow finished.
+	// PublishStream also answers "rejected" for a record it could not queue.
 	Status string `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
 	// Why the record failed. Set for "dead_lettered" and "failed".
 	Error string `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
@@ -242,9 +243,10 @@ const file_pkg_source_grpc_proto_source_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12\x14\n" +
 	"\x05error\x18\x03 \x01(\tR\x05error\x12\x16\n" +
-	"\x06record\x18\x04 \x01(\fR\x06record2i\n" +
+	"\x06record\x18\x04 \x01(\fR\x06record2\xcd\x01\n" +
 	"\rSourceService\x12X\n" +
-	"\aPublish\x12%.hermod.source.grpc.v1.PublishRequest\x1a&.hermod.source.grpc.v1.PublishResponseB7Z5github.com/gsoultan/hermod/pkg/comm/source/grpc/protob\x06proto3"
+	"\aPublish\x12%.hermod.source.grpc.v1.PublishRequest\x1a&.hermod.source.grpc.v1.PublishResponse\x12b\n" +
+	"\rPublishStream\x12%.hermod.source.grpc.v1.PublishRequest\x1a&.hermod.source.grpc.v1.PublishResponse(\x010\x01B7Z5github.com/gsoultan/hermod/pkg/comm/source/grpc/protob\x06proto3"
 
 var (
 	file_pkg_source_grpc_proto_source_proto_rawDescOnce sync.Once
@@ -267,9 +269,11 @@ var file_pkg_source_grpc_proto_source_proto_goTypes = []any{
 var file_pkg_source_grpc_proto_source_proto_depIdxs = []int32{
 	2, // 0: hermod.source.grpc.v1.PublishRequest.metadata:type_name -> hermod.source.grpc.v1.PublishRequest.MetadataEntry
 	0, // 1: hermod.source.grpc.v1.SourceService.Publish:input_type -> hermod.source.grpc.v1.PublishRequest
-	1, // 2: hermod.source.grpc.v1.SourceService.Publish:output_type -> hermod.source.grpc.v1.PublishResponse
-	2, // [2:3] is the sub-list for method output_type
-	1, // [1:2] is the sub-list for method input_type
+	0, // 2: hermod.source.grpc.v1.SourceService.PublishStream:input_type -> hermod.source.grpc.v1.PublishRequest
+	1, // 3: hermod.source.grpc.v1.SourceService.Publish:output_type -> hermod.source.grpc.v1.PublishResponse
+	1, // 4: hermod.source.grpc.v1.SourceService.PublishStream:output_type -> hermod.source.grpc.v1.PublishResponse
+	3, // [3:5] is the sub-list for method output_type
+	1, // [1:3] is the sub-list for method input_type
 	1, // [1:1] is the sub-list for extension type_name
 	1, // [1:1] is the sub-list for extension extendee
 	0, // [0:1] is the sub-list for field type_name

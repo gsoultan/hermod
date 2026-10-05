@@ -38,6 +38,20 @@ the routed messages have been released. It is the first routed message, as
 `json.Marshal` renders it (the shape a JSON sink receives), or the source
 message when nothing was routed.
 
+## gRPC PublishStream
+
+`PublishStream` (`pkg/comm/source/grpc/stream.go`) is `Publish` over a
+bidirectional stream, sharing `authorize`, `enqueue` and `await` with it. One
+response per request, matched by `id`. A dispatch failure is answered
+`rejected` and the stream stays open; a failed key check ends the stream. The
+key check is cached per path for `streamGrantTTL` (30s) and at most
+`maxStreamGrants` paths — per record it would be a read of the sources table.
+The handler must not return while an answer goroutine could still `Send`:
+on EOF it waits for them, on any other exit it cancels and then waits.
+The proto reuses `PublishRequest`/`PublishResponse` for both RPCs, with scoped
+`buf:lint:ignore` comments. `source_grpc.pb.go` was regenerated with
+protoc-gen-go-grpc 1.6.2 (from the old path, to keep the descriptor's file name).
+
 ## Things that bite
 
 - **A filter that drops a message is not distinguishable from an unresolved

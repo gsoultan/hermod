@@ -24,7 +24,29 @@ service SourceService {
   // source's response timeout runs out.
   //
   // A source configured with an API key requires it as "x-api-key" metadata.
+  //
+  // PublishStream shares this request and response; see the note there.
+  // buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE
   rpc Publish(PublishRequest) returns (PublishResponse);
+
+  // PublishStream is Publish over one long-lived stream. Every record sent is
+  // answered with one PublishResponse carrying that record's id, so a producer
+  // can send many records without opening a call for each.
+  //
+  // Responses are sent as each record is answered. For a source that responds
+  // synchronously that is when its workflow has finished with the record, so
+  // responses can arrive in a different order from the requests: match them by
+  // id. A record that could not be queued is answered "rejected" and the
+  // stream stays open. A record the source's API key does not cover ends the
+  // stream with an error. When the producer closes its side, the stream ends
+  // once every record already sent has been answered.
+  //
+  // The request and response are Publish's on purpose: a record is the same
+  // record whichever way it is sent.
+  // buf:lint:ignore RPC_REQUEST_STANDARD_NAME
+  // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME
+  // buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE
+  rpc PublishStream(stream PublishRequest) returns (stream PublishResponse);
 }
 
 message PublishRequest {
@@ -61,6 +83,7 @@ message PublishResponse {
   // responds synchronously reports what the workflow did instead: "delivered",
   // "completed" (it ran and had nothing to write), "dead_lettered" or "failed",
   // or "pending" when the wait ran out before the workflow finished.
+  // PublishStream also answers "rejected" for a record it could not queue.
   string status = 2;
   // Why the record failed. Set for "dead_lettered" and "failed".
   string error = 3;
