@@ -57,14 +57,10 @@ for a call). Mapping and Fuzzy Lookup had **no Target Field input at all**
 before this, so a call there could never work from the editor. Aggregate's
 target is on its Output tab, so the field itself carries the message too.
 
-**Found on the way, not fixed (2026-10-05, checked through
-`/api/transformations/test`):**
-
-- Fuzzy Lookup's editor stores `options` as JSON *text* (`JsonInput`); the node
-  reads `config["options"].([]any)`. A node built in the editor has no options
-  and passes every record through unchanged.
-- Term Extraction's editor writes `minLength` and `stopWords`; the node reads
-  `minLen` and a built-in stop-word list. Neither setting does anything.
+**Found on the way, fixed in the PR after (2026-10-05):** two editors whose
+settings never reached their node — see
+[node_config_list_shape_drift](node_config_list_shape_drift.md), "Fuzzy Lookup
+and Term Extraction".
 
 `MaskConfig` said "Field or expression" with `lower(source.email)` as its
 placeholder; `mask.go` reads a path. Fixed in the same change: the text, not

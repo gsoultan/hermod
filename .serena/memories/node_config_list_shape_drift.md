@@ -44,7 +44,36 @@ through it. `SwitchConfig.tsx` parses the string form on read, so an
 API-created or bundle-restored workflow no longer renders zero cases and save
 that emptiness back.
 
+## Fuzzy Lookup and Term Extraction (2026-10-05)
+
+Two more of the same class, found by posting the editor's own config to
+`/api/transformations/test` rather than a hand-built one:
+
+- **Fuzzy Lookup** stored `options` as JSON text (`JsonInput`) and the node read
+  `config["options"].([]any)`. A node built in the editor had no options and
+  passed every record through. `fuzzyOptions` (`fuzzy_lookup.go`) reads a list,
+  a `[]string`, or JSON text; text that is there but is not a list is an error,
+  not "no options".
+- **Term Extraction** wrote `minLength` and `stopWords`; the node read `minLen`
+  and a built-in list. This one is not a shape drift but a **key** drift: the
+  editor and the node never agreed on a name, and nothing compares the two.
+  The node reads the editor's keys now and keeps `minLen`.
+
+Both nodes gained `Prepare`, which parses once. The cache holds the text it was
+parsed from and `Transform` checks it still matches, so a config edited without
+being prepared again is read, not the cache — the registry prepares a node's
+config map in place, and a stale cache beside a new value is the
+"settings that never reach a running engine" failure in miniature. The editor's
+Test button runs `Transform` unprepared, so every check has to live there.
+
+A saved node of either kind changes what it writes on upgrade (CHANGELOG
+"Upgrading"): fixing a setting that was silently ignored is a behaviour change
+for every workflow that had set it.
+
 ## What to check next time
+
+Also grep an editor's `updateNodeConfig(nodeId, { key:` keys against the node's
+`config["key"]` reads. A key only one side names is this bug.
 
 Grepping for `Config["x"].(string)` finds the class. When adding a list-shaped
 node config, test it in **both** shapes — a green test that only builds the

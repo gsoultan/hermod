@@ -100,7 +100,9 @@ find a claim that outruns the code, fix the claim.
   — `updateNodeConfig` does not serialise, so `SwitchConfig`/`ConditionConfig`
   save a raw array where `RouterEditor`/`FilterDataConfig` save a JSON string;
   reading only the string form left an empty list, which `switch` reads as
-  "default" and `EvaluateConditions` reads as `true`.
+  "default" and `EvaluateConditions` reads as `true`. Fuzzy Lookup's options
+  were the same fault, and Term Extraction's form wrote keys its node never
+  read.
 - [What a condition actually compares](condition_value_shapes.md) — fields are
   JSON-normalised first (`[]byte` becomes base64), and `stringify` renders a
   number the way JSON does rather than `%v`, which spelled 1704207845 as
@@ -113,8 +115,7 @@ find a claim that outruns the code, fix the claim.
   switch and to each example's result; the audit of which node fields evaluate
   a call; `evaluator.OutputField`, which refuses a call with no target field
   where five nodes wrote to a field named after the expression; `time.now()`
-  is text and `nwo()` is null, with no error; two editors whose settings never
-  reach the engine.
+  is text and `nwo()` is null, with no error.
 - [Expression functions: one evaluator](expression_function_parity.md) —
   `CallFunction` is the only evaluator the product runs; every preview is
   answered by the server, and the TypeScript one in `transformationUtils.ts` is
