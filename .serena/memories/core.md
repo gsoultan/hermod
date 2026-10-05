@@ -111,8 +111,10 @@ find a claim that outruns the code, fix the claim.
 - [The function picker](expression_function_picker.md) — one catalog
   (`ui/src/lib/expressionFunctions.json`) a Go test holds to `CallFunction`'s
   switch and to each example's result; the audit of which node fields evaluate
-  a call, and the five that then write to a field named after the expression;
-  `time.now()` is text and `nwo()` is null, with no error.
+  a call; `evaluator.OutputField`, which refuses a call with no target field
+  where five nodes wrote to a field named after the expression; `time.now()`
+  is text and `nwo()` is null, with no error; two editors whose settings never
+  reach the engine.
 - [Expression functions: one evaluator](expression_function_parity.md) —
   `CallFunction` is the only evaluator the product runs; every preview is
   answered by the server, and the TypeScript one in `transformationUtils.ts` is

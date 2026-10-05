@@ -36,6 +36,14 @@ func (t *TermExtractionTransformer) Transform(ctx context.Context, msg hermod.Me
 		return msg, nil
 	}
 
+	// Settled before anything is read: a call with no target field is a fault
+	// in the node, whatever this message holds.
+	configuredTarget, _ := config["targetField"].(string)
+	targetField, err := evaluator.OutputField(field, configuredTarget, "_terms")
+	if err != nil {
+		return msg, err
+	}
+
 	valRaw := evaluator.EvaluateField(msg, field)
 	if valRaw == nil {
 		return msg, nil
@@ -66,11 +74,6 @@ func (t *TermExtractionTransformer) Transform(ctx context.Context, msg hermod.Me
 			terms = append(terms, word)
 			seen[word] = true
 		}
-	}
-
-	targetField, _ := config["targetField"].(string)
-	if targetField == "" {
-		targetField = field + "_terms"
 	}
 
 	msg.SetData(targetField, terms)

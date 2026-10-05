@@ -26,19 +26,45 @@ entry — the test fails until the third is done.
 | `set`, `advanced` — a row's value | `EvaluateAdvancedExpression` | yes: bare, or `{{fn()}}` inside text | yes |
 | condition / filter / switch / validate — Field | `EvaluateField` | yes, bare | yes (`field` mode) |
 | same — Value | `resolveConditionValue` → `fieldToken` | yes, as a token only; bare is text | yes (`token` mode) |
-| `mapping`, `data_conversion`, `aggregate`, `fuzzy_lookup`, `term_extraction` — field | `EvaluateField` | yes, **but see below** | no |
-| `rate_limit` keyField, `aggregate` groupBy | `EvaluateField` | yes (read only) | no |
+| `mapping`, `data_conversion`, `aggregate`, `fuzzy_lookup`, `term_extraction` — field | `EvaluateField` | yes, **with a target field — see below** | yes |
+| `rate_limit` keyField, `aggregate` groupBy | `EvaluateField` | yes (read only) | yes |
 | `api_lookup` URL / headers / body, `db_lookup` templates, panmail `name` | `ResolveTemplateMsg` | yes, as a token | no — not verified end to end |
 | `mask`, `char_map`, `encrypt`, `scd`, `dq_scorer`, `join`, `foreach`, `deduplicate`, `log`, `stateful` | `GetMsgValByPath` | **no — a path only** | no |
 
-**The trap in the middle row.** `mapping`, `data_conversion`, `fuzzy_lookup`,
-`term_extraction` and `aggregate` evaluate `lower(source.name)` and then, when
-no target field is set, write the result to a field *named after the
-expression* (`targetField = field`, `field + "_fuzzy"`, `field + "_terms"`,
-`field + "_" + aggType`). `SetData("lower(source.name)", v)` splits on the dot.
-Their inputs say "Field or expression", so the claim is true and the default is
-a trap. Offering the picker there needs that default fixed first (require a
-target field when the field is a call), which is why it is not wired.
+**The middle row, and `evaluator.OutputField`.** `mapping`, `data_conversion`,
+`fuzzy_lookup`, `term_extraction` and `aggregate` evaluate `lower(source.name)`
+and used to write the result, when no target field was set, to a field *named
+after the expression* (`targetField = field`, `field + "_fuzzy"`,
+`field + "_terms"`, `field + "_" + aggType`). `SetData` splits a key at its
+dots (`message.go`), so the value landed under
+`{"lower(source": {"name)": ...}}` with the node green.
+
+`OutputField(field, target, suffix)` is now the one place that decides where
+such a node writes. A call with no target is an error ("set a target field");
+`source.x` is the field `x`. It shares `isCall` with `EvaluateField`, so a
+field cannot be read as a call and written as a path. The same rule is checked
+when a workflow is created, updated or started (`unwritableExpressionIssues`
+in `workflow_validation.go`) — so a *running* workflow with such a node fails
+per record after an upgrade rather than being refused; CHANGELOG "Upgrading"
+says so. A sixth node of this shape must call `OutputField` and be added to
+that validation `case`.
+
+In the editor, `Transformation/expressionField.tsx` is the pair every such
+input uses: `ExpressionFieldPicker` (applying a function to a plain field sets
+the target to what the node was writing to, so only what is *read* changes)
+and `TargetFieldInput` (placeholder names the default; required and in error
+for a call). Mapping and Fuzzy Lookup had **no Target Field input at all**
+before this, so a call there could never work from the editor. Aggregate's
+target is on its Output tab, so the field itself carries the message too.
+
+**Found on the way, not fixed (2026-10-05, checked through
+`/api/transformations/test`):**
+
+- Fuzzy Lookup's editor stores `options` as JSON *text* (`JsonInput`); the node
+  reads `config["options"].([]any)`. A node built in the editor has no options
+  and passes every record through unchanged.
+- Term Extraction's editor writes `minLength` and `stopWords`; the node reads
+  `minLen` and a built-in stop-word list. Neither setting does anything.
 
 `MaskConfig` said "Field or expression" with `lower(source.email)` as its
 placeholder; `mask.go` reads a path. Fixed in the same change: the text, not

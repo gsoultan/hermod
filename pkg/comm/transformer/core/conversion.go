@@ -177,6 +177,14 @@ func (t *DataConversionTransformer) Transform(ctx context.Context, msg hermod.Me
 			// does not apply: "null" would turn a typo into a column of nulls.
 			return msg, fmt.Errorf("field %q: %w", row.field, row.configErr)
 		}
+		// Where the row writes, settled before its value is read. A call with
+		// no target field is a fault in the node too, so errorBehavior does not
+		// apply here either: "null" would write the null to a field named
+		// after the expression.
+		targetField, targetErr := evaluator.OutputField(row.field, row.targetField, "")
+		if targetErr != nil {
+			return msg, targetErr
+		}
 
 		valRaw := evaluator.EvaluateField(msg, row.field)
 
@@ -235,10 +243,6 @@ func (t *DataConversionTransformer) Transform(ctx context.Context, msg hermod.Me
 			}
 		}
 
-		targetField := row.targetField
-		if targetField == "" {
-			targetField = row.field
-		}
 		writes = append(writes, pendingWrite{field: targetField, value: converted})
 	}
 

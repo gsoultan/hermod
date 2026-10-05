@@ -20,6 +20,15 @@ names the first one read that way. That switch will be removed. A blank prefix
 under Settings → Security now means `HERMOD_SECRET_`; it used to mean every
 variable.
 
+**A Mapping, Data Conversion, Aggregate, Fuzzy Lookup or Term Extraction node
+whose field is a function call needs a target field.** With
+`lower(source.status)` as its field and no target, such a node used to write
+its result to a field named after the expression — in the message as
+`{"lower(source": {"status)": …}}` — and stay green. It now fails that record
+with "set a target field", and a workflow holding such a node is refused when
+it is saved or started. Open the node and set its Target Field. A node whose
+field is a plain path is unchanged.
+
 **A webhook source's API key is now checked.** If a webhook source has an API
 key saved — the form has always offered one — its endpoint now answers 401 to a
 request that does not carry it in the `X-API-Key` header. It used to accept
@@ -82,10 +91,37 @@ null.
   the help now list all 33 functions rather than 13 and 27.
 - A condition offers the same picker: on its Field, where `status` becomes
   `lower(source.status)`, and on its Value, where a call is a `{{ }}` token.
+- So do the fields of Mapping, Data Conversion, Aggregate, Fuzzy Lookup, Term
+  Extraction and Rate Limit. Applying a function to a field keeps the node
+  writing where it wrote: `status` becomes `lower(source.status)` and the
+  target field becomes `status`.
 
 The Mask node's field said "Field or expression" and suggested
 `lower(source.email)`. It is read as a path, so that named no field and the
 node passed every record through unmasked. It says "Path of the field" now.
+
+### A function in a node's field no longer writes to a field named after it
+
+Mapping, Data Conversion, Aggregate, Fuzzy Lookup and Term Extraction take "a
+field or an expression" and, with no target field set, write the result to a
+name built from that field: Mapping back to the field, Fuzzy Lookup to
+`<field>_fuzzy`. For `lower(source.status)` that name was the expression's own
+text. A message splits a name at its dots, so the mapped value landed under
+`{"lower(source": {"status)": "Paid in full"}}`, where no sink has a column
+for it, and nothing reported it.
+
+- Such a node now needs a target field, and says so: in the editor beside the
+  field, when the workflow is saved or started, and on the record if it gets
+  that far. See **Upgrading**.
+- `source.status` as a field is the field `status`, and is written back to
+  `status`. It used to be written to a new `status` under `source`.
+- Mapping and Fuzzy Lookup have a **Target Field** input. Both nodes have
+  always read one, but the editor had nowhere to set it, so a function in
+  either could not be made to work from the editor. A Fuzzy Lookup's score
+  goes beside its match (`city_match_score`) when the field is a call.
+- Term Extraction's Target Field showed "keywords" for a node that had none
+  set, while the node wrote to `<field>_terms`. It shows what is set, and
+  names the default.
 
 ### Run Preview says when it has nothing to run on
 
