@@ -610,6 +610,16 @@ func (r *Registry) setupWorkflowRouter(
 			effectiveInDegree = reachable
 		}
 
+		// These three markers are verdicts this router and the engine reach
+		// about a message, and each makes the engine acknowledge one it routed
+		// nowhere. A message that arrives already carrying one — a producer can
+		// put any metadata on its record — must not be able to supply its own.
+		if d, ok := msg.(interface{ DeleteMetadata(key string) }); ok {
+			d.DeleteMetadata(pkgengine.MetaFiltered)
+			d.DeleteMetadata(pkgengine.MetaDeliveredInline)
+			d.DeleteMetadata(pkgengine.MetaDeadLettered)
+		}
+
 		t := traversal.Acquire(r, eng, id, nodeMap, adj, nodeIndex, edgeLabels, edgeBreakpoints, effectiveInDegree, sinkNodeToIndex)
 		msg.Retain()
 		t.CurrentMessages[nodeIndex[sourceNodeID]] = msg
@@ -633,6 +643,15 @@ func (r *Registry) setupWorkflowRouter(
 		// preserved, and parks a second copy of the same event.
 		if t.DeadLettered.Load() {
 			msg.SetMetadata(pkgengine.MetaDeadLettered, "true")
+		}
+		// Nothing was routed, and every walk that ended without delivering
+		// ended on purpose: the workflow filtered this message. One walk that
+		// ended any other way — a failed node, a sink that did not resolve, a
+		// node holding the message — and it is not said to be filtered, so the
+		// engine goes on refusing to acknowledge what it cannot account for.
+		if len(routed) == 0 && t.Filtered.Load() && !t.Unaccounted.Load() &&
+			!t.DeadLettered.Load() && !t.InlineDelivered.Load() && !t.InlineFailed.Load() {
+			msg.SetMetadata(pkgengine.MetaFiltered, "true")
 		}
 		traversal.Release(t)
 
