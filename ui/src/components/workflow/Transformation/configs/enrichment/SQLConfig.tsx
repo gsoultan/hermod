@@ -1,7 +1,7 @@
-import { Suspense, lazy } from 'react';
-import { Stack, Select, Text, TextInput, Box, Card, Group, rem, ThemeIcon, Alert } from '@mantine/core';
+import { Suspense, lazy, type ReactNode } from 'react';
+import { Stack, Select, Text, TextInput, rem, Alert, Title, Paper, SimpleGrid, Divider } from '@mantine/core';
 import { sourceAllowsDirectQueries } from '@/lib/sourceCdc';
-import { IconDatabase, IconInfoCircle, IconSearch } from '@tabler/icons-react';
+import { IconDatabase, IconInfoCircle } from '@tabler/icons-react';
 
 const SQLQueryBuilder = lazy(() =>
   import('../../../../forms/SQLQueryBuilder').then((m) => ({ default: m.SQLQueryBuilder }))
@@ -26,6 +26,25 @@ interface SQLConfigProps {
   sources: any[];
   availableFields?: any[];
   incomingPayload?: any;
+}
+
+// One decision of the form: a numbered title, a line saying what is being
+// decided, and the controls that decide it.
+function Section({ step, title, description, children }: {
+  step: number;
+  title: string;
+  description: string;
+  children: ReactNode;
+}) {
+  return (
+    <Stack gap="sm" component="section">
+      <Stack gap={2}>
+        <Title order={4} size="sm">{`${step}. ${title}`}</Title>
+        <Text size="xs" c="dimmed">{description}</Text>
+      </Stack>
+      {children}
+    </Stack>
+  );
 }
 
 export function SQLConfig({ config, updateNodeConfig, nodeId, sources, availableFields = [], incomingPayload }: SQLConfigProps) {
@@ -69,53 +88,115 @@ export function SQLConfig({ config, updateNodeConfig, nodeId, sources, available
   const discardsReturnedRows =
     !resultField && statementReturnsRows(config.queryTemplate || config.query || '');
 
+  const sourceId = config.sourceId || config.sourceID || '';
+
   return (
-    <Stack gap="md">
-      <Alert
-        icon={<IconInfoCircle size={rem(18)} />}
-        color="indigo"
-        variant="light"
-        radius="md"
-        title="SQL Enrichment"
-      >
-        <Text size="sm">
-          Enrich your message by executing a query against an external database using data from
-          the current payload.
-        </Text>
-      </Alert>
+    <Stack gap="lg">
+      <Section step={1} title="Database" description="Where the statement runs.">
+        <Select
+          label="Database Source"
+          placeholder="Select a configured database source"
+          data={dbSources}
+          value={sourceId}
+          onChange={(val) => {
+            updateNodeConfig(nodeId, {
+              sourceId: val,
+              sourceID: val // Keep both for backward compatibility
+            });
+          }}
+          leftSection={<IconDatabase size={rem(16)} />}
+          required
+          size="sm"
+        />
 
-      <Card withBorder radius="md" p="md">
-        <Stack gap="md">
-          <Group gap="xs">
-            <ThemeIcon variant="light" color="indigo" radius="md">
-              <IconDatabase size={rem(18)} />
-            </ThemeIcon>
-            <Text size="sm" fw={600}>
-              Database Connection
+        {targetIsCDC && (
+          <Alert
+            data-testid="execute-sql-cdc-warning"
+            icon={<IconInfoCircle size={rem(18)} />}
+            color="yellow"
+            variant="light"
+            radius="md"
+          >
+            <Text size="sm">
+              <strong>{selectedSource?.name}</strong> has CDC enabled. This node writes, so any
+              statement touching a table in that source's publication produces a change event
+              that comes back into the pipeline — a loop that feeds itself. Writing to a table
+              nobody streams is fine; check which tables are published before pointing this at
+              one that is.
             </Text>
-          </Group>
+          </Alert>
+        )}
+      </Section>
 
-          <Select
-            label="Database Source"
-            placeholder="Select a configured database source"
-            data={dbSources}
-            value={config.sourceId || config.sourceID || ''}
-            onChange={(val) => {
-              updateNodeConfig(nodeId, { 
-                sourceId: val,
-                sourceID: val // Keep both for backward compatibility
-              });
-            }}
-            leftSection={<IconDatabase size={rem(16)} />}
-            required
-            size="sm"
-            description="Choose the database to query for enrichment."
-          />
+      <Divider />
 
+      <Section
+        step={2}
+        title="Statement"
+        description="Runs once for each message. A {{.field}} variable is bound to that message's value, never pasted into the SQL."
+      >
+        {sourceId ? (
+          <Suspense fallback={<Text size="xs" c="dimmed">Loading the editor…</Text>}>
+            {/* Keyed by the database: its tables, columns and results belong
+                to the one that was open. */}
+            <SQLQueryBuilder
+              key={sourceId}
+              type="source"
+              intent="write"
+              initialQuery={config.queryTemplate || config.query || ''}
+              onQueryChange={(val: string) => {
+                updateNodeConfig(nodeId, {
+                  queryTemplate: val,
+                  query: val // Keep both for backward compatibility
+                });
+              }}
+              config={selectedSource?.config || {}}
+              sourceType={selectedSource?.type}
+              availableFields={availableFields}
+              sampleMessage={incomingPayload}
+            />
+            <Text size="xs" c="dimmed" data-testid="execute-sql-manual-preview">
+              Live Preview does not run this node while you edit, because running it writes. Press
+              Run Preview to run it once on the sample message.
+            </Text>
+          </Suspense>
+        ) : (
+          <Paper withBorder radius="md" p="lg">
+            <Text size="sm" c="dimmed" ta="center">
+              Pick a database above and the editor opens on its tables.
+            </Text>
+          </Paper>
+        )}
+      </Section>
+
+      <Divider />
+
+      <Section
+        step={3}
+        title="Returned data"
+        description="What the node adds to the message once the statement has run. Both are optional."
+      >
+        {discardsReturnedRows && (
+          <Alert
+            data-testid="execute-sql-returning-hint"
+            icon={<IconInfoCircle size={rem(18)} />}
+            color="yellow"
+            variant="light"
+            radius="md"
+          >
+            <Text size="sm">
+              This statement returns rows and nothing is keeping them, so the message — and
+              the preview — will come back unchanged. Name a <strong>Returned Rows Field</strong>{' '}
+              below to keep them.
+            </Text>
+          </Alert>
+        )}
+
+        <SimpleGrid type="container" cols={{ base: 1, '520px': 2 }} spacing="md">
           <TextInput
             label="Returned Rows Field"
             placeholder="e.g. inserted (optional)"
-            description="Keeps what the statement returns — RETURNING on PostgreSQL, SQLite and MariaDB, OUTPUT on SQL Server — in the message under this name, so a generated id reads as inserted.id. Without it the statement runs and what it returns is dropped."
+            description="Keeps what the statement returns — RETURNING on PostgreSQL, SQLite and MariaDB, OUTPUT on SQL Server — under this name, so a generated id reads as inserted.id. Without it, what is returned is dropped."
             value={config.resultField || ''}
             onChange={(e) => {
               const value = e.currentTarget.value;
@@ -124,121 +205,52 @@ export function SQLConfig({ config, updateNodeConfig, nodeId, sources, available
             size="sm"
           />
 
-          {discardsReturnedRows && (
-            <Alert
-              data-testid="execute-sql-returning-hint"
-              icon={<IconInfoCircle size={rem(18)} />}
-              color="yellow"
-              variant="light"
-              radius="md"
-            >
-              <Text size="sm">
-                This statement returns rows and nothing is keeping them, so the message — and
-                the preview — will come back unchanged. Name a <strong>Returned Rows Field</strong>{' '}
-                above to keep them.
-              </Text>
-            </Alert>
-          )}
-
-          {resultField && (
-            <Select
-              label="Rows to keep"
-              description="The shape follows this choice, never the number of rows: an object, or a list (at most 1,000 rows) — even when one row comes back."
-              data={[
-                { value: 'first', label: 'First row (an object)' },
-                { value: 'all', label: 'Every row (a list)' },
-              ]}
-              value={String(config.resultRows || '').toLowerCase() === 'all' ? 'all' : 'first'}
-              onChange={(val) => updateNodeConfig(nodeId, { resultRows: val || 'first' })}
-              allowDeselect={false}
-              size="sm"
-            />
-          )}
-
           <TextInput
             label="Affected Rows Field"
             placeholder="e.g. rows_written (optional)"
-            description="Writes the statement's affected-row count into the message under this name. Without it, a node that changed nothing looks exactly like one that changed a thousand rows. With returned rows kept, this is the number of rows returned."
+            description="Writes the statement's affected-row count under this name. Without it, a node that changed nothing looks exactly like one that changed a thousand rows. With returned rows kept, this is the number of rows returned."
             value={config.affectedRowsField || ''}
             onChange={(e) => updateNodeConfig(nodeId, { affectedRowsField: e.currentTarget.value })}
             size="sm"
           />
+        </SimpleGrid>
 
+        {resultField && (
           <Select
-            label="When a variable resolves to nothing"
-            description="A {{ }} token with no matching field is bound as NULL. That is right for an optional field and identical to a typo — and on a write, a NULL variable is a statement that changes nothing, silently."
+            label="Rows to keep"
+            description="The shape follows this choice, never the number of rows: an object, or a list (at most 1,000 rows) — even when one row comes back."
             data={[
-              { value: 'null', label: 'Bind NULL and run the statement' },
-              { value: 'fail', label: 'Fail the message' },
+              { value: 'first', label: 'First row (an object)' },
+              { value: 'all', label: 'Every row (a list)' },
             ]}
-            value={String(config.onUnresolved || '').toLowerCase() === 'fail' ? 'fail' : 'null'}
-            onChange={(val) => updateNodeConfig(nodeId, { onUnresolved: val || 'null' })}
+            value={String(config.resultRows || '').toLowerCase() === 'all' ? 'all' : 'first'}
+            onChange={(val) => updateNodeConfig(nodeId, { resultRows: val || 'first' })}
             allowDeselect={false}
             size="sm"
           />
+        )}
+      </Section>
 
-          {targetIsCDC && (
-            <Alert
-              data-testid="execute-sql-cdc-warning"
-              icon={<IconInfoCircle size={rem(18)} />}
-              color="yellow"
-              variant="light"
-              radius="md"
-            >
-              <Text size="sm">
-                <strong>{selectedSource?.name}</strong> has CDC enabled. This node writes, so any
-                statement touching a table in that source's publication produces a change event
-                that comes back into the pipeline — a loop that feeds itself. Writing to a table
-                nobody streams is fine; check which tables are published before pointing this at
-                one that is.
-              </Text>
-            </Alert>
-          )}
-        </Stack>
-      </Card>
+      <Divider />
 
-      <Stack gap="xs">
-        <Group gap="xs">
-          <IconSearch size={rem(18)} className="text-gray-500" />
-          <Text size="sm" fw={600}>
-            Query Configuration
-          </Text>
-        </Group>
-        <Box
-          style={{
-            flex: 1,
-            minHeight: 500,
-            border: '1px solid var(--mantine-color-gray-3)',
-            borderRadius: rem(8),
-            overflow: 'hidden',
-          }}
-        >
-          <Suspense fallback={<Text size="xs" p="md">Loading query builder...</Text>}>
-            {(config.sourceId || config.sourceID) ? (
-              <SQLQueryBuilder
-                type="source"
-                initialQuery={config.queryTemplate || config.query || ''}
-                onQueryChange={(val: string) => {
-                  updateNodeConfig(nodeId, { 
-                    queryTemplate: val,
-                    query: val // Keep both for backward compatibility
-                  });
-                }}
-                config={selectedSource?.config || {}}
-                sourceType={selectedSource?.type}
-                availableFields={availableFields}
-                sampleMessage={incomingPayload}
-              />
-            ) : (
-              <Box p="xl" style={{ textAlign: 'center' }}>
-                <Text size="sm" c="dimmed">
-                  Please select a Database Source above to enable the Query Builder.
-                </Text>
-              </Box>
-            )}
-          </Suspense>
-        </Box>
-      </Stack>
+      <Section
+        step={4}
+        title="Missing values"
+        description="What to do when a message has no value for a variable the statement uses."
+      >
+        <Select
+          label="When a variable resolves to nothing"
+          description="A {{ }} token with no matching field is bound as NULL. That is right for an optional field and identical to a typo — and on a write, a NULL variable is a statement that changes nothing, silently."
+          data={[
+            { value: 'null', label: 'Bind NULL and run the statement' },
+            { value: 'fail', label: 'Fail the message' },
+          ]}
+          value={String(config.onUnresolved || '').toLowerCase() === 'fail' ? 'fail' : 'null'}
+          onChange={(val) => updateNodeConfig(nodeId, { onUnresolved: val || 'null' })}
+          allowDeselect={false}
+          size="sm"
+        />
+      </Section>
     </Stack>
   );
 }
