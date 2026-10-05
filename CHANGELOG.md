@@ -123,17 +123,6 @@ for it, and nothing reported it.
   set, while the node wrote to `<field>_terms`. It shows what is set, and
   names the default.
 
-### Escape in Insert variable closes the list, not the node's settings
-
-**Insert variable** and **Insert function** open a list over a node's settings.
-Pressing Escape to dismiss the list closed the settings as well: with the list
-just opened, from its search box, or after a click on its text. The function
-list had been fixed for the first two of those and not the third.
-
-Escape now closes the list only, wherever the focus is in it, and the variable
-list takes the focus when it opens. A second Escape closes the settings, as
-before.
-
 ### The Execute SQL form and the SQL builder are laid out for writing a statement
 
 The Execute SQL node's form opened with a banner describing a lookup, then one
@@ -183,6 +172,17 @@ API Lookup — so a query such as `select current_timestamp` kept returning the
 same value from **Test** and from a running workflow. A shorter TTL was ignored
 the same way. A node whose TTL is `0` now never reads the cache, and a changed
 TTL starts from a fresh result.
+
+### Escape in Insert variable closes the list, not the node's settings
+
+**Insert variable** and **Insert function** open a list over a node's settings.
+Pressing Escape to dismiss the list closed the settings as well: with the list
+just opened, from its search box, or after a click on its text. The function
+list had been fixed for the first two of those and not the third.
+
+Escape now closes the list only, wherever the focus is in it, and the variable
+list takes the focus when it opens. A second Escape closes the settings, as
+before.
 
 ### Run Preview says when it has nothing to run on
 
