@@ -1,18 +1,22 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
-  Stack, Button, Table, Text,
-  Paper, Group, ScrollArea, Alert, ActionIcon, Tooltip,
-  List, Divider, Loader, Textarea, Grid, Box, Modal, TextInput, Badge, rem
+  Stack, Button, Text, Paper, Group, ScrollArea, Alert, ActionIcon, Tooltip,
+  Grid, Modal, Badge, Tabs, Anchor,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import { getValByPath } from '@/utils/transformationUtils';
 import { apiFetch } from '@/api';
 import {
   IconAlertCircle, IconCopy, IconDatabase, IconPlayerPlay, IconTable,
-  IconColumns, IconRefresh, IconPlus, IconArrowsMaximize, IconArrowsMinimize,
-  IconWand, IconTrash, IconSearch, IconBraces
+  IconArrowsMaximize, IconArrowsMinimize, IconWand, IconBraces, IconTemplate,
 } from '@tabler/icons-react';
+import { SqlEditor } from './sqlBuilder/SqlEditor';
+import { VariablesPanel } from './sqlBuilder/VariablesPanel';
+import { SchemaExplorer } from './sqlBuilder/SchemaExplorer';
+import { TemplatesPanel } from './sqlBuilder/TemplatesPanel';
+import { ResultsTable } from './sqlBuilder/ResultsTable';
+import { extractVariables, formatSQL } from './sqlBuilder/sqlText';
+import { buildTemplates, keywordsFor, type SqlColumn, type SqlIntent } from './sqlBuilder/templates';
 
 interface SQLQueryBuilderProps {
   type: 'source' | 'sink';
@@ -23,51 +27,24 @@ interface SQLQueryBuilderProps {
   onQueryChange?: (query: string) => void;
   availableFields?: { path: string; type: string }[];
   sampleMessage?: any;
-}
-
-// Common SQL keywords used by the "Quick Insert" toolbar. Kept outside the
-// component so the reference stays stable across re-renders.
-const QUICK_KEYWORDS = [
-  'SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'JOIN', 'LEFT JOIN', 'INNER JOIN',
-  'GROUP BY', 'ORDER BY', 'HAVING', 'LIMIT', 'OFFSET', 'DISTINCT',
-];
-
-// Keywords that should start on a new line when formatting a query, making
-// long statements far easier to read.
-const NEWLINE_KEYWORDS = [
-  'FROM', 'WHERE', 'AND', 'OR', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN',
-  'OUTER JOIN', 'JOIN', 'GROUP BY', 'ORDER BY', 'HAVING', 'LIMIT', 'OFFSET',
-  'UNION', 'VALUES', 'SET',
-];
-
-// formatSQL applies a lightweight, dependency-free formatting pass: it
-// upper-cases well known keywords and breaks long statements onto multiple
-// lines so they are easier to scan.
-function formatSQL(sql: string): string {
-  if (!sql.trim()) return sql;
-  let result = sql.replace(/\s+/g, ' ').trim();
-  // Break major clauses onto their own line (longest keywords first to avoid
-  // partially matching shorter ones).
-  for (const kw of [...NEWLINE_KEYWORDS].sort((a, b) => b.length - a.length)) {
-    const re = new RegExp(`\\s+${kw.replace(/ /g, '\\s+')}\\b`, 'gi');
-    result = result.replace(re, `\n${kw.toUpperCase()}`);
-  }
-  // Upper-case the leading SELECT for consistency.
-  result = result.replace(/^\s*select\b/i, 'SELECT');
-  return result.trim();
+  /**
+   * What the statement is for. A lookup or a batch query reads, which is the
+   * default; execute_sql writes, and gets the keywords, templates and wording
+   * of a statement that changes rows.
+   */
+  intent?: SqlIntent;
 }
 
 // Default query shown when no initialQuery is provided.
 const DEFAULT_QUERY = 'SELECT * FROM tables LIMIT 10';
 
-// renderCellValue converts an arbitrary result cell into a display-safe string,
-// guarding against null/undefined (which would otherwise render the literal
-// "null"/"undefined") and serialising nested objects/arrays.
-function renderCellValue(value: unknown): string {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
-}
+// The builder lays itself out by the width it is given, not by the window's.
+// It is embedded in a third of a drawer and in a near-fullscreen modal, and a
+// viewport breakpoint cannot tell those apart: at 1600px wide it split a 440px
+// column into a 250px editor and a 130px schema list.
+const CONTAINER_BREAKPOINTS = { xs: '360px', sm: '560px', md: '860px', lg: '1180px', xl: '1500px' };
+
+type ReferenceTab = 'variables' | 'schema' | 'templates';
 
 // normalizeRows coerces an API response into an array. The Go backend returns
 // `null` for a zero-row result, which would otherwise hide the results preview.
@@ -75,56 +52,42 @@ function normalizeRows<T>(data: unknown): T[] {
   return Array.isArray(data) ? (data as T[]) : [];
 }
 
-/**
- * Maps JS types to standard SQL types based on the database engine.
- */
-function jsToSqlType(jsType: string, engine?: string): string {
-  const e = (engine || '').toLowerCase();
-  const isPostgres = e === 'postgres' || e === 'pgvector' || e === 'yugabyte';
-  const isMySQL = e === 'mysql' || e === 'mariadb';
-  const isSQLite = e === 'sqlite';
-  const isOracle = e === 'oracle';
-  const isMSSQL = e === 'mssql';
-
-  switch (jsType) {
-    case 'number':
-      return 'DECIMAL';
-    case 'boolean':
-      return isOracle ? 'NUMBER(1)' : 'BOOLEAN';
-    case 'object':
-    case 'array':
-      if (isPostgres) return 'JSONB';
-      if (isMySQL) return 'JSON';
-      return 'TEXT';
-    case 'string':
-    default:
-      if (isPostgres || isSQLite) return 'TEXT';
-      if (isMSSQL) return 'NVARCHAR(MAX)';
-      return 'VARCHAR(255)';
-  }
+// A column arrives as an object from every current endpoint; a bare name is
+// what older ones sent.
+function normalizeColumns(data: unknown): SqlColumn[] {
+  return normalizeRows<any>(data).map((c) => (typeof c === 'object' && c !== null ? c : { name: String(c) }));
 }
 
-export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, initialQuery, onQueryChange, availableFields = [], sampleMessage }: SQLQueryBuilderProps) {
-  const [query, setQuery] = useState(initialQuery || DEFAULT_QUERY);
+export function SQLQueryBuilder({
+  type, sourceType, config, onSelectResult, initialQuery, onQueryChange,
+  availableFields = [], sampleMessage, intent = 'read',
+}: SQLQueryBuilderProps) {
+  const writes = intent === 'write';
+  // A write starts empty. The default is a SELECT, and showing one in a node
+  // that has no statement saved made the node look configured when it was not.
+  const [query, setQuery] = useState(initialQuery || (writes ? '' : DEFAULT_QUERY));
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<any[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tables, setTables] = useState<string[]>([]);
   const [fetchingTables, setFetchingTables] = useState(false);
+  const [schemaError, setSchemaError] = useState<string | null>(null);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
-  const [columns, setColumns] = useState<any[]>([]);
+  const [columns, setColumns] = useState<SqlColumn[]>([]);
   const [fetchingColumns, setFetchingColumns] = useState(false);
-  const [tableFilter, setTableFilter] = useState('');
-  const [fieldFilter, setFieldFilter] = useState('');
+  const [tab, setTab] = useState<ReferenceTab>('variables');
+  // The statement a template replaced, kept so it can be put back.
+  const [replaced, setReplaced] = useState<string | null>(null);
   const [expanded, { open: openExpanded, close: closeExpanded }] = useDisclosure(false);
 
-  // activeEditorRef points at whichever textarea (inline or fullscreen) currently
-  // has focus. Tracking focus instead of sharing one ref keeps insertText working
-  // regardless of which editor mounts/unmounts first.
+  // activeEditorRef points at the textarea that last had focus, so an insert
+  // lands at its caret. The inline and the expanded editor are never mounted
+  // together, and insertText checks the element is still in the document.
   const activeEditorRef = useRef<HTMLTextAreaElement | null>(null);
   // abortRef cancels any in-flight query when a new one starts or the component
   // unmounts, preventing races and setState-after-unmount warnings.
   const abortRef = useRef<AbortController | null>(null);
+  const schemaRequested = useRef(false);
 
   useEffect(() => {
     if (initialQuery !== undefined && initialQuery !== query) {
@@ -209,23 +172,26 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
   };
 
   const fetchTables = async () => {
+    schemaRequested.current = true;
     setFetchingTables(true);
-    setError(null);
+    setSchemaError(null);
     try {
       const response = await apiFetch(`/api/${type}s/discover/tables`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(buildConfigPayload()),
+        // Shown in the Schema tab, where it was asked for. A toast as well
+        // reported one failure twice.
+        silent: true,
       });
       if (response.ok) {
         const data = await response.json();
         setTables(normalizeRows<string>(data));
       } else {
-        setError(await extractError(response, 'Failed to fetch tables'));
+        setSchemaError(await extractError(response, 'Failed to fetch tables'));
       }
     } catch (e: any) {
-      console.error('Failed to fetch tables', e);
-      setError(e.message);
+      setSchemaError(e?.message || 'Failed to fetch tables');
     } finally {
       setFetchingTables(false);
     }
@@ -234,20 +200,34 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
   const fetchColumns = async (tableName: string) => {
     setFetchingColumns(true);
     setSelectedTable(tableName);
+    setColumns([]);
     try {
       const response = await apiFetch(`/api/${type}s/discover/columns`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ [type]: buildConfigPayload(), table: tableName }),
+        silent: true,
       });
       if (response.ok) {
         const data = await response.json();
-        setColumns(normalizeRows(data));
+        setColumns(normalizeColumns(data));
+      } else {
+        setSchemaError(await extractError(response, `Failed to fetch the columns of ${tableName}`));
       }
-    } catch (e) {
-      console.error('Failed to fetch columns', e);
+    } catch (e: any) {
+      setSchemaError(e?.message || `Failed to fetch the columns of ${tableName}`);
     } finally {
       setFetchingColumns(false);
+    }
+  };
+
+  // Opening Schema reads the tables. It used to wait for a Load Tables button
+  // inside the panel, which is one more thing to find before the first table.
+  const changeTab = (value: string | null) => {
+    if (!value) return;
+    setTab(value as ReferenceTab);
+    if (value === 'schema' && !schemaRequested.current) {
+      void fetchTables();
     }
   };
 
@@ -256,8 +236,8 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
   // ergonomic when editing long, multi-line queries.
   const insertText = (text: string) => {
     const el = activeEditorRef.current;
-    if (!el) {
-      const newQuery = query + (query.endsWith(' ') || query === '' ? '' : ' ') + text;
+    if (!el || !el.isConnected) {
+      const newQuery = query + (/\s$/.test(query) || query === '' ? '' : ' ') + text;
       handleQueryChange(newQuery);
       return;
     }
@@ -279,79 +259,61 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
     });
   };
 
-  const handleFormat = () => {
-    handleQueryChange(formatSQL(query));
+  const useTemplate = (sql: string) => {
+    setReplaced(query.trim() ? query : null);
+    handleQueryChange(sql);
+  };
+
+  const undoTemplate = () => {
+    if (replaced === null) return;
+    handleQueryChange(replaced);
+    setReplaced(null);
   };
 
   const handleCopyQuery = () => {
     navigator.clipboard.writeText(query);
-    notifications.show({ 
+    notifications.show({
       id: 'sql-query-copied',
-      message: 'Query copied to clipboard', 
-      color: 'teal' 
+      message: 'Query copied to clipboard',
+      color: 'teal',
     });
   };
 
-  const handleEditorKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-      e.preventDefault();
-      executeQuery();
-    }
-  };
-
-  const resultColumns = results && results.length > 0 ? Object.keys(results[0]) : [];
-
-  const filteredTables = useMemo(() => {
-    const f = tableFilter.trim().toLowerCase();
-    if (!f) return tables;
-    return tables.filter((t) => t.toLowerCase().includes(f));
-  }, [tables, tableFilter]);
-
-  const filteredAvailableFields = useMemo(() => {
-    const f = fieldFilter.trim().toLowerCase();
-    if (!f) return availableFields;
-    return availableFields.filter((field) => field.path.toLowerCase().includes(f));
-  }, [availableFields, fieldFilter]);
-
   const lineCount = query ? query.split('\n').length : 0;
+  const queryVariables = useMemo(() => extractVariables(query), [query]);
+  const fieldPaths = useMemo(() => availableFields.map((f) => f.path), [availableFields]);
+  const templates = useMemo(
+    () => buildTemplates(intent, {
+      engine: sourceType,
+      table: selectedTable ?? undefined,
+      columns: fetchingColumns ? undefined : columns,
+      fields: fieldPaths,
+    }),
+    [intent, sourceType, selectedTable, columns, fetchingColumns, fieldPaths]
+  );
+  const keywords = useMemo(() => keywordsFor(intent), [intent]);
 
-  const queryVariables = useMemo(() => {
-    const matches = query.matchAll(/\{\{\s*(\.?[\w.]+)\s*\}\}/g);
-    const vars = new Set<string>();
-    for (const match of matches) {
-      let v = match[1];
-      if (v.startsWith('.')) v = v.slice(1);
-      vars.add(v);
-    }
-    return Array.from(vars);
-  }, [query]);
-
-  const editorToolbar = (
-    <Group justify="space-between">
-      <Group gap="xs">
-        <IconDatabase size={20} color="var(--mantine-color-blue-filled)" />
-        <Text fw={600} size="sm">Query Editor</Text>
-        <Badge size="xs" variant="light" color="gray">
-          {query.length} chars · {lineCount} lines
-        </Badge>
+  const toolbar = (
+    <Group justify="space-between" gap="xs">
+      <Group gap="xs" wrap="nowrap">
+        <IconDatabase size={18} color="var(--mantine-color-blue-filled)" />
+        <Text fw={600} size="sm">{writes ? 'Statement' : 'Query Editor'}</Text>
+        {sourceType && <Badge size="xs" variant="light" color="gray">{sourceType}</Badge>}
       </Group>
-      <Group gap="xs">
-        {onSelectResult && results && results.length > 0 && (
-          <Text size="xs" c="dimmed">Click a row to select</Text>
-        )}
+      <Group gap="xs" wrap="nowrap">
         <Tooltip label="Format query">
-          <ActionIcon variant="light" size="md" color="grape" onClick={handleFormat} aria-label="Format query">
+          <ActionIcon variant="default" size="md" onClick={() => handleQueryChange(formatSQL(query))} aria-label="Format query">
             <IconWand size={16} />
           </ActionIcon>
         </Tooltip>
         <Tooltip label="Copy query">
-          <ActionIcon variant="light" size="md" onClick={handleCopyQuery} aria-label="Copy query">
+          <ActionIcon variant="default" size="md" onClick={handleCopyQuery} aria-label="Copy query">
             <IconCopy size={16} />
           </ActionIcon>
         </Tooltip>
-        <Tooltip label={expanded ? 'Collapse editor' : 'Expand editor (fullscreen)'}>
+        <Tooltip label={expanded ? 'Back to the form' : 'Open the workspace: editor, schema and results side by side'}>
           <ActionIcon
-            variant="light"
+            variant="default"
             size="md"
             onClick={expanded ? closeExpanded : openExpanded}
             aria-label="Toggle fullscreen editor"
@@ -366,362 +328,151 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
           variant="filled"
           size="xs"
         >
-          Run Query
+          {writes ? 'Run statement' : 'Run Query'}
         </Button>
       </Group>
     </Group>
   );
 
-  const quickInsertBar = (
-    <Group gap="xs">
-      <Text size="xs" fw={500} c="dimmed">Quick Insert:</Text>
-      {QUICK_KEYWORDS.map((kw) => (
-        <Button key={kw} size="compact-xs" variant="light" onClick={() => insertText(kw)}>
-          {kw}
-        </Button>
-      ))}
-      <Tooltip label="Insert dynamic last value variable">
-        <Button size="compact-xs" variant="light" color="orange" onClick={() => insertText('{{.last_value}}')}>
-          {"{{.last_value}}"}
-        </Button>
-      </Tooltip>
-      <Button
-        size="compact-xs"
-        variant="subtle"
-        color="gray"
-        leftSection={<IconTrash size={12} />}
-        onClick={() => handleQueryChange('')}
-      >
-        Clear
-      </Button>
-    </Group>
+  const reference = (large: boolean) => (
+    <Paper withBorder radius="md" p="xs">
+      <Tabs value={tab} onChange={changeTab}>
+        <Tabs.List grow>
+          <Tabs.Tab value="variables" leftSection={<IconBraces size={14} />}>
+            Variables{queryVariables.length > 0 ? ` (${queryVariables.length})` : ''}
+          </Tabs.Tab>
+          <Tabs.Tab value="schema" leftSection={<IconTable size={14} />}>Schema</Tabs.Tab>
+          <Tabs.Tab value="templates" leftSection={<IconTemplate size={14} />}>Templates</Tabs.Tab>
+        </Tabs.List>
+
+        <ScrollArea.Autosize mah={large ? '64vh' : 340} type="auto" offsetScrollbars pt="sm">
+          <Tabs.Panel value="variables">
+            <VariablesPanel
+              variables={queryVariables}
+              availableFields={availableFields}
+              sampleMessage={sampleMessage}
+              engine={sourceType}
+              onInsert={insertText}
+            />
+          </Tabs.Panel>
+          <Tabs.Panel value="schema">
+            <SchemaExplorer
+              tables={tables}
+              loading={fetchingTables}
+              error={schemaError}
+              onLoad={fetchTables}
+              selectedTable={selectedTable}
+              columns={columns}
+              loadingColumns={fetchingColumns}
+              onSelectTable={fetchColumns}
+              onInsert={insertText}
+            />
+          </Tabs.Panel>
+          <Tabs.Panel value="templates">
+            <TemplatesPanel
+              intent={intent}
+              templates={templates}
+              keywords={keywords}
+              table={selectedTable}
+              hasStatement={query.trim() !== ''}
+              onUseTemplate={useTemplate}
+              onInsert={insertText}
+              onClear={() => handleQueryChange('')}
+            />
+          </Tabs.Panel>
+        </ScrollArea.Autosize>
+      </Tabs>
+    </Paper>
   );
 
-  const editorField = (fullscreen: boolean) => (
-    <Textarea
-      placeholder="SELECT * FROM my_table LIMIT 10"
-      value={query}
-      onChange={(e) => handleQueryChange(e.currentTarget.value)}
-      onKeyDown={handleEditorKeyDown}
-      onFocus={(e) => { activeEditorRef.current = e.currentTarget; }}
-      minRows={fullscreen ? 20 : 6}
-      maxRows={fullscreen ? 30 : 12}
-      autosize
-      spellCheck={false}
-      styles={{
-        input: {
-          fontFamily: 'JetBrains Mono, Menlo, Monaco, Courier New, monospace',
-          fontSize: '13px',
-          lineHeight: 1.6,
-          backgroundColor: 'light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-8))',
-          color: 'light-dark(var(--mantine-color-black), var(--mantine-color-white))',
-        }
-      }}
-    />
-  );
-
-  return (
-    <Stack gap="md">
-      <Modal
-        opened={expanded}
-        onClose={closeExpanded}
-        title={<Group gap="xs"><IconDatabase size={18} /><Text fw={600}>Query Editor</Text></Group>}
-        size="90%"
-        radius="md"
-      >
-        <Stack gap="sm">
-          {editorToolbar}
-          {editorField(true)}
-          {quickInsertBar}
-          <Text size="xs" c="dimmed">Tip: press Cmd/Ctrl + Enter to run the query.</Text>
-        </Stack>
-      </Modal>
-
-      <Grid gap="md">
-        <Grid.Col span={{ base: 12, md: 8 }}>
+  const workspace = (large: boolean) => (
+    <Stack gap="sm">
+      {toolbar}
+      <Grid type="container" breakpoints={CONTAINER_BREAKPOINTS} gap="md">
+        <Grid.Col span={{ base: 12, md: 7, lg: 8 }}>
           <Stack gap="xs">
-            <Paper withBorder p="md" shadow="sm" radius="md">
-              <Stack gap="sm">
-                {editorToolbar}
-                {editorField(false)}
-                {quickInsertBar}
-                <Text size="xs" c="dimmed">Tip: press Cmd/Ctrl + Enter to run the query.</Text>
-              </Stack>
-            </Paper>
+            <SqlEditor
+              label="SQL statement"
+              value={query}
+              onChange={handleQueryChange}
+              onRun={executeQuery}
+              onFocusEditor={(el) => { activeEditorRef.current = el; }}
+              placeholder={writes
+                ? 'INSERT INTO my_table (column_a)\nVALUES ({{.field}})\nRETURNING id'
+                : 'SELECT * FROM my_table LIMIT 10'}
+              height={large ? '46vh' : 260}
+            />
+            <Group justify="space-between" gap="xs">
+              <Text size="xs" c="dimmed">
+                {lineCount} lines · {query.length} chars
+              </Text>
+              <Text size="xs" c="dimmed">Cmd/Ctrl + Enter to run</Text>
+            </Group>
+
+            {writes && (
+              <Text size="xs" c="dimmed">
+                Run executes the statement on the database with the sample message. Rows it writes are real.
+              </Text>
+            )}
+
+            {replaced !== null && (
+              <Group gap="xs">
+                <Text size="xs" c="dimmed">The template replaced your statement.</Text>
+                <Anchor component="button" type="button" size="xs" onClick={undoTemplate}>
+                  Undo
+                </Anchor>
+              </Group>
+            )}
+
+            {error && (
+              <Alert icon={<IconAlertCircle size={16} />} title="Query failed" color="red" variant="light">
+                <Text size="xs">{error}</Text>
+              </Alert>
+            )}
+
+            {results && (
+              <ResultsTable
+                rows={results}
+                title={writes ? 'Returned rows' : 'Results Preview'}
+                emptyMessage={writes
+                  ? 'The statement ran and returned no rows. Add RETURNING to see what it wrote.'
+                  : 'Query returned no rows'}
+                onSelectRow={onSelectResult}
+                height={large ? 320 : 260}
+              />
+            )}
           </Stack>
         </Grid.Col>
 
-        <Grid.Col span={{ base: 12, md: 4 }}>
-          <Paper withBorder p="md" shadow="sm" radius="md" h="100%">
-            <Stack gap="xs" h="100%">
-              {availableFields.length > 0 && (
-                <>
-                  <Group justify="space-between">
-                    <Group gap="xs">
-                      <IconBraces size={18} color="var(--mantine-color-orange-filled)" />
-                      <Text size="xs" fw={700} c="dimmed">MESSAGE CONTEXT</Text>
-                    </Group>
-                  </Group>
-                  <Divider />
-                  <TextInput
-                    size="xs"
-                    placeholder="Filter fields..."
-                    value={fieldFilter}
-                    onChange={(e) => setFieldFilter(e.currentTarget.value)}
-                    leftSection={<IconSearch size={12} />}
-                  />
-                  <Box style={{ maxHeight: 250 }}>
-                    <ScrollArea h={availableFields.length > 5 ? 200 : 'auto'} type="auto">
-                      <List size="xs" spacing={4} icon={<IconBraces size={12} />}>
-                        {filteredAvailableFields.map(f => (
-                          <List.Item key={f.path} styles={{ itemWrapper: { width: '100%' } }}>
-                            <Group gap={4} wrap="nowrap" justify="space-between">
-                              <Stack gap={0} style={{ flex: 1, overflow: 'hidden' }}>
-                                <Text
-                                  span
-                                  size="xs"
-                                  style={{ cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                                  onClick={() => insertText(`{{.${f.path}}}`)}
-                                >
-                                  {f.path}
-                                </Text>
-                                <Text size="xs" c="dimmed">
-                                  {f.type} → {jsToSqlType(f.type, sourceType)}
-                                </Text>
-                              </Stack>
-                              <Tooltip label={`Insert as CAST(.. AS ${jsToSqlType(f.type, sourceType)})`}>
-                                <ActionIcon aria-label={`Insert ${f.path} as a CAST expression`} 
-                                  size="xs" 
-                                  variant="subtle" 
-                                  color="orange"
-                                  onClick={() => insertText(`CAST({{.${f.path}}} AS ${jsToSqlType(f.type, sourceType)})`)}
-                                >
-                                  <IconPlus size={10} />
-                                </ActionIcon>
-                              </Tooltip>
-                            </Group>
-                          </List.Item>
-                        ))}
-                      </List>
-                    </ScrollArea>
-                  </Box>
-                  <Divider my="xs" />
-                </>
-              )}
-
-              {queryVariables.length > 0 && (
-                <>
-                  <Group justify="space-between">
-                    <Group gap="xs">
-                      <IconBraces size={18} color="var(--mantine-color-blue-filled)" />
-                      <Text size="xs" fw={700} c="dimmed">DETECTED VARIABLES</Text>
-                    </Group>
-                  </Group>
-                  <Divider />
-                  <Box p="xs" style={{ background: 'light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-8))', borderRadius: rem(4) }}>
-                    <Stack gap={4}>
-                      {queryVariables.map(v => {
-                        // Badged on the value the token resolves to, not on
-                        // its presence in availableFields. Those are different
-                        // questions: availableFields is built by recursing the
-                        // sample, so it listed `after.payload` -- which the
-                        // pipeline bound as NULL -- as Matched, and the one
-                        // warning that could have caught that pointed the wrong
-                        // way.
-                        const val = sampleMessage ? getValByPath(sampleMessage, v) : undefined;
-                        const exists = val !== undefined && val !== null;
-                        const displayVal = val !== undefined ? (typeof val === 'object' ? JSON.stringify(val) : String(val)) : 'N/A';
-                        
-                        return (
-                          <Stack key={v} gap={2}>
-                            <Group justify="space-between" wrap="nowrap">
-                              <Text size="xs" style={{ fontFamily: 'monospace' }} fw={600} truncate>
-                                {`{{.${v}}}`}
-                              </Text>
-                              {exists ? (
-                                <Badge size="xs" color="green" variant="light">Matched</Badge>
-                              ) : (
-                                <Tooltip label="This variable is not in the current message context. It will be empty during preview.">
-                                  <Badge size="xs" color="orange" variant="light" style={{ cursor: 'help' }}>Missing</Badge>
-                                </Tooltip>
-                              )}
-                            </Group>
-                            <Text size="xs" c="dimmed" truncate style={{ fontSize: 'var(--mantine-font-size-xs)' }}>
-                              Value: <span style={{ color: 'var(--mantine-color-blue-6)' }}>{displayVal}</span>
-                            </Text>
-                          </Stack>
-                        );
-                      })}
-                    </Stack>
-                  </Box>
-                  <Divider my="xs" />
-                </>
-              )}
-
-              <Group justify="space-between">
-                <Group gap="xs">
-                  <IconTable size={18} color="var(--mantine-color-blue-filled)" />
-                  <Text size="xs" fw={700} c="dimmed">DATABASE EXPLORER</Text>
-                </Group>
-                <ActionIcon aria-label="Reload table list" variant="subtle" size="sm" onClick={fetchTables} loading={fetchingTables}>
-                  <IconRefresh size={14} />
-                </ActionIcon>
-              </Group>
-              <Divider />
-
-              {tables.length > 0 && (
-                <TextInput
-                  size="xs"
-                  placeholder="Filter tables..."
-                  value={tableFilter}
-                  onChange={(e) => setTableFilter(e.currentTarget.value)}
-                  leftSection={<IconSearch size={12} />}
-                />
-              )}
-
-              <Box style={{ flex: 1, minHeight: 0 }}>
-                <ScrollArea h={300}>
-                  {tables.length === 0 && !fetchingTables && (
-                    <Box py="xl" ta="center">
-                      <Button size="xs" variant="light" onClick={fetchTables}>Load Tables</Button>
-                    </Box>
-                  )}
-                  {tables.length > 0 && filteredTables.length === 0 && (
-                    <Text size="xs" c="dimmed" ta="center" py="md">No tables match "{tableFilter}"</Text>
-                  )}
-                  <List size="xs" spacing={4} icon={<IconTable size={12} />}>
-                    {filteredTables.map(t => (
-                      <List.Item
-                        key={t}
-                        styles={{ itemWrapper: { width: '100%' } }}
-                      >
-                        <Group gap={4} wrap="nowrap" justify="space-between" w="100%">
-                          <Text
-                            span
-                            style={{ cursor: 'pointer', flex: 1 }}
-                            onClick={() => fetchColumns(t)}
-                            fw={selectedTable === t ? 700 : 400}
-                            c={selectedTable === t ? 'blue' : 'inherit'}
-                          >
-                            {t}
-                          </Text>
-                          <Tooltip label="Insert table name">
-                            <ActionIcon aria-label="Insert table name" size="xs" variant="subtle" onClick={() => insertText(t)}>
-                              <IconPlus size={10} />
-                            </ActionIcon>
-                          </Tooltip>
-                        </Group>
-
-                        {selectedTable === t && (
-                          <Box pl="md" mt={4} mb={8}>
-                            {fetchingColumns ? <Loader size="xs" mt="xs" /> : (
-                              <List size="xs" spacing={2} icon={<IconColumns size={10} />}>
-                                {columns.map(c => {
-                                  const colName = typeof c === 'object' ? c.name : c;
-                                  return (
-                                    <List.Item key={colName}>
-                                      <Group gap={4} wrap="nowrap">
-                                        <Text
-                                          span
-                                          style={{ cursor: 'pointer' }}
-                                          onClick={() => insertText(colName)}
-                                        >
-                                          {colName}
-                                        </Text>
-                                        {typeof c === 'object' && c.type && (
-                                          <Text size="xs" c="dimmed">({c.type})</Text>
-                                        )}
-                                      </Group>
-                                    </List.Item>
-                                  );
-                                })}
-                              </List>
-                            )}
-                          </Box>
-                        )}
-                      </List.Item>
-                    ))}
-                  </List>
-                </ScrollArea>
-              </Box>
-            </Stack>
-          </Paper>
+        <Grid.Col span={{ base: 12, md: 5, lg: 4 }}>
+          {reference(large)}
         </Grid.Col>
       </Grid>
-
-      {error && (
-        <Alert icon={<IconAlertCircle size={16} />} title="Query failed" color="red" variant="light">
-          <Text size="xs">{error}</Text>
-        </Alert>
-      )}
-
-      {results && (
-        <Paper withBorder shadow="sm" radius="md" style={{ overflow: 'hidden' }}>
-          <Group p="xs" bg="light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-8))" justify="space-between">
-            <Group gap="sm">
-              <Text size="xs" fw={600} c="blue">{results.length} rows</Text>
-              <Divider orientation="vertical" />
-              <Text size="xs" c="dimmed">Results Preview</Text>
-            </Group>
-            {results.length > 0 && (
-              <Group gap="xs">
-                 <Tooltip label="Copy results as JSON">
-                   <ActionIcon aria-label="Copy" variant="light" size="sm" onClick={() => {
-                     navigator.clipboard.writeText(JSON.stringify(results, null, 2));
-                     notifications.show({ 
-                       id: 'sql-results-copied',
-                       message: 'All results copied to clipboard', 
-                       color: 'teal' 
-                     });
-                   }}>
-                     <IconCopy size={14} />
-                   </ActionIcon>
-                 </Tooltip>
-              </Group>
-            )}
-          </Group>
-          <ScrollArea h={results.length > 0 ? 350 : 'auto'} scrollbars="xy">
-            <Table
-              striped
-              highlightOnHover
-              withColumnBorders
-              verticalSpacing="xs"
-              horizontalSpacing="sm"
-              stickyHeader
-            >
-              <Table.Thead>
-                <Table.Tr>
-                  {resultColumns.map((col) => (
-                    <Table.Th key={col} style={{ whiteSpace: 'nowrap' }}>{col}</Table.Th>
-                  ))}
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {results.map((row, i) => (
-                  <Table.Tr
-                    key={i}
-                    onClick={() => onSelectResult?.(row)}
-                    style={{ cursor: onSelectResult ? 'pointer' : 'default' }}
-                  >
-                    {resultColumns.map((col) => (
-                      <Table.Td key={col} style={{ maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {renderCellValue(row[col])}
-                      </Table.Td>
-                    ))}
-                  </Table.Tr>
-                ))}
-                {results.length === 0 && (
-                  <Table.Tr>
-                    <Table.Td colSpan={resultColumns.length || 1}>
-                      <Text c="dimmed" ta="center" py="xl" size="sm">Query returned no rows</Text>
-                    </Table.Td>
-                  </Table.Tr>
-                )}
-              </Table.Tbody>
-            </Table>
-          </ScrollArea>
-        </Paper>
-      )}
     </Stack>
+  );
+
+  return (
+    <>
+      <Modal
+        opened={expanded}
+        onClose={closeExpanded}
+        title={<Group gap="xs"><IconDatabase size={18} /><Text fw={600}>SQL workspace</Text></Group>}
+        size="96%"
+        radius="md"
+        centered
+      >
+        {expanded && workspace(true)}
+      </Modal>
+
+      {/* One editor at a time: two would hold the same statement and only one
+          of them would be the one inserts land in. */}
+      {expanded ? (
+        <Paper withBorder radius="md" p="md">
+          <Text size="sm" c="dimmed">The statement is open in the workspace.</Text>
+        </Paper>
+      ) : (
+        workspace(false)
+      )}
+    </>
   );
 }
