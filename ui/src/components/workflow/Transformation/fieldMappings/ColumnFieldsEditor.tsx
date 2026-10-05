@@ -48,6 +48,9 @@ function ValueSyntax() {
           </Group>
         ))}
         <Text size="xs" c="dimmed">
+          The function button inside a value lists every function and writes the call for you.
+        </Text>
+        <Text size="xs" c="dimmed">
           In a JSON value, text starting with <Code>source.</Code> or holding <Code>{'{{ }}'}</Code> is
           read; other text is kept as written.
         </Text>

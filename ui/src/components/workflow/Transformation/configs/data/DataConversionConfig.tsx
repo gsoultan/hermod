@@ -3,6 +3,7 @@ import { IconPlus, IconTrash } from '@tabler/icons-react';
 import { DateFormatPicker } from './dateFormat/DateFormatPicker';
 import { TimeZonePicker } from './dateFormat/TimeZonePicker';
 import { INPUT_DATE_FORMATS, OUTPUT_DATE_FORMATS } from './dateFormat/dateFormatOptions';
+import { ExpressionFieldPicker, TargetFieldInput } from '@/components/workflow/Transformation/expressionField';
 
 interface DataConversionConfigProps {
   config: any;
@@ -145,6 +146,14 @@ export function DataConversionConfig({ config, updateNodeConfig, nodeId, fieldPa
                   required
                   description="Field or expression to convert (e.g. amount, lower(source.status))."
                   style={{ flex: 1 }}
+                  rightSection={
+                    <ExpressionFieldPicker
+                      field={row.field}
+                      writesTo={{ targetField: row.targetField, suffix: '' }}
+                      onApply={(patch) => updateRow(i, patch)}
+                    />
+                  }
+                  rightSectionPointerEvents="all"
                 />
                 <Select
                   label="Target Type"
@@ -244,11 +253,10 @@ export function DataConversionConfig({ config, updateNodeConfig, nodeId, fieldPa
               )}
 
               <Group grow gap="xs" align="flex-start">
-                <TextInput
-                  label="Target Field (Optional)"
-                  placeholder="Defaults to source field"
-                  value={row.targetField || ''}
-                  onChange={(e) => updateRow(i, { targetField: e.currentTarget.value })}
+                <TargetFieldInput
+                  field={row.field}
+                  value={row.targetField}
+                  onChange={(targetField) => updateRow(i, { targetField })}
                 />
                 <Select
                   label="On Error"

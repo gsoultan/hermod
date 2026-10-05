@@ -1634,11 +1634,41 @@ func fieldToken(msg hermod.Message, path string) any {
 }
 
 func EvaluateField(msg hermod.Message, field string) any {
-	if (strings.Contains(field, "(") && strings.HasSuffix(field, ")")) || strings.HasPrefix(field, "source.") {
+	if isCall(field) || strings.HasPrefix(field, "source.") {
 		e := NewEvaluator()
 		return e.ParseAndEvaluate(msg, field)
 	}
 	return GetMsgValByPath(msg, field)
+}
+
+// isCall reports whether EvaluateField reads field as a function call rather
+// than as a path. OutputField uses the same test, so a field cannot be read as
+// one thing and written as the other.
+func isCall(field string) bool {
+	return strings.Contains(field, "(") && strings.HasSuffix(field, ")")
+}
+
+// OutputField names the field a node writes its result to: target when one is
+// configured, otherwise the field it read plus the node's suffix -- Mapping
+// writes back to the field, Fuzzy Lookup to field_fuzzy.
+//
+// That default only means something when field is a path. These nodes read
+// field with EvaluateField, so it can be lower(source.name), and they used to
+// write to a field named after the expression. SetData splits a key at its
+// dots, so the value landed under {"lower(source": {"name)": ...}}: a green
+// node, and output no sink has a column for. A call with no target is refused
+// instead, with the fix in the message.
+//
+// source.name is the field name -- EvaluateField reads the two identically --
+// so it is written back to name, not to a path under "source".
+func OutputField(field, target, suffix string) (string, error) {
+	if target != "" {
+		return target, nil
+	}
+	if isCall(field) {
+		return "", fmt.Errorf("%s is an expression, not a field, so there is no field to write its result to: set a target field", field)
+	}
+	return strings.TrimPrefix(field, "source.") + suffix, nil
 }
 
 // Condition evaluator

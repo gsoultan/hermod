@@ -50,9 +50,10 @@ func (t *MappingTransformer) Transform(ctx context.Context, msg hermod.Message, 
 	fieldValRaw := evaluator.EvaluateField(msg, field)
 	fieldVal := fmt.Sprintf("%v", fieldValRaw)
 
-	targetField, _ := config["targetField"].(string)
-	if targetField == "" {
-		targetField = field
+	configuredTarget, _ := config["targetField"].(string)
+	targetField, err := evaluator.OutputField(field, configuredTarget, "")
+	if err != nil {
+		return msg, err
 	}
 
 	switch mappingType {

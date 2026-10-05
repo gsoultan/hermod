@@ -1,0 +1,372 @@
+{
+  "_comment": [
+    "Every function an expression can call, as the editor offers it: the function",
+    "picker, the function library and the help all read this file.",
+    "",
+    "It is a claim about the engine, and pkg/infra/evaluator/function_catalog_test.go",
+    "holds it to that: the names must be exactly the ones CallFunction runs, and",
+    "each `example`, evaluated against `source`, must answer `result`. Add a",
+    "function to the engine and that test fails until it is listed here.",
+    "",
+    "`args` are the placeholders the picker inserts -- name(args...) -- and",
+    "`volatile` marks an example with no fixed answer, which is shown without one.",
+    "`keywords` are other words someone might search for it by."
+  ],
+  "source": {
+    "full_name": "Ada King Lovelace",
+    "first_name": "Ada",
+    "last_name": "Lovelace",
+    "nickname": "",
+    "email": "Ada@Example.COM",
+    "city": "  Jakarta  ",
+    "country": "id",
+    "phone": "+62 812-555-0199",
+    "sku": "TSHIRT-RED-XL",
+    "status": "paid",
+    "price": 12.5,
+    "tax": 1.25,
+    "discount": 2.5,
+    "quantity": 3,
+    "total_cents": 12990,
+    "total": "129.90",
+    "rating": 4.6667,
+    "balance": -42.5,
+    "active": "yes",
+    "vip": true,
+    "created_at": "2024-03-09 14:30:00",
+    "order_date": "09/03/2024"
+  },
+  "categories": ["Text", "Number", "Date & time", "Convert", "Logic", "IDs & secrets"],
+  "functions": [
+    {
+      "name": "lower",
+      "category": "Text",
+      "signature": "lower(text)",
+      "summary": "Text in lowercase.",
+      "keywords": ["lowercase", "small letters", "case"],
+      "args": ["value"],
+      "example": "lower(source.email)",
+      "result": "ada@example.com"
+    },
+    {
+      "name": "upper",
+      "category": "Text",
+      "signature": "upper(text)",
+      "summary": "Text in uppercase.",
+      "keywords": ["uppercase", "capital letters", "case"],
+      "args": ["value"],
+      "example": "upper(source.country)",
+      "result": "ID"
+    },
+    {
+      "name": "trim",
+      "category": "Text",
+      "signature": "trim(text)",
+      "summary": "Text without the spaces, tabs and line breaks at either end.",
+      "keywords": ["strip", "whitespace", "spaces", "clean"],
+      "args": ["value"],
+      "example": "trim(source.city)",
+      "result": "Jakarta"
+    },
+    {
+      "name": "concat",
+      "category": "Text",
+      "signature": "concat(a, b, ...)",
+      "summary": "Joins any number of values into one text. A missing value adds nothing.",
+      "keywords": ["join", "combine", "merge", "append", "glue"],
+      "args": ["value", "' '", "other"],
+      "example": "concat(source.first_name, \" \", source.last_name)",
+      "result": "Ada Lovelace"
+    },
+    {
+      "name": "replace",
+      "category": "Text",
+      "signature": "replace(text, find, with)",
+      "summary": "Replaces every occurrence of find. Upper and lower case are different letters.",
+      "keywords": ["substitute", "swap", "remove"],
+      "args": ["value", "'find'", "'with'"],
+      "example": "replace(source.phone, \"-\", \" \")",
+      "result": "+62 812 555 0199"
+    },
+    {
+      "name": "substring",
+      "category": "Text",
+      "signature": "substring(text, start, [end])",
+      "summary": "Part of a text, from position start (the first character is 0) up to but not including end, or to the end of the text. Positions count bytes, so an accented letter or an emoji takes more than one.",
+      "keywords": ["slice", "left", "right", "cut", "first characters", "substr"],
+      "args": ["value", "0", "5"],
+      "example": "substring(source.sku, 0, 6)",
+      "result": "TSHIRT"
+    },
+    {
+      "name": "split",
+      "category": "Text",
+      "signature": "split(text, separator, [index])",
+      "summary": "Cuts a text at each separator and trims the parts. Without index the result is the list of parts; with one it is that part, counted from 0, or from the end when negative.",
+      "keywords": ["explode", "part", "list", "array", "separator", "delimiter"],
+      "args": ["value", "','", "0"],
+      "example": "split(source.full_name, \" \", 0)",
+      "result": "Ada"
+    },
+    {
+      "name": "add",
+      "category": "Number",
+      "signature": "add(a, b)",
+      "summary": "a + b. Text holding a number is read as that number; anything else counts as 0.",
+      "keywords": ["plus", "sum", "+"],
+      "args": ["value", "1"],
+      "example": "add(source.price, source.tax)",
+      "result": 13.75
+    },
+    {
+      "name": "sub",
+      "category": "Number",
+      "signature": "sub(a, b)",
+      "summary": "a - b.",
+      "keywords": ["minus", "subtract", "difference", "-"],
+      "args": ["value", "1"],
+      "example": "sub(source.price, source.discount)",
+      "result": 10
+    },
+    {
+      "name": "mul",
+      "category": "Number",
+      "signature": "mul(a, b)",
+      "summary": "a × b.",
+      "keywords": ["multiply", "times", "product", "*"],
+      "args": ["value", "2"],
+      "example": "mul(source.price, source.quantity)",
+      "result": 37.5
+    },
+    {
+      "name": "div",
+      "category": "Number",
+      "signature": "div(a, b)",
+      "summary": "a ÷ b. Dividing by zero gives null rather than an error.",
+      "keywords": ["divide", "ratio", "/"],
+      "args": ["value", "2"],
+      "example": "div(source.total_cents, 100)",
+      "result": 129.9
+    },
+    {
+      "name": "round",
+      "category": "Number",
+      "signature": "round(number, [decimals])",
+      "summary": "Rounds to the nearest whole number, or to the given number of decimals.",
+      "keywords": ["decimals", "precision"],
+      "args": ["value", "2"],
+      "example": "round(source.rating, 1)",
+      "result": 4.7
+    },
+    {
+      "name": "abs",
+      "category": "Number",
+      "signature": "abs(number)",
+      "summary": "A number without its sign.",
+      "keywords": ["absolute", "positive"],
+      "args": ["value"],
+      "example": "abs(source.balance)",
+      "result": 42.5
+    },
+    {
+      "name": "now",
+      "category": "Date & time",
+      "signature": "now()",
+      "summary": "The time the record is processed, as text like 2024-03-09T14:30:00+07:00, in the server's time zone.",
+      "keywords": ["current time", "today", "date", "time.now", "datetime"],
+      "args": [],
+      "example": "now()",
+      "volatile": true
+    },
+    {
+      "name": "timestamp",
+      "category": "Date & time",
+      "signature": "timestamp()",
+      "summary": "The time the record is processed, as a number: seconds since 1 January 1970 UTC.",
+      "keywords": ["unix", "epoch", "seconds", "time.now"],
+      "args": [],
+      "example": "timestamp()",
+      "volatile": true
+    },
+    {
+      "name": "date_format",
+      "category": "Date & time",
+      "signature": "date_format(date, layout, [from_layout])",
+      "summary": "Rewrites a date in another layout. A layout shows how the reference date 2 Jan 2006 15:04:05 would be written: \"2006-01-02\", or \"02 Jan 2006 15:04\". from_layout says how to read a date that is not ISO or year-month-day. A date that cannot be read is left as it was.",
+      "keywords": ["format date", "strftime", "reformat", "time"],
+      "args": ["value", "'2006-01-02'"],
+      "example": "date_format(source.created_at, \"02 Jan 2006\")",
+      "result": "09 Mar 2024"
+    },
+    {
+      "name": "toDate",
+      "category": "Date & time",
+      "signature": "toDate(text, [layout])",
+      "summary": "Reads a date and writes it as an ISO timestamp. layout says how the text is written, in the same reference-date form date_format uses. Text that cannot be read gives null.",
+      "keywords": ["parse date", "to date", "cast", "convert"],
+      "args": ["value"],
+      "example": "toDate(source.order_date, \"02/01/2006\")",
+      "result": "2024-03-09T00:00:00Z"
+    },
+    {
+      "name": "toString",
+      "category": "Convert",
+      "signature": "toString(value)",
+      "summary": "Any value as text: a number as its digits, an object or a list as JSON, a missing value as empty text.",
+      "keywords": ["to text", "text", "cast", "convert"],
+      "args": ["value"],
+      "example": "toString(source.total_cents)",
+      "result": "12990"
+    },
+    {
+      "name": "toInt",
+      "category": "Convert",
+      "signature": "toInt(value)",
+      "summary": "A whole number. Decimals are cut off, not rounded, and text that is not a number gives 0.",
+      "keywords": ["integer", "whole number", "cast", "convert"],
+      "args": ["value"],
+      "example": "toInt(source.total)",
+      "result": 129
+    },
+    {
+      "name": "toFloat",
+      "category": "Convert",
+      "signature": "toFloat(value)",
+      "summary": "A decimal number. Text that is not a number gives 0.",
+      "keywords": ["decimal", "number", "cast", "convert"],
+      "args": ["value"],
+      "example": "toFloat(source.total)",
+      "result": 129.9
+    },
+    {
+      "name": "toBool",
+      "category": "Convert",
+      "signature": "toBool(value)",
+      "summary": "true or false. The texts true, 1, yes and on are true, and so is any number but 0; everything else is false.",
+      "keywords": ["boolean", "true false", "cast", "convert"],
+      "args": ["value"],
+      "example": "toBool(source.active)",
+      "result": true
+    },
+    {
+      "name": "if",
+      "category": "Logic",
+      "signature": "if(condition, then, else)",
+      "summary": "then when the condition is true, else otherwise.",
+      "keywords": ["condition", "when", "case", "ternary", "else"],
+      "args": ["condition", "'yes'", "'no'"],
+      "example": "if(gt(source.quantity, 1), \"bulk\", \"single\")",
+      "result": "bulk"
+    },
+    {
+      "name": "coalesce",
+      "category": "Logic",
+      "signature": "coalesce(a, b, ...)",
+      "summary": "The first value that is neither missing nor empty text: a default for a field that may be absent. 0 and false count as values.",
+      "keywords": ["default", "fallback", "null", "empty", "missing"],
+      "args": ["value", "'default'"],
+      "example": "coalesce(source.nickname, source.first_name)",
+      "result": "Ada"
+    },
+    {
+      "name": "eq",
+      "category": "Logic",
+      "signature": "eq(a, b)",
+      "summary": "true when both are the same once written as text, so the number 1 equals the text \"1\".",
+      "keywords": ["equals", "same", "="],
+      "args": ["value", "'other'"],
+      "example": "eq(source.status, \"paid\")",
+      "result": true
+    },
+    {
+      "name": "gt",
+      "category": "Logic",
+      "signature": "gt(a, b)",
+      "summary": "true when a is greater than b. Two numbers compare as numbers; anything else compares as text.",
+      "keywords": ["greater than", "more than", "above", ">"],
+      "args": ["value", "0"],
+      "example": "gt(source.price, 10)",
+      "result": true
+    },
+    {
+      "name": "lt",
+      "category": "Logic",
+      "signature": "lt(a, b)",
+      "summary": "true when a is less than b. Two numbers compare as numbers; anything else compares as text.",
+      "keywords": ["less than", "below", "under", "<"],
+      "args": ["value", "0"],
+      "example": "lt(source.quantity, 10)",
+      "result": true
+    },
+    {
+      "name": "contains",
+      "category": "Logic",
+      "signature": "contains(text, part)",
+      "summary": "true when the text holds part. Upper and lower case are different letters.",
+      "keywords": ["includes", "has", "find"],
+      "args": ["value", "'part'"],
+      "example": "contains(source.sku, \"RED\")",
+      "result": true
+    },
+    {
+      "name": "and",
+      "category": "Logic",
+      "signature": "and(a, b, ...)",
+      "summary": "true when every value is true.",
+      "keywords": ["all", "both"],
+      "args": ["condition", "other"],
+      "example": "and(source.vip, gt(source.quantity, 1))",
+      "result": true
+    },
+    {
+      "name": "or",
+      "category": "Logic",
+      "signature": "or(a, b, ...)",
+      "summary": "true when at least one value is true.",
+      "keywords": ["any", "either"],
+      "args": ["condition", "other"],
+      "example": "or(eq(source.status, \"refunded\"), source.vip)",
+      "result": true
+    },
+    {
+      "name": "not",
+      "category": "Logic",
+      "signature": "not(value)",
+      "summary": "true when the value is false, and false when it is true.",
+      "keywords": ["negate", "opposite", "invert"],
+      "args": ["condition"],
+      "example": "not(source.vip)",
+      "result": false
+    },
+    {
+      "name": "uuid",
+      "category": "IDs & secrets",
+      "signature": "uuid()",
+      "summary": "A new random UUID, different for every record and every run.",
+      "keywords": ["guid", "random id", "unique id"],
+      "args": [],
+      "example": "uuid()",
+      "volatile": true
+    },
+    {
+      "name": "hash",
+      "category": "IDs & secrets",
+      "signature": "hash(value, [algorithm])",
+      "summary": "A fingerprint of the value as lowercase hex: SHA-256, or MD5 when the algorithm is \"md5\". The same value always gives the same fingerprint, so it works as a matching key. It does not hide an email or a phone number: those are found by hashing guesses.",
+      "keywords": ["sha256", "md5", "checksum", "fingerprint", "digest"],
+      "args": ["value"],
+      "example": "hash(source.status, \"md5\")",
+      "result": "76e084771e78c194efd0e2d5b8920bea"
+    },
+    {
+      "name": "secret",
+      "category": "IDs & secrets",
+      "signature": "secret(name, [default])",
+      "summary": "A secret saved for this workflow's vhost, or failing that one from the server's secret manager. default is used when no secret has that name.",
+      "keywords": ["env", "password", "api key", "credential"],
+      "args": ["'NAME'"],
+      "example": "secret(\"API_KEY\")",
+      "volatile": true
+    }
+  ]
+}

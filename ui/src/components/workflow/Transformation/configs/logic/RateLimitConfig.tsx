@@ -1,6 +1,7 @@
 import { Stack, Group, NumberInput, Select, Autocomplete, Alert, Text } from '@mantine/core';
 import { useMemo } from 'react';
 import { IconInfoCircle } from '@tabler/icons-react';
+import { ExpressionFieldPicker } from '@/components/workflow/Transformation/expressionField';
 
 interface RateLimitConfigProps {
   config: any;
@@ -51,6 +52,14 @@ export function RateLimitConfig({ config, updateNodeConfig, nodeId, availableFie
         value={config.keyField || ''} 
         onChange={(val) => updateNodeConfig(nodeId, { keyField: val })} 
         description="Apply limits per unique value of this field."
+        // Only read, so a function needs nothing else set.
+        rightSection={
+          <ExpressionFieldPicker
+            field={config.keyField}
+            onApply={({ field }) => updateNodeConfig(nodeId, { keyField: field })}
+          />
+        }
+        rightSectionPointerEvents="all"
       />
     </Stack>
   );

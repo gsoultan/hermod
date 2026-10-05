@@ -75,7 +75,8 @@ describe('TransformationForm stability', () => {
 
     renderForm({ id: 'n1', type: 'transformation', data: { transType: 'advanced' } })
 
-    const fnSearch = await screen.findByPlaceholderText('Search functions...')
+    // By its name: the placeholder now suggests what to search for.
+    const fnSearch = await screen.findByRole('textbox', { name: /search functions/i }, { timeout: 5000 })
     await user.type(fnSearch, 'lower')
     expect(fnSearch).toHaveValue('lower')
 
@@ -83,7 +84,7 @@ describe('TransformationForm stability', () => {
     const settingsSearch = screen.getByPlaceholderText('Filter configuration...')
     await user.type(settingsSearch, 'mask')
 
-    expect(screen.getByPlaceholderText('Search functions...')).toHaveValue('lower')
+    expect(screen.getByRole('textbox', { name: /search functions/i })).toHaveValue('lower')
   }, 20000)
 
   /**

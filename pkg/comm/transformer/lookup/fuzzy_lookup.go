@@ -27,6 +27,21 @@ func (t *FuzzyLookupTransformer) Transform(ctx context.Context, msg hermod.Messa
 		return msg, nil
 	}
 
+	// Where the match goes, settled before anything is read: a call with no
+	// target field is a fault in the node, whatever this message holds.
+	configuredTarget, _ := config["targetField"].(string)
+	targetField, err := evaluator.OutputField(field, configuredTarget, "_fuzzy")
+	if err != nil {
+		return msg, err
+	}
+	// The score is named after the field too. A call has no name to give it,
+	// so there it follows the match: city_match and city_match_score.
+	configuredScore, _ := config["scoreField"].(string)
+	scoreField, err := evaluator.OutputField(field, configuredScore, "_score")
+	if err != nil {
+		scoreField = targetField + "_score"
+	}
+
 	threshold, _ := evaluator.ToFloat64(config["threshold"]) // 0.0 to 1.0 (similarity)
 	if threshold == 0 {
 		threshold = 0.8
@@ -53,16 +68,6 @@ func (t *FuzzyLookupTransformer) Transform(ctx context.Context, msg hermod.Messa
 			bestScore = score
 			bestMatch = fmt.Sprintf("%v", optRaw) // Keep original casing
 		}
-	}
-
-	targetField, _ := config["targetField"].(string)
-	if targetField == "" {
-		targetField = field + "_fuzzy"
-	}
-
-	scoreField, _ := config["scoreField"].(string)
-	if scoreField == "" {
-		scoreField = field + "_score"
 	}
 
 	if bestScore >= threshold {

@@ -19,6 +19,7 @@ import { useMemo } from 'react';
 import { notifications } from '@mantine/notifications';
 import { getValByPath } from '../../../utils/transformationUtils';
 import { apiFetch } from '@/api';
+import { ExpressionFieldPicker, TargetFieldInput } from '@/components/workflow/Transformation/expressionField';
 import {
   IconArrowRight,
   IconPlus,
@@ -240,6 +241,24 @@ export function MappingEditor({
             value={selectedNode.data.field || ''}
             onChange={(val) => updateNodeConfig(selectedNode.id, { field: val })}
             description="Field or expression to transform. Supports nested paths (e.g. user.profile.id) and functions (e.g. lower(source.name))."
+            size="sm"
+            rightSection={
+              <ExpressionFieldPicker
+                field={selectedNode.data.field}
+                writesTo={{ targetField: selectedNode.data.targetField, suffix: '' }}
+                onApply={(patch) => updateNodeConfig(selectedNode.id, patch)}
+              />
+            }
+            rightSectionPointerEvents="all"
+          />
+
+          {/* The node has always read targetField; there was no input for
+              it, so a mapped value could only overwrite the field it read. */}
+          <TargetFieldInput
+            field={selectedNode.data.field}
+            value={selectedNode.data.targetField}
+            onChange={(targetField) => updateNodeConfig(selectedNode.id, { targetField })}
+            description="Where the mapped value is written."
             size="sm"
           />
 

@@ -1,6 +1,9 @@
 import { createContext, useContext, useMemo, useRef, useState } from 'react'
 import { ActionIcon, Group, Popover, Stack, Text, TextInput, Textarea, Tooltip as MantineTooltip, ScrollArea, Badge, UnstyledButton } from '@mantine/core'
 import { IconKey, IconSearch, IconVariable } from '@tabler/icons-react'
+import { applyFunction, isInsideToken } from '@/lib/expressionInsert'
+import type { ExpressionFunction } from '@/lib/functionCatalog'
+import { FunctionPicker } from './FunctionPicker'
 
 /**
  * The names of the secrets the workflow being edited can read: its vhost's.
@@ -43,6 +46,15 @@ export interface TemplateFieldProps extends CommonProps {
    * When true, renders a textarea instead of a text input.
    */
   multiline?: boolean
+  /**
+   * Offers "Insert function", and says how a call is written here:
+   * `expression` for a value that is itself an expression (a Set Fields
+   * value), `token` for a template, where a call is a {{ }} token.
+   *
+   * Off unless asked for. Whether a call is evaluated depends on what resolves
+   * the field, and not every template is resolved by something that does.
+   */
+  functions?: 'expression' | 'token'
 }
 
 function defaultBuildSecretToken(name: string) {
@@ -68,6 +80,7 @@ export function TemplateField({
   buildToken = defaultBuildToken,
   buildSecretToken = defaultBuildSecretToken,
   multiline,
+  functions,
   'aria-label': ariaLabel,
 }: TemplateFieldProps) {
   const [opened, setOpened] = useState(false)
@@ -88,26 +101,71 @@ export function TemplateField({
     return secretNames.filter((name) => !query || name.toLowerCase().includes(query))
   }, [q, secretNames])
 
-  const insertAtCursor = (text: string) => {
+  // Whether the caret has ever been put in the input. Until it has, where the
+  // element says its caret is depends on the browser -- the start in some, the
+  // end in others -- and "Bearer " plus a variable came out as the variable
+  // followed by "Bearer ".
+  const placed = useRef(false)
+
+  // The caret, or the end of the text for an input that has never had one.
+  const selection = (): [number, number] => {
     const el: any = inputRef.current
-    if (!el) {
-      onChange((value || '') + text)
-      return
-    }
-    const start = el.selectionStart ?? (value?.length ?? 0)
-    const end = el.selectionEnd ?? (value?.length ?? 0)
-    const before = (value || '').slice(0, start)
-    const after = (value || '').slice(end)
-    const next = `${before}${text}${after}`
-    onChange(next)
-    // restore cursor after inserted text
+    const length = (value || '').length
+    if (!placed.current) return [length, length]
+    return [el?.selectionStart ?? length, el?.selectionEnd ?? length]
+  }
+
+  const select = (start: number, end: number) => {
+    const el: any = inputRef.current
+    if (!el) return
     requestAnimationFrame(() => {
       try {
         el.focus()
-        const caret = start + text.length
-        el.setSelectionRange?.(caret, caret)
+        el.setSelectionRange?.(start, end)
       } catch {}
     })
+  }
+
+  const insertAtCursor = (text: string) => {
+    const [start, end] = selection()
+    const before = (value || '').slice(0, start)
+    const after = (value || '').slice(end)
+    onChange(`${before}${text}${after}`)
+    // restore cursor after inserted text
+    select(start + text.length, start + text.length)
+  }
+
+  /**
+   * Inserts a field or a secret, written for where the caret is.
+   *
+   * Inside a {{ }} token that is still open the text is an expression -- the
+   * argument of a call -- where a field is `source.x`. A token of its own
+   * there, {{upper({{.name}})}}, is not something any resolver reads. And a
+   * Set Fields value that holds a token is a template, where the bare
+   * `source.x` this field otherwise inserts would be text.
+   *
+   * Only for a field that offers functions. `source.x` is read by the
+   * resolvers those fields use; evaluator.MessageResolver, behind most other
+   * templates, does not read it.
+   */
+  const insertReference = (expression: string, token: string) => {
+    const text = value || ''
+    if (functions && isInsideToken(text, selection()[0])) {
+      insertAtCursor(expression)
+    } else if (functions === 'expression' && text.includes('{{')) {
+      insertAtCursor(`{{${token}}}`)
+    } else {
+      insertAtCursor(token)
+    }
+  }
+
+  const insertFunction = (fn: ExpressionFunction) => {
+    if (!functions) return
+    const [start, end] = selection()
+    const edit = applyFunction(value || '', start, end, fn, functions)
+    onChange(edit.value)
+    // The next placeholder, so typing or picking a variable replaces it.
+    select(edit.selectionStart, edit.selectionEnd)
   }
 
   const FieldList = (
@@ -137,7 +195,7 @@ export function TemplateField({
                   cursor: 'pointer',
                 }}
                 onClick={() => {
-                  insertAtCursor(buildToken(path))
+                  insertReference(`source.${path}`, buildToken(path))
                   setOpened(false)
                 }}
               >
@@ -176,7 +234,7 @@ export function TemplateField({
                   p={6}
                   style={{ borderRadius: 6, border: '1px solid var(--mantine-color-default-border)' }}
                   onClick={() => {
-                    insertAtCursor(buildSecretToken(name))
+                    insertReference(`secret("${name}")`, buildSecretToken(name))
                     setOpened(false)
                   }}
                 >
@@ -211,25 +269,33 @@ export function TemplateField({
     error,
     value,
     onChange: (e: any) => onChange(e?.target ? e.target.value : e),
+    onFocus: () => {
+      placed.current = true
+    },
     rightSection: (
-      <Popover opened={opened} onChange={setOpened} withArrow position="bottom-end">
-        <Popover.Target>
-          <MantineTooltip label="Insert variable">
-            <ActionIcon
-              aria-label="Insert variable"
-              variant="subtle"
-              onClick={(e) => {
-                e.preventDefault()
-                setOpened((v) => !v)
-              }}
-            >
-              <IconVariable size="1rem" />
-            </ActionIcon>
-          </MantineTooltip>
-        </Popover.Target>
-        <Popover.Dropdown>{FieldList}</Popover.Dropdown>
-      </Popover>
+      <Group gap={0} wrap="nowrap">
+        {functions && <FunctionPicker onPick={insertFunction} />}
+        <Popover opened={opened} onChange={setOpened} withArrow position="bottom-end">
+          <Popover.Target>
+            <MantineTooltip label="Insert variable">
+              <ActionIcon
+                aria-label="Insert variable"
+                variant="subtle"
+                onClick={(e) => {
+                  e.preventDefault()
+                  setOpened((v) => !v)
+                }}
+              >
+                <IconVariable size="1rem" />
+              </ActionIcon>
+            </MantineTooltip>
+          </Popover.Target>
+          <Popover.Dropdown>{FieldList}</Popover.Dropdown>
+        </Popover>
+      </Group>
     ),
+    // Two buttons do not fit the width an input reserves for one.
+    rightSectionWidth: functions ? 60 : undefined,
     ref: inputRef as any,
   }
 

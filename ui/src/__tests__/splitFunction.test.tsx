@@ -78,6 +78,7 @@ describe('split in the editor', () => {
         <HelpContent />
       </MantineProvider>
     )
-    expect(screen.getByText(/^split\(/)).toBeInTheDocument()
+    // Its signature; the help now shows an example under it as well.
+    expect(screen.getByText('split(text, separator, [index])')).toBeInTheDocument()
   })
 })
