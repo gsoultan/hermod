@@ -49,6 +49,15 @@ from the global manager only, while the running workflow also reads the
 vhost's; and the Pebble storage backend, which has no vhosts, has no vhost
 secrets. Deleting a vhost deletes its secrets.
 
+### Run Preview says when it has nothing to run on
+
+A node behind a queue has no sample until someone asks for one: the editor
+never reads a queue on its own. With no sample, **Run Preview** returned without
+doing or saying anything and the panel stayed on "No preview yet"; the reason was
+in another column of the drawer. The preview panel now says there is no sample
+and has a **Fetch a sample** button, and Run Preview is disabled until there is
+one. The preview runs by itself once the sample arrives.
+
 ### Execute SQL keeps the rows its statement returns
 
 An Execute SQL node ran every statement in a way that has nowhere to put a
