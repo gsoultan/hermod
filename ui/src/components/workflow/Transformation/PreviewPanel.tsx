@@ -1,6 +1,6 @@
 import { Alert, Badge, Button, Card, Code, Divider, Group, ScrollArea, Stack, Text, SegmentedControl, ActionIcon, Tooltip as MantineTooltip, Box } from '@mantine/core';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { IconAlertCircle, IconCheck, IconCopy, IconEye, IconGitCompare, IconPlayerPlay } from '@tabler/icons-react';
+import { IconAlertCircle, IconCheck, IconCopy, IconEye, IconGitCompare, IconInfoCircle, IconPlayerPlay } from '@tabler/icons-react';
 import { getValByPath, preparePayload } from '../../../utils/transformationUtils';
 
 interface PreviewPanelProps {
@@ -17,6 +17,13 @@ interface PreviewPanelProps {
    * and a working lookup render identically.
    */
   targetField?: string;
+  /**
+   * Pulls a sample from the upstream source. Offered only when there is no
+   * input to preview: a queue is never read until someone asks, so a node behind
+   * one starts with nothing to run on.
+   */
+  onFetchSample?: () => void;
+  fetchingSample?: boolean;
 }
 
 /** Short enough to sit on one line; the full value is in the JSON below. */
@@ -67,7 +74,7 @@ function simpleDiff(orig: any, trans: any): any {
   return d;
 }
 
-export function PreviewPanel({ title = 'Preview', loading, error, result, original, onRun, targetField }: PreviewPanelProps) {
+export function PreviewPanel({ title = 'Preview', loading, error, result, original, onRun, targetField, onFetchSample, fetchingSample }: PreviewPanelProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('transformed');
   const [copied, setCopied] = useState(false);
 
@@ -153,6 +160,9 @@ export function PreviewPanel({ title = 'Preview', loading, error, result, origin
   }, [targetField, result]);
 
   const busy = !!loading || diffLoading;
+  // Nothing to run the node on. Run Preview returned without doing or saying
+  // anything in this state, and the reason sat in another column of the drawer.
+  const noInput = original === undefined || original === null;
   const body = serialised ?? (busy ? '// Loading…' : '// No preview yet');
   const showsStaleWhileBusy = busy && serialised !== null;
   const diffIsEmpty =
@@ -192,7 +202,7 @@ export function PreviewPanel({ title = 'Preview', loading, error, result, origin
                 text below, not from reserving this badge's box. */}
             {busy && <Badge color="blue" variant="light" size="xs">Running</Badge>}
           </Group>
-          <Button size="compact-xs" variant="light" leftSection={<IconPlayerPlay size="0.8rem" />} onClick={onRun} loading={!!loading}>
+          <Button size="compact-xs" variant="light" leftSection={<IconPlayerPlay size="0.8rem" />} onClick={onRun} loading={!!loading} disabled={noInput}>
             Run Preview
           </Button>
         </Group>
@@ -257,6 +267,21 @@ export function PreviewPanel({ title = 'Preview', loading, error, result, origin
         {error ? (
           <Alert color="red" icon={<IconAlertCircle size="1rem" />} p="xs">
             <Text size="xs">{error}</Text>
+          </Alert>
+        ) : noInput && serialised === null ? (
+          <Alert color="blue" icon={<IconInfoCircle size="1rem" />} p="xs" data-testid="preview-no-input">
+            <Stack gap="xs" align="flex-start">
+              <Text size="xs">
+                No sample message yet, so there is nothing to run this node on. A
+                queue or stream is only read when you ask — fetch one message and
+                the preview runs on it.
+              </Text>
+              {onFetchSample && (
+                <Button size="compact-xs" variant="light" onClick={onFetchSample} loading={!!fetchingSample}>
+                  Fetch a sample
+                </Button>
+              )}
+            </Stack>
           </Alert>
         ) : (
           <Box flex={1} style={{ position: 'relative', overflow: 'hidden' }}>
