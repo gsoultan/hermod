@@ -2,6 +2,7 @@ import { Suspense, lazy, useState } from 'react'
 import { ActionIcon, Box, Popover, Text, Tooltip } from '@mantine/core'
 import { IconFunction } from '@tabler/icons-react'
 import type { ExpressionFunction } from '@/lib/functionCatalog'
+import { ESCAPE_STOPS_HERE } from './escapeStopsHere'
 
 // Module scope: a lazy() inside the component is a new type on every render.
 const FunctionList = lazy(() => import('./FunctionList'))
@@ -40,7 +41,9 @@ export function FunctionPicker({ onPick }: FunctionPickerProps) {
           </ActionIcon>
         </Tooltip>
       </Popover.Target>
-      <Popover.Dropdown>
+      {/* Focusable, so a click on the list's own text leaves the focus in the
+          list rather than on the page behind it. */}
+      <Popover.Dropdown tabIndex={-1} {...ESCAPE_STOPS_HERE}>
         <Box w={340} maw="80vw">
           <Suspense fallback={<Text size="xs" c="dimmed">Loading functions…</Text>}>
             <FunctionList

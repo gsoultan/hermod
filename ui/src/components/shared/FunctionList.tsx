@@ -2,6 +2,7 @@ import { useId, useMemo, useState } from 'react'
 import { Code, Group, ScrollArea, Stack, Text, TextInput, UnstyledButton } from '@mantine/core'
 import { IconSearch } from '@tabler/icons-react'
 import { exampleResult, groupByCategory, searchFunctions, type ExpressionFunction } from '@/lib/functionCatalog'
+import { ESCAPE_STOPS_HERE } from './escapeStopsHere'
 
 const EXAMPLE = { fontSize: 'var(--mantine-font-size-xs)', overflowWrap: 'anywhere' } as const
 
@@ -27,7 +28,7 @@ interface FunctionListProps {
  */
 export default function FunctionList({ onPick, height = 300, inPopover }: FunctionListProps) {
   const id = useId()
-  const escapeStopsHere = inPopover ? { 'data-mantine-stop-propagation': 'true' } : {}
+  const escapeStopsHere = inPopover ? ESCAPE_STOPS_HERE : {}
   const [query, setQuery] = useState('')
   const matches = useMemo(() => searchFunctions(query), [query])
   const groups = useMemo(() => groupByCategory(matches), [matches])
