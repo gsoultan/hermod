@@ -2,6 +2,7 @@ import { TextInput, Stack, Group, Select, JsonInput, Text, Divider, Button, Badg
 import { CronInput } from '../../shared/CronInput';
 import { GenerateToken } from '../../shared/GenerateToken';
 import { GrpcCallGuide } from './GrpcCallGuide';
+import { ResponseModeFields, RESPONSE_MODE_SYNC } from './ResponseModeFields';
 import { GRPC_EXAMPLE_PATH } from './grpcContract';
 import { FormLayoutBuilder, type FormFieldItem } from '../../forms/FormLayoutBuilder';
 import { useState } from 'react';
@@ -137,10 +138,24 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
           <>
             <Text size="xs" c="dimmed">If provided, every call must carry this value as gRPC metadata <Code>x-api-key</Code>.</Text>
             <Divider my="xs" />
-            <GrpcCallGuide path={config.path} hasApiKey={Boolean(config.api_key)} />
+            <ResponseModeFields config={config} updateConfig={updateConfig} />
+            <Divider my="xs" />
+            <GrpcCallGuide
+              path={config.path}
+              hasApiKey={Boolean(config.api_key)}
+              waits={config.response_mode === RESPONSE_MODE_SYNC}
+            />
           </>
         ) : (
-          <Text size="xs" c="dimmed">If provided, requests must include 'X-API-Key' header with this value.</Text>
+          <>
+            <Text size="xs" c="dimmed">If provided, requests must include 'X-API-Key' header with this value.</Text>
+            {sourceType === 'webhook' && (
+              <>
+                <Divider my="xs" />
+                <ResponseModeFields config={config} updateConfig={updateConfig} />
+              </>
+            )}
+          </>
         )}
       </Stack>
     );

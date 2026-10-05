@@ -19,7 +19,9 @@ option go_package = "github.com/gsoultan/hermod/pkg/comm/source/grpc/proto";
 service SourceService {
   // Publish hands one record to the gRPC source registered for
   // PublishRequest.path. It returns as soon as the record is queued for the
-  // workflow; it does not wait for transformations or sinks.
+  // workflow, unless the source is set to respond synchronously: then it
+  // returns when the workflow has finished with the record, or when the
+  // source's response timeout runs out.
   //
   // A source configured with an API key requires it as "x-api-key" metadata.
   rpc Publish(PublishRequest) returns (PublishResponse);
@@ -55,8 +57,16 @@ message PublishRequest {
 message PublishResponse {
   // The record's ID: the one sent, or the one Hermod generated.
   string id = 1;
-  // "dispatched" when the record was queued for the workflow.
+  // "dispatched" when the record was queued for the workflow. A source that
+  // responds synchronously reports what the workflow did instead: "delivered",
+  // "completed" (it ran and had nothing to write), "dead_lettered" or "failed",
+  // or "pending" when the wait ran out before the workflow finished.
   string status = 2;
+  // Why the record failed. Set for "dead_lettered" and "failed".
+  string error = 3;
+  // The record as the workflow left it, as a JSON object. Set by a source that
+  // responds synchronously.
+  bytes record = 4;
 }
 `;
 

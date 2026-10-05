@@ -127,6 +127,27 @@ refusals: a run of stale device tokens used to open it and stop delivery to
 every live device behind them. A sink marks such an error by wrapping
 `hermod.ErrPermanent`.
 
+### Added — a webhook or gRPC source can answer with what the workflow did
+
+A webhook or gRPC source answered its caller as soon as the record was queued —
+`dispatched` — and there was no way to learn whether the workflow delivered it.
+
+Each has a **Response** setting now. **Asynchronous** is what it always did.
+**Synchronous** holds the caller until the workflow has finished with the record
+and answers with a `status` (`delivered`, `completed`, `dead_lettered`, `failed`),
+the `error` when it failed, and the `record` as the workflow left it. A
+**Response timeout** bounds the wait — 30s unless set, 5m at most — and when it
+runs out the caller is told `pending`: the record is still being processed and
+must not be sent again. The webhook endpoint answers 200, 502 or 202 to match;
+`Publish` gains `error` and `record` on its response and succeeds for every
+status. See *Synchronous responses* in the README.
+
+A source that does not set it behaves exactly as before, and a message nobody is
+waiting for costs the engine one metadata lookup.
+
+A failed write parked in the dead-letter sink now carries its reason as
+`_hermod_last_error`. The parked row named the sink and the time and not why.
+
 ### Test Connection no longer cuts off a source that is receiving
 
 Pressing **Test Connection** on a gRPC, webhook, GraphQL or form source whose
