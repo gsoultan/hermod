@@ -2,6 +2,7 @@ package lookup
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -16,6 +17,73 @@ func init() {
 }
 
 type FuzzyLookupTransformer struct{}
+
+// preparedOptions is the list Prepare parsed, with the text it was parsed
+// from. Transform uses the list only while the config still holds that text,
+// so options changed on a config that was not prepared again are read, not
+// the ones cached beside them.
+type preparedOptions struct {
+	text    string
+	options []any
+}
+
+const preparedOptionsKey = "_parsed_options"
+
+// Prepare parses options held as JSON text once, rather than on every message.
+// A fault in them is not reported here: the editor's Test button runs
+// Transform on a config that was never prepared, so Transform has to report it
+// anyway, and does.
+func (t *FuzzyLookupTransformer) Prepare(config map[string]any) (map[string]any, error) {
+	if text, ok := config["options"].(string); ok {
+		if options, err := parseOptionsText(text); err == nil {
+			config[preparedOptionsKey] = preparedOptions{text: text, options: options}
+		}
+	}
+	return config, nil
+}
+
+// fuzzyOptions reads the node's options in every shape they are stored in.
+//
+// The editor's Options box is a JSON text field, so a node built there holds
+// the text `["Jakarta", "Bandung"]`, where an API client sends a list. Only
+// the list used to be read: for text the type assertion failed, the node had
+// no options, and every record went through unchanged with nothing reported.
+//
+// No options at all is a node nobody has filled in yet and leaves the record
+// alone. Options that are there but are not a list are a fault in the node,
+// and say what they should look like.
+func fuzzyOptions(config map[string]any) ([]any, error) {
+	switch v := config["options"].(type) {
+	case nil:
+		return nil, nil
+	case []any:
+		return v, nil
+	case []string:
+		options := make([]any, len(v))
+		for i, s := range v {
+			options[i] = s
+		}
+		return options, nil
+	case string:
+		if p, ok := config[preparedOptionsKey].(preparedOptions); ok && p.text == v {
+			return p.options, nil
+		}
+		return parseOptionsText(v)
+	default:
+		return nil, fmt.Errorf(`options must be a list such as ["Jakarta", "Bandung"], not %T`, v)
+	}
+}
+
+func parseOptionsText(text string) ([]any, error) {
+	if strings.TrimSpace(text) == "" {
+		return nil, nil
+	}
+	var options []any
+	if err := json.Unmarshal([]byte(text), &options); err != nil {
+		return nil, fmt.Errorf(`options must be a JSON list such as ["Jakarta", "Bandung"]: %w`, err)
+	}
+	return options, nil
+}
 
 func (t *FuzzyLookupTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
@@ -47,7 +115,10 @@ func (t *FuzzyLookupTransformer) Transform(ctx context.Context, msg hermod.Messa
 		threshold = 0.8
 	}
 
-	options, _ := config["options"].([]any)
+	options, err := fuzzyOptions(config)
+	if err != nil {
+		return msg, err
+	}
 	if len(options) == 0 {
 		return msg, nil
 	}

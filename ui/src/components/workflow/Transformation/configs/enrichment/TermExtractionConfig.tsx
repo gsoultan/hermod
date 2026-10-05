@@ -8,6 +8,17 @@ interface TermExtractionConfigProps {
   fieldPaths?: string[];
 }
 
+/**
+ * The node's own stop words as a list of words. They are stored as
+ * comma-separated text, which the node reads; a config made elsewhere may hold
+ * a list. Blanks are dropped: "".split(",") is [""], which drew as one empty
+ * word.
+ */
+function stopWordList(stopWords: unknown): string[] {
+  const words = typeof stopWords === 'string' ? stopWords.split(',') : Array.isArray(stopWords) ? stopWords.map(String) : [];
+  return words.map((w) => w.trim()).filter(Boolean);
+}
+
 export function TermExtractionConfig({ config, updateNodeConfig, nodeId, fieldPaths }: TermExtractionConfigProps) {
   return (
 
@@ -39,14 +50,18 @@ export function TermExtractionConfig({ config, updateNodeConfig, nodeId, fieldPa
       />
       <NumberInput
         label="Min Word Length"
-        value={config.minLength || 3}
+        description="Shorter words are left out."
+        // minLen is the key the node read before it read this one; a node made
+        // through the API may still hold it (term_extraction.go, minWordLength).
+        value={config.minLength || config.minLen || 3}
         min={1}
         onChange={(val: string | number | undefined) => updateNodeConfig(nodeId, { minLength: val })}
       />
       <TagsInput
         label="Stopwords"
         placeholder="Add words to ignore"
-        value={typeof config.stopWords === 'string' ? config.stopWords.split(',') : (config.stopWords || [])}
+        description="Left out as well as the common words the node always ignores, such as the, and, of."
+        value={stopWordList(config.stopWords)}
         onChange={(val: string[]) => updateNodeConfig(nodeId, { stopWords: val.join(',') })}
       />
     </Stack>

@@ -398,6 +398,7 @@ jobs:
             ui/__tests__/set_fields_json_value_e2e.spec.ts \
             ui/__tests__/set_fields_function_picker_e2e.spec.ts \
             ui/__tests__/expression_field_target_e2e.spec.ts \
+            ui/__tests__/fuzzy_and_term_settings_e2e.spec.ts \
             ui/__tests__/vhost_secrets_e2e.spec.ts \
             ui/__tests__/edge_flow_direction_e2e.spec.ts
       - name: Stop Hermod

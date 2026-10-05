@@ -29,6 +29,14 @@ with "set a target field", and a workflow holding such a node is refused when
 it is saved or started. Open the node and set its Target Field. A node whose
 field is a plain path is unchanged.
 
+**A Fuzzy Lookup or Term Extraction node built in the editor starts doing what
+its form says.** A Fuzzy Lookup's options were never read, so it changed
+nothing; it now writes its match to `<field>_fuzzy` and its score to
+`<field>_score` on every record — or fails the record if its Options are not a
+JSON list. A Term Extraction's Min Word Length and Stopwords were never read
+either, so its terms may change. Check what follows such a node — a sink's
+columns, a condition on the result — before upgrading a workflow that has one.
+
 **A webhook source's API key is now checked.** If a webhook source has an API
 key saved — the form has always offered one — its endpoint now answers 401 to a
 request that does not carry it in the `X-API-Key` header. It used to accept
@@ -122,6 +130,26 @@ for it, and nothing reported it.
 - Term Extraction's Target Field showed "keywords" for a node that had none
   set, while the node wrote to `<field>_terms`. It shows what is set, and
   names the default.
+
+### Fuzzy Lookup and Term Extraction read the settings their forms write
+
+Two nodes ignored what their own editor saved, and stayed green.
+
+- **Fuzzy Lookup matched nothing when built in the editor.** The Options box
+  stores JSON text, `["Jakarta", "Bandung"]`, and the node read only a list,
+  as an API client sends one. With text it had no options and passed every
+  record through unchanged. It reads both now. Options that are there but are
+  not a list — `Jakarta, Bandung` — fail the record with the shape they should
+  have, and the editor says so under the box; they used to count as none.
+- **Term Extraction's Min Word Length and Stopwords did nothing.** The form
+  wrote `minLength` and `stopWords`; the node read `minLen` and a list built
+  into it. It reads the form's keys now, and still reads `minLen`. Stop words
+  are added to the built-in ones, in any letter case.
+- The Options box shows a list from an API-made node as JSON instead of as
+  `Jakarta,Bandung`, and Stopwords no longer shows one blank word when none
+  are set.
+
+See **Upgrading**: a saved node of either kind changes what it writes.
 
 ### The Execute SQL form and the SQL builder are laid out for writing a statement
 
