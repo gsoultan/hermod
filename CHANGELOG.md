@@ -147,6 +147,10 @@ setting. Synchronous writes a result frame back on the connection for each frame
 read — the frame's `id`, the `status`, the `error` and the `record` — where it
 used to write nothing.
 
+The inbound WebSocket endpoint, `/api/ws/in/<path>`, feeds the webhook source
+with that path, so it follows that source's setting: Synchronous answers each
+frame with its result where an asynchronous source acknowledges it.
+
 A source that does not set it behaves exactly as before, and a message nobody is
 waiting for costs the engine one metadata lookup.
 

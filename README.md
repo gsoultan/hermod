@@ -2133,6 +2133,15 @@ and the statuses are the ones above; `pending` is written when the response
 timeout runs out. A result is written to the connection its frame arrived on:
 if that connection drops first, the result is not sent on the next one.
 
+**Inbound WebSocket.** A caller can send records over a WebSocket connected to
+`/api/ws/in/<path>`. They go to the webhook source whose path is that URL —
+`/api/ws/in/<path>` — which the editor's palette offers as *WebSocket (Server)*.
+When that source is Synchronous, each frame is answered on the connection with
+the same result frame, `id` being the frame's `id` (or a generated one, for a
+frame that is the record itself), in place of the `{"ack":"…","ok":true}`
+acknowledgement an asynchronous source sends. A frame that could not be queued
+is answered `rejected`.
+
 ## Advanced Transformation Nodes
 
 Beyond simple mapping and filtering, Hermod supports complex business logic within the pipeline:
