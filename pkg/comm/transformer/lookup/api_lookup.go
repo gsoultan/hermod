@@ -170,13 +170,17 @@ func apiMissError(method, resolvedURL, responsePath string) error {
 // not belong in either. Hashing the rest with it also bounds the key, which
 // message-derived header values otherwise do not.
 //
+// The ttl is mixed in for the reason lookupCacheKey gives: an entry's expiry is
+// fixed when it is stored, so without it a shortened ttl did nothing until
+// every response cached under the old one had expired on the old schedule.
+//
 // The "api:<method>:<url>" prefix is kept readable so a key remains
 // recognisable and prefix-matchable, the way LookupCacheKeyPrefix keeps
 // db_lookup's entries invalidatable per source.
-func apiLookupCacheKey(method, resolvedURL, resolvedBody, responsePath, authType, credential string, headers map[string]string) string {
+func apiLookupCacheKey(method, resolvedURL, resolvedBody, responsePath, authType, credential string, headers map[string]string, ttl time.Duration) string {
 	h := sha256.New()
-	_, _ = fmt.Fprintf(h, "body\x00%s\x00path\x00%s\x00auth\x00%s\x00cred\x00%s\x00",
-		resolvedBody, responsePath, authType, credential)
+	_, _ = fmt.Fprintf(h, "body\x00%s\x00path\x00%s\x00auth\x00%s\x00cred\x00%s\x00ttl\x00%s\x00",
+		resolvedBody, responsePath, authType, credential, ttl)
 
 	// Sorted: Go randomises map iteration, so an unsorted walk would give one
 	// request a different key on every message and defeat the cache entirely.
@@ -339,11 +343,17 @@ func (t *APILookupTransformer) Transform(ctx context.Context, msg hermod.Message
 		credential = evaluator.ResolveTemplateMsg(token, msg)
 	}
 
-	cacheKey := apiLookupCacheKey(method, resolvedURL, resolvedBody, responsePath, authType, credential, resolvedHeaders)
+	// Built even with the cache off: it is the singleflight key below as well.
+	cacheKey := apiLookupCacheKey(method, resolvedURL, resolvedBody, responsePath, authType, credential, resolvedHeaders, ttl.duration)
 
-	if cached, found := registry.GetLookupCache(cacheKey); found {
-		msg.SetData(targetField, cached)
-		return msg, nil
+	// A node that turned its cache off does not read one either -- see the
+	// same guard in db_lookup. The ttl used to matter only when a response was
+	// stored, so setting it to 0 went on serving the one already cached.
+	if ttl.cache {
+		if cached, found := registry.GetLookupCache(cacheKey); found {
+			msg.SetData(targetField, cached)
+			return msg, nil
+		}
 	}
 
 	// Execute API call with singleflight to avoid redundant concurrent requests
