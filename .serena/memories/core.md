@@ -108,6 +108,13 @@ find a claim that outruns the code, fix the claim.
   render `after.`/`before.`/`meta.` as `""`); an If node with no conditions, a
   blank field or an unknown operator is refused on save and start, not in the
   engine; the traps that still read as "always false". The TS twin is dead code.
+- [The function picker](expression_function_picker.md) — one catalog
+  (`ui/src/lib/expressionFunctions.json`) a Go test holds to `CallFunction`'s
+  switch and to each example's result; the audit of which node fields evaluate
+  a call; `evaluator.OutputField`, which refuses a call with no target field
+  where five nodes wrote to a field named after the expression; `time.now()`
+  is text and `nwo()` is null, with no error; two editors whose settings never
+  reach the engine.
 - [Expression functions: one evaluator](expression_function_parity.md) —
   `CallFunction` is the only evaluator the product runs; every preview is
   answered by the server, and the TypeScript one in `transformationUtils.ts` is

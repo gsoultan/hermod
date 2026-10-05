@@ -10,7 +10,6 @@ import {
   Divider,
   Autocomplete,
   Switch,
-  TextInput,
   Tabs,
 } from '@mantine/core';
 import { useMemo } from 'react';
@@ -22,6 +21,8 @@ import {
   IconSettings,
   IconLayoutGrid,
 } from '@tabler/icons-react';
+
+import { ExpressionFieldPicker, TargetFieldInput, missingTargetField } from '@/components/workflow/Transformation/expressionField';
 
 interface AggregateConfigProps {
   config: any;
@@ -37,6 +38,10 @@ export function AggregateConfig({ config, updateNodeConfig, nodeId, availableFie
   );
 
   const windowSize = config.window ? parseInt(config.window.replace('s', '')) || 60 : 60;
+  // The engine's default target is <field>_<type>.
+  const targetSuffix = `_${config.type || ''}`;
+  // The target field is on the other tab, so the field says it is needed too.
+  const needsTarget = missingTargetField(config.field, config.targetField);
 
   return (
     <Stack gap="md">
@@ -76,6 +81,14 @@ export function AggregateConfig({ config, updateNodeConfig, nodeId, availableFie
                   description="Field or expression to use as the grouping key (e.g. lower(source.region))."
                   size="sm"
                   leftSection={<IconTag size={rem(16)} />}
+                  // Only read, so a function needs nothing else set.
+                  rightSection={
+                    <ExpressionFieldPicker
+                      field={config.groupBy}
+                      onApply={({ field }) => updateNodeConfig(nodeId, { groupBy: field })}
+                    />
+                  }
+                  rightSectionPointerEvents="all"
                 />
 
                 <Divider variant="dashed" />
@@ -117,6 +130,15 @@ export function AggregateConfig({ config, updateNodeConfig, nodeId, availableFie
                     required
                     size="sm"
                     description="Numeric field or expression to aggregate (e.g. toint(source.amount))."
+                    error={needsTarget && `${needsTarget} It is on the Output tab.`}
+                    rightSection={
+                      <ExpressionFieldPicker
+                        field={config.field}
+                        writesTo={{ targetField: config.targetField, suffix: targetSuffix }}
+                        onApply={(patch) => updateNodeConfig(nodeId, patch)}
+                      />
+                    }
+                    rightSectionPointerEvents="all"
                   />
                 )}
               </Stack>
@@ -165,11 +187,11 @@ export function AggregateConfig({ config, updateNodeConfig, nodeId, availableFie
         <Tabs.Panel value="output">
           <Card withBorder radius="md" p="md">
             <Stack gap="md">
-              <TextInput
-                label="Target Field"
-                placeholder="e.g. total_amount"
-                value={config.targetField || ''}
-                onChange={(e) => updateNodeConfig(nodeId, { targetField: e.currentTarget.value })}
+              <TargetFieldInput
+                field={config.field}
+                value={config.targetField}
+                suffix={targetSuffix}
+                onChange={(targetField) => updateNodeConfig(nodeId, { targetField })}
                 size="sm"
                 description="Where to store the aggregation result in the message."
               />

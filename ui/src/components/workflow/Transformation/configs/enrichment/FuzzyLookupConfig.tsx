@@ -1,4 +1,5 @@
 import { Autocomplete, JsonInput, NumberInput, Stack } from '@mantine/core';
+import { ExpressionFieldPicker, TargetFieldInput } from '@/components/workflow/Transformation/expressionField';
 
 interface FuzzyLookupConfigProps {
   config: any;
@@ -19,6 +20,23 @@ export function FuzzyLookupConfig({ config, updateNodeConfig, nodeId, fieldPaths
         onChange={(val: string) => updateNodeConfig(nodeId, { field: val })}
         required
         description="Field or expression to use for matching (e.g. name, lower(source.name))."
+        rightSection={
+          <ExpressionFieldPicker
+            field={config.field}
+            writesTo={{ targetField: config.targetField, suffix: '_fuzzy' }}
+            onApply={(patch) => updateNodeConfig(nodeId, patch)}
+          />
+        }
+        rightSectionPointerEvents="all"
+      />
+      {/* The node has always read targetField; there was no input for it, so
+          a match could only go to <field>_fuzzy. */}
+      <TargetFieldInput
+        field={config.field}
+        value={config.targetField}
+        suffix="_fuzzy"
+        onChange={(targetField) => updateNodeConfig(nodeId, { targetField })}
+        description="Where the best match is written. Its score goes beside it."
       />
       <NumberInput
         label="Similarity Threshold (0-1)"

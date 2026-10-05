@@ -99,6 +99,8 @@ func nodeConfigIssues(wf storage.Workflow) (issues []ValidationIssue, hasSource,
 			if nodeType == "condition" {
 				issues = append(issues, undecidableConditionIssues(n)...)
 			}
+		case "transformation", "mapping", "data_conversion", "fuzzy_lookup", "term_extraction", "aggregate":
+			issues = append(issues, unwritableExpressionIssues(n, nodeType)...)
 		case "filter":
 			condition, _ := n.Config["condition"].(string)
 			if strings.TrimSpace(condition) == "" {
@@ -112,6 +114,58 @@ func nodeConfigIssues(wf storage.Workflow) (issues []ValidationIssue, hasSource,
 		}
 	}
 	return issues, hasSource, hasSink
+}
+
+// unwritableExpressionIssues reports a node that reads an expression and has
+// no field to write the result to.
+//
+// Five transformations take "a field or an expression" and default their
+// output to a name built from that field. For a call there is no such name
+// (see evaluator.OutputField), and the engine refuses the first message. The
+// config is all it takes to know, so the workflow is refused here instead of
+// after it has been started.
+func unwritableExpressionIssues(n storage.WorkflowNode, nodeType string) []ValidationIssue {
+	transType := nodeType
+	if nodeType == "transformation" {
+		transType, _ = n.Config["transType"].(string)
+	}
+
+	// Each row is one field the node reads and the target it was given.
+	type row struct{ field, target string }
+	var rows []row
+	read := func(m map[string]any) row {
+		field, _ := m["field"].(string)
+		target, _ := m["targetField"].(string)
+		return row{field, target}
+	}
+	switch transType {
+	case "mapping", "fuzzy_lookup", "term_extraction", "aggregate":
+		rows = append(rows, read(n.Config))
+	case "data_conversion":
+		// The row list is authoritative when present, as it is in the node.
+		if list, ok := n.Config["conversions"].([]any); ok {
+			for _, entry := range list {
+				if m, ok := entry.(map[string]any); ok {
+					rows = append(rows, read(m))
+				}
+			}
+		} else {
+			rows = append(rows, read(n.Config))
+		}
+	}
+
+	var issues []ValidationIssue
+	for _, r := range rows {
+		if _, err := evaluator.OutputField(r.field, r.target, ""); err != nil {
+			issues = append(issues, ValidationIssue{
+				Severity:       "error",
+				Message:        fmt.Sprintf("Node '%s' reads %s but has no target field to write the result to.", n.ID, r.field),
+				Recommendation: "Set the node's Target Field. A plain field is written back to itself, but an expression has no field of its own.",
+				NodeID:         n.ID,
+			})
+		}
+	}
+	return issues
 }
 
 // undecidableConditionIssues reports a condition node that gives every message

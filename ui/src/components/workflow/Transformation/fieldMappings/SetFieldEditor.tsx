@@ -14,6 +14,7 @@ import { IconBracketsContain, IconPlus, IconTrash } from '@tabler/icons-react';
 import { EmptyState } from '@/components/common/EmptyState';
 import { JsonObjectInput } from '@/components/common/JsonObjectInput';
 import { TemplateField } from '@/components/shared/TemplateField';
+import { notFunctions } from '@/lib/functionCatalog';
 import {
   isJsonColumnValue,
   listColumnFields,
@@ -37,6 +38,20 @@ const VALUE_TYPES = [
   { label: 'Expression', value: 'expression' },
   { label: 'JSON', value: 'json' },
 ];
+
+/**
+ * What to say under a value written like a call that the engine will not run:
+ * `time.now()` is written out as that text, `nwo()` as null, and the node stays
+ * green either way.
+ */
+function notAFunctionMessage(value: string): string | undefined {
+  const [first] = notFunctions(value);
+  if (!first) return undefined;
+  const meant = first.suggestion ? ` Did you mean ${first.suggestion}()?` : '';
+  return first.becomes === 'text'
+    ? `${first.name} is not a function, so this is written as the text you see.${meant}`
+    : `There is no function named ${first.name}, so it gives nothing.${meant} To write it as text, put it in quotes.`;
+}
 
 interface SetFieldEditorProps {
   selectedNode: any;
@@ -244,10 +259,12 @@ export function SetFieldEditor({
                       aria-label="Value or expression"
                       placeholder="e.g. source.name or lower(source.name)"
                       value={toExpressionText(field.value)}
+                      error={notAFunctionMessage(toExpressionText(field.value))}
                       onChange={(val) => updateFieldValue(field.fullKey, val)}
                       availableFields={availableFields}
                       buildToken={(p) => `source.${p}`}
                       buildSecretToken={(name) => `secret("${name}")`}
+                      functions="expression"
                       multiline
                     />
                   )}

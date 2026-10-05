@@ -70,6 +70,18 @@ func (t *AggregateTransformer) Transform(ctx context.Context, msg hermod.Message
 		}
 	}
 
+	// Settled before any state is touched: a call with no target field is a
+	// fault in the node, and a message refused for it must not be counted.
+	// The default name is only built when there is no target: this runs for
+	// every message, and the concatenation is an allocation.
+	targetField, _ := config["targetField"].(string)
+	if targetField == "" {
+		var err error
+		if targetField, err = evaluator.OutputField(field, "", "_"+aggType); err != nil {
+			return msg, err
+		}
+	}
+
 	valRaw := evaluator.EvaluateField(msg, field)
 	val, _ := evaluator.ToFloat64(valRaw)
 
@@ -186,11 +198,6 @@ func (t *AggregateTransformer) Transform(ctx context.Context, msg hermod.Message
 	currentCount := currentState.Count
 	currentMin := currentState.Min
 	currentMax := currentState.Max
-
-	targetField, _ := config["targetField"].(string)
-	if targetField == "" {
-		targetField = field + "_" + aggType
-	}
 
 	switch aggType {
 	case "sum":
