@@ -49,6 +49,11 @@ export function GrpcCallGuide({ path, hasApiKey, waits = false }: GrpcCallGuideP
           <Code>HERMOD_GRPC_PORT</Code>. The port is plaintext.
         </List.Item>
         <List.Item>The source receives only while its workflow is running.</List.Item>
+        <List.Item>
+          For many records, <Code>PublishStream</Code> is the same exchange over one long-lived stream. Every record
+          sent is answered under its <Code>id</Code>, and a record that cannot be queued is answered{' '}
+          <Code>rejected</Code> without ending the stream.
+        </List.Item>
         {waits ? (
           <List.Item>
             The call waits for the workflow. The reply carries its <Code>status</Code>, an <Code>error</Code> when the
