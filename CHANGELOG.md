@@ -20,6 +20,12 @@ names the first one read that way. That switch will be removed. A blank prefix
 under Settings → Security now means `HERMOD_SECRET_`; it used to mean every
 variable.
 
+**A webhook source's API key is now checked.** If a webhook source has an API
+key saved — the form has always offered one — its endpoint now answers 401 to a
+request that does not carry it in the `X-API-Key` header. It used to accept
+every request. Before upgrading, make sure each sender of a keyed webhook sends
+the header, or clear the key on the source.
+
 ### Added — a vhost keeps its own secrets
 
 There was nowhere in Hermod to save a secret. `secret("NAME")` read the
@@ -246,6 +252,27 @@ reply does not wait for the sinks, a `buf curl` command built from the path
 typed, and the contract to copy. The setup instructions for a gRPC source show
 the same guide; they used to ask for a source type. `source.proto` documents
 every field, and the README has a full section.
+
+### A webhook source's API key is checked, and its signing secret can be set
+
+**The API key did nothing.** The webhook source form has an "API Key (Optional)"
+field and said requests must include it as `X-API-Key`. The key was saved and the
+endpoint never read it: an operator who generated one had an endpoint that took
+any request, and a form saying otherwise. The endpoint now refuses a request
+without the key with 401. See *Upgrading*.
+
+**The credential the endpoint did check could not be set in the form.** That is
+the signing secret: an HMAC-SHA256 of the request body, sent as
+`X-Hub-Signature-256` or `X-Webhook-Signature`. The form has a **Signing secret**
+field now. A source with both a key and a secret asks for both.
+
+**An unreadable store opened the endpoint.** The credentials are in the source's
+stored configuration. When the store could not be read, the webhook and GraphQL
+endpoints treated the request as one for a source with no credentials and
+accepted it. They answer 503 now.
+
+The form source no longer shows an API key field. Its endpoint answers browsers
+and has never checked one.
 
 ## [1.16.2] — 2026-09-29
 

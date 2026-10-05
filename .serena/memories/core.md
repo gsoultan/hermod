@@ -74,6 +74,9 @@ find a claim that outruns the code, fix the claim.
   toast. One refresh now carries a new sample through every node's fields and
   Live Preview. It sends a `partial` run with per-source-node `messages`; the
   toolbar Test stays strict on purpose.
+- [Webhook and GraphQL credentials](webhook_credentials.md) — `api_key` and
+  `secret` on a webhook source, both checked; an unreadable store is a 503, not
+  an open endpoint.
 - [Synchronous responses](sync_responses.md) — `response_mode: sync` on a webhook
   or gRPC source; `pkg/comm/reply` carries the outcome from `processMessage` back
   to the waiting caller by an id on the message, taken off before any sink sees it.

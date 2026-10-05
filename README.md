@@ -2014,6 +2014,31 @@ Hermod exposes a GraphQL endpoint at `/api/graphql/{path}`. You can send standar
 
 The entire request body is captured as the message payload, and if it's a valid GraphQL JSON, the `query` and `variables` are extracted into the message data.
 
+### Webhook Source
+
+A webhook source receives HTTP requests at `/api/webhooks/<path>`; the source's
+path is the whole request path. It answers `202 {"status":"dispatched"}` once
+the request is queued, or with the workflow's result when its **Response** is
+**Synchronous** (see
+[Synchronous responses](#synchronous-responses-webhook-and-grpc)).
+
+A source can ask for either credential, both, or neither:
+
+| Credential | Config key | The request must carry |
+| :--- | :--- | :--- |
+| API key | `api_key` | `X-API-Key: <key>` |
+| Signing secret | `secret` | `X-Hub-Signature-256: sha256=<hex>` (or `X-Webhook-Signature`), the HMAC-SHA256 of the request body |
+
+A request that fails either is answered 401. If the store holding the
+credentials cannot be read, the request is answered 503 rather than let through.
+
+```bash
+BODY='{"order_id":7}'
+SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" | sed 's/^.* //')
+curl -X POST http://localhost:4000/api/webhooks/orders \
+  -H "X-API-Key: $KEY" -H "X-Hub-Signature-256: sha256=$SIG" -d "$BODY"
+```
+
 ### gRPC Source
 
 A gRPC source receives records that your service pushes to Hermod. Hermod does
