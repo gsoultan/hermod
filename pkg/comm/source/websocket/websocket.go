@@ -15,6 +15,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/comm/reply"
 	sourcebuf "github.com/gsoultan/hermod/pkg/comm/source"
 
 	"github.com/gsoultan/hermod/pkg/infra/sqlident"
@@ -44,6 +45,14 @@ type Source struct {
 	out  chan hermod.Message
 	quit chan struct{}
 
+	// wait and timeout make the source answer each frame it reads; see answer.
+	wait    bool
+	timeout time.Duration
+	// writeMu serialises data frames written to the connection. Answers are
+	// written by one goroutine per frame, and a connection takes one writer at
+	// a time.
+	writeMu sync.Mutex
+
 	// startOnce keeps the read loop to exactly one goroutine. Read is called
 	// once per message by the engine, so starting the loop on the way past
 	// started one per message — each dialling the endpoint and reading the same
@@ -55,6 +64,16 @@ type Source struct {
 	// stopLoop cancels the loop's own context, so a dial in progress does not
 	// outlive Close.
 	stopLoop context.CancelFunc
+}
+
+// result is the frame a synchronous source writes back for a frame it read.
+type result struct {
+	// ID is the id of the frame being answered, empty if it carried none.
+	ID     string `json:"id"`
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+	// Record is the message as the workflow left it.
+	Record json.RawMessage `json:"record,omitempty"`
 }
 
 type envelope struct {
@@ -104,6 +123,77 @@ func (s *Source) SetTLSConfig(cfg *tls.Config, pinSHA256 string) {
 	defer s.mu.Unlock()
 	s.tlsCfg = cfg
 	s.pinSHA256 = pinSHA256
+}
+
+// SetResponse makes the source answer each frame it reads with what the
+// workflow did with it, on the connection the frame arrived on. timeout is how
+// long it waits for the workflow before answering "pending". Call it before
+// the first Read.
+func (s *Source) SetResponse(wait bool, timeout time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.wait = wait
+	s.timeout = timeout
+}
+
+// emit hands a message read from c to the engine, and when the source answers
+// its frames, arranges for frameID to be answered. It reports false when the
+// source is stopping.
+func (s *Source) emit(ctx context.Context, c *websocket.Conn, frameID string, m hermod.Message, wait bool, timeout time.Duration) bool {
+	var pending *reply.Pending
+	if wait {
+		// Registered before the message is handed over, or a fast workflow
+		// could finish first and answer nobody.
+		p, err := reply.Expect(m)
+		if err != nil {
+			// Too many answers are already being waited for. The frame is
+			// still processed; the server is told its result will not follow.
+			s.write(c, result{ID: frameID, Status: "pending", Error: err.Error()})
+		}
+		pending = p
+	}
+	select {
+	case s.out <- m:
+	case <-ctx.Done():
+		if pending != nil {
+			pending.Cancel()
+		}
+		return false
+	}
+	if pending != nil {
+		go s.answer(ctx, c, frameID, pending, timeout)
+	}
+	return true
+}
+
+// answer waits for the workflow to finish with one frame and writes the result
+// back on the connection the frame arrived on. If that connection has gone, the
+// answer goes nowhere: a reconnect is a new conversation.
+func (s *Source) answer(ctx context.Context, c *websocket.Conn, frameID string, pending *reply.Pending, timeout time.Duration) {
+	defer pending.Cancel()
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	outcome, err := pending.Wait(waitCtx)
+	if err != nil {
+		if ctx.Err() != nil {
+			return // the source is stopping
+		}
+		// The wait ran out. The frame is still the workflow's, so this is not
+		// a failure: a server that resends a failure sends the record twice.
+		s.write(c, result{ID: frameID, Status: "pending"})
+		return
+	}
+	s.write(c, result{ID: frameID, Status: string(outcome.Status), Error: outcome.Error, Record: outcome.Record})
+}
+
+// write sends one result frame. A failed write is not reported anywhere: the
+// read loop finds a broken connection on its next read and reconnects.
+func (s *Source) write(c *websocket.Conn, r result) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	_ = c.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	_ = c.WriteJSON(r)
 }
 
 func (s *Source) connect(ctx context.Context) error {
@@ -159,6 +249,7 @@ func (s *Source) loop(ctx context.Context) {
 	// case and kept reconnecting to a source that had been closed.
 	s.mu.Lock()
 	quit := s.quit
+	wait, timeout := s.wait, s.timeout
 	s.mu.Unlock()
 
 	backoff := s.reconnectBase
@@ -214,9 +305,7 @@ func (s *Source) loop(ctx context.Context) {
 			// Not an envelope: treat entire frame as payload
 			m := message.AcquireMessage()
 			m.SetPayload(data)
-			select {
-			case s.out <- m:
-			case <-ctx.Done():
+			if !s.emit(ctx, c, "", m, wait, timeout) {
 				return
 			}
 			continue
@@ -261,11 +350,14 @@ func (s *Source) loop(ctx context.Context) {
 			}
 		}
 		for k, v := range env.Metadata {
+			// The reply id names the waiter for a message. It is set by emit,
+			// and never taken from a frame.
+			if k == reply.MetaReplyID {
+				continue
+			}
 			m.SetMetadata(k, v)
 		}
-		select {
-		case s.out <- m:
-		case <-ctx.Done():
+		if !s.emit(ctx, c, env.ID, m, wait, timeout) {
 			return
 		}
 	}

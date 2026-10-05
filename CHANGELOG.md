@@ -49,6 +49,31 @@ from the global manager only, while the running workflow also reads the
 vhost's; and the Pebble storage backend, which has no vhosts, has no vhost
 secrets. Deleting a vhost deletes its secrets.
 
+### Execute SQL keeps the rows its statement returns
+
+An Execute SQL node ran every statement in a way that has nowhere to put a
+result, so `INSERT ... RETURNING id` wrote the row and dropped the id. The
+message left the node as it arrived, and Run Preview — which shows that message
+— showed nothing new.
+
+The node has a **Returned Rows Field**. Name one and the statement's rows are
+written into the message under it: `RETURNING` on PostgreSQL, SQLite and
+MariaDB, `OUTPUT` on SQL Server. **Rows to keep** chooses the first row as an
+object, so a generated key reads as `inserted.id`, or every row as a list. The
+shape follows that choice and never the number of rows that came back; a
+statement that returns none writes null, or an empty list, over whatever was
+under that name. A list holds at most 1,000 rows, and the statement is still
+read to its end.
+
+It is opt-in: a node that names no field behaves as before, so a statement that
+already had a `RETURNING` clause does not add a field to messages a sink is
+mapping. The editor says so when a statement returns rows that nothing keeps.
+
+With returned rows kept, **Affected Rows Field** is the number of rows returned.
+A statement with no result set has no count to read on that path, and the field
+is left out rather than written as 0. In node config the keys are `resultField`
+and `resultRows` (`first` or `all`).
+
 ### A workflow can no longer read the server's environment
 
 `env('X')` was `os.Getenv`, and `secret('X')` and a connector's `secret:X` fell
@@ -127,7 +152,7 @@ refusals: a run of stale device tokens used to open it and stop delivery to
 every live device behind them. A sink marks such an error by wrapping
 `hermod.ErrPermanent`.
 
-### Added — a webhook or gRPC source can answer with what the workflow did
+### Added — a webhook, gRPC or WebSocket source can answer with what the workflow did
 
 A webhook or gRPC source answered its caller as soon as the record was queued —
 `dispatched` — and there was no way to learn whether the workflow delivered it.
@@ -141,6 +166,15 @@ runs out the caller is told `pending`: the record is still being processed and
 must not be sent again. The webhook endpoint answers 200, 502 or 202 to match;
 `Publish` gains `error` and `record` on its response and succeeds for every
 status. See *Synchronous responses* in the README.
+
+The WebSocket source, which dials a server and reads frames, has the same
+setting. Synchronous writes a result frame back on the connection for each frame
+read — the frame's `id`, the `status`, the `error` and the `record` — where it
+used to write nothing.
+
+The inbound WebSocket endpoint, `/api/ws/in/<path>`, feeds the webhook source
+with that path, so it follows that source's setting: Synchronous answers each
+frame with its result where an asynchronous source acknowledges it.
 
 A source that does not set it behaves exactly as before, and a message nobody is
 waiting for costs the engine one metadata lookup.

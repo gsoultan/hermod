@@ -2071,7 +2071,7 @@ it base64-encoded, which is what the value above is.
 **What the reply means.** By default `dispatched`: the record was queued for
 the workflow, and `Publish` did not wait for transformations or sinks. Set the
 source's **Response** to **Synchronous** and `Publish` waits for the workflow
-instead — see [Synchronous responses](#synchronous-responses-webhook-and-grpc).
+instead — see [Synchronous responses](#synchronous-responses-webhook-grpc-and-websocket).
 A call that fails before the record is queued returns an error whose message
 says why:
 
@@ -2106,7 +2106,7 @@ buf curl --protocol grpc --http2-prior-knowledge \
   http://localhost:50051/hermod.source.grpc.v1.SourceService/PublishStream
 ```
 
-### Synchronous responses (webhook and gRPC)
+### Synchronous responses (webhook, gRPC and WebSocket)
 
 A webhook or gRPC source answers its caller as soon as the record is queued:
 `202 {"status":"dispatched"}` from the webhook endpoint, `dispatched` from
@@ -2143,6 +2143,28 @@ happened:
 - At most 10,000 callers are held at once across the process; past that a
   synchronous request is refused (503 from the webhook endpoint) rather than
   queued without limit.
+
+**WebSocket source.** The WebSocket source dials a server and reads frames from
+it. Set to Synchronous, it writes one result frame back on the same connection
+for each frame it read, once the workflow has finished with it:
+
+```json
+{"id":"req-1","status":"delivered","record":{…}}
+```
+
+`id` is the `id` of the frame being answered, empty if the frame carried none,
+and the statuses are the ones above; `pending` is written when the response
+timeout runs out. A result is written to the connection its frame arrived on:
+if that connection drops first, the result is not sent on the next one.
+
+**Inbound WebSocket.** A caller can send records over a WebSocket connected to
+`/api/ws/in/<path>`. They go to the webhook source whose path is that URL —
+`/api/ws/in/<path>` — which the editor's palette offers as *WebSocket (Server)*.
+When that source is Synchronous, each frame is answered on the connection with
+the same result frame, `id` being the frame's `id` (or a generated one, for a
+frame that is the record itself), in place of the `{"ack":"…","ok":true}`
+acknowledgement an asynchronous source sends. A frame that could not be queued
+is answered `rejected`.
 
 ## Advanced Transformation Nodes
 

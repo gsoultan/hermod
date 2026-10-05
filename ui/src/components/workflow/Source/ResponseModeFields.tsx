@@ -3,7 +3,12 @@ import { Code, Input, SegmentedControl, Stack, Text, TextInput } from '@mantine/
 interface ResponseModeFieldsProps {
   config: Record<string, any>;
   updateConfig: (key: string, value: any) => void;
+  /** What the two choices mean for this kind of source, when it is not a caller being held. */
+  description?: string;
 }
+
+const HELD_CALLER =
+  'Asynchronous answers as soon as the record is queued. Synchronous holds the caller until the workflow has finished with it.';
 
 /** The value the transports read as "hold the caller" (pkg/comm/reply). */
 export const RESPONSE_MODE_SYNC = 'sync';
@@ -16,14 +21,14 @@ export const RESPONSE_MODE_SYNC = 'sync';
  * It writes `response_mode` and `response_timeout`, the keys the webhook
  * endpoint and the gRPC service read.
  */
-export function ResponseModeFields({ config, updateConfig }: ResponseModeFieldsProps) {
+export function ResponseModeFields({ config, updateConfig, description = HELD_CALLER }: ResponseModeFieldsProps) {
   const waits = config.response_mode === RESPONSE_MODE_SYNC;
 
   return (
     <Stack gap="xs">
       <Input.Wrapper
         label="Response"
-        description="Asynchronous answers as soon as the record is queued. Synchronous holds the caller until the workflow has finished with it."
+        description={description}
       >
         <SegmentedControl
           mt={6}

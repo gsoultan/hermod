@@ -74,7 +74,28 @@ protoc-gen-go-grpc 1.6.2 (from the old path, to keep the descriptor's file name)
 - Read a message's id **before** dispatching it. After, it is the engine's and
   may be back in the pool; both transports used to read it afterwards.
 
-## Not done yet
+## The WebSocket source
 
-WebSocket: the existing source is a client (Hermod dials out) and can reply on
-its connection; an inbound WebSocket source does not exist.
+It is a client: Hermod dials a URL and reads frames. With `response_mode: sync`
+(`Source.SetResponse`, set by the factory from `reply.ModeOf`) `emit` calls
+`reply.Expect` on each message before handing it to the engine and starts one
+goroutine (`answer`) that waits and writes a result frame —
+`{"id","status","error","record"}`, `id` being the frame's envelope id — back on
+the connection the frame arrived on. Writes are serialised by `writeMu`; a
+connection takes one data writer at a time. A reconnect is a new conversation:
+an answer for a frame from the old connection is dropped. The reachability test
+is `internal/factory/websocket_sync_reachability_test.go`.
+
+## Inbound WebSocket: /api/ws/in/<path>
+
+There is no inbound WebSocket *source type*. `WSHandler.HandleWSIn`
+(`internal/ws/transport/http/ws_endpoints.go`) accepts the connection and
+dispatches each frame through `webhook.Dispatch` to the **webhook source whose
+path is `/api/ws/in/<path>`**; the palette's "WebSocket (Server)" entry creates
+exactly that. So it follows that webhook source's `response_mode`: looked up
+once per connection, and when sync each frame is answered by a goroutine with
+`{"id","status","error","record"}` instead of `{"ack","ok"}`. The endpoint needs
+a Hermod session, not a per-source key (recorded in SECURITY.md).
+
+Do not add a second inbound endpoint or a `websocket_server` source type: one
+was started on 2026-10-05 before this was noticed, and discarded.
