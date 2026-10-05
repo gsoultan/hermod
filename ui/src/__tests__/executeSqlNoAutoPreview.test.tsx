@@ -17,7 +17,7 @@ vi.mock('@tanstack/react-router', () => ({
 // finished INSERT wrote a row each time, and an unfinished one raised two error
 // toasts. A node that writes previews when it is asked to.
 describe('execute_sql live preview', () => {
-  const setup = (data: any) => {
+  const setup = (data: any, incoming: any = { code: 'C-1' }) => {
     const calls: any[] = []
     server.use(
       http.post('*/api/transformations/test', async ({ request }) => {
@@ -33,7 +33,7 @@ describe('execute_sql live preview', () => {
               selectedNode={{ id: 'n1', type: 'transformation', data } as any}
               updateNodeConfig={() => {}}
               availableFields={[]}
-              incomingPayload={{ code: 'C-1' }}
+              incomingPayload={incoming}
               sinkSchema={{}}
             />
           </VHostProvider>
@@ -71,6 +71,21 @@ describe('execute_sql live preview', () => {
   it('tells the reader why nothing ran', async () => {
     setup({ transType: 'execute_sql', sourceId: 'ops', queryTemplate: 'DELETE FROM t' })
     expect(await screen.findByTestId('execute-sql-manual-preview')).toHaveTextContent(/run preview/i)
+  })
+
+  // With no sample the panel offers to fetch one. For every other node the
+  // preview then runs by itself; saying so here would promise a run that this
+  // node, on purpose, does not make.
+  it('does not promise a run when it offers to fetch a sample', async () => {
+    setup({ transType: 'execute_sql', sourceId: 'ops', queryTemplate: 'DELETE FROM t' }, null)
+    const notice = await screen.findByTestId('preview-no-input')
+    expect(notice).toHaveTextContent(/then press run preview/i)
+    expect(notice).not.toHaveTextContent(/the preview runs on it/i)
+  })
+
+  it('keeps that promise for nodes that do run on their own', async () => {
+    setup({ transType: 'mask', field: 'code', maskType: 'all' }, null)
+    expect(await screen.findByTestId('preview-no-input')).toHaveTextContent(/the preview runs on it/i)
   })
 
   // The control: the same harness does see a preview from a node that only

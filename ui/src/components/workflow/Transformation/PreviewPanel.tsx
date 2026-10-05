@@ -24,6 +24,11 @@ interface PreviewPanelProps {
    */
   onFetchSample?: () => void;
   fetchingSample?: boolean;
+  /**
+   * The node previews only when Run Preview is pressed -- it writes -- so a
+   * fetched sample does not start a run.
+   */
+  runsOnDemand?: boolean;
 }
 
 /** Short enough to sit on one line; the full value is in the JSON below. */
@@ -74,7 +79,7 @@ function simpleDiff(orig: any, trans: any): any {
   return d;
 }
 
-export function PreviewPanel({ title = 'Preview', loading, error, result, original, onRun, targetField, onFetchSample, fetchingSample }: PreviewPanelProps) {
+export function PreviewPanel({ title = 'Preview', loading, error, result, original, onRun, targetField, onFetchSample, fetchingSample, runsOnDemand }: PreviewPanelProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('transformed');
   const [copied, setCopied] = useState(false);
 
@@ -273,8 +278,10 @@ export function PreviewPanel({ title = 'Preview', loading, error, result, origin
             <Stack gap="xs" align="flex-start">
               <Text size="xs">
                 No sample message yet, so there is nothing to run this node on. A
-                queue or stream is only read when you ask — fetch one message and
-                the preview runs on it.
+                queue or stream is only read when you ask —{' '}
+                {runsOnDemand
+                  ? 'fetch one message, then press Run Preview.'
+                  : 'fetch one message and the preview runs on it.'}
               </Text>
               {onFetchSample && (
                 <Button size="compact-xs" variant="light" onClick={onFetchSample} loading={!!fetchingSample}>

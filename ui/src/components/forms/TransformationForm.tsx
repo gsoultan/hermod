@@ -704,6 +704,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
             onRun={runPreview}
             onFetchSample={onRefreshFields}
             fetchingSample={isRefreshing}
+            runsOnDemand={previewsOnDemand}
             // execute_sql has no targetField; what it produces is the rows its
             // statement returns, under resultField.
             targetField={
