@@ -2020,7 +2020,7 @@ A webhook source receives HTTP requests at `/api/webhooks/<path>`; the source's
 path is the whole request path. It answers `202 {"status":"dispatched"}` once
 the request is queued, or with the workflow's result when its **Response** is
 **Synchronous** (see
-[Synchronous responses](#synchronous-responses-webhook-and-grpc)).
+[Synchronous responses](#synchronous-responses-webhook-grpc-and-websocket)).
 
 A source can ask for either credential, both, or neither:
 
@@ -2096,7 +2096,7 @@ it base64-encoded, which is what the value above is.
 **What the reply means.** By default `dispatched`: the record was queued for
 the workflow, and `Publish` did not wait for transformations or sinks. Set the
 source's **Response** to **Synchronous** and `Publish` waits for the workflow
-instead — see [Synchronous responses](#synchronous-responses-webhook-and-grpc).
+instead — see [Synchronous responses](#synchronous-responses-webhook-grpc-and-websocket).
 A call that fails before the record is queued returns an error whose message
 says why:
 
