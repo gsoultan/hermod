@@ -49,6 +49,46 @@ from the global manager only, while the running workflow also reads the
 vhost's; and the Pebble storage backend, which has no vhosts, has no vhost
 secrets. Deleting a vhost deletes its secrets.
 
+### The Execute SQL form and the SQL builder are laid out for writing a statement
+
+The Execute SQL node's form opened with a banner describing a lookup, then one
+card that held the database, the returned-rows settings and the missing-variable
+setting, then the query builder squeezed into a third of the drawer: at 1600px
+wide the editor was about 250px and the schema list 130px.
+
+- The form is four numbered steps in the order they are decided: **Database**,
+  **Statement**, **Returned data**, **Missing values**. The node's column of the
+  drawer is wider.
+- The builder is one workspace: an editor with line numbers that does not wrap
+  the statement, and **Variables**, **Schema** and **Templates** tabs beside it
+  or below it, by the room it has rather than by the window's width. The expand
+  button opens the same workspace large, with the schema and the results next to
+  the editor; before, it opened the editor alone.
+- **Schema** reads the tables when it is opened and marks key and generated
+  columns. **Templates** writes the statement for the open table — insert, insert
+  and return the row, update, insert-or-update, delete — in the database's own
+  dialect, with a variable per column. It leaves a generated column and a column
+  with a default out of an insert unless the message has a value for it. Using a
+  template replaces the statement and offers to put the old one back.
+- In an Execute SQL node the builder knows the statement writes: it starts empty
+  instead of showing a `SELECT` that was never saved, offers the keywords a write
+  uses, and labels what **Run statement** returns as returned rows.
+- **Format** no longer rewrites text inside a string literal or a `{{ }}`
+  variable. `'salt and pepper'` was reformatted with a line break in it, which is
+  what was then written to the database. It also lays out `INSERT`, `UPDATE`,
+  `DELETE`, `ON CONFLICT` and `RETURNING`.
+- A failure to read the schema is shown in the Schema tab; it was shown as
+  "Query failed".
+
+**Live Preview no longer runs an Execute SQL node while it is edited.** A
+preview runs the node, so the statement was executed against the database at
+every pause in typing: a finished `INSERT` wrote a row each time and an
+unfinished one raised two error toasts. The node now previews when **Run
+Preview** is pressed, and the form says so. Every other node previews as before.
+
+The db_lookup and batch SQL builders get the same workspace and keep their
+`SELECT` keywords, default query and **Run Query** button.
+
 ### Execute SQL keeps the rows its statement returns
 
 An Execute SQL node ran every statement in a way that has nowhere to put a

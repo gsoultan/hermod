@@ -32,9 +32,22 @@ statement returns rows and no field is named — the report that led here was
 "Run Preview shows no data" for exactly that. `statementReturnsRows` only drives
 the hint; it never changes what runs.
 
-**Preview writes for real.** `/api/transformations/test` runs the transformer
-itself, and Live Preview re-runs 400 ms after every config change, so editing an
-`execute_sql` node executes its statement against the database each time.
+**Preview writes for real, so this node previews on demand.**
+`/api/transformations/test` runs the transformer itself. Live Preview used to
+re-run 400 ms after every config change, which executed an `execute_sql`
+statement at each pause in typing; `TransformationForm` now skips the automatic
+preview for `execute_sql` (`previewsOnDemand`) and the node runs only when Run
+Preview is pressed. The builder's own **Run statement** also executes for real.
+
+**The SQL builder** (`ui/src/components/forms/SQLQueryBuilder.tsx` plus
+`forms/sqlBuilder/`) is shared with `db_lookup` and the batch SQL source. It
+takes `intent="write"` from `SQLConfig` only; `read` is the default and keeps
+the SELECT keywords, the default query and the **Run Query** label. Its layout
+uses container queries (`Grid type="container"`), because it is embedded both in
+a third of a drawer and in a 96% modal and a viewport breakpoint cannot tell
+those apart. Templates (`sqlBuilder/templates.ts`) are dialect-aware and leave
+identity and defaulted columns out of an INSERT unless the message has a value —
+an unresolved token binds NULL and an explicit NULL beats the default.
 
 Tests: `execute_sql_returning_test.go` (SQLite),
 `internal/engine/registry/execute_sql_integration_test.go` (stored source →
