@@ -28,6 +28,7 @@ import (
 type awaitedSource struct {
 	mu   sync.Mutex
 	sent bool
+	acks int
 	p    *reply.Pending
 	err  error
 }
@@ -48,9 +49,20 @@ func (s *awaitedSource) Read(ctx context.Context) (hermod.Message, error) {
 	return m, nil
 }
 
-func (s *awaitedSource) Ack(context.Context, hermod.Message) error { return nil }
-func (s *awaitedSource) Ping(context.Context) error                { return nil }
-func (s *awaitedSource) Close() error                              { return nil }
+func (s *awaitedSource) Ack(context.Context, hermod.Message) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.acks++
+	return nil
+}
+
+func (s *awaitedSource) acked() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.acks
+}
+func (s *awaitedSource) Ping(context.Context) error { return nil }
+func (s *awaitedSource) Close() error               { return nil }
 
 func (s *awaitedSource) pending(t *testing.T) *reply.Pending {
 	t.Helper()
@@ -328,5 +340,36 @@ func TestAWaitingCallerIsToldADryRunWroteNothing(t *testing.T) {
 	}
 	if sink.count() != 0 {
 		t.Errorf("a dry run wrote %d record(s)", sink.count())
+	}
+}
+
+// The workflow dropped the message on purpose. That is not a failure: the
+// source is acknowledged, nothing is parked, and the caller is told so —
+// unlike the message no sink could be resolved for, which looks the same
+// without the marker and is neither acknowledged nor called handled.
+func TestAWaitingCallerIsToldAFilterDroppedTheMessage(t *testing.T) {
+	src := &awaitedSource{}
+	sink := newTallySink()
+	dlq := newTallySink()
+	eng := NewEngine(src, []hermod.Sink{sink}, buffer.NewRingBuffer(8))
+	eng.SetDeadLetterSink(dlq)
+	eng.SetRouter(func(_ context.Context, msg hermod.Message) ([]RoutedMessage, error) {
+		msg.SetMetadata(MetaFiltered, "true")
+		return nil, nil
+	})
+
+	o := outcomeOf(t, eng, src)
+
+	if o.Status != reply.Filtered || o.Error != "" {
+		t.Errorf("got %q / %q, want filtered", o.Status, o.Error)
+	}
+	if dlq.count() != 0 {
+		t.Errorf("a message the workflow dropped on purpose was parked in the dead-letter sink %d time(s)", dlq.count())
+	}
+	if sink.count() != 0 {
+		t.Errorf("a filtered message reached the sink %d time(s)", sink.count())
+	}
+	if src.acked() != 1 {
+		t.Errorf("a filtered message was acknowledged %d time(s), want 1", src.acked())
 	}
 }

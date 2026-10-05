@@ -962,6 +962,17 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 			return
 		}
 
+		// The workflow chose to deliver this message nowhere: a filter dropped
+		// it. That is handled, not undeliverable. Without this it fell through
+		// to the branch below with every message nothing could deliver, and
+		// each record a filter dropped was parked in the dead-letter sink — or,
+		// with none, never acknowledged.
+		if v, _ := hermod.MetadataValue(m, MetaFiltered); m != nil && v == "true" {
+			ack()
+			rs.conclude(reply.Filtered, "", m)
+			return
+		}
+
 		// The workflow HAS sinks and resolved none of them. This used to be
 		// acknowledged and discarded exactly like a filtered message — the two
 		// were indistinguishable — which during a sink outage acknowledged 1996

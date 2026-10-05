@@ -61,5 +61,21 @@ const MetaDeliveredInline = "_hermod_delivered_inline"
 // park still takes the un-acknowledged path and is redelivered.
 const MetaDeadLettered = "_hermod_dead_lettered"
 
+// MetaFiltered marks a message the workflow chose to deliver nowhere.
+//
+// A filter that drops a message routes nothing, so the message reaches the
+// engine as an empty target list from a workflow that has sinks. That is also
+// the shape of a message no sink could be resolved for, which the engine
+// refuses to acknowledge: it parks it in the dead-letter sink or leaves it on
+// the source. Applied to a filtered message that refusal is a false failure on
+// every message the filter drops — a dead-letter queue filling with records
+// that were dropped on purpose, or a source never told they were handled.
+//
+// The marker is what tells the two apart. The workflow's router sets it only
+// when every walk that ended without delivering ended on purpose: no node
+// failed, no sink node went unresolved, and nothing is holding the message.
+// With it the engine acknowledges the source and parks nothing.
+const MetaFiltered = "_hermod_filtered"
+
 // RouterFunc is a function that routes a message to one or more sinks.
 type RouterFunc func(ctx context.Context, msg hermod.Message) ([]RoutedMessage, error)

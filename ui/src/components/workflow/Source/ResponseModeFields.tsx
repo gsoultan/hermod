@@ -54,7 +54,8 @@ export function ResponseModeFields({ config, updateConfig, description = HELD_CA
           <Text size="xs" c="dimmed" data-testid="sync-response-explanation">
             The answer carries a <Code>status</Code>, an <Code>error</Code> when the record failed, and the{' '}
             <Code>record</Code> as the workflow left it. The status is <Code>delivered</Code>, <Code>completed</Code>{' '}
-            (the workflow ran and had nothing to write), <Code>dead_lettered</Code>, <Code>failed</Code>, or{' '}
+            (the workflow ran and had nothing to write), <Code>filtered</Code> (a filter dropped it on purpose),{' '}
+            <Code>dead_lettered</Code>, <Code>failed</Code>, or{' '}
             <Code>pending</Code> when the timeout ran out first. A pending record is still being processed, so do not
             send it again.
           </Text>

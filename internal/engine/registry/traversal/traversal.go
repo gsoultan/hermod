@@ -66,6 +66,21 @@ type WorkflowTraversal struct {
 	// it on the traversal instead survives the clone, and the router stamps the
 	// original once the walk is done.
 	DeadLettered atomic.Bool
+
+	// Filtered records that the workflow let this message go no further on
+	// purpose: a filter, validator or deduplicate node emitted nothing, or a
+	// node's result matched none of the edges leading out of it.
+	//
+	// Unaccounted records that a walk ended without delivering for any other
+	// reason: a node failed, a sink node could not be resolved, or a node that
+	// is not a filter emitted nothing. One of these anywhere in the traversal
+	// outweighs every deliberate drop in it.
+	//
+	// The engine sees a filtered message and an undeliverable one as the same
+	// thing — a workflow with sinks that routed to none of them — and refuses
+	// to acknowledge either. Together these tell them apart; see MetaFiltered.
+	Filtered    atomic.Bool
+	Unaccounted atomic.Bool
 }
 
 var TraversalPool = sync.Pool{
@@ -126,6 +141,8 @@ func Acquire(
 	t.InlineDelivered.Store(false)
 	t.InlineFailed.Store(false)
 	t.DeadLettered.Store(false)
+	t.Filtered.Store(false)
+	t.Unaccounted.Store(false)
 	return t
 }
 
@@ -261,6 +278,8 @@ func (t *WorkflowTraversal) processNode(ctx context.Context, currID string) {
 	// release above frees it as soon as this function returns.
 	if err != nil {
 		t.countAgainstBreakers(currID)
+		// A failure is never a deliberate drop, whatever else the walk did.
+		t.Unaccounted.Store(true)
 	}
 
 	if err != nil && t.Eng != nil {
@@ -317,6 +336,11 @@ func (t *WorkflowTraversal) processNode(ctx context.Context, currID string) {
 					Message:   m,
 				})
 			}
+		} else {
+			// The walk reached a sink node the engine has no sink for. Nothing
+			// is routed, which is what a filter looks like from outside, and
+			// it is the opposite: this message had somewhere to go.
+			t.Unaccounted.Store(true)
 		}
 		t.RoutedMu.Unlock()
 	}
@@ -412,6 +436,16 @@ func (t *WorkflowTraversal) handleResults(ctx context.Context, node *storage.Wor
 		msgs = msgs[:1]
 	}
 
+	// A node that emitted nothing has ended this walk, and why matters to what
+	// the engine does with the message.
+	if len(msgs) == 0 {
+		if dropsOnPurpose(node) {
+			t.Filtered.Store(true)
+		} else {
+			t.Unaccounted.Store(true)
+		}
+	}
+
 	// A node that emitted nothing — a filter that dropped the message — sends
 	// nothing along any edge, taken or not, so every edge is pruned. Delivering
 	// one message per output resolved none of them, and a join downstream waited
@@ -419,8 +453,10 @@ func (t *WorkflowTraversal) handleResults(ctx context.Context, node *storage.Wor
 	// brought it went unwritten. The editor's simulation counts such an edge as
 	// walked (simulation.forward); this is the same rule.
 	targets := t.Adj[node.ID]
+	took := false
 	for _, targetID := range targets {
 		if len(msgs) > 0 && TakesEdge(branch, t.EdgeLabels[node.ID+":"+targetID]) {
+			took = true
 			for _, msg := range msgs {
 				// Clone the message if it's going to multiple targets to avoid data races
 				// when nodes modify the message concurrently.
@@ -441,6 +477,25 @@ func (t *WorkflowTraversal) handleResults(ctx context.Context, node *storage.Wor
 			t.pruneBranch(ctx, targetID)
 		}
 	}
+
+	// The node has edges out and its result matched none of them: a condition
+	// whose outcome was given nowhere to go. That is a filter by another name.
+	if len(msgs) > 0 && len(targets) > 0 && !took {
+		t.Filtered.Store(true)
+	}
+}
+
+// dropsOnPurpose reports whether a node of this type emitting nothing means the
+// workflow chose to deliver the message nowhere. A filter or validator that
+// rejected it and a deduplicate that had seen it have. A node that emits
+// nothing because it is holding the message — an approval, a wait, a collect —
+// has not, and is not treated as though it had.
+func dropsOnPurpose(node *storage.WorkflowNode) bool {
+	switch node.Type {
+	case "transformation", "validator", "deduplicate":
+		return true
+	}
+	return false
 }
 
 // forkFanout walks the graph below node once for each extra fan-out message.
@@ -497,6 +552,12 @@ func (t *WorkflowTraversal) walkFrom(ctx context.Context, node *storage.Workflow
 	}
 	if child.InlineFailed.Load() {
 		t.InlineFailed.Store(true)
+	}
+	if child.Filtered.Load() {
+		t.Filtered.Store(true)
+	}
+	if child.Unaccounted.Load() {
+		t.Unaccounted.Store(true)
 	}
 	if child.DeadLettered.Load() {
 		t.DeadLettered.Store(true)

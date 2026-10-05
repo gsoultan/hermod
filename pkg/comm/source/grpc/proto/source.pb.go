@@ -150,8 +150,9 @@ type PublishResponse struct {
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// "dispatched" when the record was queued for the workflow. A source that
 	// responds synchronously reports what the workflow did instead: "delivered",
-	// "completed" (it ran and had nothing to write), "dead_lettered" or "failed",
-	// or "pending" when the wait ran out before the workflow finished.
+	// "completed" (it ran and had nothing to write), "filtered" (a filter dropped
+	// it on purpose), "dead_lettered" or "failed", or "pending" when the wait ran
+	// out before the workflow finished.
 	Status string `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
 	// Why the record failed. Set for "dead_lettered" and "failed".
 	Error string `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
