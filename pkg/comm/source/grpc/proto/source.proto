@@ -74,8 +74,9 @@ message PublishResponse {
   string id = 1;
   // "dispatched" when the record was queued for the workflow. A source that
   // responds synchronously reports what the workflow did instead: "delivered",
-  // "completed" (it ran and had nothing to write), "dead_lettered" or "failed",
-  // or "pending" when the wait ran out before the workflow finished.
+  // "completed" (it ran and had nothing to write), "filtered" (a filter dropped
+  // it on purpose), "dead_lettered" or "failed", or "pending" when the wait ran
+  // out before the workflow finished.
   // PublishStream also answers "rejected" for a record it could not queue.
   string status = 2;
   // Why the record failed. Set for "dead_lettered" and "failed".

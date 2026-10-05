@@ -35,6 +35,9 @@ const (
 	// Completed: the workflow ran and had nothing to write — it has no sink, or
 	// it is a dry run.
 	Completed Status = "completed"
+	// Filtered: the workflow ran and chose to deliver it nowhere — a filter
+	// dropped it, or its outcome had no edge to follow.
+	Filtered Status = "filtered"
 	// DeadLettered: it failed and was parked in the dead-letter sink.
 	DeadLettered Status = "dead_lettered"
 	// Failed: it failed and is not preserved anywhere.

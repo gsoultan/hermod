@@ -2120,6 +2120,7 @@ happened:
 | :--- | :--- | :--- |
 | `delivered` | Written to every sink the workflow routed it to | 200 |
 | `completed` | The workflow ran and had nothing to write: it has no sink, or it is a dry run | 200 |
+| `filtered` | The workflow dropped it on purpose: a filter, validator or deduplicate node let it go no further, or its outcome had no edge to follow | 200 |
 | `dead_lettered` | It failed and was parked in the dead-letter sink; `error` says why | 502 |
 | `failed` | It failed and is not preserved; `error` says why | 502 |
 | `pending` | The response timeout ran out first. The record is still being processed — do not send it again | 202 |
@@ -2136,10 +2137,11 @@ happened:
   long a caller is held: 30s when empty or unreadable, 5m at most.
 - `Publish` returns the same `status`, `error` and `record` fields, and the
   call itself succeeds for every status: what the workflow did is in the reply.
-- A message the workflow routed to no sink is reported as `failed` or
+- A message the workflow could not deliver and did not drop on purpose — a
+  sink node that could not be resolved, for one — is reported as `failed` or
   `dead_lettered` with `the workflow reached no sink for this message`. The
-  engine does not acknowledge such a message, whether a filter dropped it or a
-  sink could not be resolved, and the caller is told the same.
+  engine does not acknowledge such a message. A message a filter dropped is
+  `filtered`, and is acknowledged.
 - At most 10,000 callers are held at once across the process; past that a
   synchronous request is refused (503 from the webhook endpoint) rather than
   queued without limit.

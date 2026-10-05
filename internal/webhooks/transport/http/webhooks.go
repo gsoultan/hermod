@@ -220,7 +220,7 @@ type syncResponse struct {
 // way it did not reach where the caller sent it, and the body says which.
 func outcomeStatus(s reply.Status) int {
 	switch s {
-	case reply.Delivered, reply.Completed:
+	case reply.Delivered, reply.Completed, reply.Filtered:
 		return http.StatusOK
 	default:
 		return http.StatusBadGateway

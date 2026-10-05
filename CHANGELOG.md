@@ -225,6 +225,37 @@ Three of the four registries released their lock before sending, so a request
 arriving as a source closed could send on a closed channel. All four now share
 one registry that holds the lock across the send.
 
+### A record a filter drops is no longer treated as a failed delivery
+
+A filter that drops a record routes it nowhere, and the engine could not tell
+that from a record no sink could be resolved for. Since the second was found
+acknowledging records during a sink outage, the engine has refused to treat
+either as handled. So every record a filter dropped on purpose was **parked in
+the dead-letter sink** — or, with none configured, **never acknowledged to its
+source** — and counted and logged as undeliverable.
+
+The workflow now says why a record went no further. A record is *filtered* when
+a filter, validator or deduplicate node let it go no further, or its outcome had
+no edge to follow — and nothing else happened to it: no node failed, no sink
+node went unresolved, nothing is holding it. A filtered record is acknowledged
+and parked nowhere. Anything the workflow cannot account for is still refused,
+exactly as before; one unexplained branch outweighs any number of deliberate
+drops.
+
+A synchronous caller is told `filtered` (200 from the webhook endpoint), where
+it was told `failed` or `dead_lettered`.
+
+If a dead-letter sink has been collecting the records a filter dropped, it stops
+receiving them. Nothing needs doing; the records already there were never
+failures.
+
+**A producer could have its own records acknowledged undelivered.** The engine
+reads three markers on a message to decide that a record it routed nowhere was
+nonetheless handled, and a producer can put any metadata on its record. A record
+that arrived carrying `_hermod_delivered_inline` or `_hermod_dead_lettered` was
+acknowledged and dropped whenever its workflow routed it nowhere. All three
+markers are now removed from a record as it enters the workflow.
+
 ### The FCM sink sends change events, and its data section says what data is
 
 **Templates failed on every change event.** The workflow editor offers a CDC
