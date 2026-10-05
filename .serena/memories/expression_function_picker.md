@@ -86,12 +86,20 @@ not its evaluation. It runs the same cases as the Go test; keep them in step.
 ## Editor details that cost time
 
 - **Escape.** Mantine's modal listens on `window` in the capture phase and
-  closes on any Escape whose target lacks `data-mantine-stop-propagation`. A
-  popover over the node's settings closed both. `FunctionList`'s `inPopover`
-  sets the attribute on its input and buttons. Only the browser spec saw it:
-  the drawer was still "visible" for its exit transition, and the symptom was a
-  Live Preview that stopped updating. `TemplateField`'s older "Insert variable"
-  popover has the same fault and is not fixed.
+  closes on any Escape whose *target* lacks `data-mantine-stop-propagation`;
+  nothing nearer the target can stop it sooner. A popover over the node's
+  settings closed both. The rule, in `shared/escapeStopsHere.ts`, has three
+  parts, and #234 shipped only the second:
+  1. the list takes the focus when it opens (`trapFocus` + `data-autofocus`) —
+     left on the button, Escape never passes through the dropdown, so the
+     popover's own handler (`onKeyDownCapture` on the dropdown) never runs;
+  2. every focusable thing in the list carries the attribute;
+  3. so does the dropdown itself, with `tabIndex={-1}` — a click on plain text
+     focuses the nearest focusable ancestor, and without this that is the page.
+  `picker_escape_e2e.spec.ts` presses the key in all four places. Only a
+  browser sees any of it: the drawer stays "visible" for its exit transition,
+  so the spec waits it out and then edits the value. A new popover over a
+  drawer needs all three.
 - **The caret of an input never focused** is the start in jsdom and the end in
   a browser. `TemplateField` tracks whether the input has been focused and
   treats an untouched one as "caret at the end".

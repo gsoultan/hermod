@@ -4,6 +4,7 @@ import { IconKey, IconSearch, IconVariable } from '@tabler/icons-react'
 import { applyFunction, isInsideToken } from '@/lib/expressionInsert'
 import type { ExpressionFunction } from '@/lib/functionCatalog'
 import { FunctionPicker } from './FunctionPicker'
+import { ESCAPE_STOPS_HERE } from './escapeStopsHere'
 
 /**
  * The names of the secrets the workflow being edited can read: its vhost's.
@@ -174,6 +175,8 @@ export function TemplateField({
         size="xs"
         placeholder="Search fields..."
         value={q}
+        data-autofocus
+        {...ESCAPE_STOPS_HERE}
         leftSection={<IconSearch size="0.8rem" />}
         onChange={(e) => setQ(e.currentTarget.value)}
       />
@@ -232,6 +235,7 @@ export function TemplateField({
                 <UnstyledButton
                   key={name}
                   p={6}
+                  {...ESCAPE_STOPS_HERE}
                   style={{ borderRadius: 6, border: '1px solid var(--mantine-color-default-border)' }}
                   onClick={() => {
                     insertReference(`secret("${name}")`, buildSecretToken(name))
@@ -275,7 +279,9 @@ export function TemplateField({
     rightSection: (
       <Group gap={0} wrap="nowrap">
         {functions && <FunctionPicker onPick={insertFunction} />}
-        <Popover opened={opened} onChange={setOpened} withArrow position="bottom-end">
+        {/* The focus goes into the list when it opens: left on the button,
+            Escape closed the node's settings and never reached the list. */}
+        <Popover opened={opened} onChange={setOpened} withArrow position="bottom-end" trapFocus>
           <Popover.Target>
             <MantineTooltip label="Insert variable">
               <ActionIcon
@@ -290,7 +296,7 @@ export function TemplateField({
               </ActionIcon>
             </MantineTooltip>
           </Popover.Target>
-          <Popover.Dropdown>{FieldList}</Popover.Dropdown>
+          <Popover.Dropdown tabIndex={-1} {...ESCAPE_STOPS_HERE}>{FieldList}</Popover.Dropdown>
         </Popover>
       </Group>
     ),
