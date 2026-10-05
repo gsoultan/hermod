@@ -1,9 +1,11 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,6 +13,7 @@ import (
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/comm/reply"
 	"github.com/gsoultan/hermod/pkg/comm/source/webhook"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -79,6 +82,25 @@ func (h *WSHandler) HandleWSIn(w http.ResponseWriter, r *http.Request) {
 	}
 	fullPath := "/api/ws/in/" + path
 
+	// The frames go to the webhook source whose path is this URL. When that
+	// source responds synchronously, each frame is answered with what the
+	// workflow did with it instead of being acknowledged once it is queued.
+	wait, timeout := reply.ModeOf(h.wsInSourceConfig(r, fullPath))
+
+	// Answers are written by one goroutine per frame, and a connection takes
+	// one writer at a time.
+	var writeMu sync.Mutex
+	write := func(v any) {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		_ = conn.WriteJSON(v)
+	}
+	// Ends when the caller goes, which is what stops the goroutines waiting to
+	// answer its frames.
+	ctx, cancel := context.WithCancel(context.WithoutCancel(r.Context()))
+	defer cancel()
+
 	type env struct {
 		ID       string            `json:"id"`
 		Op       string            `json:"op"`
@@ -110,11 +132,15 @@ func (h *WSHandler) HandleWSIn(w http.ResponseWriter, r *http.Request) {
 		// Try JSON envelope first
 		var e env
 		var m *message.DefaultMessage
+		// frameID is what a synchronous answer is sent under: the envelope's
+		// id, or the generated id of a frame that is the record itself.
+		var frameID string
 		if json.Unmarshal(data, &e) == nil && (len(e.Payload) > 0 || e.Op != "" || len(e.Metadata) > 0) {
 			m = message.AcquireMessage()
 			if e.ID != "" {
 				m.SetMetadata("ws_id", e.ID)
 			}
+			frameID = e.ID
 			if len(e.Payload) > 0 {
 				m.SetPayload(e.Payload)
 			}
@@ -137,12 +163,18 @@ func (h *WSHandler) HandleWSIn(w http.ResponseWriter, r *http.Request) {
 				m.SetSchema(e.Schema)
 			}
 			for k, v := range e.Metadata {
+				// The reply id names the caller waiting for a message. It is
+				// set below, by this endpoint, and never taken from a frame.
+				if k == reply.MetaReplyID {
+					continue
+				}
 				m.SetMetadata(k, v)
 			}
 		} else {
 			// Treat entire frame as payload
 			m = message.AcquireMessage()
-			m.SetID(uuid.New().String())
+			frameID = uuid.New().String()
+			m.SetID(frameID)
 			m.SetOperation(hermod.OpCreate)
 			m.SetTable("websocket")
 			m.SetAfter(data)
@@ -157,29 +189,99 @@ func (h *WSHandler) HandleWSIn(w http.ResponseWriter, r *http.Request) {
 			Body:      data,
 		})
 
+		// Read before the dispatch: afterwards the message is the engine's and
+		// may be back in the pool.
+		ackID := m.ID()
+
+		// The waiter is registered before the dispatch, or a fast workflow
+		// could finish first and answer nobody.
+		var pending *reply.Pending
+		if wait {
+			p, err := reply.Expect(m)
+			if err != nil {
+				message.ReleaseMessage(m)
+				wsInErrors.Inc()
+				write(wsInResult{ID: frameID, Status: "rejected", Error: err.Error()})
+				continue
+			}
+			pending = p
+		}
+
 		if err := webhook.Dispatch(fullPath, m); err != nil {
 			// Try to wake workflow then retry dispatch once
-			if h.WakeUpWorkflow(r.Context(), "webhook", fullPath) {
-				if err2 := webhook.Dispatch(fullPath, m); err2 == nil {
-					wsInMessages.Inc()
-					// Optional ACK
-					if id := m.ID(); id != "" {
-						_ = conn.WriteJSON(map[string]any{"ack": id, "ok": true})
-					}
+			woke := h.WakeUpWorkflow(r.Context(), "webhook", fullPath) && webhook.Dispatch(fullPath, m) == nil
+			if !woke {
+				message.ReleaseMessage(m)
+				wsInErrors.Inc()
+				if pending != nil {
+					pending.Cancel()
+					write(wsInResult{ID: frameID, Status: "rejected", Error: "dispatch_failed"})
 					continue
 				}
+				// Best-effort error frame with redaction of details
+				write(map[string]any{"ok": false, "error": "dispatch_failed"})
+				continue
 			}
-			message.ReleaseMessage(m)
-			wsInErrors.Inc()
-			// Best-effort error frame with redaction of details
-			_ = conn.WriteJSON(map[string]any{"ok": false, "error": "dispatch_failed"})
-			continue
 		}
 		wsInMessages.Inc()
-		if id := m.ID(); id != "" {
-			_ = conn.WriteJSON(map[string]any{"ack": id, "ok": true})
+
+		if pending != nil {
+			go answerWSIn(ctx, write, frameID, pending, timeout)
+			continue
+		}
+		if ackID != "" {
+			write(map[string]any{"ack": ackID, "ok": true})
 		}
 	}
+}
+
+// wsInResult is the frame a synchronous endpoint answers a record with.
+type wsInResult struct {
+	// ID is the id of the frame being answered.
+	ID     string `json:"id"`
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+	// Record is the message as the workflow left it.
+	Record json.RawMessage `json:"record,omitempty"`
+}
+
+// wsInSourceConfig returns the configuration of the webhook source that holds
+// fullPath, or nil when there is none or the store cannot be read. Nil answers
+// asynchronously, which is what the endpoint has always done.
+func (h *WSHandler) wsInSourceConfig(r *http.Request, fullPath string) map[string]string {
+	if h.Storage == nil {
+		return nil
+	}
+	sources, _, err := h.Storage.ListSources(r.Context(), storage.CommonFilter{})
+	if err != nil {
+		return nil
+	}
+	for _, src := range sources {
+		if src.Type == "webhook" && src.Config["path"] == fullPath {
+			return src.Config
+		}
+	}
+	return nil
+}
+
+// answerWSIn waits for the workflow to finish with one frame and writes the
+// result to the caller.
+func answerWSIn(ctx context.Context, write func(any), frameID string, pending *reply.Pending, timeout time.Duration) {
+	defer pending.Cancel()
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	outcome, err := pending.Wait(waitCtx)
+	if err != nil {
+		if ctx.Err() != nil {
+			return // the caller has gone
+		}
+		// The wait ran out. The record is still the workflow's, so this is not
+		// a failure: a caller that resends a failure sends the record twice.
+		write(wsInResult{ID: frameID, Status: "pending"})
+		return
+	}
+	write(wsInResult{ID: frameID, Status: string(outcome.Status), Error: outcome.Error, Record: outcome.Record})
 }
 
 // handleWSOut upgrades to a WebSocket and streams live messages for a workflow.

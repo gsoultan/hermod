@@ -7,7 +7,9 @@ import { OtherSourceConfig } from '@/components/workflow/Source/OtherSourceConfi
  * A webhook or gRPC source answered its caller as soon as the record was
  * queued, and there was no way to ask for anything else. The form now offers
  * the choice: answer at once, or hold the caller until the workflow has
- * finished and answer with what happened.
+ * finished and answer with what happened. A WebSocket source, which reads
+ * frames from a server it dials, has the same choice: read only, or write a
+ * result frame back for each frame read.
  *
  * The keys written are the ones the transports read — `response_mode` and
  * `response_timeout` (pkg/comm/reply). A form that wrote any other key would
@@ -23,7 +25,7 @@ function renderConfig(sourceType: string, config: Record<string, any>) {
   return updateConfig
 }
 
-describe.each(['webhook', 'grpc'])('the response option on a %s source', (sourceType) => {
+describe.each(['webhook', 'grpc', 'websocket'])('the response option on a %s source', (sourceType) => {
   it('is asynchronous unless the source says otherwise', () => {
     renderConfig(sourceType, { path: '/p' })
     expect(screen.getByRole('radio', { name: 'Asynchronous' })).toBeChecked()
