@@ -7,8 +7,9 @@ import { SQLConfig } from '@/components/workflow/Transformation/configs/enrichme
 // execute_sql is the one node that names a source and is NOT blocked from CDC
 // ones, and the reason is that it does something different with it. db_lookup
 // and batch_sql read — the rule keeps query load off a database already paying
-// for logical replication. execute_sql only writes: it runs ExecContext and can
-// return nothing but a row count (pkg/comm/transformer/advanced/execute_sql.go).
+// for logical replication. execute_sql is there to write: the most it hands
+// back is a row count and the rows its own statement returns
+// (pkg/comm/transformer/advanced/execute_sql.go).
 //
 // Its hazard is a feedback loop, not load: a write into a table that is in the
 // publication produces a change event that comes back round the pipeline. That

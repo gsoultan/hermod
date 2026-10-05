@@ -96,6 +96,15 @@ func (t *ExecuteSQLTransformer) Transform(ctx context.Context, msg hermod.Messag
 		return msg, errors.New("empty queryTemplate after processing")
 	}
 
+	// A statement that hands rows back -- INSERT ... RETURNING, UPDATE ... OUTPUT
+	// -- has to be run as a query, because ExecContext has nowhere to put them.
+	// That is opt-in rather than detected: a node that never named a field keeps
+	// the message it was given, so a RETURNING clause that has been there all
+	// along does not start adding a field to messages a sink already maps.
+	if resultField := strings.TrimSpace(core.GetConfigString(config, "resultField")); resultField != "" {
+		return msg, t.queryInto(ctx, db, msg, config, resultField, sqlText, args)
+	}
+
 	res, err := db.ExecContext(ctx, sqlText, args...)
 	if err != nil {
 		return msg, fmt.Errorf("failed to execute SQL: %w", err)
@@ -108,4 +117,58 @@ func (t *ExecuteSQLTransformer) Transform(ctx context.Context, msg hermod.Messag
 	}
 
 	return msg, nil
+}
+
+// queryInto runs the statement as a query and writes the rows it returns into
+// resultField: the first row as an object, or every row as a list when
+// resultRows is "all". The shape follows the setting and never the row count,
+// so a template written against one message holds for the next.
+func (t *ExecuteSQLTransformer) queryInto(ctx context.Context, db *sql.DB, msg hermod.Message, config map[string]any, resultField, sqlText string, args []any) error {
+	rows, err := db.QueryContext(ctx, sqlText, args...)
+	if err != nil {
+		return fmt.Errorf("failed to execute SQL: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	// No columns means no result set: the statement ran and returned nothing to
+	// read, which is not the same as returning zero rows.
+	cols, err := rows.Columns()
+	if err != nil {
+		return fmt.Errorf("failed to execute SQL: %w", err)
+	}
+
+	// Read to the end, not to the row cap. Some drivers report a refused write
+	// only once the result is read, and closing a cursor the statement is still
+	// feeding is how a write gets cancelled halfway.
+	kept, total, err := sqlutil.ScanRowsCounted(rows)
+	if err == nil {
+		err = rows.Err()
+	}
+	if err != nil {
+		return fmt.Errorf("failed to execute SQL: %w", err)
+	}
+
+	// Always written, even when nothing came back. Leaving the field alone would
+	// hand downstream whatever was already under that name.
+	switch {
+	case strings.EqualFold(strings.TrimSpace(core.GetConfigString(config, "resultRows")), "all"):
+		list := make([]any, len(kept))
+		for i, row := range kept {
+			list[i] = row
+		}
+		msg.SetData(resultField, list)
+	case len(kept) > 0:
+		msg.SetData(resultField, kept[0])
+	default:
+		msg.SetData(resultField, nil)
+	}
+
+	// Every row a RETURNING statement touches is a row it returns, so the count
+	// of rows read is the count affected. Without a result set there is nothing
+	// to count on this path, and a 0 would contradict the row just written.
+	if targetField, ok := config["affectedRowsField"].(string); ok && targetField != "" && len(cols) > 0 {
+		msg.SetData(targetField, total)
+	}
+
+	return nil
 }
