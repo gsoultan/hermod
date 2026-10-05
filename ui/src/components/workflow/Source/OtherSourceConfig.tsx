@@ -408,6 +408,12 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
             mih={80}
           />
         </SimpleGrid>
+        <Divider my="xs" />
+        <ResponseModeFields
+          config={config}
+          updateConfig={updateConfig}
+          description="Asynchronous only reads. Synchronous writes a result frame back on the same connection for each frame read, once the workflow has finished with it; the frame's id is echoed."
+        />
       </Stack>
     );
   }

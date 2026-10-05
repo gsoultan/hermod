@@ -20,6 +20,7 @@ import (
 	"github.com/gsoultan/hermod/pkg/comm/eventstore"
 	jsonfmt "github.com/gsoultan/hermod/pkg/comm/formatter/json"
 	srformat "github.com/gsoultan/hermod/pkg/comm/formatter/schemaregistry"
+	"github.com/gsoultan/hermod/pkg/comm/reply"
 	"github.com/gsoultan/hermod/pkg/comm/sink"
 	sinkcassandra "github.com/gsoultan/hermod/pkg/comm/sink/cassandra"
 	sinkclickhouse "github.com/gsoultan/hermod/pkg/comm/sink/clickhouse"
@@ -681,6 +682,10 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 			if ws, ok := src.(interface{ SetTLSConfig(*tls.Config, string) }); ok {
 				ws.SetTLSConfig(tlsCfg, pin)
 			}
+		}
+		// response_mode: sync makes the source answer each frame it reads.
+		if ws, ok := src.(interface{ SetResponse(bool, time.Duration) }); ok {
+			ws.SetResponse(reply.ModeOf(cfg.Config))
 		}
 	default:
 		return nil, fmt.Errorf("unsupported source type: %s", cfg.Type)
