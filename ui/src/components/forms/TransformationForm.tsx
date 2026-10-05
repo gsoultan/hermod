@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense, useMemo } from 'react';
 import { FormRow } from '@/components/common/FormRow';
-import { TextInput, Select, Stack, Alert, Divider, Text, Group, ActionIcon, Button, Code, Badge, Grid, SimpleGrid, Card, ScrollArea, Box, Modal, Loader, UnstyledButton, Tooltip as MantineTooltip } from '@mantine/core';
+import { TextInput, Select, Stack, Alert, Divider, Text, Group, ActionIcon, Button, Code, Badge, Grid, SimpleGrid, Card, ScrollArea, Box, Modal, Loader, Tooltip as MantineTooltip } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { apiFetch } from '@/api';
 import { usePreviewTransformation } from '../../pages/workflows/WorkflowEditor/hooks/usePreviewTransformation';
@@ -10,6 +10,7 @@ import { useVHostSecretNames } from '@/lib/vhostSecrets';
 import { SecretNamesContext } from '@/components/shared/TemplateField';
 import { resolveConfigComponent } from '../workflow/Transformation/configs/registry';
 import { nextColumnFieldName } from '../workflow/Transformation/fieldMappings/columnFields';
+import { FunctionLibrary } from '../workflow/Transformation/FunctionLibrary';
 // Lazy-load heavy UI components to reduce initial bundle size (Junie compliance)
 const PreviewPanel = lazy(() =>
   import('../workflow/Transformation/PreviewPanel').then((m) => ({ default: m.PreviewPanel }))
@@ -27,7 +28,7 @@ const QuickActions = lazy(() =>
 // new component type every render, so React unmounts and remounts whatever it
 // wraps — here, the whole help modal, on every keystroke.
 const HelpContent = lazy(() => import('../workflow/Transformation/HelpContent'));
-import { IconArrowsMaximize, IconArrowsMinimize, IconCode, IconDatabase, IconFunction, IconHelpCircle, IconInfoCircle, IconList, IconPlus, IconRefresh, IconSearch, IconSettings, IconVariable } from '@tabler/icons-react';
+import { IconArrowsMaximize, IconArrowsMinimize, IconCode, IconDatabase, IconHelpCircle, IconInfoCircle, IconList, IconRefresh, IconSearch, IconSettings, IconVariable } from '@tabler/icons-react';
 import { preparePayload, getValByPath } from '@/utils/transformationUtils';
 import { guideFor } from '@/lib/transformationGuide';
 import { UpstreamNotRunNotice } from '@/components/common/UpstreamNotRunNotice';
@@ -36,82 +37,6 @@ import type { APILookupTestOutcome } from '../workflow/Transformation/configs/en
 // How long to wait after the last edit before previewing. Short enough to feel
 // live, long enough that a burst of keystrokes costs one request.
 const PREVIEW_DEBOUNCE_MS = 400;
-
-const EXPRESSION_FUNCTIONS = [
-  { name: 'lower(str)', desc: 'Lowercase a string', example: 'lower(source.name)' },
-  { name: 'upper(str)', desc: 'Uppercase a string', example: 'upper(source.name)' },
-  { name: 'trim(str)', desc: 'Trim whitespace', example: 'trim(source.name)' },
-  { name: 'concat(a, b, ...)', desc: 'Join strings', example: 'concat(source.first, " ", source.last)' },
-  { name: 'split(s, sep, [index])', desc: 'Split text; index picks a part, -1 the last', example: 'split(source.full_name, " ", 0)' },
-  { name: 'substring(s, start, [end])', desc: 'Extract part of string', example: 'substring(source.id, 0, 8)' },
-  { name: 'replace(s, old, new)', desc: 'Replace substring', example: 'replace(source.email, "@", "[at]")' },
-  { name: 'coalesce(a, b, ...)', desc: 'First non-empty value', example: 'coalesce(source.nickname, source.name)' },
-  { name: 'now()', desc: 'Current ISO date', example: 'now()' },
-  { name: 'date_format(d, format)', desc: 'Format date', example: 'date_format(source.created, "2006-01-02")' },
-  { name: 'hash(s, [algo])', desc: 'SHA256/MD5 hash', example: 'hash(source.email, "md5")' },
-  { name: 'add(a, b)', desc: 'Addition', example: 'add(source.price, source.tax)' },
-  { name: 'round(v, [p])', desc: 'Round number', example: 'round(source.total, 2)' },
-] as const;
-
-/**
- * Declared at module scope so its identity is stable.
- *
- * This used to live inside TransformationForm's body, which made it a fresh
- * component type on every parent render: React remounted it and its search box
- * lost whatever had been typed. With the preview also re-running once a second,
- * the field cleared itself while the user was still typing in it.
- */
-function FunctionLibrary({ onInsert }: { onInsert: (example: string) => void }) {
-  const [search, setSearch] = useState('');
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return EXPRESSION_FUNCTIONS;
-    return EXPRESSION_FUNCTIONS.filter(
-      (f) => f.name.toLowerCase().includes(q) || f.desc.toLowerCase().includes(q)
-    );
-  }, [search]);
-
-  return (
-    <Card withBorder padding="md" radius="md">
-      <Group gap="xs" mb="sm">
-        <IconFunction size="1rem" color="var(--mantine-color-orange-6)" />
-        <Text size="xs" fw={700}>FUNCTION LIBRARY</Text>
-      </Group>
-      <TextInput
-        placeholder="Search functions..."
-        aria-label="Search expression functions"
-        size="xs"
-        mb="xs"
-        leftSection={<IconSearch size="0.8rem" />}
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-      />
-      <ScrollArea h={200} type="auto">
-        <Stack gap="xs">
-          {filtered.map((f) => (
-            <UnstyledButton
-              key={f.name}
-              p="xs"
-              aria-label={`Insert ${f.name}`}
-              style={{ borderRadius: 4, background: 'var(--mantine-color-orange-light)', border: '1px solid var(--mantine-color-orange-light-color)', cursor: 'pointer', display: 'block', width: '100%', textAlign: 'left' }}
-              onClick={() => onInsert(f.example)}
-            >
-              <Group justify="space-between">
-                <Text size="xs" fw={700} c="var(--mantine-color-orange-light-color)">{f.name}</Text>
-                <IconPlus size="0.8rem" />
-              </Group>
-              <Text size="xs" c="dimmed">{f.desc}</Text>
-              <Code mt={2} style={{ fontSize: 'var(--mantine-font-size-xs)' }}>{f.example}</Code>
-            </UnstyledButton>
-          ))}
-          {filtered.length === 0 && (
-            <Text size="xs" c="dimmed" ta="center" py="sm">No function matches “{search}”.</Text>
-          )}
-        </Stack>
-      </ScrollArea>
-    </Card>
-  );
-}
 
 // Modular configuration components (Junie compliance)
 
@@ -541,7 +466,9 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
             </Suspense>
           </Card>
 
-          {transType === 'advanced' && <FunctionLibrary onInsert={onInsertExample} />}
+          {/* Both read a row's value as an expression (wideConfig is the
+              same pair), so both get the list of what one can call. */}
+          {wideConfig && <FunctionLibrary onInsert={onInsertExample} />}
 
           <Card withBorder padding="md" radius="md" bg="var(--mantine-color-body)">
              <Group gap="xs" mb="sm">

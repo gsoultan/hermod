@@ -49,6 +49,38 @@ from the global manager only, while the running workflow also reads the
 vhost's; and the Pebble storage backend, which has no vhosts, has no vhost
 secrets. Deleting a vhost deletes its secrets.
 
+### Added — Set Fields offers the functions it has always run
+
+A Set Fields value has always been an expression — `lower(source.email)`,
+`now()`, `coalesce(source.nickname, source.name)` — but the editor never said
+so there. The only list of functions sat beside the Formulas node, held 13 of
+the engine's 33, and clicking one added a new row instead of writing into the
+value at hand. So functions were typed from memory, and a wrong guess is not an
+error: `time.now()` is written out as that text, and a misspelt name writes
+null.
+
+- **Insert function**, the ƒ button inside a Set Fields or Formulas value,
+  lists every function by what it is for — Text, Number, Date & time, Convert,
+  Logic, IDs & secrets — with what it does, an example, and the value the
+  engine answers for that example. Search finds one by name or by what it does:
+  "default" finds `coalesce`, "time.now" finds `now()`.
+- Picking one applies it to the value the row holds — `source.name` becomes
+  `upper(source.name)` — or to the text selected in it. In an empty value it
+  writes the call with its first argument selected, so the variable picked next
+  becomes that argument. In a value that is text with `{{ }}` tokens it is
+  written as a token.
+- A value written like a call that the engine will not run says so under the
+  row, with the function probably meant: "time.now is not a function, so this
+  is written as the text you see. Did you mean now()?"
+- The function library is beside the rows of a Set Fields node too, and it and
+  the help now list all 33 functions rather than 13 and 27.
+- A condition offers the same picker: on its Field, where `status` becomes
+  `lower(source.status)`, and on its Value, where a call is a `{{ }}` token.
+
+The Mask node's field said "Field or expression" and suggested
+`lower(source.email)`. It is read as a path, so that named no field and the
+node passed every record through unmasked. It says "Path of the field" now.
+
 ### Execute SQL keeps the rows its statement returns
 
 An Execute SQL node ran every statement in a way that has nowhere to put a

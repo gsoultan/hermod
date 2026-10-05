@@ -15,6 +15,8 @@ import {
 } from '@mantine/core';
 import { useMemo } from 'react';
 import { TemplateField } from '../../shared/TemplateField';
+import { FunctionPicker } from '../../shared/FunctionPicker';
+import { applyFunction } from '@/lib/expressionInsert';
 
 export interface Condition {
   field: string;
@@ -103,6 +105,17 @@ export function FilterEditor({
                     value={cond.field || ''}
                     onChange={(val) => updateCondition(index, 'field', val)}
                     styles={{ input: { fontFamily: 'monospace' } }}
+                    // The field is one expression, so a function applies to
+                    // all of it: status becomes lower(source.status).
+                    rightSection={
+                      <FunctionPicker
+                        onPick={(fn) => {
+                          const field = cond.field || '';
+                          updateCondition(index, 'field', applyFunction(field, field.length, field.length, fn, 'field').value);
+                        }}
+                      />
+                    }
+                    rightSectionPointerEvents="all"
                   />
                 </Box>
                 <Box style={{ flex: 1.5 }}>
@@ -136,6 +149,7 @@ export function FilterEditor({
                     value={cond.value || ''}
                     onChange={(val) => updateCondition(index, 'value', val)}
                     availableFields={availableFields}
+                    functions="token"
                   />
                 </Box>
                 <Box style={{ flex: 'none' }}>
