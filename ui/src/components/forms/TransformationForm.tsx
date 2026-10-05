@@ -151,9 +151,10 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
   const secretNames = useVHostSecretNames(editorVHost);
 
   const transType = selectedNode?.data?.transType || selectedNode?.type || '';
-  // Field mappings are rows of long paths and JSON values; they get the wider
-  // middle column even when the side panels are showing.
-  const wideConfig = transType === 'set' || transType === 'advanced';
+  // Field mappings are rows of long paths and JSON values, and a SQL statement
+  // is an editor; they get the wider middle column even when the side panels
+  // are showing.
+  const wideConfig = transType === 'set' || transType === 'advanced' || transType === 'execute_sql';
 
   // The node's own type, not just transType: a `foreach` node and a
   // `transformation` with transType foreach both compute transType "foreach"
@@ -226,8 +227,14 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
     latestRunPreview.current = runPreview;
   }, [runPreview]);
 
+  // A preview runs the node for real. For a node that writes to a database,
+  // re-running it after every change executed the statement at each pause in
+  // typing: a finished INSERT wrote a row each time and an unfinished one
+  // raised error toasts. That node previews when Run Preview is pressed.
+  const previewsOnDemand = transType === 'execute_sql';
+
   useEffect(() => {
-    if (!incomingPayload) return;
+    if (!incomingPayload || previewsOnDemand) return;
     const timer = setTimeout(() => {
       latestRunPreview.current();
     }, PREVIEW_DEBOUNCE_MS);
@@ -624,6 +631,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
             onRun={runPreview}
             onFetchSample={onRefreshFields}
             fetchingSample={isRefreshing}
+            runsOnDemand={previewsOnDemand}
             // execute_sql has no targetField; what it produces is the rows its
             // statement returns, under resultField.
             targetField={
