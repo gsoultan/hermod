@@ -354,3 +354,50 @@ func TestAPILookupRetriesWhenMaxRetriesIsANumber(t *testing.T) {
 		t.Errorf("tier = %#v, want gold", got["tier"])
 	}
 }
+
+// The ttl was read when a response was stored and never when one was read
+// back, so a response cached under the default five minutes outlived any change
+// to the field: setting Cache TTL to 0 and testing again returned the same
+// body. TestAPILookupTTLZeroDisablesTheCache starts from an empty cache, where
+// ttl 0 writes nothing and there is nothing stale to serve.
+func TestAPILookupTTLChangeIsNotServedAResponseCachedUnderTheOldOne(t *testing.T) {
+	for _, ttl := range []string{"0", "5s"} {
+		t.Run("ttl="+ttl, func(t *testing.T) {
+			tr, reg := newAPIFixture()
+			var mu sync.Mutex
+			tier := "gold"
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
+				defer mu.Unlock()
+				_, _ = w.Write([]byte(`{"tier":"` + tier + `"}`))
+			}))
+			t.Cleanup(srv.Close)
+
+			cfg := map[string]any{
+				"method": "GET", "url": srv.URL + "/c/1",
+				"responsePath": "tier", "targetField": "tier",
+			}
+			if got := apiLookup(t, tr, reg, cfg, nil)["tier"]; got != "gold" {
+				t.Fatalf("first lookup: tier = %#v, want gold", got)
+			}
+			if reg.sets != 1 {
+				t.Fatalf("the first lookup wrote the cache %d times, want 1 -- there is no stale response to test against", reg.sets)
+			}
+
+			mu.Lock()
+			tier = "platinum"
+			mu.Unlock()
+
+			cfg["ttl"] = ttl
+			getsBefore := reg.gets
+			if got := apiLookup(t, tr, reg, cfg, nil)["tier"]; got != "platinum" {
+				t.Errorf("tier = %#v after setting ttl to %q; want the endpoint's current answer -- "+
+					"the lookup served the response cached before the ttl was changed", got, ttl)
+			}
+			if ttl == "0" && reg.gets != getsBefore {
+				t.Errorf("the cache was read %d times with ttl 0; a cache that is off is not consulted",
+					reg.gets-getsBefore)
+			}
+		})
+	}
+}
