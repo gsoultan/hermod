@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync/atomic"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/hermod"
@@ -129,58 +130,101 @@ func (s *Server) Publish(ctx context.Context, req *proto.PublishRequest) (*proto
 	// that skips the check. A store that exists but cannot be read fails
 	// closed: skipping here turned a storage hiccup into anonymous ingress
 	// on an endpoint the operator had put a key on.
-	// config is the stored source's configuration. It says how the source
-	// answers; standalone use, with no store, answers once the record is queued.
-	var config map[string]string
-	if store := s.keyStore(); store != nil {
-		sources, _, err := store.ListSources(ctx, storage.CommonFilter{})
-		if err != nil {
-			return nil, fmt.Errorf("api key verification unavailable: %w", err)
-		}
-		var apiKey string
-		var known bool
-		for _, src := range sources {
-			if src.Type != "grpc" {
-				continue
-			}
-			// A source saved without a path listens on the default one.
-			stored := src.Config["path"]
-			if stored == "" {
-				stored = defaultPath
-			}
-			if stored == path {
-				apiKey = src.Config["api_key"]
-				config = src.Config
-				known = true
-				break
-			}
-		}
-		// A path the store holds no source for has no key to check, and that
-		// must not read as "no key required". The store and the running
-		// workflows can disagree — a database switch leaves a workflow running
-		// whose source the new database has never held — and a keyed path
-		// would then take publishes with no key at all.
-		if !known {
-			return nil, fmt.Errorf("no gRPC source is configured for path: %s", path)
-		}
-
-		if apiKey != "" {
-			md, ok := metadata.FromIncomingContext(ctx)
-			if !ok {
-				return nil, errors.New("missing metadata")
-			}
-			tokens := md.Get("x-api-key")
-			if len(tokens) == 0 || tokens[0] != apiKey {
-				return nil, errors.New("invalid api key")
-			}
-		}
+	config, err := s.authorize(ctx, path)
+	if err != nil {
+		return nil, err
 	}
 
+	id, pending, timeout, err := s.enqueue(path, req, config)
+	if err != nil {
+		return nil, err
+	}
+	if pending == nil {
+		return &proto.PublishResponse{Id: id, Status: "dispatched"}, nil
+	}
+	defer pending.Cancel()
+	return await(ctx, id, pending, timeout), nil
+}
+
+// authorize checks a caller against the source configured for path and returns
+// that source's configuration, which says how the source answers. It is nil
+// when no store is wired, and the source then answers once the record is queued.
+//
+// A nil store means no key store is wired at all — standalone use, or an
+// install that has not been set up and so has no sources either — and that is
+// the only case that skips the check. A store that exists but cannot be read
+// fails closed.
+func (s *Server) authorize(ctx context.Context, path string) (map[string]string, error) {
+	store := s.keyStore()
+	if store == nil {
+		return nil, nil
+	}
+	sources, _, err := store.ListSources(ctx, storage.CommonFilter{})
+	if err != nil {
+		return nil, fmt.Errorf("api key verification unavailable: %w", err)
+	}
+	// A path the store holds no source for has no key to check, and that
+	// must not read as "no key required". The store and the running
+	// workflows can disagree — a database switch leaves a workflow running
+	// whose source the new database has never held — and a keyed path
+	// would then take publishes with no key at all.
+	config, known := sourceConfigFor(sources, path)
+	if !known {
+		return nil, fmt.Errorf("no gRPC source is configured for path: %s", path)
+	}
+	if err := checkAPIKey(ctx, config["api_key"]); err != nil {
+		return nil, err
+	}
+	return config, nil
+}
+
+// sourceConfigFor returns the configuration of the gRPC source that listens on
+// path, and whether there is one.
+func sourceConfigFor(sources []storage.Source, path string) (map[string]string, bool) {
+	for _, src := range sources {
+		if src.Type != "grpc" {
+			continue
+		}
+		// A source saved without a path listens on the default one.
+		stored := src.Config["path"]
+		if stored == "" {
+			stored = defaultPath
+		}
+		if stored == path {
+			return src.Config, true
+		}
+	}
+	return nil, false
+}
+
+// checkAPIKey holds a caller to a source's API key, sent as "x-api-key"
+// metadata. A source with no key takes any caller.
+func checkAPIKey(ctx context.Context, apiKey string) error {
+	if apiKey == "" {
+		return nil
+	}
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return errors.New("missing metadata")
+	}
+	tokens := md.Get("x-api-key")
+	if len(tokens) == 0 || tokens[0] != apiKey {
+		return errors.New("invalid api key")
+	}
+	return nil
+}
+
+// enqueue turns a request into a message and dispatches it to the source that
+// holds path. It returns the record's id — also when it fails, so that a stream
+// can say which record it could not queue — and, for a source that responds
+// synchronously, the waiter for the workflow's result, which the caller must
+// Cancel when it is done with it.
+func (s *Server) enqueue(path string, req *proto.PublishRequest, config map[string]string) (id string, _ *reply.Pending, _ time.Duration, _ error) {
 	// An empty ID reaches SQL sinks as an empty primary key, where every
 	// anonymous record upserts the same row. The id is kept here as well as on
 	// the message: once dispatched, the message is the engine's and may be back
 	// in the pool before this function reads it again.
-	id := req.Id
+	id = req.Id
 	if id == "" {
 		id = uuid.NewString()
 	}
@@ -217,20 +261,24 @@ func (s *Server) Publish(ctx context.Context, req *proto.PublishRequest) (*proto
 		p, err := reply.Expect(msg)
 		if err != nil {
 			message.ReleaseMessage(msg)
-			return nil, err
+			return id, nil, 0, err
 		}
 		pending = p
-		defer pending.Cancel()
 	}
 
 	if err := Dispatch(path, msg); err != nil {
 		message.ReleaseMessage(msg)
-		return nil, err
+		if pending != nil {
+			pending.Cancel()
+		}
+		return id, nil, 0, err
 	}
+	return id, pending, timeout, nil
+}
 
-	if pending == nil {
-		return &proto.PublishResponse{Id: id, Status: "dispatched"}, nil
-	}
+// await waits for the workflow to finish with a record and returns what the
+// caller is told.
+func await(ctx context.Context, id string, pending *reply.Pending, timeout time.Duration) *proto.PublishResponse {
 
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -239,12 +287,12 @@ func (s *Server) Publish(ctx context.Context, req *proto.PublishRequest) (*proto
 		// The wait ran out. The record is still the workflow's and may yet be
 		// delivered, so this is not an error: a producer that retries an error
 		// sends the record twice.
-		return &proto.PublishResponse{Id: id, Status: "pending"}, nil
+		return &proto.PublishResponse{Id: id, Status: "pending"}
 	}
 	return &proto.PublishResponse{
 		Id:     id,
 		Status: string(outcome.Status),
 		Error:  outcome.Error,
 		Record: outcome.Record,
-	}, nil
+	}
 }

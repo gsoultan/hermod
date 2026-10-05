@@ -49,6 +49,14 @@ describe('the gRPC source form', () => {
     expect(points.some((text) => /does not wait for transformations or sinks/i.test(text))).toBe(true)
   })
 
+  // One call per record is not the only way in: a producer with many records
+  // needs to know the stream exists, and that answers are matched by id.
+  it('says there is a stream for many records', () => {
+    renderConfig({})
+    const points = screen.getAllByRole('listitem').map((item) => item.textContent ?? '')
+    expect(points.some((text) => /PublishStream/.test(text) && /\bid\b/.test(text))).toBe(true)
+  })
+
   it('builds the sample command from the configured path', () => {
     renderConfig({ path: '/grpc/orders' })
     const command = screen.getByTestId('grpc-sample-command')

@@ -182,6 +182,25 @@ waiting for costs the engine one metadata lookup.
 A failed write parked in the dead-letter sink now carries its reason as
 `_hermod_last_error`. The parked row named the sink and the time and not why.
 
+### Added — the gRPC source takes a stream of records
+
+A producer with many records opened one `Publish` call for each. `PublishStream`
+is the same exchange over one long-lived, bidirectional stream, with the same
+request and response messages: every record sent is answered with one response
+under that record's `id` — `dispatched`, or for a source that responds
+synchronously, what the workflow did with it. Answers are matched by `id`; for a
+synchronous source they can arrive out of order.
+
+A record that cannot be queued is answered `rejected` and the stream stays open.
+A record the source's API key does not cover ends the stream with the error.
+When the producer closes its side, the stream ends once everything already sent
+has been answered. The key is checked when a path is first used on a stream and
+again every 30 seconds, so a key that is changed or removed stops working on
+open streams within that long.
+
+Existing `Publish` clients are unaffected. Clients generated from the previous
+`source.proto` keep working; regenerate to get `PublishStream`.
+
 ### Test Connection no longer cuts off a source that is receiving
 
 Pressing **Test Connection** on a gRPC, webhook, GraphQL or form source whose
