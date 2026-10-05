@@ -848,6 +848,14 @@ func (m *DefaultMessage) SetMetadata(key, value string) {
 	m.metadata[key] = value
 }
 
+// DeleteMetadata removes a metadata key. It is for keys that are plumbing
+// between two parts of Hermod and must not travel on with the message.
+func (m *DefaultMessage) DeleteMetadata(key string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.metadata, key)
+}
+
 func (m *DefaultMessage) SetData(key string, value any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

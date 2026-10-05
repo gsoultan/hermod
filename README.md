@@ -2068,11 +2068,12 @@ it base64-encoded, which is what the value above is.
 | `payload` that is not a JSON object | One string field, `payload` |
 | no `id` | A generated UUID, returned in the response |
 
-**What the reply means.** `dispatched` means the record was queued for the
-workflow. `Publish` does not wait for transformations or sinks, so it cannot
-report whether they succeeded; follow the record by its `id` in the workflow's
-message trace or its dead-letter sink. A call that fails returns an error whose
-message says why:
+**What the reply means.** By default `dispatched`: the record was queued for
+the workflow, and `Publish` did not wait for transformations or sinks. Set the
+source's **Response** to **Synchronous** and `Publish` waits for the workflow
+instead — see [Synchronous responses](#synchronous-responses-webhook-and-grpc).
+A call that fails before the record is queued returns an error whose message
+says why:
 
 | Message | Meaning |
 | :--- | :--- |
@@ -2080,6 +2081,44 @@ message says why:
 | `no gRPC source is configured for path: …` | No gRPC source has that path; check it character for character |
 | `no gRPC source registered for path: …` | The source exists but its workflow is not running |
 | `gRPC source buffer full for path: …` | The workflow is behind; retry the call |
+
+### Synchronous responses (webhook and gRPC)
+
+A webhook or gRPC source answers its caller as soon as the record is queued:
+`202 {"status":"dispatched"}` from the webhook endpoint, `dispatched` from
+`Publish`. The caller does not learn what the workflow did with it.
+
+Set **Response** to **Synchronous** on the source (`response_mode: sync`) and the
+caller is held until the workflow has finished with the record, then told what
+happened:
+
+| `status` | Meaning | Webhook HTTP status |
+| :--- | :--- | :--- |
+| `delivered` | Written to every sink the workflow routed it to | 200 |
+| `completed` | The workflow ran and had nothing to write: it has no sink, or it is a dry run | 200 |
+| `dead_lettered` | It failed and was parked in the dead-letter sink; `error` says why | 502 |
+| `failed` | It failed and is not preserved; `error` says why | 502 |
+| `pending` | The response timeout ran out first. The record is still being processed — do not send it again | 202 |
+
+```json
+{"id":"…","status":"delivered","record":{"after":{"order_id":7},"id":"…","metadata":{…},"operation":"create","table":"webhook"}}
+{"id":"…","status":"failed","error":"sink write error: sink write failed after 3 retries: unexpected status code: 422","record":{…}}
+```
+
+- `record` is the record as the workflow left it, in the shape a JSON sink
+  receives. When the workflow wrote to several sinks it is the one sent to the
+  first of them.
+- **Response timeout** (`response_timeout`, for example `10s` or `2m`) is how
+  long a caller is held: 30s when empty or unreadable, 5m at most.
+- `Publish` returns the same `status`, `error` and `record` fields, and the
+  call itself succeeds for every status: what the workflow did is in the reply.
+- A message the workflow routed to no sink is reported as `failed` or
+  `dead_lettered` with `the workflow reached no sink for this message`. The
+  engine does not acknowledge such a message, whether a filter dropped it or a
+  sink could not be resolved, and the caller is told the same.
+- At most 10,000 callers are held at once across the process; past that a
+  synchronous request is refused (503 from the webhook endpoint) rather than
+  queued without limit.
 
 ## Advanced Transformation Nodes
 

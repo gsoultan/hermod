@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -12,25 +13,33 @@ import (
 	"github.com/gsoultan/hermod/internal/api/handlers"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/comm/reply"
 	"github.com/gsoultan/hermod/pkg/comm/source/graphql"
 	"github.com/gsoultan/hermod/pkg/comm/source/webhook"
 	"github.com/gsoultan/hermod/pkg/infra/compression"
 )
 
-// authenticateWebhook verifies the HMAC signature of an incoming webhook against
-// the secret configured on the matching source. It returns an HTTP status and a
-// client-facing message; an empty message means authentication succeeded.
-func (h *WebhookHandler) authenticateWebhook(r *http.Request, fullPath string, body []byte) (int, string) {
+// webhookSourceConfig returns the configuration of the webhook source that
+// holds fullPath, or nil when there is none or the store cannot be read.
+func (h *WebhookHandler) webhookSourceConfig(r *http.Request, fullPath string) map[string]string {
 	sources, _, err := h.Storage.ListSources(r.Context(), storage.CommonFilter{})
 	if err != nil {
-		return http.StatusOK, ""
+		return nil
 	}
-
 	for _, src := range sources {
-		if src.Type != "webhook" || src.Config["path"] != fullPath {
-			continue
+		if src.Type == "webhook" && src.Config["path"] == fullPath {
+			return src.Config
 		}
-		secret := src.Config["secret"]
+	}
+	return nil
+}
+
+// authenticateWebhook verifies the HMAC signature of an incoming webhook against
+// the secret configured on its source. It returns an HTTP status and a
+// client-facing message; an empty message means authentication succeeded.
+func (h *WebhookHandler) authenticateWebhook(r *http.Request, config map[string]string, body []byte) (int, string) {
+	if config != nil {
+		secret := config["secret"]
 		if secret == "" {
 			return http.StatusOK, ""
 		}
@@ -124,8 +133,11 @@ func (h *WebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Read after dispatch, the message may already be the engine's and back in
+	// the pool, so the id is kept here.
+	id := uuid.New().String()
 	msg := message.AcquireMessage()
-	msg.SetID(uuid.New().String())
+	msg.SetID(id)
 	msg.SetOperation(hermod.OpCreate)
 	msg.SetTable("webhook")
 	msg.SetAfter(body)
@@ -142,10 +154,27 @@ func (h *WebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// Authenticate the request against the configured source secret (if any).
-	if status, authMsg := h.authenticateWebhook(r, fullPath, body); authMsg != "" {
+	config := h.webhookSourceConfig(r, fullPath)
+	if status, authMsg := h.authenticateWebhook(r, config, body); authMsg != "" {
 		message.ReleaseMessage(msg)
 		h.JsonError(w, authMsg, status)
 		return
+	}
+
+	// A source set to answer synchronously holds the request until the
+	// workflow has finished with the message. The waiter is registered before
+	// the dispatch, or a fast workflow could finish first and answer nobody.
+	wait, timeout := reply.ModeOf(config)
+	var pending *reply.Pending
+	if wait {
+		p, err := reply.Expect(msg)
+		if err != nil {
+			message.ReleaseMessage(msg)
+			h.JsonError(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		pending = p
+		defer pending.Cancel()
 	}
 
 	if err := h.dispatchWebhook(r, fullPath, msg); err != nil {
@@ -154,7 +183,54 @@ func (h *WebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeDispatched(w, r, msg.ID())
+	if pending == nil {
+		writeDispatched(w, r, id)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
+	defer cancel()
+	outcome, err := pending.Wait(ctx)
+	if err != nil {
+		// The wait ran out, or the caller went away. The message is still the
+		// workflow's and may yet be delivered, so this is not a failure: a
+		// caller that retries a failure sends the record twice.
+		writeOutcome(w, http.StatusAccepted, syncResponse{ID: id, Status: "pending"})
+		return
+	}
+	writeOutcome(w, outcomeStatus(outcome.Status), syncResponse{
+		ID:     id,
+		Status: string(outcome.Status),
+		Error:  outcome.Error,
+		Record: outcome.Record,
+	})
+}
+
+// syncResponse is what a synchronous webhook answers with.
+type syncResponse struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+	// Record is the message as the workflow left it.
+	Record json.RawMessage `json:"record,omitempty"`
+}
+
+// outcomeStatus is the HTTP status for what the workflow did. A message that
+// failed is a 502 whether or not it was parked in the dead-letter sink: either
+// way it did not reach where the caller sent it, and the body says which.
+func outcomeStatus(s reply.Status) int {
+	switch s {
+	case reply.Delivered, reply.Completed:
+		return http.StatusOK
+	default:
+		return http.StatusBadGateway
+	}
+}
+
+func writeOutcome(w http.ResponseWriter, status int, body syncResponse) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(body)
 }
 
 // authenticateGraphQL validates the X-API-Key header against the api_key

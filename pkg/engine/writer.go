@@ -324,6 +324,9 @@ func (e *Engine) writeToDLQ(ctx context.Context, sinkID string, msgs ...hermod.M
 			telemetry.DeadLetterErrors.WithLabelValues(e.workflowID, sinkID).Inc()
 			return fmt.Errorf("dead-letter sink write failed: %w", err)
 		}
+		for _, m := range msgs {
+			m.SetMetadata(MetaDeadLettered, "true")
+		}
 		return nil
 	}
 
@@ -339,7 +342,12 @@ func (e *Engine) writeToDLQ(ctx context.Context, sinkID string, msgs ...hermod.M
 			if firstErr == nil {
 				firstErr = fmt.Errorf("dead-letter sink write failed: %w", err)
 			}
+			continue
 		}
+		// Parked. Marked after the write, so the copy in the dead-letter sink
+		// does not carry it, and the caller of a waiting request can be told
+		// its message was parked rather than delivered.
+		m.SetMetadata(MetaDeadLettered, "true")
 	}
 	return firstErr
 }
@@ -432,6 +440,7 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 			if e.deadLetterSink != nil {
 				e.logger.Info("Sending invalid message to Dead Letter Sink", "workflow_id", e.workflowID, "sink_id", sinkID, "message_id", msg.ID())
 				msg.SetMetadata("_hermod_validation_failed", "true")
+				msg.SetMetadata("_hermod_last_error", err.Error())
 				return e.writeToDLQ(ctx, sinkID, msg)
 			}
 			return fmt.Errorf("validation error: %w", err)
@@ -565,6 +574,10 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 		span.SetStatus(codes.Error, lastErr.Error())
 		if e.deadLetterSink != nil {
 			e.logger.Info("Sending message to Dead Letter Sink", "workflow_id", e.workflowID, "sink_id", sinkID, "message_id", msg.ID())
+			// The parked message says why it is there. It used to carry the
+			// sink and the time and not the reason, so whoever drained the
+			// queue had to find the failure in the logs.
+			msg.SetMetadata("_hermod_last_error", lastErr.Error())
 			// Only nil if the message really is preserved. Reporting success
 			// for a park that failed is how a dead-letter sink turns into a
 			// silent drop.

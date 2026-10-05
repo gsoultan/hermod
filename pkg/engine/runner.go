@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/comm/reply"
 	"github.com/gsoultan/hermod/pkg/engine/config"
 	"github.com/gsoultan/hermod/pkg/engine/idempotency"
 	"github.com/gsoultan/hermod/pkg/engine/source"
@@ -798,6 +799,13 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 		}
 	}()
 
+	// A caller may be waiting to hear what became of this message. It is told
+	// once, on the way out, whichever way out that is — including a panic,
+	// which leaves the outcome at what it starts as here.
+	rs := replyState{out: reply.Outcome{Status: reply.Failed, Error: "the workflow stopped before it finished with the message"}}
+	rs.id, rs.awaited = reply.Take(m)
+	defer rs.resolve()
+
 	start := time.Now()
 	defer func() {
 		duration := time.Since(start)
@@ -827,6 +835,7 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 			r.engine.logger.Error("Message validation failed", "workflow_id", r.engine.workflowID, "message_id", m.ID(), "error", err)
 			r.engine.UpdateNodeErrorMetric("validator", 1)
 			r.engine.RecordTraceStep(ctx, m, "validator", vstart, nil, err)
+			rs.conclude(reply.Failed, err.Error(), m)
 
 			// A message that fails validation fails it every time, so the only
 			// two dispositions are "parked in the dead-letter queue" and "kept on
@@ -848,6 +857,7 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 					return
 				}
 				r.engine.recordDeadLetter("")
+				rs.conclude(reply.DeadLettered, err.Error(), m)
 				if outboxID, exists := hermod.MetadataValue(m, "_outbox_id"); exists && r.engine.outboxStore != nil {
 					_ = r.engine.outboxStore.DeleteOutboxItem(ctx, outboxID)
 				} else if aerr := r.engine.currentSource().Ack(ctx, m); aerr != nil {
@@ -879,6 +889,7 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 		if err != nil {
 			r.engine.logger.Error("Routing failed", "workflow_id", r.engine.workflowID, "message_id", m.ID(), "error", err)
 			r.engine.RecordTraceStepSnapshot(ctx, m, "router", rstart, nil, routed, err)
+			rs.conclude(reply.Failed, err.Error(), m)
 			return
 		}
 		targets = t
@@ -926,6 +937,7 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 		// nothing to preserve: acknowledge and move on.
 		if !r.engine.hasSinks() {
 			ack()
+			rs.conclude(reply.Completed, "", m)
 			return
 		}
 
@@ -935,6 +947,7 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 		// Acknowledging it is what lets a replication slot advance.
 		if v, _ := hermod.MetadataValue(m, MetaDeliveredInline); m != nil && v == "true" {
 			ack()
+			rs.conclude(reply.Delivered, "", m)
 			return
 		}
 
@@ -945,6 +958,7 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 		// the queue.
 		if v, _ := hermod.MetadataValue(m, MetaDeadLettered); m != nil && v == "true" {
 			ack()
+			rs.conclude(reply.DeadLettered, lastError(m), m)
 			return
 		}
 
@@ -960,6 +974,7 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 		// as a successful delivery.
 		telemetry.MessagesDroppedNoTarget.WithLabelValues(r.engine.workflowID).Inc()
 		r.engine.reportUnroutable(m)
+		rs.conclude(reply.Failed, errNoSinkReached, m)
 
 		// Preferred: park it in the dead-letter sink, which preserves the message
 		// and lets the source advance — but only if the park actually worked.
@@ -970,6 +985,7 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 		if r.engine.deadLetterSink != nil {
 			if err := r.engine.writeToDLQ(ctx, "", m); err == nil {
 				ack()
+				rs.conclude(reply.DeadLettered, errNoSinkReached, m)
 				return
 			}
 			// The park failed, so the message is nowhere. That is the same
@@ -1043,10 +1059,24 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 		if isDryRunSkip(err) {
 			telemetry.MessagesProcessed.WithLabelValues(r.engine.workflowID, r.engine.sourceID).Inc()
 			r.engine.statusTracker.IncProcessed()
+			rs.conclude(reply.Completed, "", firstRouted(targets, m))
 			return
 		}
 		r.engine.logger.Error("Sink write error", "workflow_id", r.engine.workflowID, "error", err)
+		rs.conclude(reply.Failed, err.Error(), firstRouted(targets, m))
 		return
+	}
+
+	// Every write returned without an error. That is not the same as every
+	// write having reached its sink: a write that failed and was parked in the
+	// dead-letter sink also returns none, so that the source is acknowledged.
+	// The caller is told which of the two happened.
+	if rs.awaited {
+		if parked := firstDeadLettered(targets); parked != nil {
+			rs.conclude(reply.DeadLettered, lastError(parked), parked)
+		} else {
+			rs.conclude(reply.Delivered, "", firstRouted(targets, m))
+		}
 	}
 
 	// Acknowledge the message to the source after all successful sink writes.

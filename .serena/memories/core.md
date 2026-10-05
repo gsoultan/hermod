@@ -74,6 +74,9 @@ find a claim that outruns the code, fix the claim.
   toast. One refresh now carries a new sample through every node's fields and
   Live Preview. It sends a `partial` run with per-source-node `messages`; the
   toolbar Test stays strict on purpose.
+- [Synchronous responses](sync_responses.md) — `response_mode: sync` on a webhook
+  or gRPC source; `pkg/comm/reply` carries the outcome from `processMessage` back
+  to the waiting caller by an id on the message, taken off before any sink sees it.
 - [Push sources hold a path](push_source_path_registry.md) — gRPC, webhook,
   GraphQL and form share `sourcebuf.PathRegistry`; a source built while another
   holds the path waits and takes over on its first Read, so a probe takes nothing.
