@@ -48,7 +48,7 @@ describe.each(['webhook', 'grpc'])('the response option on a %s source', (source
 
     // The statuses a caller has to handle, named where the choice is made.
     const explanation = screen.getByTestId('sync-response-explanation')
-    for (const status of ['delivered', 'completed', 'dead_lettered', 'failed', 'pending']) {
+    for (const status of ['delivered', 'completed', 'filtered', 'dead_lettered', 'failed', 'pending']) {
       expect(explanation).toHaveTextContent(status)
     }
   })

@@ -77,6 +77,9 @@ find a claim that outruns the code, fix the claim.
 - [Synchronous responses](sync_responses.md) — `response_mode: sync` on a webhook
   or gRPC source; `pkg/comm/reply` carries the outcome from `processMessage` back
   to the waiting caller by an id on the message, taken off before any sink sees it.
+- [Filtered is not unroutable](filtered_messages.md) — the traversal says why a
+  walk ended (`Filtered` / `Unaccounted`); only a wholly deliberate drop is
+  acknowledged, and the three verdict markers are stripped from incoming records.
 - [Push sources hold a path](push_source_path_registry.md) — gRPC, webhook,
   GraphQL and form share `sourcebuf.PathRegistry`; a source built while another
   holds the path waits and takes over on its first Read, so a probe takes nothing.
