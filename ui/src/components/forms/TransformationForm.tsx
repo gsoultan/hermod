@@ -695,7 +695,13 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
             result={previewResult || (previewMutation as any)?.data}
             original={incomingPayload}
             onRun={runPreview}
-            targetField={selectedNode.data.targetField || selectedNode.data.target_field}
+            // execute_sql has no targetField; what it produces is the rows its
+            // statement returns, under resultField.
+            targetField={
+              selectedNode.data.targetField ||
+              selectedNode.data.target_field ||
+              (transType === 'execute_sql' ? selectedNode.data.resultField : undefined)
+            }
           />
         </Suspense>
       </Grid.Col>

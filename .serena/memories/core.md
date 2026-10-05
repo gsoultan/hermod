@@ -25,6 +25,9 @@ find a claim that outruns the code, fix the claim.
 
 ### Memories
 
+- [execute_sql returned rows](execute_sql_returned_rows.md) — `resultField` is
+  opt-in, the result is read to its end, and Live Preview executes the
+  statement for real.
 - [List variables in SQL templates](sql_template_list_variables.md) — why
   `IN ({{.ids}})` expands but `= ANY({{.ids}})` must not, the 65535 cap, and how
   a list gets built in the first place.
