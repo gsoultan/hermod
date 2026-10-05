@@ -20,6 +20,9 @@ type cachingFakeRegistry struct {
 	source storage.Source
 	cache  map[string]any
 	sets   int
+	// gets counts reads, so a test can tell "the cache missed" from "the cache
+	// was not asked".
+	gets int
 	// lastTTL records what the transformer asked for, which is the only way to
 	// see the difference between "cached briefly" and "cached forever" without
 	// waiting for a clock: SetLookupCache turns ttl <= 0 into no expiry at all.
@@ -33,6 +36,7 @@ func (f *cachingFakeRegistry) GetSourceConfig(ctx context.Context, id string) (s
 func (f *cachingFakeRegistry) GetOrOpenDB(src storage.Source) (*sql.DB, error) { return f.db, nil }
 
 func (f *cachingFakeRegistry) GetLookupCache(key string) (any, bool) {
+	f.gets++
 	v, ok := f.cache[key]
 	return v, ok
 }
@@ -181,5 +185,46 @@ func TestDBLookupCacheKeyDistinguishesKeyTypes(t *testing.T) {
 	if len(reg.cache) != 2 {
 		t.Errorf("cache holds %d entries (%v); want 2 -- the string %q and the number 1 hash to the same cache key, so one lookup serves the other's row",
 			len(reg.cache), reg.cache, "1")
+	}
+}
+
+// TestDBLookupTTLChangeIsNotServedARowCachedUnderTheOldOne: the ttl was read
+// only when a row was written, never when one was read back. A row stored under
+// the default hour therefore outlived any change to the field -- an operator
+// who saw a stale result, set Cache TTL to 0 and pressed Test again got the
+// same row, and went on getting it until the hour ran out.
+//
+// TestDBLookupTTLZeroDisablesTheCache cannot see this: it starts with an empty
+// cache, and with ttl 0 nothing is ever written, so there is nothing stale to
+// be served.
+func TestDBLookupTTLChangeIsNotServedARowCachedUnderTheOldOne(t *testing.T) {
+	for _, ttl := range []string{"0", "5s"} {
+		t.Run("ttl="+ttl, func(t *testing.T) {
+			tr, reg := newFlattenFixture(t)
+			cfg := flattenConfig()
+
+			if got := runLookup(t, tr, reg, cfg)["email"]; got != "ada@example.com" {
+				t.Fatalf("first lookup: email = %#v", got)
+			}
+			if reg.sets != 1 {
+				t.Fatalf("the first lookup wrote the cache %d times, want 1 -- there is no stale row to test against", reg.sets)
+			}
+
+			if _, err := reg.db.ExecContext(t.Context(),
+				`UPDATE users SET email = 'ada@new.example.com' WHERE id = 'u1'`); err != nil {
+				t.Fatalf("update: %v", err)
+			}
+
+			cfg["ttl"] = ttl
+			getsBefore := reg.gets
+			if got := runLookup(t, tr, reg, cfg)["email"]; got != "ada@new.example.com" {
+				t.Errorf("email = %#v after setting ttl to %q; want the updated row -- the lookup "+
+					"served the row cached before the ttl was changed", got, ttl)
+			}
+			if ttl == "0" && reg.gets != getsBefore {
+				t.Errorf("the cache was read %d times with ttl 0; a cache that is off is not consulted",
+					reg.gets-getsBefore)
+			}
+		})
 	}
 }

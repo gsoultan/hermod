@@ -139,10 +139,18 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 	resolve := sqlutil.Resolver(evaluator.MessageResolver(msg))
 	clause := messageClause(msg)
 
-	cacheKey := lookupCacheKey(sourceID, table, keyColumn, valueColumn, keyVal, whereClause, queryTemplate, mode, resolve, clause)
-	if cached, found := registry.GetLookupCache(cacheKey); found {
-		applyLookupResult(msg, targetField, flattenInto, cached)
-		return msg, nil
+	// A node that turned its cache off does not read one either. The ttl used
+	// to be consulted only when a row was stored, so setting it to 0 stopped
+	// new entries and went on serving the one already there for the rest of
+	// its hour -- and a stale result is exactly when an operator sets it to 0.
+	// Skipping the key as well spares such a node the digest on every message.
+	var cacheKey string
+	if ttl.cache {
+		cacheKey = lookupCacheKey(sourceID, table, keyColumn, valueColumn, keyVal, whereClause, queryTemplate, mode, ttl.duration, resolve, clause)
+		if cached, found := registry.GetLookupCache(cacheKey); found {
+			applyLookupResult(msg, targetField, flattenInto, cached)
+			return msg, nil
+		}
 	}
 
 	src, err := registry.GetSourceConfig(ctx, sourceID)
@@ -254,11 +262,18 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 // %T as well as %v throughout: without it the string "1" and the number 1
 // produce the same key, so two lookups keyed on the same id in different types
 // serve each other's rows.
+//
+// The ttl is in the key because an entry's expiry is fixed when it is stored
+// and the registry cannot be asked how old one is. Without it, shortening the
+// ttl changed nothing until every row cached under the old one had expired on
+// the old schedule. With it, a row is only ever served to a node asking for
+// the lifetime it was stored under; the rows left behind expire as they would
+// have, and the cache is bounded either way.
 func lookupCacheKey(sourceID, table, keyColumn, valueColumn string, keyVal any,
-	whereClause, queryTemplate, mode string, resolve sqlutil.Resolver, clause clauseResolver,
+	whereClause, queryTemplate, mode string, ttl time.Duration, resolve sqlutil.Resolver, clause clauseResolver,
 ) string {
-	key := hermod.LookupCacheKeyPrefix(sourceID) + fmt.Sprintf("%s:%s:%s:%T:%v:%s:%s:%s",
-		table, keyColumn, valueColumn, keyVal, keyVal, whereClause, queryTemplate, mode)
+	key := hermod.LookupCacheKeyPrefix(sourceID) + fmt.Sprintf("%s:%s:%s:%T:%v:%s:%s:%s:%s",
+		table, keyColumn, valueColumn, keyVal, keyVal, whereClause, queryTemplate, mode, ttl)
 
 	binding := bindingDigest(whereClause, queryTemplate, resolve, clause)
 	if binding == "" {

@@ -163,6 +163,16 @@ Preview** is pressed, and the form says so. Every other node previews as before.
 The db_lookup and batch SQL builders get the same workspace and keep their
 `SELECT` keywords, default query and **Run Query** button.
 
+### A lookup's Cache TTL applies as soon as it is changed
+
+Changing **Cache TTL** on a DB Lookup or API Lookup node did nothing to results
+already cached. Setting it to `0` stopped new results being stored and went on
+returning the stored one — for up to an hour on a DB Lookup, five minutes on an
+API Lookup — so a query such as `select current_timestamp` kept returning the
+same value from **Test** and from a running workflow. A shorter TTL was ignored
+the same way. A node whose TTL is `0` now never reads the cache, and a changed
+TTL starts from a fresh result.
+
 ### Run Preview says when it has nothing to run on
 
 A node behind a queue has no sample until someone asks for one: the editor
