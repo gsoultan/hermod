@@ -96,6 +96,13 @@ not its evaluation. It runs the same cases as the Go test; keep them in step.
   browser sees any of it: the drawer stays "visible" for its exit transition,
   so the spec waits it out and then edits the value. A new popover over a
   drawer needs all three.
+- **Keyboard reach is a browser question too.** The variable list's fields were
+  `Group`s with `onClick`; they are buttons now. jsdom takes an open Mantine
+  popover for hidden (hence `hidden: true` in every query) and `user.tab()`
+  will not move into it, so a unit test can only show "is a button, Enter picks
+  it"; the Tab order is `picker_escape_e2e`'s last test. In a spec, wait for
+  the search box to be focused before typing: the trap moves the focus a moment
+  after the list appears, and keys sent sooner go to the button behind.
 - **The caret of an input never focused** is the start in jsdom and the end in
   a browser. `TemplateField` tracks whether the input has been focused and
   treats an untouched one as "caret at the end".

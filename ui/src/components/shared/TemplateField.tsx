@@ -186,34 +186,37 @@ export function TemplateField({
             const path = typeof f === 'string' ? f : f.path;
             const type = typeof f === 'string' ? undefined : f.type;
             
+            // A button, as the secrets below are. It was a row with a click
+            // handler: nothing Tab stops on, so the list could be opened from
+            // the keyboard and nothing in it picked.
             return (
-              <Group
+              <UnstyledButton
                 key={path}
-                justify="space-between"
-                wrap="nowrap"
                 p={6}
+                {...ESCAPE_STOPS_HERE}
                 style={{
                   borderRadius: 6,
                   border: '1px solid var(--mantine-color-gray-3)',
-                  cursor: 'pointer',
                 }}
                 onClick={() => {
                   insertReference(`source.${path}`, buildToken(path))
                   setOpened(false)
                 }}
               >
-                <Stack gap={0} style={{ overflow: 'hidden' }}>
-                  <Text size="xs" fw={500} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {path}
-                  </Text>
-                  {type && (
-                    <Text size="xs" c="dimmed">
-                      {type}
+                <Group justify="space-between" wrap="nowrap">
+                  <Stack gap={0} style={{ overflow: 'hidden' }}>
+                    <Text size="xs" fw={500} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {path}
                     </Text>
-                  )}
-                </Stack>
-                <Badge variant="light" size="xs">Insert</Badge>
-              </Group>
+                    {type && (
+                      <Text size="xs" c="dimmed">
+                        {type}
+                      </Text>
+                    )}
+                  </Stack>
+                  <Badge variant="light" size="xs">Insert</Badge>
+                </Group>
+              </UnstyledButton>
             );
           })}
           {filtered.length === 0 && (
