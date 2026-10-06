@@ -212,6 +212,11 @@ Escape now closes the list only, wherever the focus is in it, and the variable
 list takes the focus when it opens. A second Escape closes the settings, as
 before.
 
+A field in the variable list can be picked from the keyboard: Tab to it and
+press Enter. The fields were rows that only a click reached, so the list could
+be opened without a mouse and nothing in it chosen; the secrets listed under
+them already were buttons.
+
 ### Run Preview says when it has nothing to run on
 
 A node behind a queue has no sample until someone asks for one: the editor

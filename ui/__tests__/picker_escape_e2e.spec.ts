@@ -2,7 +2,8 @@ import { test, expect, type Page } from '@playwright/test';
 import { login, apiRequest } from './support/auth';
 
 /**
- * Escape in a picker closes the picker, not the node's settings behind it.
+ * The pickers by keyboard. Escape in one closes the picker, not the node's
+ * settings behind it; and a variable can be picked without a mouse.
  *
  * A node is configured in a drawer, and "Insert variable" and "Insert function"
  * open a list over it. Mantine's modal listens for Escape on the window and
@@ -122,4 +123,29 @@ test('Escape after a click on the text of Insert function', async ({ page }) => 
 
   await expect(functions(page)).toBeHidden();
   await expectSettingsStillOpen(page, 'after-function-text');
+});
+
+// A field was a row with a click handler, so the list could be opened from the
+// keyboard and nothing in it picked.
+test('a variable is picked with the keyboard alone', async ({ page }) => {
+  test.setTimeout(120000);
+  await openSetFields(page);
+
+  const value = page.getByRole('textbox', { name: 'Value or expression' });
+  await value.fill('');
+  await value.focus();
+  // The value, then its two buttons: Insert function, Insert variable.
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Enter');
+
+  // The list opens with the focus in its search box.
+  await expect(variables(page).getByPlaceholder('Search fields...')).toBeFocused();
+  await page.keyboard.type('city');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Enter');
+
+  await expect(variables(page)).toBeHidden();
+  await expect(value).toHaveValue('source.city');
+  await expect(page.getByTestId('live-preview')).toContainText('"note": "Jakarta"', { timeout: 30000 });
 });
