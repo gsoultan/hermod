@@ -72,7 +72,19 @@ MODE="${1:-gate}"
 # signal". GOMEMLIMIT is not the fix: the live set really is that large, so a
 # soft limit just made the GC burn 15× the CPU while RSS grew anyway
 # (measured too). CI gives the scan swap instead; see the security-gates job.
-json="$(govulncheck -format json ./... 2>/dev/null || true)"
+#
+# In JSON mode govulncheck exits 0 whether or not it finds anything, so any
+# other status means the scan itself did not finish — killed, or unable to
+# fetch the database. That has to fail the gate: reading whatever it printed
+# before dying as "no findings" is a gate that passes exactly when it is
+# broken.
+scan_status=0
+json="$(govulncheck -format json ./... 2>/dev/null)" || scan_status=$?
+if [ "$scan_status" -ne 0 ]; then
+  echo "FAIL: govulncheck did not complete (exit $scan_status), so nothing was checked." >&2
+  echo "Run 'govulncheck ./...' to see the error; 137 means it was killed, usually for memory." >&2
+  exit 1
+fi
 
 # govulncheck emits a stream of pretty-printed JSON objects rather than JSONL,
 # so walk it with raw_decode instead of reading line by line.
