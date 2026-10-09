@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/comm/message"
 )
 
@@ -247,6 +248,40 @@ func TestSoakSustainedThroughputDoesNotLeak(t *testing.T) {
 	reg := NewRegistry(store)
 	t.Cleanup(reg.Close)
 
+	wf, sources, sinks := sustainedSoakFixture("wf-soak-sustained")
+
+	overReleasesBefore := message.OverReleaseCount()
+	stop := startMultiPipeline(t, reg, wf, sources, sinks)
+	defer stop()
+
+	// Let it reach steady state before the first sample, so ramp-up is not read
+	// as growth.
+	time.Sleep(5 * time.Second)
+
+	var samples []resourceSample
+	deadline := time.Now().Add(duration)
+	for time.Now().Before(deadline) {
+		samples = append(samples, sampleSustained(t, sources, sinks))
+		time.Sleep(duration / 12)
+	}
+	samples = append(samples, sampleSustained(t, sources, sinks))
+
+	delivered := sinks["snk-x"].count()
+	if delivered == 0 {
+		t.Fatal("no messages were delivered during the sustained soak")
+	}
+	t.Logf("sustained soak delivered %d messages to sink x", delivered)
+
+	reportSoak(t, samples, len(samples))
+
+	if n := message.OverReleaseCount() - overReleasesBefore; n != 0 {
+		t.Errorf("%d message over-release(s) during the sustained soak", n)
+	}
+}
+
+// sustainedSoakFixture is the sustained soak's pipeline: two unbounded sources
+// through the transformation chain to two counting sinks.
+func sustainedSoakFixture(id string) (storage.Workflow, map[string]*pipeSource, map[string]*pipeSink) {
 	// A source that keeps producing for the whole run.
 	const perSource = 1 << 30 // effectively unbounded
 	sources := map[string]*pipeSource{
@@ -261,7 +296,7 @@ func TestSoakSustainedThroughputDoesNotLeak(t *testing.T) {
 		"snk-y": {name: "y", countOnly: true},
 	}
 
-	wf := multiPipelineWorkflow("wf-soak-sustained", []string{"x", "y"})
+	wf := multiPipelineWorkflow(id, []string{"x", "y"})
 	// Drop the two unused source nodes from the standard three-source shape.
 	var nodes = wf.Nodes[:0]
 	for _, n := range wf.Nodes {
@@ -278,32 +313,103 @@ func TestSoakSustainedThroughputDoesNotLeak(t *testing.T) {
 		keptEdges = append(keptEdges, e)
 	}
 	wf.Nodes, wf.Edges = nodes, keptEdges
+	return wf, sources, sinks
+}
 
-	overReleasesBefore := message.OverReleaseCount()
+// sampleSustained takes one resource sample of a running sustained pipeline.
+//
+// It cannot simply count goroutines while messages flow. The traversal runs a
+// goroutine per message per downstream node, and how many of those exist at a
+// given instant depends on where the scheduler, a checkpoint and GC happen to
+// be: a healthy pipeline measured at 159 to 354 within four seconds. With a
+// sample every fiftieth of the run, two half-run averages of that differ by
+// more than the slack often enough to fail a nightly run on an unchanged
+// commit (Oct 7: 243.7 -> 270.3, slack 20; Oct 8 on the same commit: pass).
+//
+// So the sample is taken the way the churn soak takes its own — with nothing
+// in flight. The sources are paused, every message already emitted is allowed
+// to reach both sinks, the goroutine count is allowed to settle, and only then
+// is it read; the sources resume straight after. What remains is what the
+// running pipeline holds between messages, which is exactly what a leak grows.
+// A goroutine leaked per message is still counted, because it outlives its
+// message. The pause is a fraction of a second against minutes of load.
+func sampleSustained(t *testing.T, sources map[string]*pipeSource, sinks map[string]*pipeSink) resourceSample {
+	t.Helper()
+	var emitted int64
+	for _, s := range sources {
+		emitted += s.pause()
+	}
+	defer func() {
+		for _, s := range sources {
+			s.resume()
+		}
+	}()
+
+	// Every message goes to every sink (the fixture fans t-stamp out to each).
+	if !waitUntil(t, 30*time.Second, "in-flight messages to drain before sampling", func() bool {
+		for _, s := range sinks {
+			if int64(s.count()) < emitted {
+				return false
+			}
+		}
+		return true
+	}) {
+		t.Fatalf("the sustained pipeline did not drain %d emitted messages before a sample; it stalled", emitted)
+	}
+
+	// A message counted by a sink can still have goroutines on their way out
+	// (the traversal's Wg, its node releases). Wait for the count to hold.
+	settled := 0
+	last := runtime.NumGoroutine()
+	waitUntil(t, 5*time.Second, "goroutine count to settle before sampling", func() bool {
+		time.Sleep(5 * time.Millisecond)
+		n := runtime.NumGoroutine()
+		if n == last {
+			settled++
+		} else {
+			settled, last = 0, n
+		}
+		return settled >= 5
+	})
+	return sampleResources()
+}
+
+// TestSustainedSoakSamplesExcludeInFlightWork guards the sustained soak's
+// measurement rather than the engine. A healthy pipeline under load holds a
+// goroutine per message in flight, and how many are in flight at any instant
+// swings by hundreds; a sample that counts them reads that swing as a trend.
+// Back-to-back samples of one healthy pipeline must agree to within the slack
+// the soak allows, or the soak fails on noise.
+func TestSustainedSoakSamplesExcludeInFlightWork(t *testing.T) {
+	reg := NewRegistry(newPipeStorage())
+	t.Cleanup(reg.Close)
+
+	wf, sources, sinks := sustainedSoakFixture("wf-soak-sample-noise")
 	stop := startMultiPipeline(t, reg, wf, sources, sinks)
 	defer stop()
 
-	// Let it reach steady state before the first sample, so ramp-up is not read
-	// as growth.
-	time.Sleep(5 * time.Second)
-
-	var samples []resourceSample
-	deadline := time.Now().Add(duration)
-	for time.Now().Before(deadline) {
-		samples = append(samples, sampleResources())
-		time.Sleep(duration / 12)
+	if !waitUntil(t, 20*time.Second, "sustained pipeline to deliver", func() bool {
+		return sinks["snk-x"].count() > 1000
+	}) {
+		t.Fatal("the sustained pipeline delivered nothing")
 	}
-	samples = append(samples, sampleResources())
 
-	delivered := sinks["snk-x"].count()
-	if delivered == 0 {
-		t.Fatal("no messages were delivered during the sustained soak")
+	lo, hi := int(^uint(0)>>1), 0
+	for range 12 {
+		n := sampleSustained(t, sources, sinks).goroutines
+		lo, hi = min(lo, n), max(hi, n)
+		time.Sleep(50 * time.Millisecond)
 	}
-	t.Logf("sustained soak delivered %d messages to sink x", delivered)
+	before := sinks["snk-x"].count()
+	if !waitUntil(t, 20*time.Second, "the pipeline to keep flowing after sampling", func() bool {
+		return sinks["snk-x"].count() > before
+	}) {
+		t.Fatal("the pipeline stopped delivering after it was sampled")
+	}
 
-	reportSoak(t, samples, len(samples))
-
-	if n := message.OverReleaseCount() - overReleasesBefore; n != 0 {
-		t.Errorf("%d message over-release(s) during the sustained soak", n)
+	t.Logf("goroutines across samples: %d..%d", lo, hi)
+	if spread := hi - lo; spread > soakGoroutineSlack() {
+		t.Errorf("goroutine count varied by %d across back-to-back samples of one healthy pipeline "+
+			"(slack %d): the sample is counting in-flight work, not what the pipeline holds", spread, soakGoroutineSlack())
 	}
 }
