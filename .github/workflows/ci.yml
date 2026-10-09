@@ -30,7 +30,7 @@ permissions:
 # on a checksum-server error that had nothing to do with the change. One value,
 # used by both.
 env:
-  GOLANGCI_LINT_VERSION: v2.13.1
+  GOLANGCI_LINT_VERSION: v2.14.0
 
 jobs:
   quick-verify:
@@ -159,7 +159,7 @@ jobs:
       # than blocking every change.
       # Built from source rather than via golangci-lint-action, which downloads
       # a prebuilt binary. Those binaries are compiled with whatever Go was
-      # current at their release — v2.13.1, the latest, is built with go1.26.6
+      # current at their release — v2.13.1 was built with go1.26.6
       # — and golangci-lint refuses outright when its own language version is
       # below the target's:
       #
@@ -182,7 +182,10 @@ jobs:
           # whoever happens to open the next pull request — for code they did
           # not touch. That is exactly how it went red on the Oracle branch.
           # Bumping this is a deliberate commit that owns the new findings.
-          go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
+          # Built from tools/staticcheck rather than `go install @v0.8.1`:
+          # that release cannot read Go 1.27.2's export data, and its go.mod
+          # says why and when to drop it.
+          go build -C tools/staticcheck -o "$(go env GOPATH)/bin/staticcheck" honnef.co/go/tools/cmd/staticcheck
           staticcheck ./...
       # The gRPC source's wire contract. CLAUDE.md has listed these two as
       # gates for some time, but there was no buf.yaml and neither had ever

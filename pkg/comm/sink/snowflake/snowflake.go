@@ -14,6 +14,7 @@ import (
 	"github.com/gsoultan/hermod/pkg/infra/evaluator"
 	"github.com/gsoultan/hermod/pkg/infra/sqlident"
 	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
+	// Registers the "snowflake" database/sql driver that init opens.
 	_ "github.com/snowflakedb/gosnowflake/v2"
 )
 
