@@ -303,6 +303,11 @@ jobs:
       # to work before it is needed rather than the first time it fires.
       - name: PR base check
         run: ./scripts/check_pr_base_test.sh
+      # The vulnerability gate used to pass a scan the OOM killer had taken,
+      # reading the half-written output as "nothing found". This holds
+      # it to failing closed without needing a real scan.
+      - name: Vulnerability gate fails closed
+        run: ./scripts/govulncheck_test.sh
 
   ui-verify:
     name: Verify (UI)
