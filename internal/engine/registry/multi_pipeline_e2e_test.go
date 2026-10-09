@@ -35,6 +35,33 @@ type pipeSource struct {
 	closed    atomic.Bool
 	failFirst int // if >0, the first N reads fail, then the source recovers
 	reads     atomic.Int64
+
+	// gate, while non-nil, holds every Read until it is closed. It is checked
+	// under gateMu together with the emitted counter, so once pause returns no
+	// further message can be emitted until resume.
+	gateMu sync.Mutex
+	gate   chan struct{}
+}
+
+// pause stops the source emitting and returns how many it has emitted in all.
+// It mirrors a live source that has caught up: it blocks rather than failing.
+func (s *pipeSource) pause() int64 {
+	s.gateMu.Lock()
+	defer s.gateMu.Unlock()
+	if s.gate == nil {
+		s.gate = make(chan struct{})
+	}
+	return s.emitted.Load()
+}
+
+// resume lets a paused source emit again.
+func (s *pipeSource) resume() {
+	s.gateMu.Lock()
+	defer s.gateMu.Unlock()
+	if s.gate != nil {
+		close(s.gate)
+		s.gate = nil
+	}
 }
 
 func (s *pipeSource) Read(ctx context.Context) (hermod.Message, error) {
@@ -42,11 +69,24 @@ func (s *pipeSource) Read(ctx context.Context) (hermod.Message, error) {
 	if s.failFirst > 0 && n <= int64(s.failFirst) {
 		return nil, fmt.Errorf("%s: injected transient read failure %d", s.name, n)
 	}
+	s.gateMu.Lock()
+	for s.gate != nil {
+		gate := s.gate
+		s.gateMu.Unlock()
+		select {
+		case <-gate:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		s.gateMu.Lock()
+	}
 	if s.emitted.Load() >= int64(s.count) {
+		s.gateMu.Unlock()
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}
 	i := s.emitted.Add(1)
+	s.gateMu.Unlock()
 	msg := message.AcquireMessage()
 	msg.SetData("origin", s.name)
 	msg.SetData("seq", i)
