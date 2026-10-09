@@ -14,7 +14,8 @@ import (
 	"github.com/gsoultan/hermod/pkg/infra/evaluator"
 	"github.com/gsoultan/hermod/pkg/infra/sqlident"
 	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
-	_ "github.com/snowflakedb/gosnowflake"
+	// Registers the "snowflake" database/sql driver that init opens.
+	_ "github.com/snowflakedb/gosnowflake/v2"
 )
 
 // Sink implements the hermod.Sink interface for Snowflake.
