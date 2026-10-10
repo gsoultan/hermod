@@ -991,12 +991,7 @@ func (h *WorkflowHandler) UpdateWorkflow(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Get current version count to determine next version
-	versions, _ := h.Storage.ListWorkflowVersions(r.Context(), id)
-	nextVersion := 1
-	if len(versions) > 0 {
-		nextVersion = versions[0].Version + 1
-	}
+	nextVersion := h.latestVersion(r.Context(), id) + 1
 
 	if err := h.validateWorkflow(r.Context(), wf); err != nil {
 		h.JsonError(w, err.Error(), http.StatusBadRequest)
@@ -1015,26 +1010,7 @@ func (h *WorkflowHandler) UpdateWorkflow(w http.ResponseWriter, r *http.Request)
 		username = user.Username
 	}
 
-	// Extract config excluding nodes and edges
-	wfCopy := wf
-	wfCopy.Nodes = nil
-	wfCopy.Edges = nil
-	configJSON, _ := json.Marshal(wfCopy)
-
-	version := storage.WorkflowVersion{
-		ID:             uuid.New().String(),
-		WorkflowID:     id,
-		Version:        nextVersion,
-		Nodes:          wf.Nodes,
-		Edges:          wf.Edges,
-		TraceRetention: wf.TraceRetention,
-		AuditRetention: wf.AuditRetention,
-		Config:         string(configJSON),
-		CreatedAt:      time.Now(),
-		CreatedBy:      username,
-		Message:        "Auto-saved on update",
-	}
-	_ = h.Storage.CreateWorkflowVersion(r.Context(), version)
+	_ = h.recordVersion(r.Context(), wf, nextVersion, username, "Auto-saved on update")
 
 	h.RecordAuditLog(r, "INFO", "Updated workflow "+wf.Name, "UPDATE", wf.ID, "", "", wf)
 

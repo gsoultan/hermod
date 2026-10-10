@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"maps"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -29,6 +30,7 @@ import (
 	"github.com/gsoultan/hermod/internal/mesh"
 	"github.com/gsoultan/hermod/internal/notification"
 	"github.com/gsoultan/hermod/internal/optimizer"
+	"github.com/gsoultan/hermod/internal/selfheal"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/comm/sink/failover"
 	"github.com/gsoultan/hermod/pkg/comm/source/batchsql"
@@ -753,10 +755,29 @@ func (r *Registry) SetStorage(s storage.Storage) {
 	if r.notificationService != nil {
 		r.notificationService.SetStorage(s)
 	}
+	if r.optimizer != nil && s != nil {
+		r.wireSelfHealing(s)
+	}
 	if r.schemaRegistry != nil {
 		if sr, ok := r.schemaRegistry.(*schema.StorageRegistry); ok {
 			sr.SetStorage(s)
 		}
+	}
+}
+
+// wireSelfHealing points the optimizer's self-correction gate at s: fixes
+// become stored proposals that only an approval applies, and AI mapping
+// suggestions are on only when the environment configures a connection.
+// The caller holds r.mu.
+func (r *Registry) wireSelfHealing(s storage.Storage) {
+	r.optimizer.SetProposer(selfheal.NewService(s, nil))
+	adv, err := selfheal.AdvisorFromEnv(os.Getenv, s)
+	if err != nil {
+		r.logger.Error("Self-healing AI mapping suggestions are off", "error", err)
+		return
+	}
+	if adv != nil {
+		r.optimizer.SetMappingAdvisor(adv)
 	}
 }
 

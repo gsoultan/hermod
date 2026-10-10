@@ -1267,6 +1267,26 @@ Every time you save a workflow, Hermod automatically creates an immutable versio
 - **One-Click Rollback**: Instantly revert a production workflow to any previous stable version via the **History** tab in the Workflow Detail page.
 - **GitOps Readiness**: Versioning ensures that workflow configurations can be managed as code and safely promoted across environments.
 
+### Self-healing proposals
+
+The optimizer's self-correction gate never changes a workflow on its own. When a node keeps
+failing, it stores a **proposal**: a small patch with the value each field has now and the value it
+would get (today, more retries with a longer interval on the workflow's `max_retries` /
+`retry_interval`, capped at 10 retries and 10s).
+
+- `GET /api/workflows/{id}/proposals` lists them, newest first (Viewer and up).
+- `POST /api/workflows/{id}/proposals/{pid}/approve` applies one through the normal update
+  path: it is validated, saved as a new workflow version and can be rolled back from the
+  **History** tab. If the workflow has changed since the proposal was made, it is refused with
+  `409` and marked `stale` (Editor and up).
+- `POST /api/workflows/{id}/proposals/{pid}/reject` closes it without changing anything.
+
+AI mapping suggestions for nodes that keep failing validation are **off** unless
+`HERMOD_SELF_HEALING_AI_PROVIDER` is set, with `HERMOD_SELF_HEALING_AI_MODEL`,
+`HERMOD_SELF_HEALING_AI_BASE_URL` and `HERMOD_SELF_HEALING_AI_API_KEY`. The key must be a
+`{{secret("NAME")}}` reference, which is resolved for the failing workflow's vhost. Every string
+in the sample is PII-masked before it is sent.
+
 ## Workflows as MCP tools
 
 Hermod serves the [Model Context Protocol](https://modelcontextprotocol.io) at `POST /api/mcp`

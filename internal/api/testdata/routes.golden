@@ -71,6 +71,7 @@ GET /api/workflows/pii-stats
 GET /api/workflows/{export_id}/export
 GET /api/workflows/{id}
 GET /api/workflows/{id}/health
+GET /api/workflows/{id}/proposals
 GET /api/workflows/{id}/report
 GET /api/workflows/{id}/traces
 GET /api/workflows/{id}/traces/
@@ -171,6 +172,8 @@ POST /api/workflows/import
 POST /api/workflows/test
 POST /api/workflows/{id}/drain
 POST /api/workflows/{id}/nodes/{node_id}/test
+POST /api/workflows/{id}/proposals/{pid}/approve
+POST /api/workflows/{id}/proposals/{pid}/reject
 POST /api/workflows/{id}/rebuild
 POST /api/workflows/{id}/rollback/{version}
 POST /api/workflows/{id}/test
