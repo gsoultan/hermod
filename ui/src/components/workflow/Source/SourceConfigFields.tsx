@@ -12,6 +12,7 @@ import { OtherSourceConfig } from './OtherSourceConfig';
 import { MetisSourceConfig } from './MetisSourceConfig';
 import { MetisTaskSourceConfig } from './MetisTaskSourceConfig';
 import { ExcelSourceConfig } from './ExcelSourceConfig';
+import { ChatSourceConfig } from './ChatSourceConfig';
 import type { FC } from 'react';
 import type { Source } from '@/types';
 
@@ -142,6 +143,10 @@ export const SourceConfigFields: FC<SourceConfigFieldsProps> = ({
   // of them.
   if (source.type === 'metis') {
     return <MetisSourceConfig config={source.config} updateConfig={updateConfig} />;
+  }
+
+  if (source.type === 'chat') {
+    return <ChatSourceConfig config={source.config} updateConfig={updateConfig} />;
   }
 
   if (source.type === 'metis_task') {

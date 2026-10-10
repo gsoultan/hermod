@@ -11,6 +11,7 @@ import { IconArrowsExchange, IconBrandDiscord, IconBrandFacebook, IconBrandInsta
 const SourceNodeImpl = ({ id, data, selected }: any) => {
   const getIcon = () => {
     if (data.type === 'webhook' || data.type === 'form' || data.type === 'graphql') return IconWorld;
+    if (data.type === 'chat') return IconMessage;
     if (data.type === 'cron') return IconSettingsAutomation;
     if (data.type === 'csv' || data.type === 'googlesheets') return IconFileSpreadsheet;
     if (data.type === 'grpc') return IconTerminal2;

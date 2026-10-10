@@ -6,9 +6,11 @@ package builder
 // what the binary can run.
 var descriptions = map[string]string{
 	// Structural.
-	"source": "Entry point: where records come from (webhook, database CDC, queue, schedule, file...). " +
+	"source": "Entry point: where records come from (webhook, chat, database CDC, queue, schedule, file...). " +
 		"Set ref_id to the id of one of the available sources listed below, or leave it empty and say in " +
-		`config_json which kind is needed, e.g. {"sourceType":"webhook"}.`,
+		`config_json which kind is needed, e.g. {"sourceType":"webhook"}. A chat source ({"sourceType":"chat"}) ` +
+		`receives {conversation_id, message, user, metadata} from a web widget, Slack or Telegram and answers ` +
+		`with the record's ai_output field: put an ai_prompt with memory after it to build a chatbot.`,
 	"sink": "Destination a record is written to (database, queue, API, notification...). Set ref_id to " +
 		"the id of one of the available sinks listed below, or leave it empty and say in config_json " +
 		`which kind is needed, e.g. {"sinkType":"slack"}. {"sinkType":"ml_dataset"} is Collect Dataset: it appends ` +
