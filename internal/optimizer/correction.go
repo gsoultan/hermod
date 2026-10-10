@@ -75,7 +75,7 @@ func (g *SelfCorrectionGate) Analyze(id string, e *engine.Engine, status telemet
 			errRate := float64(errCount) / float64(count)
 
 			if errRate > 0.50 {
-				g.logger.Error("Self-Correction: CRITICAL error rate detected. Entering Safe Mode.",
+				g.logger.Error("Self-Correction: CRITICAL error rate detected. Recommending Safe Mode.",
 					"workflow_id", id, "node_id", nodeID, "rate", fmt.Sprintf("%.2f", errRate))
 				g.applyFix(id, nodeID, ActionSafeMode, e)
 			} else if errRate > 0.20 {
@@ -149,9 +149,11 @@ func (g *SelfCorrectionGate) applyFix(workflowID, nodeID string, action Correcti
 			cfg.BatchSize = max(int(float64(cfg.BatchSize)*0.7), 1)
 		})
 	case ActionSafeMode:
-		e.SetSafeMode(true)
+		// Advisory only. The node counters are lifetime totals, so acting on
+		// them would pin the whole workflow to the dead-letter sink long after
+		// the failures stopped; an operator decides.
 		if g.notifier != nil {
-			g.notifier(workflowID, "CRITICAL: Engine Safe Mode Active", fmt.Sprintf("Workflow '%s' entered Safe Mode due to excessive failures at node '%s'. Traffic diverted to DLQ.", workflowID, nodeID))
+			g.notifier(workflowID, "CRITICAL: Safe Mode recommended", fmt.Sprintf("Node '%s' of workflow '%s' is failing more than half of its messages. Consider enabling Safe Mode to divert traffic to the dead-letter sink while you investigate.", nodeID, workflowID))
 		}
 	case ActionSuggestMapping:
 		if g.aiSvc != nil && g.notifier != nil {
