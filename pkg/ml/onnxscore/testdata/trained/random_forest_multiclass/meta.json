@@ -1,6 +1,6 @@
 {
   "algorithm": "random_forest",
-  "created_at": "2026-10-10T12:02:25Z",
+  "created_at": "2026-01-01T00:00:00Z",
   "dataset": "multiclass",
   "feature_types": {
     "city": "string",

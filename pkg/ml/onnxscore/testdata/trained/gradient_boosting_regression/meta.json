@@ -1,6 +1,6 @@
 {
   "algorithm": "gradient_boosting",
-  "created_at": "2026-10-10T12:02:26Z",
+  "created_at": "2026-01-01T00:00:00Z",
   "dataset": "regression",
   "feature_types": {
     "city": "string",

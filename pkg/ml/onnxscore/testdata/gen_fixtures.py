@@ -150,6 +150,7 @@ def write_trained(out: Path) -> None:
                 target = out / name
                 target.mkdir(parents=True)
                 shutil.copyfile(models.onnx_path("fx", name, meta["version"]), target / "model.onnx")
+                meta["created_at"] = "2026-01-01T00:00:00Z"  # fixed, so a regen does not rewrite every meta.json
                 (target / "meta.json").write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n")
                 cases = []
                 for rows in request_batches():
