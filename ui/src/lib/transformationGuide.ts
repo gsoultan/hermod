@@ -246,6 +246,11 @@ const GUIDES: Record<string, TransformationGuide> = {
     what: 'Turns a field of each record into a vector for semantic search.',
     firstStep: 'Choose a provider that embeds, then the field to embed.',
   },
+  ai_agent: {
+    title: 'AI agent',
+    what: 'Lets an AI model work towards a goal for each record by calling only the tools you allow; tools that write wait for a person to approve them.',
+    firstStep: 'Choose the provider and model, write the goal, then add the tools it may use.',
+  },
   ai_retrieve: {
     title: 'AI retrieve',
     what: 'Finds the documents closest to a query in a vector store and adds them, with their scores, to each record.',

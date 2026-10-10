@@ -37,6 +37,7 @@ import {
 import { ConditionNode } from '../nodes/ConditionNode';
 import { ApprovalNode } from '../nodes/ApprovalNode';
 import { AIClassifyNode } from '../nodes/AIClassifyNode';
+import { AIAgentNode } from '../nodes/AIAgentNode';
 
 /**
  * The renderer for each node type. A type missing here is drawn as React
@@ -61,6 +62,7 @@ export const canvasNodeTypes = {
   deduplicate: DeduplicateNode,
   note: NoteNode,
   ai_classify: AIClassifyNode,
+  ai_agent: AIAgentNode,
 };
 
 interface FlowCanvasProps {

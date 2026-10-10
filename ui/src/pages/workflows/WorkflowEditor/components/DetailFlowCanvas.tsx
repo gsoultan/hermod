@@ -162,6 +162,7 @@ export const detailNodeTypes = {
   wait: TransformationNode,
   foreach: TransformationNode,
   ai_classify: TransformationNode,
+  ai_agent: TransformationNode,
 };
 
 interface DetailFlowCanvasProps {

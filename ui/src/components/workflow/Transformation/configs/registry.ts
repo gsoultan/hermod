@@ -33,6 +33,7 @@ import { AIExtractConfig } from './ai/AIExtractConfig'
 import { AIEmbedConfig } from './ai/AIEmbedConfig'
 import { AIClassifyConfig } from './ai/AIClassifyConfig'
 import { AIRetrieveConfig } from './ai-retrieve/AIRetrieveConfig'
+import { AIAgentConfig } from './ai-agent/AIAgentConfig'
 
 // logic
 import { ConditionConfig } from './logic/ConditionConfig'
@@ -200,6 +201,7 @@ export const NODE_TYPE_CONFIGS: Record<string, ConfigComponent> = {
   multicast: MulticastConfig,
   validator: ValidatorConfig,
   ai_classify: AIClassifyConfig,
+  ai_agent: AIAgentConfig,
 }
 
 /**

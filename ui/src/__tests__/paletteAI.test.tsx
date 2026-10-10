@@ -26,6 +26,7 @@ describe('the AI palette category', () => {
       ['AI Prompt', 'transformation', 'ai_prompt'],
       ['AI Extract', 'transformation', 'ai_extract'],
       ['AI Classify', 'ai_classify', 'ai_classify'],
+      ['AI Agent', 'ai_agent', 'ai_agent'],
       ['Summarize', 'transformation', 'ai_prompt'],
       ['Translate', 'transformation', 'ai_prompt'],
       ['AI Embed', 'transformation', 'ai_embed'],
