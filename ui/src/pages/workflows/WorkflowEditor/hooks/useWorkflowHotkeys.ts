@@ -18,13 +18,20 @@ export function useWorkflowHotkeys(
     ['ctrl+s', (e) => { if (isTypingTarget(e)) return; e.preventDefault(); handleSave(); }],
     ['ctrl+enter', (e) => { if (isTypingTarget(e)) return; e.preventDefault(); handleTest(null, false); }],
     ['ctrl+shift+enter', (e) => { if (isTypingTarget(e)) return; e.preventDefault(); handleTest(null, true); }],
-    ['delete, backspace', (e) => {
+    // One key per entry: useHotkeys has no "a, b" alternative syntax, and
+    // 'delete, backspace' parsed as a single key no keyboard sends, so Delete
+    // did nothing. Backspace stays with React Flow, whose default delete key
+    // it is.
+    ['delete', (e) => {
        if (isTypingTarget(e)) return;
        const { nodes, edges } = useWorkflowStore.getState();
-       const anySelected = nodes.some(n => n.selected) || edges.some(e => e.selected);
+       const removed = new Set(nodes.filter(n => n.selected).map(n => n.id));
+       const anySelected = removed.size > 0 || edges.some(e => e.selected);
        if (anySelected) {
           setNodes(nds => nds.filter(n => !n.selected));
-          setEdges(eds => eds.filter(e => !e.selected));
+          // A deleted node's edges go with it, as deleteNode does; left behind
+          // they point at nothing and are saved that way.
+          setEdges(eds => eds.filter(e => !e.selected && !removed.has(e.source) && !removed.has(e.target)));
           setSelectedNode(null);
        }
     }]

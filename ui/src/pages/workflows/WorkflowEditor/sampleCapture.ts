@@ -80,16 +80,22 @@ export function resolveSampleSource(
 }
 
 /**
- * ownPayloadOf returns the payload a node holds itself, freshest first: a test
- * result, what the running engine last emitted, the sample stored on the
- * source record, and only then `lastSample`.
+ * ownPayloadOf returns the payload a node holds itself, freshest first: what
+ * the running engine last emitted, the sample stored on the source record, and
+ * only then the copies saved in the node's config, `testResult` and
+ * `lastSample`.
  *
- * `lastSample` is a copy. Test Connection writes it into the source node, and
- * saving the workflow persists it with the node's config, so it outlives the
- * table it describes — while the refresh icon and the automatic capture write
- * only the stored sample. Checked first, it shadowed every later sample, so a
- * refresh changed nothing on any node downstream. It stays as the last resort
- * for a source that has nothing stored.
+ * Both of those are copies. Nothing in the editor writes `testResult` any
+ * more, but saving keeps whatever a node carries (only an export strips it), so
+ * a workflow saved by an older editor still has one; read first, it pinned the
+ * field list and every Test run to that old row.
+ *
+ * Test Connection writes `lastSample` into the source node, and saving the
+ * workflow persists it with the node's config, so it outlives the table it
+ * describes — while the refresh icon and the automatic capture write only the
+ * stored sample. Checked first, it shadowed every later sample, so a refresh
+ * changed nothing on any node downstream. Both stay as the last resort for a
+ * source that has nothing stored.
  *
  * The field list and the simulation's seeds both read this, so what a node
  * offers before a preview runs and what the preview then runs on are the same
@@ -100,8 +106,6 @@ export function ownPayloadOf(
   sources: any[] | undefined,
   nodeSamples: Record<string, any> | undefined
 ): any | null {
-  const tested = (node.data?.testResult as any)?.payload;
-  if (tested) return tested;
   const live = nodeSamples?.[node.id];
   if (live) return live;
   if (node.type === 'source') {
@@ -112,6 +116,8 @@ export function ownPayloadOf(
       } catch {}
     }
   }
+  const tested = (node.data?.testResult as any)?.payload;
+  if (tested) return tested;
   return (node.data as any)?.lastSample || null;
 }
 
