@@ -370,6 +370,16 @@ func (e *Engine) setSourceStatus(status string) {
 	e.notifyStatusChange()
 }
 
+// setSourceStatusOnChange publishes the source status only when it differs
+// from the current one. The read loop marks the source "running" before every
+// read; publishing each time built and broadcast a full StatusUpdate per
+// message. The periodic health check still publishes on its own tick.
+func (e *Engine) setSourceStatusOnChange(status string) {
+	if e.statusTracker.SetSourceStatusIfChanged(status) {
+		e.notifyStatusChange()
+	}
+}
+
 func (e *Engine) setSinkStatus(sinkID string, status string) {
 	e.statusTracker.SetSinkStatus(sinkID, status)
 	e.notifyStatusChange()

@@ -56,6 +56,18 @@ func (s *StatusTracker) SetSourceStatus(status string) {
 	s.sourceStatus = status
 }
 
+// SetSourceStatusIfChanged sets the source status and reports whether it was
+// different, so a caller on a hot path can publish only real changes.
+func (s *StatusTracker) SetSourceStatusIfChanged(status string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sourceStatus == status {
+		return false
+	}
+	s.sourceStatus = status
+	return true
+}
+
 func (s *StatusTracker) SetSinkStatus(sinkID, status string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
