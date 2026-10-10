@@ -94,7 +94,7 @@ func TestAResumedMessageTheSinkRefusesIsDeadLettered(t *testing.T) {
 	m.SetID("resumed-1")
 	m.SetPayload([]byte(`{"v":1}`))
 
-	r.resumeFromNode("wf-resume", "W", m, eng, wf, nodeMap, adj,
+	r.resumeFromNode(context.Background(), "wf-resume", "W", m, eng, wf, nodeMap, adj,
 		[]hermod.Sink{refusingSink{}}, sinkNodeToIndex, "")
 
 	if got := dlq.count(); got != 1 {
@@ -121,7 +121,7 @@ func TestAResumedMessageTheSinkAcceptsIsNotDeadLettered(t *testing.T) {
 	m.SetID("resumed-2")
 	m.SetPayload([]byte(`{"v":1}`))
 
-	r.resumeFromNode("wf-resume", "W", m, eng, wf, nodeMap, adj,
+	r.resumeFromNode(context.Background(), "wf-resume", "W", m, eng, wf, nodeMap, adj,
 		[]hermod.Sink{dest}, sinkNodeToIndex, "")
 
 	if got := dest.count(); got != 1 {
@@ -150,7 +150,7 @@ func TestResumeWithNoEngineDoesNotPanic(t *testing.T) {
 		}
 	}()
 
-	r.resumeFromNode("wf-resume", "W", m, nil, wf, nodeMap, adj,
+	r.resumeFromNode(context.Background(), "wf-resume", "W", m, nil, wf, nodeMap, adj,
 		[]hermod.Sink{refusingSink{}}, sinkNodeToIndex, "")
 }
 
@@ -212,7 +212,7 @@ func TestAResumedMessageIsRoutedByTheEnginesRule(t *testing.T) {
 	m.SetID("resumed-routed")
 	m.SetData("tier", "gold")
 
-	(&Registry{}).resumeFromNode("wf-resume-route", "W", m, nil, wf, nodeMap, adj, sinks, sinkNodeToIndex, "")
+	(&Registry{}).resumeFromNode(context.Background(), "wf-resume-route", "W", m, nil, wf, nodeMap, adj, sinks, sinkNodeToIndex, "")
 
 	for i, want := range []int{1, 1, 0} {
 		if got := recorded[i].count(); got != want {
@@ -235,7 +235,7 @@ func TestAnApprovalDecisionTakesItsEdgeAndUnlabelledOnes(t *testing.T) {
 			defer m.Release()
 			m.SetID("decided-" + decision)
 
-			(&Registry{}).resumeFromNode("wf-resume-route", "A", m, nil, wf, nodeMap, adj, sinks, sinkNodeToIndex, decision)
+			(&Registry{}).resumeFromNode(context.Background(), "wf-resume-route", "A", m, nil, wf, nodeMap, adj, sinks, sinkNodeToIndex, decision)
 
 			want := map[string][]int{"approved": {1, 0, 1}, "rejected": {0, 1, 1}}[decision]
 			for i, w := range want {

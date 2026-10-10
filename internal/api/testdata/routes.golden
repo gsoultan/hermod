@@ -176,6 +176,7 @@ POST /api/workflows/{id}/proposals/{pid}/approve
 POST /api/workflows/{id}/proposals/{pid}/reject
 POST /api/workflows/{id}/rebuild
 POST /api/workflows/{id}/rollback/{version}
+POST /api/workflows/{id}/run
 POST /api/workflows/{id}/test
 POST /api/workflows/{id}/toggle
 POST /api/workspaces

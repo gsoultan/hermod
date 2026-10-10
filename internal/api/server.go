@@ -23,6 +23,7 @@ import (
 	"github.com/gsoultan/hermod/internal/config"
 	dashboardhttp "github.com/gsoultan/hermod/internal/dashboard/transport/http"
 	"github.com/gsoultan/hermod/internal/engine/registry"
+	executionshttp "github.com/gsoultan/hermod/internal/executions/transport/http"
 	fileshttp "github.com/gsoultan/hermod/internal/files/transport/http"
 	formshttp "github.com/gsoultan/hermod/internal/forms/transport/http"
 	infrahttp "github.com/gsoultan/hermod/internal/infra/transport/http"
@@ -145,6 +146,7 @@ func (s *Server) Routes() http.Handler {
 
 	infraH := infrahttp.NewInfraHandler(s.Handler)
 	workflowH := workflowhttp.NewWorkflowHandler(s.Handler)
+	executionsH := executionshttp.NewExecutionsHandler(s.Handler)
 	sourceH := sourcehttp.NewSourceHandler(s.Handler)
 	sinkH := sinkhttp.NewSinkHandler(s.Handler)
 	approvalH := approvalhttp.NewApprovalHandler(s.Handler)
@@ -179,6 +181,7 @@ func (s *Server) Routes() http.Handler {
 	}
 
 	workflowH.RegisterWorkflowRoutes(mux)
+	executionsH.RegisterExecutionRoutes(mux)
 	sourceH.RegisterSourceRoutes(mux)
 	sinkH.RegisterSinkRoutes(mux)
 	approvalH.RegisterApprovalRoutes(mux)
