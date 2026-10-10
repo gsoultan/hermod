@@ -60,8 +60,8 @@ var descriptions = map[string]string{
 		`"outputField":"prediction"}. Empty inputs send the whole record.`,
 	"transformation:ml_train": `Trains a new version of a model on a dataset held by the vhost's ML worker and writes ` +
 		`the result (version, metrics, whether it went live) onto the record. config: {"model","dataset","target",` +
-		`"features":"a,b,c","task":"auto|classification|regression","algorithm":"auto|random_forest|gradient_boosting|linear|xgboost",` +
-		`"goLive":"never|always|metric","goLiveMetric","goLiveMin","goLiveMax","sourceId","query","maxRows",` +
+		`"features":"a,b,c","task":"auto|classification|regression","algorithm":"auto|random_forest|gradient_boosting|linear|xgboost|custom:<script>",` +
+		`"device":"cpu|gpu","goLive":"never|always|metric","goLiveMetric","goLiveMin","goLiveMax","sourceId","query","maxRows",` +
 		`"outputField":"training"}. A sourceId and read-only query refill the dataset first.`,
 	"transformation:ai_prompt": `Generates text or JSON with a language model. config: {"provider","model",` +
 		`"apiKey":"{{secret(\"NAME\")}}","prompt":"Summarise {{text}}","system","outputMode":"text|json","targetField"}.`,

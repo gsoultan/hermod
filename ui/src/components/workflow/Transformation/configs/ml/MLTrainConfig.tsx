@@ -1,7 +1,8 @@
 import { Alert, Divider, Group, MultiSelect, Select, Stack, Text, TextInput, Textarea } from '@mantine/core'
 import { IconInfoCircle } from '@tabler/icons-react'
 import {
-  ALGORITHM_OPTIONS, SQL_SOURCE_TYPES, TASK_OPTIONS, useDataset, useVHostDatasets, useWorkerStatus, type GoLive,
+  CUSTOM_PREFIX, DEVICE_OPTIONS, SQL_SOURCE_TYPES, TASK_OPTIONS, algorithmOptions, isCustomAlgorithm, useDataset, useVHostDatasets,
+  useVHostScripts, useWorkerStatus, type GoLive,
 } from '@/lib/mlModels'
 import { GoLiveField } from '@/pages/ml/goLive'
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore'
@@ -40,6 +41,16 @@ export function MLTrainConfig({ config, updateNodeConfig, nodeId, sources = [] }
   const vhost = useWorkflowStore((s) => s.vhost) || 'default'
   const set = (patch: Record<string, unknown>) => updateNodeConfig(nodeId, patch)
   const { data: worker } = useWorkerStatus()
+  const caps = worker?.capabilities
+  const { data: scripts = [] } = useVHostScripts(vhost, !!caps?.custom_scripts)
+  const algorithms = algorithmOptions(scripts, caps)
+  // A saved custom:<script> stays visible even if the server stops offering it,
+  // so the node does not silently change what it trains with.
+  if (config.algorithm && !algorithms.some((a) => a.value === config.algorithm)) {
+    algorithms.push({ value: config.algorithm, label: isCustomAlgorithm(config.algorithm) ? `Script: ${config.algorithm.slice(CUSTOM_PREFIX.length)} (unavailable)` : config.algorithm })
+  }
+  // A script trains on its own pool; the device applies to built-in algorithms.
+  const showDevice = (!!caps?.gpu || config.device === 'gpu') && !isCustomAlgorithm(config.algorithm)
   const { data: datasets = [] } = useVHostDatasets(vhost)
   const { data: info } = useDataset(vhost, config.dataset)
   const columns = (info?.columns ?? []).map((c) => c.name)
@@ -84,8 +95,12 @@ export function MLTrainConfig({ config, updateNodeConfig, nodeId, sources = [] }
         onChange={(list) => set({ features: list.length ? JSON.stringify(list) : '' })} />
       <Group grow align="flex-start">
         <Select label="Task" data={TASK_OPTIONS} value={config.task || 'auto'} allowDeselect={false} onChange={(v) => set({ task: v ?? 'auto' })} />
-        <Select label="Algorithm" data={ALGORITHM_OPTIONS} value={config.algorithm || 'auto'} allowDeselect={false}
-          onChange={(v) => set({ algorithm: v ?? 'auto' })} />
+        <Select label="Algorithm" data={algorithms} value={config.algorithm || 'auto'} allowDeselect={false}
+          onChange={(v) => set(isCustomAlgorithm(v) ? { algorithm: v ?? 'auto', device: '' } : { algorithm: v ?? 'auto' })} />
+        {showDevice && (
+          <Select label="Device" description="GPU trains on the GPU worker pool." data={DEVICE_OPTIONS} value={config.device || 'cpu'}
+            allowDeselect={false} onChange={(v) => set({ device: v === 'gpu' ? 'gpu' : '' })} />
+        )}
       </Group>
       <GoLiveField value={goLive} onChange={setGoLive} />
 

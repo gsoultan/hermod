@@ -28,9 +28,10 @@ type Handler struct {
 	*handlers.Handler
 
 	// worker replaces the ML worker the environment names, and noEnvWorker
-	// drops it; tests set them.
+	// drops it; pools replaces the worker pools. Tests set them.
 	worker      *worker.Client
 	noEnvWorker bool
+	pools       *ml.Pools
 }
 
 // NewHandler wraps the shared API handler.
@@ -61,6 +62,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/vhosts/{vhost}/ml/models/{name}/train", h.EditorOnly(h.TrainModel))
 	mux.HandleFunc("GET /api/vhosts/{vhost}/ml/models/{name}/versions", h.ListVersions)
 	mux.Handle("POST /api/vhosts/{vhost}/ml/models/{name}/versions/{version}/promote", h.EditorOnly(h.PromoteVersion))
+	mux.HandleFunc("GET /api/vhosts/{vhost}/ml/scripts", h.ListScripts)
+	mux.Handle("GET /api/vhosts/{vhost}/ml/scripts/{name}", h.EditorOnly(h.GetScript))
+	mux.Handle("PUT /api/vhosts/{vhost}/ml/scripts/{name}", h.AdminOnly(h.PutScript))
+	mux.Handle("DELETE /api/vhosts/{vhost}/ml/scripts/{name}", h.AdminOnly(h.DeleteScript))
 }
 
 // service is the registry's ML service when there is a registry, so a model's
@@ -78,6 +83,9 @@ func (h *Handler) service() *ml.Service {
 		svc.WithWorker(h.worker)
 	case h.noEnvWorker:
 		svc.WithWorker(nil)
+	}
+	if h.pools != nil {
+		svc.WithPools(*h.pools)
 	}
 	return svc
 }
@@ -110,6 +118,9 @@ func (h *Handler) access(w http.ResponseWriter, r *http.Request, write bool) (st
 // fail maps a service error onto a status. Errors from a model server are
 // passed on as 502 with their text: the caller is debugging that server.
 func (h *Handler) fail(w http.ResponseWriter, err error) {
+	if h.failPools(w, err) {
+		return
+	}
 	switch {
 	case errors.Is(err, ml.ErrModelNotFound):
 		h.JsonError(w, "this vhost has no model by that name", http.StatusNotFound)

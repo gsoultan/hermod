@@ -115,6 +115,31 @@ finding out during a rolling restart.
 {{- if and .Values.mlWorker.token .Values.mlWorker.existingSecret -}}
 {{- fail "set either mlWorker.token or mlWorker.existingSecret, not both" -}}
 {{- end -}}
+{{- range $pool := list "customPool" "gpuPool" -}}
+{{- $p := index $.Values.mlWorker $pool -}}
+{{- if $p.enabled -}}
+{{- if not $.Values.mlWorker.enabled -}}
+{{- fail (printf "mlWorker.%s needs mlWorker.enabled: the main worker holds the datasets the pool trains on and serves the models it makes" $pool) -}}
+{{- end -}}
+{{- if and (not $p.token) (not $p.existingSecret) -}}
+{{- fail (printf "mlWorker.%s needs a token of its own (mlWorker.%s.token or existingSecret)" $pool $pool) -}}
+{{- end -}}
+{{- if and $p.token $p.existingSecret -}}
+{{- fail (printf "set either mlWorker.%s.token or mlWorker.%s.existingSecret, not both" $pool $pool) -}}
+{{- end -}}
+{{- if and $p.token (eq $p.token $.Values.mlWorker.token) -}}
+{{- fail (printf "mlWorker.%s.token must differ from mlWorker.token: the main worker's token opens every vhost's datasets and models" $pool) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if .Values.mlWorker.customPool.enabled -}}
+{{- if ne (int .Values.mlWorker.customPool.maxTrainings) 1 -}}
+{{- fail "mlWorker.customPool.maxTrainings must be 1: a custom script must not share its pod with another training's data" -}}
+{{- end -}}
+{{- if not .Values.mlWorker.customPool.networkPolicy.enabled -}}
+{{- fail "mlWorker.customPool.networkPolicy.enabled cannot be false: the pool runs uploaded code, and its NetworkPolicy is what keeps it from reaching the network" -}}
+{{- end -}}
+{{- end -}}
 {{- if and (gt (int .Values.replicaCount) 1) (not .Values.database.type) (not .Values.database.connectionSecret) -}}
 {{- fail "replicaCount > 1 needs a shared database: with the on-disk default each replica keeps its own workflows, leases and users, so they cannot coordinate" -}}
 {{- end -}}

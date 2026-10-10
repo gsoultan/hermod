@@ -108,7 +108,7 @@ func (s *Service) Train(ctx context.Context, vhost, name string, spec worker.Tra
 		return TrainResult{}, fmt.Errorf("vhost %q already has a model %q served elsewhere; train under another name", vhost, name)
 	}
 
-	v, err := w.Train(ctx, vhost, name, spec)
+	v, err := s.trainVersion(ctx, w, vhost, name, spec)
 	if err != nil {
 		return TrainResult{}, fmt.Errorf("training %q: %w", name, err)
 	}

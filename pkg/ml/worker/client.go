@@ -121,6 +121,9 @@ type TrainSpec struct {
 	Algorithm string  `json:"algorithm,omitempty"`
 	TestSize  float64 `json:"test_size,omitempty"`
 	Seed      *int    `json:"seed,omitempty"`
+	// Device is cpu (the default) or gpu. Hermod routes a gpu training to its
+	// GPU worker pool; the worker reads it as a hint for its own networks.
+	Device string `json:"device,omitempty"`
 }
 
 // Version is one trained, immutable model version and how it scored on the
@@ -141,6 +144,10 @@ type Version struct {
 		Test  int `json:"test"`
 	} `json:"rows"`
 	CreatedAt time.Time `json:"created_at"`
+	// Script is the custom script that trained this version, and Log what
+	// it printed; both are empty for a built-in algorithm.
+	Script *ScriptRef `json:"script,omitempty"`
+	Log    string     `json:"log,omitempty"`
 }
 
 // Ready reports whether the worker answers its readiness check.

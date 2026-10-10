@@ -13,9 +13,9 @@ from hermod_ml.settings import Settings
 def make_client(tmp_path):
     """Build a TestClient for an app with the given Settings overrides."""
 
-    def build(**overrides) -> TestClient:
+    def build(sandbox=None, **overrides) -> TestClient:
         settings = Settings(data_dir=tmp_path / "data", **overrides)
-        return TestClient(create_app(settings))
+        return TestClient(create_app(settings, sandbox=sandbox))
 
     return build
 

@@ -43,6 +43,22 @@ request that does not carry it in the `X-API-Key` header. It used to accept
 every request. Before upgrading, make sure each sender of a keyed webhook sends
 the header, or clear the key on the source.
 
+### Added — custom training scripts and GPU worker pools
+
+An Administrator can save Python training scripts per vhost
+(`train(df, spec)` and `export_onnx(model, spec)`) on a new **Scripts** tab of
+the Models page, and an Editor trains with one as the algorithm
+`custom:<name>`. Scripts are versioned by SHA-256, audited when saved or
+deleted, and stored in SQL or MongoDB. The exported ONNX is checked against the
+training's features and labels and test-run before it is kept. This is **off by
+default** (`HERMOD_ML_CUSTOM_SCRIPTS`) and runs only on a worker pool of its own
+(`HERMOD_ML_CUSTOM_WORKER_URL`; Helm: `mlWorker.customPool`), in a sandboxed
+process with CPU, memory, file, process and time limits, on a pod with no
+network egress. A training can also ask for `"device": "gpu"`, which runs it on
+a GPU pool (`HERMOD_ML_GPU_WORKER_URL`; Helm: `mlWorker.gpuPool`); serving
+stays on the main worker. See [docs/ml.md](docs/ml.md#custom-training-scripts),
+including what the sandbox does not protect against.
+
 ### Added — train models in Hermod
 
 Hermod trains models now, through **hermod-ml**, a worker that runs beside it

@@ -28,6 +28,7 @@ const (
 	QueryInitVHostsTable             = "InitVHostsTable"
 	QueryInitVHostSecretsTable       = "InitVHostSecretsTable"
 	QueryInitMLModelsTable           = "InitMLModelsTable"
+	QueryInitMLScriptsTable          = "InitMLScriptsTable"
 	QueryInitWorkersTable            = "InitWorkersTable"
 	QueryInitLogsTable               = "InitLogsTable"
 	QueryInitWorkflowsTable          = "InitWorkflowsTable"
@@ -102,6 +103,13 @@ const (
 	QuerySetMLModelServingKey  = "SetMLModelServingKey"
 	QueryDeleteMLModel         = "DeleteMLModel"
 	QueryDeleteMLModelsOfVHost = "DeleteMLModelsOfVHost"
+
+	QueryListMLScripts          = "ListMLScripts"
+	QueryListMLScriptVersions   = "ListMLScriptVersions"
+	QueryGetLatestMLScript      = "GetLatestMLScript"
+	QueryInsertMLScript         = "InsertMLScript"
+	QueryDeleteMLScript         = "DeleteMLScript"
+	QueryDeleteMLScriptsOfVHost = "DeleteMLScriptsOfVHost"
 
 	// Workflows
 	QueryListWorkflows        = "ListWorkflows"
@@ -300,6 +308,19 @@ var commonQueries = map[string]string{
 			updated_by TEXT,
 			created_at TIMESTAMP,
 			updated_at TIMESTAMP
+		)`,
+	// One row per script version. id is vhost + "/" + name + "/" + version,
+	// so two saves racing for the same next version cannot both land.
+	QueryInitMLScriptsTable: `CREATE TABLE IF NOT EXISTS ml_scripts (
+			id TEXT PRIMARY KEY,
+			vhost TEXT,
+			name TEXT,
+			version INTEGER,
+			sha256 TEXT,
+			source TEXT,
+			description TEXT,
+			created_by TEXT,
+			created_at TIMESTAMP
 		)`,
 	QueryInitWorkersTable: `CREATE TABLE IF NOT EXISTS workers (
 			id TEXT PRIMARY KEY,
@@ -614,6 +635,13 @@ var commonQueries = map[string]string{
 	QuerySetMLModelServingKey:  "UPDATE ml_models SET serving_key_hash = ? WHERE id = ?",
 	QueryDeleteMLModel:         "DELETE FROM ml_models WHERE id = ?",
 	QueryDeleteMLModelsOfVHost: "DELETE FROM ml_models WHERE vhost = ?",
+
+	QueryListMLScripts:          "SELECT name, version, sha256, description, created_by, created_at FROM ml_scripts WHERE vhost = ? ORDER BY name, version DESC",
+	QueryListMLScriptVersions:   "SELECT version, sha256, description, created_by, created_at FROM ml_scripts WHERE vhost = ? AND name = ? ORDER BY version DESC",
+	QueryGetLatestMLScript:      "SELECT version, sha256, source, description, created_by, created_at FROM ml_scripts WHERE vhost = ? AND name = ? AND version = (SELECT MAX(version) FROM ml_scripts WHERE vhost = ? AND name = ?)",
+	QueryInsertMLScript:         "INSERT INTO ml_scripts (id, vhost, name, version, sha256, source, description, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryDeleteMLScript:         "DELETE FROM ml_scripts WHERE vhost = ? AND name = ?",
+	QueryDeleteMLScriptsOfVHost: "DELETE FROM ml_scripts WHERE vhost = ?",
 	QueryGetVHost:              "SELECT id, name, description, created_at FROM vhosts WHERE id = ?",
 
 	QueryListWorkflows:        "SELECT id, name, vhost, active, status, worker_id, owner_id, lease_until, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request, total_processed, total_errors, total_lag, created_at FROM workflows",

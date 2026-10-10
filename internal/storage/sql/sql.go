@@ -202,6 +202,7 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		s.queries.get(QueryInitVHostsTable),
 		s.queries.get(QueryInitVHostSecretsTable),
 		s.queries.get(QueryInitMLModelsTable),
+		s.queries.get(QueryInitMLScriptsTable),
 		s.queries.get(QueryInitWorkersTable),
 		s.queries.get(QueryInitApprovalsTable),
 		s.queries.get(QueryInitSettingsTable),
@@ -1491,9 +1492,9 @@ func (s *sqlStorage) UpdateVHost(ctx context.Context, vhost storage.VHost) error
 	return err
 }
 
-// DeleteVHost removes the vhost and the secrets and models it holds. Both are
-// keyed by the vhost's name, so one left behind would be inherited by the next
-// vhost created under that name.
+// DeleteVHost removes the vhost and the secrets, models and training scripts
+// it holds. All are keyed by the vhost's name, so one left behind would be
+// inherited by the next vhost created under that name.
 func (s *sqlStorage) DeleteVHost(ctx context.Context, id string) error {
 	vhost, err := s.GetVHost(ctx, id)
 	if err != nil && !errors.Is(err, storage.ErrNotFound) {
@@ -1504,6 +1505,9 @@ func (s *sqlStorage) DeleteVHost(ctx context.Context, id string) error {
 			return err
 		}
 		if err := s.DeleteMLModels(ctx, vhost.Name); err != nil {
+			return err
+		}
+		if err := s.DeleteMLScripts(ctx, vhost.Name); err != nil {
 			return err
 		}
 	}

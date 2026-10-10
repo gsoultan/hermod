@@ -112,10 +112,21 @@ export function useVHostModels(vhost: string | undefined) {
 // Training: datasets on Hermod's ML worker, and the models trained on them.
 // ---------------------------------------------------------------------------
 
+/** The training options this server offers (internal/ml Capabilities). */
+export interface WorkerCapabilities {
+  /** Custom scripts are on and their worker pool is configured: they can train. */
+  custom_scripts: boolean
+  /** Custom scripts are on, pool or not: they can be saved and read. */
+  scripts_enabled: boolean
+  /** A GPU worker pool is configured. */
+  gpu: boolean
+}
+
 export interface WorkerStatus {
   configured: boolean
   ready: boolean
   error?: string
+  capabilities?: WorkerCapabilities
 }
 
 export interface DatasetColumn {
@@ -132,7 +143,9 @@ export interface DatasetInfo {
 }
 
 export type TrainTask = 'auto' | 'classification' | 'regression'
-export type TrainAlgorithm = 'auto' | 'random_forest' | 'gradient_boosting' | 'linear' | 'xgboost'
+/** A built-in algorithm, or `custom:<script>` for one of the vhost's training scripts. */
+export type TrainAlgorithm = 'auto' | 'random_forest' | 'gradient_boosting' | 'linear' | 'xgboost' | `custom:${string}`
+export type TrainDevice = 'cpu' | 'gpu'
 
 export interface GoLive {
   mode: 'never' | 'always' | 'if'
@@ -147,6 +160,8 @@ export interface TrainSpec {
   features?: string[]
   task?: TrainTask
   algorithm?: TrainAlgorithm
+  /** 'gpu' trains on the GPU worker pool; empty or 'cpu' on the main worker. */
+  device?: TrainDevice
   go_live: GoLive
 }
 
@@ -161,6 +176,8 @@ export interface ModelVersion {
   metrics: Record<string, number>
   rows: { train: number; test: number }
   created_at: string
+  /** The custom script that trained the version, when one did. */
+  script?: { name: string; sha256: string }
 }
 
 export interface TrainResult {
@@ -186,6 +203,26 @@ export const ALGORITHM_OPTIONS: Array<{ value: TrainAlgorithm; label: string }> 
   { value: 'linear', label: 'Linear / logistic regression' },
   { value: 'xgboost', label: 'XGBoost' },
 ]
+
+export const DEVICE_OPTIONS: Array<{ value: TrainDevice; label: string }> = [
+  { value: 'cpu', label: 'CPU' },
+  { value: 'gpu', label: 'GPU' },
+]
+
+/** The algorithm that trains with a custom script. */
+export const CUSTOM_PREFIX = 'custom:'
+export const isCustomAlgorithm = (a: string | undefined | null) => !!a && a.startsWith(CUSTOM_PREFIX)
+
+/**
+ * The algorithms a training can pick: the built-in ones, then the vhost's
+ * scripts when the server can train with them.
+ */
+export function algorithmOptions(scripts: MLScript[], caps?: WorkerCapabilities) {
+  const custom = caps?.custom_scripts
+    ? scripts.map((s) => ({ value: `${CUSTOM_PREFIX}${s.name}`, label: `Script: ${s.name}` }))
+    : []
+  return [...ALGORITHM_OPTIONS, ...custom]
+}
 
 /** The database source types a dataset can be read from. */
 export const SQL_SOURCE_TYPES = ['postgres', 'yugabyte', 'mysql', 'mariadb', 'mssql', 'oracle', 'sqlite', 'clickhouse', 'db2']
@@ -300,6 +337,87 @@ export function useDataset(vhost: string | undefined, name: string | undefined |
     queryKey: ['ml-dataset', vhost ?? '', name ?? ''],
     queryFn: ({ signal }) => getDataset(vhost as string, name as string, signal),
     enabled: isModelVHost(vhost) && !!name,
+    retry: false,
+    staleTime: 30_000,
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Custom training scripts: Python an Administrator saves per vhost, run in a
+// sandbox on their own worker pool. Versioned by the SHA-256 of the source.
+// ---------------------------------------------------------------------------
+
+/** One version of a script (internal/storage MLScript). Listings leave out source. */
+export interface MLScript {
+  vhost: string
+  name: string
+  version: number
+  sha256: string
+  source?: string
+  description?: string
+  created_by?: string
+  created_at: string
+}
+
+/** The worker refuses larger scripts (storage.MaxMLScriptBytes). */
+export const MAX_SCRIPT_BYTES = 256 * 1024
+
+export const SCRIPT_TEMPLATE = `import numpy as np
+
+
+def train(df, spec):
+    """Fit and return a model. df is a pandas DataFrame of spec["features"]
+    and spec["target"]; spec["task"] is "classification" or "regression"."""
+    raise NotImplementedError
+
+
+def export_onnx(model, spec):
+    """Return the model as ONNX bytes: one [n, 1] input per feature, named
+    after it; a classifier outputs the label, then probabilities in
+    spec["labels"] order."""
+    raise NotImplementedError
+`
+
+export const scriptsKey = (vhost: string) => ['ml-scripts', vhost] as const
+export const scriptKey = (vhost: string, name: string) => ['ml-script', vhost, name] as const
+
+const scriptsUrl = (vhost: string) => `/api/vhosts/${encodeURIComponent(vhost)}/ml/scripts`
+const scriptUrl = (vhost: string, name: string) => `${scriptsUrl(vhost)}/${encodeURIComponent(name)}`
+
+export async function listScripts(vhost: string, signal?: AbortSignal): Promise<MLScript[]> {
+  const res = await apiFetch(scriptsUrl(vhost), { signal, silent: true })
+  const body = await res.json()
+  return (body?.data ?? []) as MLScript[]
+}
+
+/** A script's latest version with its source, and every version, newest first. */
+export async function getScript(vhost: string, name: string, signal?: AbortSignal): Promise<{ script: MLScript; versions: MLScript[] }> {
+  const res = await apiFetch(scriptUrl(vhost, name), { signal, silent: true })
+  const body = await res.json()
+  return { script: body?.script as MLScript, versions: (body?.versions ?? []) as MLScript[] }
+}
+
+/** Saves source as the script's next version; the latest version's own source saves nothing new. */
+export async function saveScript(vhost: string, name: string, source: string, description?: string): Promise<MLScript> {
+  const res = await apiFetch(scriptUrl(vhost, name), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source, description: description ?? '' }),
+    silent: true,
+  })
+  return (await res.json()) as MLScript
+}
+
+export async function deleteScript(vhost: string, name: string): Promise<void> {
+  await apiFetch(scriptUrl(vhost, name), { method: 'DELETE', silent: true })
+}
+
+/** The vhost's scripts, for the algorithm pickers; empty unless the server has scripts on. */
+export function useVHostScripts(vhost: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: scriptsKey(vhost ?? ''),
+    queryFn: ({ signal }) => listScripts(vhost as string, signal).catch(() => [] as MLScript[]),
+    enabled: enabled && isModelVHost(vhost),
     retry: false,
     staleTime: 30_000,
   })

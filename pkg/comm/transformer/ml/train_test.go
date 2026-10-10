@@ -42,7 +42,7 @@ func TestTrainSendsTheSpecAndWritesTheResult(t *testing.T) {
 	reg := &fakeTrainer{reply: map[string]any{"model": "churn", "version": "4", "live": true, "metrics": map[string]any{"score": 0.88}}}
 	out, err := runTrain(t, reg, "tenant-a", map[string]any{
 		"model": "churn", "dataset": "customers", "target": "churned",
-		"features": `["age","plan"]`, "task": "classification", "algorithm": "xgboost",
+		"features": `["age","plan"]`, "task": "classification", "algorithm": "xgboost", "device": "gpu",
 		"goLive": "if", "goLiveMetric": "f1", "goLiveMin": "0.8", "goLiveMax": 0.99,
 		"sourceId": "src-1", "query": "SELECT * FROM customers", "maxRows": "5000",
 	})
@@ -54,7 +54,7 @@ func TestTrainSendsTheSpecAndWritesTheResult(t *testing.T) {
 	}
 	want := map[string]any{
 		"dataset": "customers", "target": "churned", "features": []string{"age", "plan"},
-		"task": "classification", "algorithm": "xgboost",
+		"task": "classification", "algorithm": "xgboost", "device": "gpu",
 		"goLive":   map[string]any{"mode": "if", "metric": "f1", "min": 0.8, "max": 0.99},
 		"sourceId": "src-1", "query": "SELECT * FROM customers", "maxRows": 5000,
 	}
@@ -92,6 +92,9 @@ func TestTrainDefaultsAndCommaFeatures(t *testing.T) {
 	}
 	if _, ok := reg.req["sourceId"]; ok {
 		t.Error("a refresh was asked for with no source")
+	}
+	if _, ok := reg.req["device"]; ok {
+		t.Error("a device was asked for when the node names none")
 	}
 	if out.Data()["run"] == nil {
 		t.Error("the result is not under the named output field")
