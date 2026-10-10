@@ -1236,6 +1236,10 @@ func (r *Registry) createSinkInternal(ctx context.Context, cfg factory.SinkConfi
 		return failover.NewFailoverSinkWithStrategy(primarySink, fallbacks, strategy), nil
 	}
 
+	if cfg.Type == "ml_dataset" {
+		return r.createMLDatasetSink(cfg)
+	}
+
 	if r.sinkFactory != nil {
 		return r.sinkFactory(cfg)
 	}

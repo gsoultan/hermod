@@ -219,6 +219,13 @@ export const NODE_CATEGORIES = [
     ]
   },
   {
+    title: 'ML Datasets',
+    group: 'sinks',
+    items: [
+      { type: 'sink', refId: 'new', label: 'Collect Dataset', subType: 'ml_dataset', icon: IconSchool, color: 'grape', description: 'Append records to a dataset for training' },
+    ]
+  },
+  {
     title: 'Messaging & Streams',
     group: 'sinks',
     items: [
