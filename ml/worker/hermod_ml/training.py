@@ -61,6 +61,7 @@ from . import deep
 from .datasets import BOOL, NUMBER, STRING, DatasetStore, is_null, to_text
 from .errors import ApiError, bad_request, not_found
 from .names import validate_name
+from .stats import feature_stats
 
 MIN_ROWS = 10
 MAX_AUTO_CLASSES = 20  # integer targets with at most this many values are classes
@@ -585,6 +586,8 @@ class Trainer:
         ).reset_index(drop=True)
 
         X_train, X_test, y_train, y_test = self._split(X, y, task, req)
+        # Before the fill below, so missing values are counted as missing.
+        training_stats = feature_stats(X_train, feature_types)
 
         # Medians come from the training split only and are rounded to float32
         # so inference fills exactly the value the model was checked with.
@@ -625,6 +628,7 @@ class Trainer:
             "features": features,
             "feature_types": feature_types,
             "fill": fill,
+            "feature_stats": training_stats,
         }
         if task == "classification":
             meta["labels"] = [c.item() if hasattr(c, "item") else c for c in pipeline.classes_]

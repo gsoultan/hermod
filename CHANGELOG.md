@@ -43,6 +43,19 @@ request that does not carry it in the `X-API-Key` header. It used to accept
 every request. Before upgrading, make sure each sender of a keyed webhook sends
 the header, or clear the key on the source.
 
+### Added — watch models in use: prediction log and drift
+
+A model can log what it is asked and answers: a share of its predictions, with
+the fields you name masked, kept in the log store for as long as you set
+(7 days by default) and listed under **Monitoring** on the Models page. It is
+off until you turn it on, and never slows or fails a prediction. A model
+trained in Hermod also reports drift: each version keeps statistics of its
+training data, and Hermod compares live inputs against them every few minutes
+as a population stability index per feature
+(`hermod_ml_feature_drift{vhost,model,feature}`), with a warn and an alert
+threshold per model and a notification when a feature passes the alert one.
+See [docs/ml.md](docs/ml.md#monitoring).
+
 ### Added — neural networks with PyTorch and Keras
 
 Two more training algorithms, `pytorch_mlp` and `keras_mlp`: a multilayer

@@ -29,6 +29,7 @@ import (
 	"github.com/gsoultan/hermod/internal/factory"
 	"github.com/gsoultan/hermod/internal/governance"
 	"github.com/gsoultan/hermod/internal/mesh"
+	"github.com/gsoultan/hermod/internal/ml/monitor"
 	"github.com/gsoultan/hermod/internal/notification"
 	"github.com/gsoultan/hermod/internal/optimizer"
 	"github.com/gsoultan/hermod/internal/selfheal"
@@ -95,6 +96,9 @@ type Registry struct {
 
 	// mlWorker replaces the ML worker the environment names; tests set it.
 	mlWorker *worker.Client
+	// mlMon watches every prediction this process makes; see mlMonitor.
+	mlMon     *monitor.Monitor
+	mlMonOnce sync.Once
 
 	// storeMu guards storage and logStorage, and nothing else.
 	//
@@ -498,6 +502,8 @@ func (r *Registry) purgeRetention() {
 		!errors.Is(err, hermod.ErrNotSupported) {
 		r.logger.Error("Registry: purging dashboard history failed", "error", err)
 	}
+
+	r.purgeMLPredictionLogs(ctx, store, logStore)
 
 	workflows, total, err := store.ListWorkflows(ctx, storage.CommonFilter{Limit: workflowPageForRetention})
 	if err != nil {
