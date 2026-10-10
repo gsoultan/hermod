@@ -6,6 +6,7 @@ import { apiFetch } from '@/api';
 import { useWorkflowStore } from '../store/useWorkflowStore';
 import type { Source, Sink } from '@/types';
 import { resolveSampleSource, sampleTableFor, simulationInputs } from '../sampleCapture';
+import { persistedSnapshot } from '../store/persistedSnapshot';
 
 const API_BASE = '/api';
 
@@ -220,17 +221,22 @@ export function useWorkflowMutations(
           config: e.data
         })),
       };
-      if (isNew) {
-        return apiFetch(`${API_BASE}/workflows`, {
-          method: 'POST',
-          body: JSON.stringify(payload)
-        });
-      } else {
-        return apiFetch(`${API_BASE}/workflows/${id}`, {
-          method: 'PUT',
-          body: JSON.stringify(payload)
-        });
-      }
+      // Taken from the same state as the payload: edits made while the
+      // request is in flight are still unsaved when it returns.
+      const sent = persistedSnapshot(s);
+      const res = isNew
+        ? await apiFetch(`${API_BASE}/workflows`, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+          })
+        : await apiFetch(`${API_BASE}/workflows/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(payload)
+          });
+      // The server now holds what was sent, so a newer version arriving later
+      // is measured against it rather than against the version first loaded.
+      useWorkflowStore.setState({ persistedBaseline: sent });
+      return res;
     },
     onSuccess: () => {
       notifications.show({ title: 'Success', message: 'Workflow saved successfully', color: 'green' });

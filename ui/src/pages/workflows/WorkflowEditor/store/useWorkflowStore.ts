@@ -28,6 +28,11 @@ export interface WorkflowState {
   dlqInspectorSink: any | null;
   testInput: string;
   testResults: any[] | null;
+  /**
+   * persistedSnapshot of the version last loaded from or saved to the server.
+   * The canvas has unsaved edits exactly when it no longer matches this.
+   */
+  persistedBaseline: string | null;
   selectedNode: Node | null;
   quickAddSource: { nodeId: string; handleId: string | null } | null;
   
@@ -155,6 +160,7 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   dlqInspectorSink: null,
   testInput: '{\n  "payload": "test"\n}',
   testResults: null,
+  persistedBaseline: null,
   selectedNode: null,
   quickAddSource: null,
   traceInspectorOpened: false,
