@@ -22,7 +22,7 @@ import { normalizeWorkflowStatus } from '@/utils/workflowStatus';
 import { downloadWorkflowExport } from '@/utils/workflowExport';
 import { 
   IconArrowLeft, IconArrowsExchange, IconChartBar, IconChevronRight, IconCircleCheck, IconCircleX, IconClock, IconEye, IconHistory, IconInfoCircle, IconRefresh, IconRotateDot, IconSearch, IconTerminal2, IconTimeline,
-  IconBug, IconBrain, IconActivity, IconListDetails, IconPlayerPlay,
+  IconBug, IconBrain, IconActivity, IconListDetails, IconPlayerPlay, IconFirstAidKit,
   IconDownload
 } from '@tabler/icons-react';
 import { WorkflowDebugger } from './WorkflowDebugger';
@@ -31,6 +31,8 @@ import { useConfirm } from '@/components/common/ConfirmProvider';
 import { useSessionStore } from '@/auth/session';
 import { ExecutionsPanel } from './executions/ExecutionsPanel';
 import { RunWithInputModal } from './executions/RunWithInputModal';
+import { ProposalsPanel } from './proposals/ProposalsPanel';
+import { useProposals } from '@/lib/proposals';
 const API_BASE = '/api';
 
 export function WorkflowDetailPage() {
@@ -45,6 +47,8 @@ export function WorkflowDetailPage() {
   const role = useSessionStore((s) => s.user?.role);
   const canEdit = role === 'Administrator' || role === 'Editor';
   const [runInputOpened, setRunInputOpened] = useState(false);
+  const { data: proposals } = useProposals(id);
+  const pendingProposals = (proposals ?? []).filter((p) => p.status === 'pending').length;
   const openRun = useCallback((runId: string) => {
     setSelectedRunID(runId);
     setActiveTab('executions');
@@ -418,6 +422,24 @@ export function WorkflowDetailPage() {
           </Group>
         </Paper>
 
+        {pendingProposals > 0 && activeTab !== 'proposals' && (
+          <Alert
+            color="blue"
+            variant="light"
+            icon={<IconFirstAidKit size="1rem" />}
+            title={`${pendingProposals} self-healing fix${pendingProposals === 1 ? ' is' : 'es are'} waiting for review`}
+          >
+            <Group justify="space-between" wrap="wrap">
+              <Text size="sm">
+                Hermod noticed repeated failures and proposed settings changes. Nothing changes until an editor approves one.
+              </Text>
+              <Button size="xs" variant="light" onClick={() => setActiveTab('proposals')}>
+                Review fixes
+              </Button>
+            </Group>
+          </Alert>
+        )}
+
         {canEdit && runInputOpened && (
           <RunWithInputModal
             opened
@@ -432,6 +454,15 @@ export function WorkflowDetailPage() {
             <Tabs.List px="md">
               <Tabs.Tab value="graph" leftSection={<IconChartBar size="1rem" />}>Graph View</Tabs.Tab>
               <Tabs.Tab value="executions" leftSection={<IconListDetails size="1rem" />}>Executions</Tabs.Tab>
+              <Tabs.Tab
+                value="proposals"
+                leftSection={<IconFirstAidKit size="1rem" />}
+                rightSection={pendingProposals > 0 ? (
+                  <Badge size="xs" circle color="blue" aria-label={`${pendingProposals} pending`}>{pendingProposals}</Badge>
+                ) : undefined}
+              >
+                Proposals
+              </Tabs.Tab>
               <Tabs.Tab value="traces" leftSection={<IconTimeline size="1rem" />}>Message Traces</Tabs.Tab>
               <Tabs.Tab value="history" leftSection={<IconHistory size="1rem" />}>History</Tabs.Tab>
               <Tabs.Tab value="logs" leftSection={<IconTerminal2 size="1rem" />}>Logs</Tabs.Tab>
@@ -460,6 +491,16 @@ export function WorkflowDetailPage() {
                     selectedRunId={selectedRunID}
                     onSelectRun={setSelectedRunID}
                   />
+                </ScrollArea>
+              )}
+            </Tabs.Panel>
+
+            <Tabs.Panel value="proposals" style={{ flex: 1, overflow: 'hidden' }}>
+              {activeTab === 'proposals' && (
+                <ScrollArea h="100%">
+                  <Box p="md">
+                    <ProposalsPanel workflowId={id} canDecide={canEdit} />
+                  </Box>
                 </ScrollArea>
               )}
             </Tabs.Panel>

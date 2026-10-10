@@ -46,7 +46,7 @@ function useWorkflow() {
   )
 }
 
-describe('Workflow detail: Executions tab', () => {
+describe('Workflow detail page: runs and proposals', () => {
   it('shows the run history and lets an editor replay', async () => {
     signInAs('Editor')
     useWorkflow()
@@ -88,6 +88,29 @@ describe('Workflow detail: Executions tab', () => {
 
     expect(await screen.findByRole('tab', { name: /executions/i, selected: true })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: 'Run' })).toBeInTheDocument()
+  })
+
+  it('calls out pending self-healing proposals and opens them for review', async () => {
+    signInAs('Editor')
+    useWorkflow()
+    server.use(
+      http.get('/api/workflows/wf-1/proposals', () =>
+        HttpResponse.json({
+          data: [{
+            id: 'p-1', workflow_id: 'wf-1', kind: 'retry_policy', title: 'Retry longer', reason: 'Timeouts',
+            patch: [{ op: 'replace', path: '/max_retries', before: 3, after: 6 }], status: 'pending', occurrences: 2,
+            created_at: '2026-10-09T10:00:00Z', last_seen_at: '2026-10-09T10:00:00Z',
+          }],
+        }),
+      ),
+    )
+    const user = userEvent.setup()
+    renderDetailPage()
+
+    expect(await screen.findByText(/1 self-healing fix is waiting for review/i)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /review fixes/i }))
+    expect(await screen.findByRole('tab', { name: /proposals/i, selected: true })).toBeInTheDocument()
+    expect(await screen.findByText('Retry longer')).toBeInTheDocument()
   })
 
   it('does not offer Run with input to a Viewer', async () => {
