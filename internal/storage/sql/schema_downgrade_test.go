@@ -38,6 +38,17 @@ import (
 // for a later vhost of the same name, which can only limit that vhost, never
 // grant it anything.
 //
+// The note before that: adding retrain, retrain_status, training_owner and
+// training_until to ml_models, a trained model's retrain policy, what its last
+// retraining did, and the claim one Hermod holds while it trains the model.
+// currentSchemaVersion was left alone deliberately. All four are nullable, and
+// the previous release names its ml_models columns in both directions: its
+// insert and its update of a definition set a fixed list that does not mention
+// them, and its reads select a fixed list that does not read them. So a
+// rollback keeps every model callable and trainable and simply stops
+// retraining on a schedule — nothing in it reads a policy — until the newer
+// binary returns, with the policies still there.
+//
 // The note before that: adding the ml_models table, the models a vhost can call from
 // the Predict node and the serving endpoints. currentSchemaVersion was left
 // alone deliberately, for the reasons the vhost_secrets note below gives: it is
@@ -134,7 +145,7 @@ import (
 // unpopulated — a gap in a chart that fills itself in when the newer binary
 // returns — so bumping the version would buy nothing and cost a refused
 // start-up during exactly the rollback it was supposed to make safe.
-const knownSchemaFingerprint = "b28dcf01ba395c5383c7f6578b14d79cacca93edb9a85a5d77231d837cbb6942"
+const knownSchemaFingerprint = "97c231cd90ef17ba16d51fdbe1f19eb4575e501f59568f7cb9a7c6647bd7c5b5"
 
 func TestSchemaVersionIsReconsideredWhenTheSchemaChanges(t *testing.T) {
 	if got := SchemaFingerprint(); got != knownSchemaFingerprint {

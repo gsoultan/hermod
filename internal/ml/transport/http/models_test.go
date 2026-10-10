@@ -25,6 +25,8 @@ type modelAPIStore struct {
 	models map[string]storage.MLModel
 	quotas map[string]storage.MLQuotas
 	audits []storage.AuditLog
+	// claimedBy holds the one training claim (retrain_test.go).
+	claimedBy string
 }
 
 func (s *modelAPIStore) CreateAuditLog(_ context.Context, l storage.AuditLog) error {

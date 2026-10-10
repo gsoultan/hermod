@@ -21,15 +21,11 @@ const (
 )
 
 // GoLive says whether a newly trained version is put live. The zero value
-// keeps it off, the safe choice for a caller that says nothing.
-type GoLive struct {
-	Mode string `json:"mode"`
-	// Metric is the metric GoLiveIf checks; empty means "score", which is
-	// accuracy for a classifier and R² for a regression.
-	Metric string   `json:"metric,omitempty"`
-	Min    *float64 `json:"min,omitempty"`
-	Max    *float64 `json:"max,omitempty"`
-}
+// keeps it off, the safe choice for a caller that says nothing. It is the
+// rule storage keeps with a retrain policy (storage.MLGoLive): Mode, and
+// Metric with Min and Max for GoLiveIf, where an empty Metric means "score",
+// which is accuracy for a classifier and R² for a regression.
+type GoLive storage.MLGoLive
 
 // Validate reports what is wrong with the rule.
 func (g GoLive) Validate() error {
@@ -83,9 +79,65 @@ type TrainResult struct {
 // Train trains a new version of a vhost's model on the worker and registers
 // the model, if it is new. Whether the version goes live is up to rule; a
 // version kept off stays on the worker, and Promote can put it live later.
+//
+// One training of a model runs at a time, across every Hermod sharing the
+// store: while another holds the model, Train returns ErrTrainingRunning.
+//
 // The training takes one of the vhost's training slots, and a new model
 // counts against its model quota.
 func (s *Service) Train(ctx context.Context, vhost, name string, spec worker.TrainSpec, rule GoLive, by string) (TrainResult, error) {
+	release, err := s.claimTraining(ctx, vhost, name, newClaimOwner())
+	if err != nil {
+		return TrainResult{}, err
+	}
+	defer release()
+	return s.train(ctx, vhost, name, spec, rule, by)
+}
+
+// trainingSlot takes one of the vhost's training slots, refusing first a new
+// model over the vhost's model quota: before the worker spends minutes on it.
+// The model quota is checked again at registration, when another model may
+// have taken the last place. done gives the slot back.
+func (s *Service) trainingSlot(ctx context.Context, vhost, name string, isNew bool) (done func(), err error) {
+	q, err := s.Quotas(ctx, vhost)
+	if err != nil {
+		return nil, err
+	}
+	if isNew {
+		if err := s.checkNewModel(ctx, vhost, name, q.MaxModels); err != nil {
+			return nil, err
+		}
+	}
+	return startTraining(vhost, q.MaxConcurrentTrainings)
+}
+
+// register saves a trained model: a new one through PutModel, which holds it
+// to the vhost's model quota, an existing one as it is.
+func (s *Service) register(ctx context.Context, ms storage.MLModelStore, m storage.MLModel, isNew bool) error {
+	if isNew {
+		return s.PutModel(ctx, m)
+	}
+	return ms.PutMLModel(ctx, m)
+}
+
+// trainedModel is the model a training registers its version on: the
+// vhost's model of that name, or a new one when it has none (isNew). A model
+// of that name served elsewhere is refused.
+func trainedModel(ctx context.Context, ms storage.MLModelStore, vhost, name string) (m storage.MLModel, isNew bool, err error) {
+	m, err = ms.GetMLModel(ctx, vhost, name)
+	switch {
+	case errors.Is(err, storage.ErrNotFound):
+		return storage.MLModel{VHost: vhost, Name: name, Backend: storage.MLBackendWorker}, true, nil
+	case err != nil:
+		return m, false, err
+	case m.Backend != storage.MLBackendWorker:
+		return m, false, fmt.Errorf("vhost %q already has a model %q served elsewhere; train under another name", vhost, name)
+	}
+	return m, false, nil
+}
+
+// train is Train for a caller that already holds the model's claim.
+func (s *Service) train(ctx context.Context, vhost, name string, spec worker.TrainSpec, rule GoLive, by string) (TrainResult, error) {
 	w, err := s.Worker()
 	if err != nil {
 		return TrainResult{}, err
@@ -100,32 +152,20 @@ func (s *Service) Train(ctx context.Context, vhost, name string, spec worker.Tra
 	if err != nil {
 		return TrainResult{}, err
 	}
-	m, err := ms.GetMLModel(ctx, vhost, name)
-	isNew := errors.Is(err, storage.ErrNotFound)
-	switch {
-	case isNew:
-		m = storage.MLModel{VHost: vhost, Name: name, Backend: storage.MLBackendWorker}
-	case err != nil:
-		return TrainResult{}, err
-	case m.Backend != storage.MLBackendWorker:
-		return TrainResult{}, fmt.Errorf("vhost %q already has a model %q served elsewhere; train under another name", vhost, name)
-	}
-	q, err := s.Quotas(ctx, vhost)
+	m, isNew, err := trainedModel(ctx, ms, vhost, name)
 	if err != nil {
 		return TrainResult{}, err
 	}
-	if isNew {
-		// Refused before the worker spends minutes on it; checked again at
-		// registration, when another model may have taken the last place.
-		if err := s.checkNewModel(ctx, vhost, name, q.MaxModels); err != nil {
-			return TrainResult{}, err
-		}
-	}
-	done, err := startTraining(vhost, q.MaxConcurrentTrainings)
+	done, err := s.trainingSlot(ctx, vhost, name, isNew)
 	if err != nil {
 		return TrainResult{}, err
 	}
 	defer done()
+
+	// How many rows the training sees, for the next "after N new rows". Read
+	// before it starts, so rows added while it runs count as new; a dataset
+	// that cannot be read leaves the count where it was.
+	rows, rowsErr := w.Dataset(ctx, vhost, spec.Dataset)
 
 	v, err := w.Train(ctx, vhost, name, spec)
 	if err != nil {
@@ -144,13 +184,11 @@ func (s *Service) Train(ctx context.Context, vhost, name string, spec worker.Tra
 		m.Description = fmt.Sprintf("Predicts %s from dataset %s", v.Target, v.Dataset)
 	}
 	m.UpdatedBy = by
-	if isNew {
-		err = s.PutModel(ctx, m)
-	} else {
-		err = ms.PutMLModel(ctx, m)
-	}
-	if err != nil {
+	if err := s.register(ctx, ms, m, isNew); err != nil {
 		return TrainResult{}, fmt.Errorf("version %s of %q was trained but not registered: %w", v.Version, name, err)
+	}
+	if rowsErr == nil {
+		s.recordTrainedRows(ctx, vhost, name, rows.Rows)
 	}
 	return TrainResult{Model: m, Version: v, Live: live, Reason: reason}, nil
 }

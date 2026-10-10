@@ -6,7 +6,7 @@ import { BaseNode, PlusHandle, TargetHandle } from './BaseNode';
 import { branchHandleId } from './branchHandleId';
 import { useState, memo } from 'react';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
-import { IconArrowsSplit, IconChecklist, IconClock, IconCloud, IconCode, IconCopy, IconDatabase, IconDatabaseSearch, IconEye, IconFilter, IconGitBranch, IconGitMerge, IconList, IconLock, IconLockOpen, IconMail, IconNote, IconPlaylist, IconSearch, IconShieldLock, IconSparkles, IconTerminal2, IconTextScan2, IconTrash, IconVariable, IconVector } from '@tabler/icons-react';
+import { IconAlertTriangle, IconArrowsSplit, IconBinary, IconChartHistogram, IconChecklist, IconClock, IconCloud, IconCode, IconCopy, IconDatabase, IconDatabaseSearch, IconEye, IconFilter, IconGitBranch, IconGitMerge, IconList, IconLock, IconLockOpen, IconMail, IconNote, IconPlaylist, IconScale, IconSearch, IconShieldLock, IconSparkles, IconTerminal2, IconTextScan2, IconTimeline, IconTrash, IconVariable, IconVector } from '@tabler/icons-react';
 const ValidatorNodeImpl = ({ id, data, selected }: any) => {
   return (
     <BaseNode id={id} type="Validator" color="orange" icon={IconChecklist} data={data} selected={selected}>
@@ -45,6 +45,11 @@ const TransformationNodeImpl = ({ id, data, selected }: any) => {
       case 'ai_extract': return IconTextScan2;
       case 'ai_embed': return IconVector;
       case 'ai_retrieve': return IconDatabaseSearch;
+      case 'scale': return IconScale;
+      case 'encode': return IconBinary;
+      case 'bucketize': return IconChartHistogram;
+      case 'rolling': return IconTimeline;
+      case 'anomaly_score': return IconAlertTriangle;
       default: return IconFilter;
     }
   };
@@ -79,6 +84,11 @@ const TransformationNodeImpl = ({ id, data, selected }: any) => {
       case 'ai_extract': return 'AI Extract';
       case 'ai_embed': return 'AI Embed';
       case 'ai_retrieve': return 'AI Retrieve';
+      case 'scale': return 'Scale';
+      case 'encode': return 'Encode';
+      case 'bucketize': return 'Bucketize';
+      case 'rolling': return 'Rolling Features';
+      case 'anomaly_score': return 'Anomaly Score';
       default: return 'Transformation';
     }
   };

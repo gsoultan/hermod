@@ -1,0 +1,54 @@
+{
+  "_comment": [
+    "array_len, array_join, array_contains, first and last, as the engine runs",
+    "them. Every file in this directory is read by",
+    "pkg/infra/evaluator/function_fixture_test.go; each case is a whole",
+    "expression evaluated against `source`.",
+    "",
+    "A list is a list, or text holding a JSON list -- a text column, or a body",
+    "that arrived as a string. Anything else is not a list and answers null.",
+    "array_contains compares as eq does, as text, so 1 and \"1\" are one item;",
+    "array_join writes each item as concat does and joins with a comma unless",
+    "told otherwise."
+  ],
+  "source": {
+    "tags": ["new", "sale", "red"],
+    "nums": [3, 1, 2],
+    "empty": [],
+    "text_list": "[\"x\",\"y\"]",
+    "word": "abc",
+    "mixed": [1, "1", true, null, { "a": 1 }]
+  },
+  "cases": [
+    { "name": "array_len: a list", "expr": "array_len(source.tags)", "want": 3 },
+    { "name": "array_len: an empty list", "expr": "array_len(source.empty)", "want": 0 },
+    { "name": "array_len: a list in JSON text", "expr": "array_len(source.text_list)", "want": 2 },
+    { "name": "array_len: text is not a list", "expr": "array_len(source.word)", "want": null },
+    { "name": "array_len: a missing field", "expr": "array_len(source.missing)", "want": null },
+    { "name": "array_len: no arguments", "expr": "array_len()", "want": null },
+
+    { "name": "array_join: a separator", "expr": "array_join(source.tags, ', ')", "want": "new, sale, red" },
+    { "name": "array_join: a comma by default", "expr": "array_join(source.tags)", "want": "new,sale,red" },
+    { "name": "array_join: numbers", "expr": "array_join(source.nums, '-')", "want": "3-1-2" },
+    { "name": "array_join: every item written as concat writes it", "expr": "array_join(source.mixed, '|')", "want": "1|1|true||{\"a\":1}" },
+    { "name": "array_join: an empty list", "expr": "array_join(source.empty, ',')", "want": "" },
+    { "name": "array_join: text is not a list", "expr": "array_join(source.word, ',')", "want": null },
+
+    { "name": "array_contains: an item", "expr": "array_contains(source.tags, 'sale')", "want": true },
+    { "name": "array_contains: not an item", "expr": "array_contains(source.tags, 'blue')", "want": false },
+    { "name": "array_contains: a number", "expr": "array_contains(source.nums, 1)", "want": true },
+    { "name": "array_contains: a number as text, as eq compares", "expr": "array_contains(source.nums, '1')", "want": true },
+    { "name": "array_contains: a list in JSON text", "expr": "array_contains(source.text_list, 'y')", "want": true },
+    { "name": "array_contains: text is not a list", "expr": "array_contains(source.word, 'a')", "want": null },
+    { "name": "array_contains: nothing to look for", "expr": "array_contains(source.tags)", "want": null },
+
+    { "name": "first: the first item", "expr": "first(source.tags)", "want": "new" },
+    { "name": "first: an empty list", "expr": "first(source.empty)", "want": null },
+    { "name": "first: text is not a list", "expr": "first(source.word)", "want": null },
+    { "name": "first: no arguments", "expr": "first()", "want": null },
+    { "name": "last: the last item", "expr": "last(source.tags)", "want": "red" },
+    { "name": "last: a list in JSON text", "expr": "last(source.text_list)", "want": "y" },
+    { "name": "last: an empty list", "expr": "last(source.empty)", "want": null },
+    { "name": "last: no arguments", "expr": "last()", "want": null }
+  ]
+}

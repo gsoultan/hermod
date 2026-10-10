@@ -35,8 +35,12 @@ type mlModelDoc struct {
 	MCPExposed     bool              `bson:"mcp_exposed,omitempty"`
 	ServingKeyHash string            `bson:"serving_key_hash,omitempty"`
 	UpdatedBy      string            `bson:"updated_by"`
-	CreatedAt      time.Time         `bson:"created_at"`
-	UpdatedAt      time.Time         `bson:"updated_at"`
+	// PutMLModel sets none of these, so saving a definition leaves them as
+	// they are.
+	Retrain       *storage.MLRetrainPolicy `bson:"retrain,omitempty"`
+	RetrainStatus *storage.MLRetrainStatus `bson:"retrain_status,omitempty"`
+	CreatedAt     time.Time                `bson:"created_at"`
+	UpdatedAt     time.Time                `bson:"updated_at"`
 }
 
 func mlModelID(vhost, name string) string {
@@ -50,6 +54,7 @@ func (d mlModelDoc) model() storage.MLModel {
 		TokenSecret: d.TokenSecret, InputName: d.InputName, Features: d.Features, TimeoutMs: d.TimeoutMs,
 		FeatureTypes: d.FeatureTypes, MCPExposed: d.MCPExposed,
 		ServingKeyHash: d.ServingKeyHash, Serving: d.ServingKeyHash != "",
+		Retrain: d.Retrain, RetrainStatus: d.RetrainStatus,
 		UpdatedBy: d.UpdatedBy, CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
 	}
 }

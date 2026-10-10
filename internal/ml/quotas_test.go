@@ -158,6 +158,12 @@ func (s *slowWorker) start(t *testing.T) *worker.Client {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Read to the end, so the server notices a client that goes away.
 		_, _ = io.Copy(io.Discard, r.Body)
+		// Only the training itself is held; anything else Train asks the
+		// worker first, such as the dataset's row count, is answered at once.
+		if !strings.HasSuffix(r.URL.Path, "/train") {
+			_ = json.NewEncoder(w).Encode(worker.DatasetInfo{Name: "d", Rows: 1})
+			return
+		}
 		select {
 		case s.started <- struct{}{}:
 		case <-r.Context().Done():

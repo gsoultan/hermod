@@ -109,6 +109,12 @@ const (
 	QueryUpdateMLQuotas = "UpdateMLQuotas"
 	QueryDeleteMLQuotas = "DeleteMLQuotas"
 
+	QueryListRetrainingMLModels  = "ListRetrainingMLModels"
+	QuerySetMLModelRetrain       = "SetMLModelRetrain"
+	QuerySetMLModelRetrainStatus = "SetMLModelRetrainStatus"
+	QueryClaimMLModelTraining    = "ClaimMLModelTraining"
+	QueryReleaseMLModelTraining  = "ReleaseMLModelTraining"
+
 	// Workflows
 	QueryListWorkflows        = "ListWorkflows"
 	QueryCountWorkflows       = "CountWorkflows"
@@ -296,7 +302,10 @@ var commonQueries = map[string]string{
 		)`,
 	// id is vhost + "/" + name, as for vhost_secrets: a model name cannot hold
 	// a slash. spec is the model's definition as JSON, so a new field on a
-	// model is not a schema change.
+	// model is not a schema change. retrain and retrain_status are JSON too,
+	// in columns of their own so that saving a definition leaves them alone,
+	// as it does serving_key_hash. training_owner and training_until are the
+	// claim one Hermod holds while it trains the model.
 	QueryInitMLModelsTable: `CREATE TABLE IF NOT EXISTS ml_models (
 			id TEXT PRIMARY KEY,
 			vhost TEXT,
@@ -305,7 +314,11 @@ var commonQueries = map[string]string{
 			serving_key_hash TEXT,
 			updated_by TEXT,
 			created_at TIMESTAMP,
-			updated_at TIMESTAMP
+			updated_at TIMESTAMP,
+			retrain TEXT,
+			retrain_status TEXT,
+			training_owner TEXT,
+			training_until TIMESTAMP
 		)`,
 	// One row per vhost that has quotas set; spec is the quotas as JSON, so a
 	// new quota is not a schema change.
@@ -621,13 +634,20 @@ var commonQueries = map[string]string{
 	QueryDeleteVHostSecret:  "DELETE FROM vhost_secrets WHERE id = ?",
 	QueryDeleteVHostSecrets: "DELETE FROM vhost_secrets WHERE vhost = ?",
 
-	QueryListMLModels:          "SELECT name, spec, serving_key_hash, updated_by, created_at, updated_at FROM ml_models WHERE vhost = ? ORDER BY name",
-	QueryGetMLModel:            "SELECT spec, serving_key_hash, updated_by, created_at, updated_at FROM ml_models WHERE id = ?",
-	QueryInsertMLModel:         "INSERT INTO ml_models (id, vhost, name, spec, serving_key_hash, updated_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-	QueryUpdateMLModel:         "UPDATE ml_models SET spec = ?, updated_by = ?, updated_at = ? WHERE id = ?",
-	QuerySetMLModelServingKey:  "UPDATE ml_models SET serving_key_hash = ? WHERE id = ?",
-	QueryDeleteMLModel:         "DELETE FROM ml_models WHERE id = ?",
-	QueryDeleteMLModelsOfVHost: "DELETE FROM ml_models WHERE vhost = ?",
+	QueryListMLModels:            "SELECT name, spec, serving_key_hash, updated_by, created_at, updated_at, retrain, retrain_status FROM ml_models WHERE vhost = ? ORDER BY name",
+	QueryGetMLModel:              "SELECT spec, serving_key_hash, updated_by, created_at, updated_at, retrain, retrain_status FROM ml_models WHERE id = ?",
+	QueryInsertMLModel:           "INSERT INTO ml_models (id, vhost, name, spec, serving_key_hash, updated_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryUpdateMLModel:           "UPDATE ml_models SET spec = ?, updated_by = ?, updated_at = ? WHERE id = ?",
+	QuerySetMLModelServingKey:    "UPDATE ml_models SET serving_key_hash = ? WHERE id = ?",
+	QueryDeleteMLModel:           "DELETE FROM ml_models WHERE id = ?",
+	QueryDeleteMLModelsOfVHost:   "DELETE FROM ml_models WHERE vhost = ?",
+	QueryListRetrainingMLModels:  "SELECT vhost, name, spec, serving_key_hash, updated_by, created_at, updated_at, retrain, retrain_status FROM ml_models WHERE retrain IS NOT NULL ORDER BY id",
+	QuerySetMLModelRetrain:       "UPDATE ml_models SET retrain = ? WHERE id = ?",
+	QuerySetMLModelRetrainStatus: "UPDATE ml_models SET retrain_status = ? WHERE id = ?",
+	// The workflow lease's compare-and-set (QueryAcquireLease), on the model:
+	// it takes an unclaimed or expired claim, or renews the owner's own.
+	QueryClaimMLModelTraining:   "UPDATE ml_models SET training_owner = ?, training_until = ? WHERE id = ? AND (training_owner IS NULL OR training_until IS NULL OR training_until < ? OR training_owner = ?)",
+	QueryReleaseMLModelTraining: "UPDATE ml_models SET training_owner = NULL, training_until = NULL WHERE id = ? AND training_owner = ?",
 
 	QueryGetMLQuotas:    "SELECT spec, updated_by, updated_at FROM ml_quotas WHERE vhost = ?",
 	QueryInsertMLQuotas: "INSERT INTO ml_quotas (vhost, spec, updated_by, updated_at) VALUES (?, ?, ?, ?)",

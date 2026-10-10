@@ -29,6 +29,10 @@ export interface MLModel {
   mcp_exposed?: boolean
   /** Whether a serving key exists; the key itself is never returned. */
   serving: boolean
+  /** When a trained model trains again by itself; absent when it does not. */
+  retrain?: RetrainPolicy
+  /** How its last retraining went, and the row count the next one counts from. */
+  retrain_status?: RetrainStatus
   updated_by?: string
   updated_at?: string
 }
@@ -36,7 +40,7 @@ export interface MLModel {
 /** What a client may set on a model; name and vhost come from the URL. */
 export type MLModelInput = Omit<
   MLModel,
-  'name' | 'vhost' | 'serving' | 'updated_by' | 'updated_at' | 'mcp_exposed' | 'feature_types'
+  'name' | 'vhost' | 'serving' | 'retrain' | 'retrain_status' | 'updated_by' | 'updated_at' | 'mcp_exposed' | 'feature_types'
 >
 
 /** The rule storage.ValidMLModelName applies. */
@@ -221,6 +225,42 @@ export interface ModelVersion {
   created_at: string
 }
 
+/**
+ * When a trained model trains again by itself (storage.MLRetrainPolicy): on a
+ * cron schedule, once its dataset has grown by new_rows rows since it last
+ * trained, or either. The go-live rule decides whether the new version serves.
+ */
+export interface RetrainPolicy {
+  schedule?: string
+  new_rows?: number
+  spec: Omit<TrainSpec, 'go_live'>
+  go_live: GoLive
+  updated_by?: string
+  updated_at?: string
+}
+
+/** What a model's last retraining did (storage.MLRetrainStatus). */
+export interface RetrainStatus {
+  /** Zero time until a retraining has run. */
+  at: string
+  trigger?: 'schedule' | 'new_rows'
+  version?: string
+  live: boolean
+  reason?: string
+  error?: string
+  dataset_rows: number
+  trained_at: string
+}
+
+/** Go's zero time.Time, which the API sends for "never". */
+export const isNever = (t: string | undefined) => !t || t.startsWith('0001-01-01')
+
+/** A policy's triggers in words: "Retrains @daily or after 500 new rows". */
+export function describeRetrain(p: RetrainPolicy): string {
+  const when = [p.schedule?.trim(), p.new_rows ? `after ${p.new_rows} new rows` : ''].filter(Boolean)
+  return `Retrains ${when.join(' or ')}`
+}
+
 export interface TrainResult {
   model: MLModel
   version: ModelVersion
@@ -321,6 +361,22 @@ export async function promoteVersion(vhost: string, name: string, version: strin
     silent: true,
   })
   return (await res.json()) as MLModel
+}
+
+export async function setRetrainPolicy(
+  vhost: string, name: string, policy: Omit<RetrainPolicy, 'updated_by' | 'updated_at'>,
+): Promise<MLModel> {
+  const res = await apiFetch(`${modelUrl(vhost, name)}/retrain`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(policy),
+    silent: true,
+  })
+  return (await res.json()) as MLModel
+}
+
+export async function clearRetrainPolicy(vhost: string, name: string): Promise<void> {
+  await apiFetch(`${modelUrl(vhost, name)}/retrain`, { method: 'DELETE', silent: true })
 }
 
 /** The vhost's database sources, for reading a dataset from one. */

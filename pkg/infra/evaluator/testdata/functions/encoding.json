@@ -1,0 +1,49 @@
+{
+  "_comment": [
+    "base64_encode, base64_decode, url_encode and url_decode, as the engine runs",
+    "them. Every file in this directory is read by",
+    "pkg/infra/evaluator/function_fixture_test.go; each case is a whole",
+    "expression evaluated against `source`. hmac_sha256 reads a secret, so it is",
+    "tested in expression_functions_test.go instead.",
+    "",
+    "A value is encoded as the text the other text functions read; a missing one",
+    "is null, as it is in hash. base64_decode reads standard and URL-safe base64,",
+    "padded or not, and is null for anything else or for bytes that are not",
+    "text. url_encode writes a query-string value: a space is +."
+  ],
+  "source": {
+    "text": "Hello, World!",
+    "accented": "héllo",
+    "b64": "SGVsbG8sIFdvcmxkIQ==",
+    "b64raw": "SGVsbG8sIFdvcmxkIQ",
+    "b64url": "aGk_Pz8-",
+    "bin": "//79",
+    "query": "a b&c=d/é",
+    "enc": "a+b%26c%3Dd%2F%C3%A9",
+    "badenc": "%zz",
+    "n": 42
+  },
+  "cases": [
+    { "name": "base64_encode: text", "expr": "base64_encode(source.text)", "want": "SGVsbG8sIFdvcmxkIQ==" },
+    { "name": "base64_encode: UTF-8", "expr": "base64_encode(source.accented)", "want": "aMOpbGxv" },
+    { "name": "base64_encode: a number is its digits", "expr": "base64_encode(source.n)", "want": "NDI=" },
+    { "name": "base64_encode: a missing field", "expr": "base64_encode(source.missing)", "want": null },
+    { "name": "base64_encode: no arguments", "expr": "base64_encode()", "want": null },
+
+    { "name": "base64_decode: padded", "expr": "base64_decode(source.b64)", "want": "Hello, World!" },
+    { "name": "base64_decode: unpadded", "expr": "base64_decode(source.b64raw)", "want": "Hello, World!" },
+    { "name": "base64_decode: URL-safe", "expr": "base64_decode(source.b64url)", "want": "hi???>" },
+    { "name": "base64_decode: bytes that are not text", "expr": "base64_decode(source.bin)", "want": null },
+    { "name": "base64_decode: not base64", "expr": "base64_decode('not base64!')", "want": null },
+    { "name": "base64_decode: a missing field", "expr": "base64_decode(source.missing)", "want": null },
+
+    { "name": "url_encode: a query value", "expr": "url_encode(source.query)", "want": "a+b%26c%3Dd%2F%C3%A9" },
+    { "name": "url_encode: a number", "expr": "url_encode(source.n)", "want": "42" },
+    { "name": "url_encode: a missing field", "expr": "url_encode(source.missing)", "want": null },
+
+    { "name": "url_decode: a query value", "expr": "url_decode(source.enc)", "want": "a b&c=d/é" },
+    { "name": "url_decode: %20", "expr": "url_decode('a%20b')", "want": "a b" },
+    { "name": "url_decode: a broken escape", "expr": "url_decode(source.badenc)", "want": null },
+    { "name": "url_decode: a missing field", "expr": "url_decode(source.missing)", "want": null }
+  ]
+}
