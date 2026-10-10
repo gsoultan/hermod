@@ -81,6 +81,14 @@ func (h *ApprovalHandler) HandleApprovalDecision(w http.ResponseWriter, r *http.
 		return
 	}
 
+	// A decision resumes the workflow, so deciding twice would resume it
+	// twice: the message delivered again, and an AI agent's approved write
+	// tool run again. Only a pending approval can be decided.
+	if app.Status != "" && app.Status != "pending" {
+		h.JsonError(w, "Approval was already "+app.Status, http.StatusConflict)
+		return
+	}
+
 	var body decisionBody
 	_ = json.NewDecoder(r.Body).Decode(&body)
 
