@@ -28,6 +28,7 @@ import (
 	infrahttp "github.com/gsoultan/hermod/internal/infra/transport/http"
 	logshttp "github.com/gsoultan/hermod/internal/logs/transport/http"
 	marketplacehttp "github.com/gsoultan/hermod/internal/marketplace/transport/http"
+	mlhttp "github.com/gsoultan/hermod/internal/ml/transport/http"
 	schemahttp "github.com/gsoultan/hermod/internal/schema/transport/http"
 	sinkhttp "github.com/gsoultan/hermod/internal/sink/transport/http"
 	sourcehttp "github.com/gsoultan/hermod/internal/source/transport/http"
@@ -156,6 +157,7 @@ func (s *Server) Routes() http.Handler {
 	filesH := fileshttp.NewFileHandler(s.Handler)
 	webhooksH := webhookshttp.NewWebhookHandler(s.Handler)
 	workerH := workerhttp.NewWorkerHandler(s.Handler)
+	mlH := mlhttp.NewHandler(s.Handler)
 
 	// Health endpoints (unauthenticated; used by Kubernetes and load balancers)
 	mux.HandleFunc("GET /healthz", infraH.HandleLiveness)
@@ -188,6 +190,7 @@ func (s *Server) Routes() http.Handler {
 	filesH.RegisterFileRoutes(mux)
 	webhooksH.RegisterWebhookRoutes(mux)
 	workerH.RegisterWorkerRoutes(mux)
+	mlH.RegisterRoutes(mux)
 
 	mux.HandleFunc("POST /api/graphql/{path...}", webhooksH.HandleGraphQL)
 
