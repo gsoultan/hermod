@@ -6,7 +6,7 @@ import { BaseNode, PlusHandle, TargetHandle } from './BaseNode';
 import { branchHandleId } from './branchHandleId';
 import { useState, memo } from 'react';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
-import { IconArrowsSplit, IconChecklist, IconClock, IconCloud, IconCode, IconCopy, IconDatabase, IconEye, IconFilter, IconGitBranch, IconGitMerge, IconList, IconLock, IconLockOpen, IconMail, IconNote, IconPlaylist, IconSearch, IconShieldLock, IconTerminal2, IconTrash, IconVariable } from '@tabler/icons-react';
+import { IconArrowsSplit, IconChecklist, IconClock, IconCloud, IconCode, IconCopy, IconDatabase, IconEye, IconFilter, IconGitBranch, IconGitMerge, IconList, IconLock, IconLockOpen, IconMail, IconNote, IconPlaylist, IconSearch, IconShieldLock, IconSparkles, IconTerminal2, IconTextScan2, IconTrash, IconVariable, IconVector } from '@tabler/icons-react';
 const ValidatorNodeImpl = ({ id, data, selected }: any) => {
   return (
     <BaseNode id={id} type="Validator" color="orange" icon={IconChecklist} data={data} selected={selected}>
@@ -41,6 +41,9 @@ const TransformationNodeImpl = ({ id, data, selected }: any) => {
       case 'validator': return IconChecklist;
       case 'stat_validator': return IconChecklist;
       case 'dq_scorer': return IconChecklist;
+      case 'ai_prompt': return IconSparkles;
+      case 'ai_extract': return IconTextScan2;
+      case 'ai_embed': return IconVector;
       default: return IconFilter;
     }
   };
@@ -71,6 +74,9 @@ const TransformationNodeImpl = ({ id, data, selected }: any) => {
       case 'validator': return 'Validator';
       case 'stat_validator': return 'Statistical Validation';
       case 'dq_scorer': return 'Data Quality Scorer';
+      case 'ai_prompt': return 'AI Prompt';
+      case 'ai_extract': return 'AI Extract';
+      case 'ai_embed': return 'AI Embed';
       default: return 'Transformation';
     }
   };

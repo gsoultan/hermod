@@ -231,6 +231,26 @@ const GUIDES: Record<string, TransformationGuide> = {
     what: 'Asks an AI model to map your fields onto the target schema.',
     firstStep: 'Review the suggested mapping before saving.',
   },
+  ai_prompt: {
+    title: 'AI prompt',
+    what: 'Asks an AI model a question about each record and writes the answer onto it.',
+    firstStep: 'Choose the provider and model, then write the prompt.',
+  },
+  ai_extract: {
+    title: 'AI extract',
+    what: 'Asks an AI model to pull structured fields out of each record, checked against a JSON Schema.',
+    firstStep: 'Choose the provider and model, then describe the fields in the schema.',
+  },
+  ai_embed: {
+    title: 'AI embed',
+    what: 'Turns a field of each record into a vector for semantic search.',
+    firstStep: 'Choose a provider that embeds, then the field to embed.',
+  },
+  ai_classify: {
+    title: 'AI classify',
+    what: 'Asks an AI model to label each record and sends it down that label’s branch, or down unsure.',
+    firstStep: 'Choose the provider and model, then add a label for each branch.',
+  },
   pipeline: {
     title: 'Pipeline',
     what: 'Runs several transformations in order, as one node.',

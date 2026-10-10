@@ -11,7 +11,7 @@ import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWork
 // Node configuration forms are presented in a modal (popup) from the editor page
 import { CronInput } from '../../../../components/shared/CronInput';
 import { AICopilot } from '../../../../components/shared/AICopilot';
-import { NODE_CATEGORIES, categoryKey } from '../constants/nodeCategories';
+import { NODE_CATEGORIES, categoryKey, paletteItemData } from '../constants/nodeCategories';
 import { filterCategories, matchesQuery, countMatches } from '../utils/paletteSearch';
 import { dlqRecoverySupported } from '@/utils/dlqRecovery';
 import { 
@@ -205,12 +205,10 @@ export function SidebarDrawer({
       key={item.label + (item.refId || '') + (item.subType || '')}
       draggable
       onDragStart={(e) => {
-        const extraData = item.pluginID ? { pluginID: item.pluginID } : undefined;
-        onDragStart(e, item.type, item.refId, item.label, item.subType, extraData);
+        onDragStart(e, item.type, item.refId, item.label, item.subType, paletteItemData(item));
       }}
       onClick={() => {
-        const extraData = item.pluginID ? { pluginID: item.pluginID } : undefined;
-        onAddItem(item.type, item.refId, item.label, item.subType, item.icon, item.color, extraData);
+        onAddItem(item.type, item.refId, item.label, item.subType, item.icon, item.color, paletteItemData(item));
       }}
       style={(theme) => ({
         display: 'block',

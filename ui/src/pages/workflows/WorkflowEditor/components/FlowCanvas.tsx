@@ -36,6 +36,32 @@ import {
 } from '../nodes/MiscNodes';
 import { ConditionNode } from '../nodes/ConditionNode';
 import { ApprovalNode } from '../nodes/ApprovalNode';
+import { AIClassifyNode } from '../nodes/AIClassifyNode';
+
+/**
+ * The renderer for each node type. A type missing here is drawn as React
+ * Flow's default node, with none of its outputs. Module-level, so React Flow
+ * sees the same object on every render.
+ */
+export const canvasNodeTypes = {
+  source: SourceNode,
+  sink: SinkNode,
+  transformation: TransformationNode,
+  validator: ValidatorNode,
+  condition: ConditionNode,
+  approval: ApprovalNode,
+  switch: SwitchNode,
+  router: RouterNode,
+  merge: MergeNode,
+  stateful: StatefulNode,
+  wait: WaitNode,
+  foreach: ForeachNode,
+  log: LogNode,
+  collect: CollectNode,
+  deduplicate: DeduplicateNode,
+  note: NoteNode,
+  ai_classify: AIClassifyNode,
+};
 
 interface FlowCanvasProps {
   onNodeClick: (event: React.MouseEvent, node: Node) => void;
@@ -48,24 +74,7 @@ export function FlowCanvas({ onNodeClick, onEdgeClick, onDrop, onDragOver }: Flo
   const { colorScheme } = useMantineColorScheme();
   const isDark = colorScheme === 'dark';
 
-  const nodeTypes = useMemo(() => ({
-    source: SourceNode,
-    sink: SinkNode,
-    transformation: TransformationNode,
-    validator: ValidatorNode,
-    condition: ConditionNode,
-    approval: ApprovalNode,
-    switch: SwitchNode,
-    router: RouterNode,
-    merge: MergeNode,
-    stateful: StatefulNode,
-    wait: WaitNode,
-    foreach: ForeachNode,
-    log: LogNode,
-    collect: CollectNode,
-    deduplicate: DeduplicateNode,
-    note: NoteNode,
-  }), []);
+  const nodeTypes = canvasNodeTypes;
 
   const edgeTypes = useMemo(() => ({
     default: LiveEdge,
