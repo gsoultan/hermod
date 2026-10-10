@@ -37,6 +37,7 @@ type mlModelDoc struct {
 	// they are.
 	Retrain       *storage.MLRetrainPolicy `bson:"retrain,omitempty"`
 	RetrainStatus *storage.MLRetrainStatus `bson:"retrain_status,omitempty"`
+	Scoring       string                   `bson:"scoring,omitempty"`
 	CreatedAt     time.Time                `bson:"created_at"`
 	UpdatedAt     time.Time                `bson:"updated_at"`
 }
@@ -51,7 +52,7 @@ func (d mlModelDoc) model() storage.MLModel {
 		Backend: inference.Backend(d.Backend), URL: d.URL, RemoteModel: d.RemoteModel, RemoteVersion: d.RemoteVersion,
 		TokenSecret: d.TokenSecret, InputName: d.InputName, Features: d.Features, TimeoutMs: d.TimeoutMs,
 		ServingKeyHash: d.ServingKeyHash, Serving: d.ServingKeyHash != "",
-		Retrain: d.Retrain, RetrainStatus: d.RetrainStatus,
+		Retrain: d.Retrain, RetrainStatus: d.RetrainStatus, Scoring: d.Scoring,
 		UpdatedBy: d.UpdatedBy, CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
 	}
 }

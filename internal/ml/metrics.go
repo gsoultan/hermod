@@ -21,11 +21,20 @@ var (
 		Help: "Rows sent to a model for prediction.",
 	}, []string{"vhost", "model"})
 
+	// The buckets below 5ms are for models scored in-process, which answer
+	// in microseconds.
 	predictionSeconds = promauto.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "hermod_ml_prediction_duration_seconds",
-		Help:    "How long a model server took to answer one prediction call.",
-		Buckets: []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 30},
+		Help:    "How long a model took to answer one prediction call, on its server or in-process.",
+		Buckets: []float64{.0001, .00025, .0005, .001, .0025, .005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 30},
 	}, []string{"vhost", "model"})
+
+	// For a model set to score in-process: calls scored in Hermod, and calls
+	// handed to the worker because its graph or the rows could not be.
+	scoringTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "hermod_ml_in_process_scoring_total",
+		Help: "Prediction calls to a model set to score in-process, by where they were scored (in_process or fallback).",
+	}, []string{"vhost", "model", "path"})
 )
 
 func observe(vhost, model string, rows int, took time.Duration, err error) {

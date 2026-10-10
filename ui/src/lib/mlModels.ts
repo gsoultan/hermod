@@ -29,12 +29,14 @@ export interface MLModel {
   retrain?: RetrainPolicy
   /** How its last retraining went, and the row count the next one counts from. */
   retrain_status?: RetrainStatus
+  /** Where a trained model is scored; absent means the ML worker. */
+  scoring?: Scoring
   updated_by?: string
   updated_at?: string
 }
 
 /** What a client may set on a model; name and vhost come from the URL. */
-export type MLModelInput = Omit<MLModel, 'name' | 'vhost' | 'serving' | 'retrain' | 'retrain_status' | 'updated_by' | 'updated_at'>
+export type MLModelInput = Omit<MLModel, 'name' | 'vhost' | 'serving' | 'retrain' | 'retrain_status' | 'scoring' | 'updated_by' | 'updated_at'>
 
 /** The rule storage.ValidMLModelName applies. */
 export const MODEL_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
@@ -319,6 +321,36 @@ export async function setRetrainPolicy(
 
 export async function clearRetrainPolicy(vhost: string, name: string): Promise<void> {
   await apiFetch(`${modelUrl(vhost, name)}/retrain`, { method: 'DELETE', silent: true })
+}
+
+/** Where a trained model's predictions are computed (storage.MLScoring*). */
+export type Scoring = 'worker' | 'in_process'
+
+/** How a model is scored now (ml.ScoringStatus). */
+export interface ScoringStatus {
+  scoring: Scoring
+  /** Whether the live version is scored in-process right now. */
+  in_process: boolean
+  version?: string
+  /** The operators of the live version's graph, once it loaded. */
+  ops?: string[]
+  /** Why in-process scoring is set but the worker still scores. */
+  reason?: string
+}
+
+export async function getScoring(vhost: string, name: string, signal?: AbortSignal): Promise<ScoringStatus> {
+  const res = await apiFetch(`${modelUrl(vhost, name)}/scoring`, { signal, silent: true })
+  return (await res.json()) as ScoringStatus
+}
+
+export async function setScoring(vhost: string, name: string, scoring: Scoring): Promise<ScoringStatus> {
+  const res = await apiFetch(`${modelUrl(vhost, name)}/scoring`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scoring }),
+    silent: true,
+  })
+  return (await res.json()) as ScoringStatus
 }
 
 /** The vhost's database sources, for reading a dataset from one. */

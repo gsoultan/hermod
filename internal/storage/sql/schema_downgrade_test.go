@@ -30,7 +30,15 @@ import (
 // is computed from the DDL itself, so changing the schema fails this test and
 // forces the question to be asked out loud.
 //
-// Last moved by: adding retrain, retrain_status, training_owner and
+// Last moved by: adding scoring to ml_models, whether a trained model is
+// scored by the ML worker or in-process. currentSchemaVersion was left alone
+// deliberately, for the reason the retrain note below gives: the column is
+// nullable, and the previous release names its ml_models columns in both
+// directions, so it neither reads nor clears it. A rollback keeps every model
+// callable and scores them all on the worker, which is what the column's NULL
+// means anyway, until the newer binary returns with the setting intact.
+//
+// The note before that: adding retrain, retrain_status, training_owner and
 // training_until to ml_models, a trained model's retrain policy, what its last
 // retraining did, and the claim one Hermod holds while it trains the model.
 // currentSchemaVersion was left alone deliberately. All four are nullable, and
@@ -137,7 +145,7 @@ import (
 // unpopulated — a gap in a chart that fills itself in when the newer binary
 // returns — so bumping the version would buy nothing and cost a refused
 // start-up during exactly the rollback it was supposed to make safe.
-const knownSchemaFingerprint = "57aee5d732578d7fda016a8446a9ba3396db565d5ef759246e528ce971bd6ada"
+const knownSchemaFingerprint = "cfaf1195227687c543be2f417a3049676320716ff4e1a624c224cd74a4f568df"
 
 func TestSchemaVersionIsReconsideredWhenTheSchemaChanges(t *testing.T) {
 	if got := SchemaFingerprint(); got != knownSchemaFingerprint {

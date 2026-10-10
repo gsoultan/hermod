@@ -68,6 +68,7 @@ GET /api/vhosts/{vhost}/ml/datasets
 GET /api/vhosts/{vhost}/ml/datasets/{name}
 GET /api/vhosts/{vhost}/ml/models
 GET /api/vhosts/{vhost}/ml/models/{name}
+GET /api/vhosts/{vhost}/ml/models/{name}/scoring
 GET /api/vhosts/{vhost}/ml/models/{name}/versions
 GET /api/vhosts/{vhost}/secrets
 GET /api/webhooks/requests
@@ -215,6 +216,7 @@ PUT /api/vhosts/{id}
 PUT /api/vhosts/{vhost}/ml/datasets/{name}/file
 PUT /api/vhosts/{vhost}/ml/models/{name}
 PUT /api/vhosts/{vhost}/ml/models/{name}/retrain
+PUT /api/vhosts/{vhost}/ml/models/{name}/scoring
 PUT /api/vhosts/{vhost}/secrets/{name}
 PUT /api/workers/{id}
 PUT /api/workflows/{id}

@@ -63,6 +63,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/vhosts/{vhost}/ml/models/{name}/versions/{version}/promote", h.EditorOnly(h.PromoteVersion))
 	mux.Handle("PUT /api/vhosts/{vhost}/ml/models/{name}/retrain", h.EditorOnly(h.PutRetrain))
 	mux.Handle("DELETE /api/vhosts/{vhost}/ml/models/{name}/retrain", h.EditorOnly(h.DeleteRetrain))
+	mux.HandleFunc("GET /api/vhosts/{vhost}/ml/models/{name}/scoring", h.GetScoring)
+	mux.Handle("PUT /api/vhosts/{vhost}/ml/models/{name}/scoring", h.EditorOnly(h.PutScoring))
 }
 
 // service is the registry's ML service when there is a registry, so a model's
@@ -125,7 +127,7 @@ func (h *Handler) fail(w http.ResponseWriter, err error) {
 		h.JsonError(w, err.Error(), http.StatusTooManyRequests)
 	case errors.Is(err, ml.ErrTrainingRunning):
 		h.JsonError(w, err.Error(), http.StatusConflict)
-	case errors.Is(err, ml.ErrNotTrainedHere):
+	case errors.Is(err, ml.ErrNotTrainedHere), errors.Is(err, ml.ErrScoringNotTrained):
 		h.JsonError(w, err.Error(), http.StatusBadRequest)
 	case errors.Is(err, storage.ErrMLModelsUnsupported):
 		h.JsonError(w, err.Error(), http.StatusNotImplemented)

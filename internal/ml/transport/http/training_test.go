@@ -24,6 +24,8 @@ type workerStub struct {
 	uploaded string
 	versions []worker.Version
 	busy     bool
+	// onnx is the graph every version serves (scoring_test.go).
+	onnx []byte
 }
 
 func (s *workerStub) start(t *testing.T) *worker.Client {
@@ -56,6 +58,8 @@ func (s *workerStub) start(t *testing.T) *worker.Client {
 				Target: "churned", Features: []string{"age"}, Metrics: map[string]float64{"score": 0.6}}
 			s.versions = append([]worker.Version{v}, s.versions...)
 			_ = json.NewEncoder(w).Encode(v)
+		case strings.HasSuffix(p, "/model.onnx") && s.onnx != nil:
+			_, _ = w.Write(s.onnx)
 		case strings.HasSuffix(p, "/versions"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"versions": s.versions})
 		default:

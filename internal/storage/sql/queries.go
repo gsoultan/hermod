@@ -107,6 +107,7 @@ const (
 	QuerySetMLModelRetrain       = "SetMLModelRetrain"
 	QuerySetMLModelRetrainStatus = "SetMLModelRetrainStatus"
 	QueryClaimMLModelTraining    = "ClaimMLModelTraining"
+	QuerySetMLModelScoring       = "SetMLModelScoring"
 	QueryReleaseMLModelTraining  = "ReleaseMLModelTraining"
 
 	// Workflows
@@ -299,7 +300,9 @@ var commonQueries = map[string]string{
 	// model is not a schema change. retrain and retrain_status are JSON too,
 	// in columns of their own so that saving a definition leaves them alone,
 	// as it does serving_key_hash. training_owner and training_until are the
-	// claim one Hermod holds while it trains the model.
+	// claim one Hermod holds while it trains the model. scoring is where its
+	// predictions are computed, also kept apart from the definition: training
+	// saves a definition it read before a training that takes minutes.
 	QueryInitMLModelsTable: `CREATE TABLE IF NOT EXISTS ml_models (
 			id TEXT PRIMARY KEY,
 			vhost TEXT,
@@ -312,7 +315,8 @@ var commonQueries = map[string]string{
 			retrain TEXT,
 			retrain_status TEXT,
 			training_owner TEXT,
-			training_until TIMESTAMP
+			training_until TIMESTAMP,
+			scoring TEXT
 		)`,
 	QueryInitWorkersTable: `CREATE TABLE IF NOT EXISTS workers (
 			id TEXT PRIMARY KEY,
@@ -620,16 +624,17 @@ var commonQueries = map[string]string{
 	QueryDeleteVHostSecret:  "DELETE FROM vhost_secrets WHERE id = ?",
 	QueryDeleteVHostSecrets: "DELETE FROM vhost_secrets WHERE vhost = ?",
 
-	QueryListMLModels:            "SELECT name, spec, serving_key_hash, updated_by, created_at, updated_at, retrain, retrain_status FROM ml_models WHERE vhost = ? ORDER BY name",
-	QueryGetMLModel:              "SELECT spec, serving_key_hash, updated_by, created_at, updated_at, retrain, retrain_status FROM ml_models WHERE id = ?",
+	QueryListMLModels:            "SELECT name, spec, serving_key_hash, updated_by, created_at, updated_at, retrain, retrain_status, scoring FROM ml_models WHERE vhost = ? ORDER BY name",
+	QueryGetMLModel:              "SELECT spec, serving_key_hash, updated_by, created_at, updated_at, retrain, retrain_status, scoring FROM ml_models WHERE id = ?",
 	QueryInsertMLModel:           "INSERT INTO ml_models (id, vhost, name, spec, serving_key_hash, updated_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
 	QueryUpdateMLModel:           "UPDATE ml_models SET spec = ?, updated_by = ?, updated_at = ? WHERE id = ?",
 	QuerySetMLModelServingKey:    "UPDATE ml_models SET serving_key_hash = ? WHERE id = ?",
 	QueryDeleteMLModel:           "DELETE FROM ml_models WHERE id = ?",
 	QueryDeleteMLModelsOfVHost:   "DELETE FROM ml_models WHERE vhost = ?",
-	QueryListRetrainingMLModels:  "SELECT vhost, name, spec, serving_key_hash, updated_by, created_at, updated_at, retrain, retrain_status FROM ml_models WHERE retrain IS NOT NULL ORDER BY id",
+	QueryListRetrainingMLModels:  "SELECT vhost, name, spec, serving_key_hash, updated_by, created_at, updated_at, retrain, retrain_status, scoring FROM ml_models WHERE retrain IS NOT NULL ORDER BY id",
 	QuerySetMLModelRetrain:       "UPDATE ml_models SET retrain = ? WHERE id = ?",
 	QuerySetMLModelRetrainStatus: "UPDATE ml_models SET retrain_status = ? WHERE id = ?",
+	QuerySetMLModelScoring:       "UPDATE ml_models SET scoring = ? WHERE id = ?",
 	// The workflow lease's compare-and-set (QueryAcquireLease), on the model:
 	// it takes an unclaimed or expired claim, or renews the owner's own.
 	QueryClaimMLModelTraining:   "UPDATE ml_models SET training_owner = ?, training_until = ? WHERE id = ? AND (training_owner IS NULL OR training_until IS NULL OR training_until < ? OR training_owner = ?)",

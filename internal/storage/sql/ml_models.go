@@ -48,14 +48,14 @@ func (sp mlModelSpec) apply(m *storage.MLModel) {
 
 // scanMLModel fills m from a row's spec and bookkeeping columns.
 // mlModelRow is what a query reads after the keys: the definition, the
-// bookkeeping, and the retrain policy and status.
+// bookkeeping, the retrain policy and status, and the scoring mode.
 type mlModelRow struct {
-	spec, hash, by, retrain, status sql.NullString
-	created, updated                sql.NullTime
+	spec, hash, by, retrain, status, scoring sql.NullString
+	created, updated                         sql.NullTime
 }
 
 func (r *mlModelRow) targets() []any {
-	return []any{&r.spec, &r.hash, &r.by, &r.created, &r.updated, &r.retrain, &r.status}
+	return []any{&r.spec, &r.hash, &r.by, &r.created, &r.updated, &r.retrain, &r.status, &r.scoring}
 }
 
 // fill fills m from the row.
@@ -69,6 +69,7 @@ func (r *mlModelRow) fill(m *storage.MLModel) error {
 	sp.apply(m)
 	m.ServingKeyHash, m.Serving = r.hash.String, r.hash.String != ""
 	m.UpdatedBy, m.CreatedAt, m.UpdatedAt = r.by.String, r.created.Time, r.updated.Time
+	m.Scoring = r.scoring.String
 	if r.retrain.String != "" {
 		m.Retrain = &storage.MLRetrainPolicy{}
 		if err := json.Unmarshal([]byte(r.retrain.String), m.Retrain); err != nil {

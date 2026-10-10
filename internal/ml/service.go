@@ -116,6 +116,13 @@ func (s *Service) Predict(ctx context.Context, vhost, name string, rows []infere
 	if err != nil {
 		return nil, err
 	}
+	if m.Backend == storage.MLBackendWorker && m.Scoring == storage.MLScoringInProcess && len(rows) > 0 {
+		start := time.Now()
+		if out, ok := s.predictInProcess(ctx, m, rows); ok {
+			observe(vhost, name, len(rows), time.Since(start), nil)
+			return out, nil
+		}
+	}
 	target, err := s.target(ctx, m)
 	if err != nil {
 		return nil, err

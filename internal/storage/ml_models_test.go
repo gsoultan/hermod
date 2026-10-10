@@ -31,6 +31,19 @@ func TestAWorkerModelNeedsNoURLAndTakesNone(t *testing.T) {
 	}
 }
 
+func TestScoringIsTheWorkerOrInProcess(t *testing.T) {
+	for _, ok := range []string{"", MLScoringWorker, MLScoringInProcess} {
+		if err := ValidateMLScoring(ok); err != nil {
+			t.Errorf("ValidateMLScoring(%q) = %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"in-process", "WORKER", "gpu"} {
+		if err := ValidateMLScoring(bad); err == nil {
+			t.Errorf("ValidateMLScoring(%q) accepted it", bad)
+		}
+	}
+}
+
 func TestAnExternalModelStillNeedsItsServer(t *testing.T) {
 	m := MLModel{VHost: "v", Name: "fraud", Backend: inference.BackendOIP, RemoteModel: "fraud"}
 	if err := ValidateMLModel(m); err == nil {

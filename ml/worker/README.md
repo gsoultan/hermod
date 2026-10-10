@@ -52,6 +52,7 @@ Errors are always `{"error": "<sentence>"}` with 400, 401, 404, 413, 429 or 500.
 | DELETE | `/v1/datasets/{vhost}/{name}` | Delete a dataset |
 | POST | `/v1/models/{vhost}/{name}/train` | Train a new version (synchronous) |
 | GET | `/v1/models/{vhost}/{name}/versions` | Version metadata, newest first |
+| GET | `/v1/models/{vhost}/{name}/versions/{v}/model.onnx` | The version's ONNX graph, for Hermod's in-process scoring |
 | DELETE | `/v1/models/{vhost}/{name}` | Delete every version |
 | GET | `/v2/health/live`, `/v2/health/ready` | Health (no auth) |
 | GET | `/vhosts/{vhost}/v2/models/{name}[/versions/{v}]` | OIP model metadata |

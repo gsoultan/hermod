@@ -49,6 +49,7 @@ func (s *memStore) PutMLModel(_ context.Context, m storage.MLModel) error {
 	if old, ok := s.models[m.VHost+"/"+m.Name]; ok {
 		m.ServingKeyHash, m.Serving = old.ServingKeyHash, old.Serving
 		m.Retrain, m.RetrainStatus = old.Retrain, old.RetrainStatus
+		m.Scoring = old.Scoring
 	}
 	s.models[m.VHost+"/"+m.Name] = m
 	return nil

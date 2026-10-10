@@ -3,7 +3,7 @@ import {
   ActionIcon, Alert, Badge, Box, Button, Group, Loader, Paper, Select, Stack, Table, Text, Title, Tooltip,
 } from '@mantine/core'
 import {
-  IconAlertCircle, IconBrain, IconHistory, IconInfoCircle, IconKey, IconPencil, IconPlayerPlay, IconPlus, IconRepeat, IconSchool, IconTrash,
+  IconAlertCircle, IconBrain, IconCpu, IconHistory, IconInfoCircle, IconKey, IconPencil, IconPlayerPlay, IconPlus, IconRepeat, IconSchool, IconTrash,
 } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useVHost } from '@/context/VHostContext'
@@ -15,6 +15,7 @@ import { ModelFormModal } from './ModelFormModal'
 import { ModelTestModal } from './ModelTestModal'
 import { RetrainModal } from './RetrainModal'
 import { RetrainStatusLine } from './retrainStatus'
+import { ScoringModal } from './ScoringModal'
 import { ServingKeyModal } from './ServingKeyModal'
 import { TrainModal } from './TrainModal'
 import { VersionsModal } from './VersionsModal'
@@ -34,6 +35,7 @@ type Dialog =
   | { kind: 'train'; modelName?: string }
   | { kind: 'versions'; model: MLModel }
   | { kind: 'retrain'; model: MLModel }
+  | { kind: 'scoring'; model: MLModel }
 
 /**
  * The models a vhost can call. Each is the address of a model on a model
@@ -104,6 +106,12 @@ export function ModelsPage() {
               <Tooltip label="Versions">
                 <ActionIcon variant="light" color="grape" radius="md" aria-label={`Versions of ${m.name}`} onClick={() => setDialog({ kind: 'versions', model: m })}>
                   <IconHistory size="1.1rem" />
+                </ActionIcon>
+              </Tooltip>
+              <Tooltip label={m.scoring === 'in_process' ? 'Scoring: in-process' : 'Scoring: ML worker'}>
+                <ActionIcon variant={m.scoring === 'in_process' ? 'filled' : 'light'} color="cyan" radius="md" aria-label={`Scoring of ${m.name}`}
+                  onClick={() => setDialog({ kind: 'scoring', model: m })}>
+                  <IconCpu size="1.1rem" />
                 </ActionIcon>
               </Tooltip>
               {canTrain && (
@@ -224,6 +232,7 @@ export function ModelsPage() {
 
       {vhost && dialog?.kind === 'train' && <TrainModal vhost={vhost} modelName={dialog.modelName} onClose={() => setDialog(undefined)} />}
       {vhost && dialog?.kind === 'retrain' && <RetrainModal vhost={vhost} model={dialog.model} onClose={() => setDialog(undefined)} />}
+      {vhost && dialog?.kind === 'scoring' && <ScoringModal vhost={vhost} model={dialog.model} onClose={() => setDialog(undefined)} />}
       {vhost && dialog?.kind === 'versions' && <VersionsModal vhost={vhost} model={dialog.model} onClose={() => setDialog(undefined)} />}
       {vhost && dialog?.kind === 'form' && <ModelFormModal vhost={vhost} model={dialog.model} onClose={() => setDialog(undefined)} />}
       {vhost && dialog?.kind === 'test' && <ModelTestModal vhost={vhost} model={dialog.model} onClose={() => setDialog(undefined)} />}
