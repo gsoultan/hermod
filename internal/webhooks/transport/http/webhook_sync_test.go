@@ -67,6 +67,12 @@ func (s *recordingSink) count() int {
 // given config. With a sink, a real engine runs the source's workflow.
 func post(t *testing.T, path string, config map[string]string, sink *recordingSink) *httptest.ResponseRecorder {
 	t.Helper()
+	return postWith(t, path, config, sink, nil)
+}
+
+// postWith is post with extra request headers.
+func postWith(t *testing.T, path string, config map[string]string, sink *recordingSink, headers map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
 	fullPath := "/api/webhooks/" + path
 	cfg := map[string]string{"path": fullPath}
 	for k, v := range config {
@@ -104,6 +110,9 @@ func post(t *testing.T, path string, config map[string]string, sink *recordingSi
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, fullPath, strings.NewReader(`{"order_id":7}`))
 	req.Header.Set("Content-Type", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 	mux.ServeHTTP(rec, req)
 	return rec
 }

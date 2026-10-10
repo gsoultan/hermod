@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"maps"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -29,6 +30,7 @@ import (
 	"github.com/gsoultan/hermod/internal/mesh"
 	"github.com/gsoultan/hermod/internal/notification"
 	"github.com/gsoultan/hermod/internal/optimizer"
+	"github.com/gsoultan/hermod/internal/selfheal"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/comm/sink/failover"
 	"github.com/gsoultan/hermod/pkg/comm/source/batchsql"
@@ -194,6 +196,18 @@ type Registry struct {
 	// Atomic flags for fast-path check of active observers/subscribers
 	hasLiveSubs   atomic.Int32
 	hasStatusSubs atomic.Int32
+
+	// logWriter persists BroadcastLog lines; logWriteTimeout bounds each
+	// write (zero means defaultLogWriteTimeout).
+	logWriter       logWriter
+	logWriteTimeout time.Duration
+	// workflowWatchers counts, per workflow ID, the clients subscribed to that
+	// workflow's status — the editor and the detail page. The router reads it
+	// once per message to decide whether to take payload samples, so it is an
+	// *atomic.Int32 per workflow rather than a lookup under statusSubsMu.
+	// Entries are never removed: one small counter per workflow ID ever
+	// watched, and a router holding a pointer must keep seeing updates.
+	workflowWatchers sync.Map // string -> *atomic.Int32
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -367,6 +381,7 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 
 func (r *Registry) Close() {
 	r.cancel()
+	r.stopLogWriters(defaultLogWriteTimeout)
 
 	r.dbPoolMu.Lock()
 	defer r.dbPoolMu.Unlock()
@@ -421,12 +436,7 @@ func (r *Registry) flushStatsToStorage() {
 		status := ae.engine.GetStatus()
 		processed := ae.baseProcessed + status.ProcessedCount
 		errors := ae.baseErrors + status.DeadLetterCount
-		var lag uint64
-		if l, ok := status.NodeMetrics["source_lag"]; ok {
-			lag = l
-		} else if l, ok := status.NodeMetrics["lag"]; ok {
-			lag = l
-		}
+		lag := engineLag(status)
 
 		// Update stats in DB (fast path)
 		_ = store.UpdateWorkflowStats(r.ctx, ae.workflow.ID, processed, errors, lag)
@@ -749,10 +759,29 @@ func (r *Registry) SetStorage(s storage.Storage) {
 	if r.notificationService != nil {
 		r.notificationService.SetStorage(s)
 	}
+	if r.optimizer != nil && s != nil {
+		r.wireSelfHealing(s)
+	}
 	if r.schemaRegistry != nil {
 		if sr, ok := r.schemaRegistry.(*schema.StorageRegistry); ok {
 			sr.SetStorage(s)
 		}
+	}
+}
+
+// wireSelfHealing points the optimizer's self-correction gate at s: fixes
+// become stored proposals that only an approval applies, and AI mapping
+// suggestions are on only when the environment configures a connection.
+// The caller holds r.mu.
+func (r *Registry) wireSelfHealing(s storage.Storage) {
+	r.optimizer.SetProposer(selfheal.NewService(s, nil))
+	adv, err := selfheal.AdvisorFromEnv(os.Getenv, s)
+	if err != nil {
+		r.logger.Error("Self-healing AI mapping suggestions are off", "error", err)
+		return
+	}
+	if adv != nil {
+		r.optimizer.SetMappingAdvisor(adv)
 	}
 }
 

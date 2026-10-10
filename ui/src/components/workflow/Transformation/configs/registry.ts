@@ -27,6 +27,13 @@ import { APILookupConfig } from './enrichment/APILookupConfig'
 import { PanmailProvidersConfig } from './enrichment/PanmailProvidersConfig'
 import { AIConfig } from './enrichment/AIConfig'
 
+// ai
+import { AIPromptConfig } from './ai/AIPromptConfig'
+import { AIExtractConfig } from './ai/AIExtractConfig'
+import { AIEmbedConfig } from './ai/AIEmbedConfig'
+import { AIClassifyConfig } from './ai/AIClassifyConfig'
+import { AIRetrieveConfig } from './ai-retrieve/AIRetrieveConfig'
+import { AIAgentConfig } from './ai-agent/AIAgentConfig'
 // machine learning
 import { MLPredictConfig } from './ml/MLPredictConfig'
 import { MLTrainConfig } from './ml/MLTrainConfig'
@@ -138,9 +145,15 @@ export const TRANSFORM_CONFIGS: Record<string, ConfigComponent> = {
   term_extraction: TermExtractionConfig,
   api_lookup: APILookupConfig,
   panmail_providers: PanmailProvidersConfig,
+  // The AI palette replaced these two; they stay so saved workflows open.
   ai_enrichment: AIConfig,
   ai_mapper: AIConfig,
 
+  // ai (pkg/comm/transformer/genai)
+  ai_prompt: AIPromptConfig,
+  ai_extract: AIExtractConfig,
+  ai_embed: AIEmbedConfig,
+  ai_retrieve: AIRetrieveConfig,
   // machine learning
   ml_predict: MLPredictConfig,
   ml_train: MLTrainConfig,
@@ -193,6 +206,8 @@ export const NODE_TYPE_CONFIGS: Record<string, ConfigComponent> = {
   router: RouterConfig,
   multicast: MulticastConfig,
   validator: ValidatorConfig,
+  ai_classify: AIClassifyConfig,
+  ai_agent: AIAgentConfig,
 }
 
 /**

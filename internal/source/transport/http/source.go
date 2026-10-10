@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/api/handlers"
 	"github.com/gsoultan/hermod/internal/factory"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/comm/message"
@@ -223,8 +224,9 @@ func (h *SourceHandler) StoreSourceSample(w http.ResponseWriter, r *http.Request
 	var req struct {
 		Sample string `json:"sample"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.JsonError(w, err.Error(), http.StatusBadRequest)
+	r, cancel := handlers.WithPreviewDeadline(r)
+	defer cancel()
+	if !h.DecodeJSONBody(w, r, handlers.PreviewMaxBodyBytes, &req, "") {
 		return
 	}
 
@@ -602,8 +604,7 @@ func (h *SourceHandler) SampleSourceTable(w http.ResponseWriter, r *http.Request
 		} `json:"source"`
 		Table string `json:"table"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.JsonError(w, err.Error(), http.StatusBadRequest)
+	if !h.DecodeJSONBody(w, r, handlers.PreviewMaxBodyBytes, &req, "") {
 		return
 	}
 
@@ -645,14 +646,25 @@ func (h *SourceHandler) QuerySource(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(results)
 }
 
+const (
+	// proxyFetchMaxRequestBytes caps a ProxyFetch request: a URL, a method and
+	// a few headers.
+	proxyFetchMaxRequestBytes int64 = 64 << 10
+	// proxyFetchMaxResponseBytes caps what ProxyFetch reads from its target.
+	proxyFetchMaxResponseBytes int64 = 4 << 20
+)
+
+// proxyFetchClient is the client ProxyFetch calls out with. It refuses
+// private addresses; tests swap it to reach an httptest server.
+var proxyFetchClient = httpclient.DefaultClient
+
 func (h *SourceHandler) ProxyFetch(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		URL     string            `json:"url"`
 		Method  string            `json:"method"`
 		Headers map[string]string `json:"headers"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.JsonError(w, err.Error(), http.StatusBadRequest)
+	if !h.DecodeJSONBody(w, r, proxyFetchMaxRequestBytes, &req, "") {
 		return
 	}
 
@@ -664,14 +676,24 @@ func (h *SourceHandler) ProxyFetch(w http.ResponseWriter, r *http.Request) {
 		hreq.Header.Set(k, v)
 	}
 
-	resp, err := httpclient.DefaultClient.Do(hreq)
+	resp, err := proxyFetchClient.Do(hreq)
 	if err != nil {
 		h.JsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	// One byte past the cap tells an oversized response from one exactly at it.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, proxyFetchMaxResponseBytes+1))
+	if err != nil {
+		h.JsonError(w, "Failed to read the response: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	if int64(len(body)) > proxyFetchMaxResponseBytes {
+		h.JsonError(w, fmt.Sprintf("The response exceeds the %d-byte limit", proxyFetchMaxResponseBytes),
+			http.StatusBadGateway)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"body": string(body),

@@ -8,6 +8,7 @@ import {
   IconCircleX, IconActivity, IconTerminal2
 } from '@tabler/icons-react';
 import { formatDateTime } from '@/utils/dateUtils';
+import { AgentRunDetails } from '@/components/workflow/AgentTranscript/AgentRunDetails';
 
 interface DebugEvent {
   type: string;
@@ -109,6 +110,8 @@ export function WorkflowDebugger({ workflowId }: { workflowId: string }) {
                     </Group>
 
                     <Text size="xs" c="dimmed">Message ID: <Code>{ev.msg_id}</Code></Text>
+
+                    {ev.data && <AgentRunDetails data={ev.data} />}
 
                     {ev.data && (
                       <Box>

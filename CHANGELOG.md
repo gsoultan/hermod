@@ -55,6 +55,27 @@ version can be put live later. The **Train Model** node does the same from a
 workflow. A trained model is called like any other: the Predict node, REST and
 gRPC. See [docs/ml.md](docs/ml.md).
 
+### Added — AI automation
+
+Workflows can call Claude, ChatGPT, Gemini, DeepSeek, Mistral, Groq, OpenRouter,
+Together, xAI, Ollama or any OpenAI-compatible endpoint, with keys read from
+vhost secrets. New nodes: AI Prompt (with conversation memory for chat
+webhooks), AI Extract, AI Embed, AI Classify, AI Retrieve (pgvector, Pinecone)
+and AI Agent, whose writes wait for human approval by default and which can call
+tools on remote MCP servers. Also new: run history with replay, run a workflow
+with a payload, a retry policy on any node, AI call metrics, three AI templates,
+an MCP server at `/api/mcp` for workflows tagged `mcp`, a workflow builder that
+drafts from a description, and self-healing proposals that apply only when
+approved. See [docs/ai-automation.md](docs/ai-automation.md).
+
+**Behaviour changes.** Self-correction no longer changes a running workflow: a
+retry increase is now a proposal to approve, and Safe Mode is recommended, not
+entered. Mapping suggestions are off unless `HERMOD_SELF_HEALING_AI_PROVIDER` is
+set, and they mask personal data. An approval can be decided once (a second
+decision answers 409), and approvals are listed, read and decided only within
+the caller's vhosts. Exported workflows have plaintext AI keys replaced with
+`[REDACTED]`. The AI Enrichment and AI Mapper nodes leave the palette; saved
+workflows that use them keep working.
 ### Added — call machine-learning models from workflows, REST and gRPC
 
 A vhost can register models that a model server runs — any server speaking the

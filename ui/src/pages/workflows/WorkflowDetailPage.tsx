@@ -22,12 +22,17 @@ import { normalizeWorkflowStatus } from '@/utils/workflowStatus';
 import { downloadWorkflowExport } from '@/utils/workflowExport';
 import { 
   IconArrowLeft, IconArrowsExchange, IconChartBar, IconChevronRight, IconCircleCheck, IconCircleX, IconClock, IconEye, IconHistory, IconInfoCircle, IconRefresh, IconRotateDot, IconSearch, IconTerminal2, IconTimeline,
-  IconBug, IconBrain, IconActivity,
+  IconBug, IconBrain, IconActivity, IconListDetails, IconPlayerPlay, IconFirstAidKit,
   IconDownload
 } from '@tabler/icons-react';
 import { WorkflowDebugger } from './WorkflowDebugger';
 import { DetailFlowCanvas } from './WorkflowEditor/components/DetailFlowCanvas';
 import { useConfirm } from '@/components/common/ConfirmProvider';
+import { useSessionStore } from '@/auth/session';
+import { ExecutionsPanel } from './executions/ExecutionsPanel';
+import { RunWithInputModal } from './executions/RunWithInputModal';
+import { ProposalsPanel } from './proposals/ProposalsPanel';
+import { useProposals } from '@/lib/proposals';
 const API_BASE = '/api';
 
 export function WorkflowDetailPage() {
@@ -36,6 +41,18 @@ export function WorkflowDetailPage() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<string | null>('graph');
   const [selectedTraceID, setSelectedTraceID] = useState<string | null>(null);
+  const [selectedRunID, setSelectedRunID] = useState<string | null>(null);
+  // Running, replaying and deciding are Editor actions; the server enforces
+  // the same rule, this only keeps the buttons off a Viewer's screen.
+  const role = useSessionStore((s) => s.user?.role);
+  const canEdit = role === 'Administrator' || role === 'Editor';
+  const [runInputOpened, setRunInputOpened] = useState(false);
+  const { data: proposals } = useProposals(id);
+  const pendingProposals = (proposals ?? []).filter((p) => p.status === 'pending').length;
+  const openRun = useCallback((runId: string) => {
+    setSelectedRunID(runId);
+    setActiveTab('executions');
+  }, []);
   // Paging by cursor rather than by offset. The server reads traces newest
   // first, so "the next page" is "older than the last row I saw" — one index
   // seek, whatever page you are on. An offset has to read and discard
@@ -365,8 +382,18 @@ export function WorkflowDetailPage() {
               </Box>
             </Group>
             <Group>
-              <Button 
-                variant="light" 
+              {canEdit && (
+                <Button
+                  variant="light"
+                  color="grape"
+                  leftSection={<IconPlayerPlay size="1rem" />}
+                  onClick={() => setRunInputOpened(true)}
+                >
+                  Run with input
+                </Button>
+              )}
+              <Button
+                variant="light"
                 color={workflow.active ? 'orange' : 'green'}
                 leftSection={workflow.active ? <IconRotateDot size="1rem" /> : <IconCircleCheck size="1rem" />}
                 onClick={() => toggleMutation.mutate()}
@@ -395,10 +422,47 @@ export function WorkflowDetailPage() {
           </Group>
         </Paper>
 
+        {pendingProposals > 0 && activeTab !== 'proposals' && (
+          <Alert
+            color="blue"
+            variant="light"
+            icon={<IconFirstAidKit size="1rem" />}
+            title={`${pendingProposals} self-healing fix${pendingProposals === 1 ? ' is' : 'es are'} waiting for review`}
+          >
+            <Group justify="space-between" wrap="wrap">
+              <Text size="sm">
+                Hermod noticed repeated failures and proposed settings changes. Nothing changes until an editor approves one.
+              </Text>
+              <Button size="xs" variant="light" onClick={() => setActiveTab('proposals')}>
+                Review fixes
+              </Button>
+            </Group>
+          </Alert>
+        )}
+
+        {canEdit && runInputOpened && (
+          <RunWithInputModal
+            opened
+            onClose={() => setRunInputOpened(false)}
+            workflow={workflow}
+            onOpenRun={openRun}
+          />
+        )}
+
         <Paper withBorder radius="md" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <Tabs value={activeTab} onChange={setActiveTab} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
             <Tabs.List px="md">
               <Tabs.Tab value="graph" leftSection={<IconChartBar size="1rem" />}>Graph View</Tabs.Tab>
+              <Tabs.Tab value="executions" leftSection={<IconListDetails size="1rem" />}>Executions</Tabs.Tab>
+              <Tabs.Tab
+                value="proposals"
+                leftSection={<IconFirstAidKit size="1rem" />}
+                rightSection={pendingProposals > 0 ? (
+                  <Badge size="xs" circle color="blue" aria-label={`${pendingProposals} pending`}>{pendingProposals}</Badge>
+                ) : undefined}
+              >
+                Proposals
+              </Tabs.Tab>
               <Tabs.Tab value="traces" leftSection={<IconTimeline size="1rem" />}>Message Traces</Tabs.Tab>
               <Tabs.Tab value="history" leftSection={<IconHistory size="1rem" />}>History</Tabs.Tab>
               <Tabs.Tab value="logs" leftSection={<IconTerminal2 size="1rem" />}>Logs</Tabs.Tab>
@@ -416,6 +480,29 @@ export function WorkflowDetailPage() {
                   setNodes={setNodes}
                 />
               </ReactFlowProvider>
+            </Tabs.Panel>
+
+            <Tabs.Panel value="executions" style={{ flex: 1, overflow: 'hidden' }}>
+              {activeTab === 'executions' && (
+                <ScrollArea h="100%">
+                  <ExecutionsPanel
+                    workflowId={id}
+                    canReplay={canEdit}
+                    selectedRunId={selectedRunID}
+                    onSelectRun={setSelectedRunID}
+                  />
+                </ScrollArea>
+              )}
+            </Tabs.Panel>
+
+            <Tabs.Panel value="proposals" style={{ flex: 1, overflow: 'hidden' }}>
+              {activeTab === 'proposals' && (
+                <ScrollArea h="100%">
+                  <Box p="md">
+                    <ProposalsPanel workflowId={id} canDecide={canEdit} />
+                  </Box>
+                </ScrollArea>
+              )}
             </Tabs.Panel>
 
             <Tabs.Panel value="traces" style={{ flex: 1, overflow: 'hidden' }}>

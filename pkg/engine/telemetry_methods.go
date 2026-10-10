@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/engine/telemetry"
 )
 
 // WillTrace reports whether a step recorded for this message would be kept.
@@ -193,6 +194,18 @@ func (e *Engine) UpdateNodeSample(nodeID string, data map[string]any) {
 	e.statusTracker.UpdateNodeSample(nodeID, data)
 }
 
+// NodeStats returns the live counters for a workflow node. Resolve it once and
+// keep it: updating it is lock- and allocation-free.
+func (e *Engine) NodeStats(nodeID string) *telemetry.NodeStats {
+	return e.statusTracker.NodeStats(nodeID)
+}
+
+// EdgeCounter returns the message counter for the edge source -> target.
+// Resolve it once and keep it: adding to it builds no key.
+func (e *Engine) EdgeCounter(sourceNodeID, targetNodeID string) *atomic.Uint64 {
+	return e.statusTracker.EdgeCounter(sourceNodeID, targetNodeID)
+}
+
 func (e *Engine) UpdateEdgeMetric(sourceNodeID string, targetNodeID string, count uint64) {
 	e.statusTracker.UpdateEdgeMetric(sourceNodeID, targetNodeID, count)
 }
@@ -204,11 +217,20 @@ func (e *Engine) adaptiveThrottle(ctx context.Context, duration time.Duration) {
 
 	e.statusTracker.UpdateLatency(duration)
 
-	// Adjust polling interval every 5s based on latency and memory
-	if time.Since(e.lastPollAdjust) < 5*time.Second {
+	// Adjust polling interval every 5s based on latency and memory.
+	//
+	// Up to MaxInflight workers run this concurrently, so the window is
+	// claimed with a compare-and-swap: exactly one of the workers that see it
+	// expired performs the adjustment. A plain read-then-write let several
+	// through together, each adding its own throttle step.
+	now := time.Now().UnixNano()
+	last := e.lastPollAdjust.Load()
+	if now-last < int64(5*time.Second) {
 		return
 	}
-	e.lastPollAdjust = time.Now()
+	if !e.lastPollAdjust.CompareAndSwap(last, now) {
+		return
+	}
 
 	// Check memory pressure
 	var mem runtime.MemStats

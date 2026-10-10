@@ -13,6 +13,7 @@ import { signInAs } from '@/test/setupTests'
 vi.mock('@tanstack/react-router', () => {
   return {
     Link: (props: any) => <button {...props} />,
+    useNavigate: () => () => {},
   }
 })
 

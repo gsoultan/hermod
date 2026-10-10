@@ -10,6 +10,7 @@
 /debug/pprof/trace
 /metrics
 DELETE /api/logs
+DELETE /api/mcp
 DELETE /api/sinks/{id}
 DELETE /api/sources/{id}
 DELETE /api/users/{id}
@@ -40,6 +41,7 @@ GET /api/infra/mesh-health
 GET /api/logs
 GET /api/marketplace/plugins
 GET /api/marketplace/plugins/{id}
+GET /api/mcp
 GET /api/me
 GET /api/ml/worker
 GET /api/notifications/sse
@@ -77,7 +79,10 @@ GET /api/workflows
 GET /api/workflows/pii-stats
 GET /api/workflows/{export_id}/export
 GET /api/workflows/{id}
+GET /api/workflows/{id}/executions
+GET /api/workflows/{id}/executions/{run_id}
 GET /api/workflows/{id}/health
+GET /api/workflows/{id}/proposals
 GET /api/workflows/{id}/report
 GET /api/workflows/{id}/traces
 GET /api/workflows/{id}/traces/
@@ -102,6 +107,7 @@ PATCH /api/workflows/{id}/status
 POST /api/ai/analyze-error
 POST /api/ai/analyze-schema
 POST /api/ai/analyze-workflow/{id}
+POST /api/ai/build-workflow
 POST /api/ai/copilot
 POST /api/ai/generate-workflow
 POST /api/ai/suggest-mapping
@@ -129,6 +135,7 @@ POST /api/logs
 POST /api/logs/batch
 POST /api/marketplace/install
 POST /api/marketplace/uninstall
+POST /api/mcp
 POST /api/mesh/clusters
 POST /api/ml/serve/{vhost}/{name}
 POST /api/proxy/fetch
@@ -181,9 +188,13 @@ POST /api/workflows/batch/workspace
 POST /api/workflows/import
 POST /api/workflows/test
 POST /api/workflows/{id}/drain
+POST /api/workflows/{id}/executions/{run_id}/replay
 POST /api/workflows/{id}/nodes/{node_id}/test
+POST /api/workflows/{id}/proposals/{pid}/approve
+POST /api/workflows/{id}/proposals/{pid}/reject
 POST /api/workflows/{id}/rebuild
 POST /api/workflows/{id}/rollback/{version}
+POST /api/workflows/{id}/run
 POST /api/workflows/{id}/test
 POST /api/workflows/{id}/toggle
 POST /api/workspaces

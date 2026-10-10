@@ -22,11 +22,26 @@ type StatusTracker struct {
 	nodeErrorMetrics sync.Map // string -> *atomic.Uint64
 	nodeSamples      sync.Map // string -> any
 	edgeMetrics      sync.Map // string -> *atomic.Uint64
+	nodeLatency      sync.Map // string -> *atomic.Int64 (moving average, ns)
+	nodeStats        sync.Map // string -> *NodeStats
 
-	latencyAvg  atomic.Int64 // Duration in ns
-	mpsCounter  atomic.Uint64
-	lastMps     atomic.Uint64
-	lastMpsTime atomic.Int64 // Unix
+	latencyAvg atomic.Int64 // Duration in ns
+
+	// mps is the last throughput sample: the processed count at a moment and
+	// the rate over the window that ended there. GetMPS derives the rate from
+	// the monotonically increasing processedMessages, so reading never
+	// consumes anything; see GetMPS.
+	mps atomic.Pointer[mpsSample]
+
+	// now is the clock GetMPS reads. nil means time.Now; tests set it.
+	now func() time.Time
+}
+
+func (s *StatusTracker) clock() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
 }
 
 func NewStatusTracker() *StatusTracker {
@@ -39,6 +54,18 @@ func (s *StatusTracker) SetSourceStatus(status string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sourceStatus = status
+}
+
+// SetSourceStatusIfChanged sets the source status and reports whether it was
+// different, so a caller on a hot path can publish only real changes.
+func (s *StatusTracker) SetSourceStatusIfChanged(status string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sourceStatus == status {
+		return false
+	}
+	s.sourceStatus = status
+	return true
 }
 
 func (s *StatusTracker) SetSinkStatus(sinkID, status string) {
@@ -55,7 +82,6 @@ func (s *StatusTracker) SetEngineStatus(status string) {
 
 func (s *StatusTracker) IncProcessed() {
 	s.processedMessages.Add(1)
-	s.mpsCounter.Add(1)
 	s.lastMsgTime.Store(time.Now().UnixNano())
 }
 
@@ -146,26 +172,58 @@ func (s *StatusTracker) GetStatus() (sourceStatus string, sinkStatuses map[strin
 	return
 }
 
+// mpsSample is one throughput observation. It is immutable once published.
+type mpsSample struct {
+	at    int64   // UnixNano the sample was taken
+	count uint64  // processedMessages at that moment
+	rate  float64 // messages/second over the window that ended at `at`
+}
+
+// mpsWindow is the shortest window a rate is computed over.
+const mpsWindow = time.Second
+
+// GetMPS reports messages per second over the most recently completed window
+// of at least one second.
+//
+// It is read from several goroutines (the status listener, the flusher, the
+// dashboard sampler, the optimizer), so it must not consume what it reads.
+// The rate is the difference of the monotonic processed count between two
+// samples. Whichever reader first finds the current sample a window old
+// publishes the next one with a compare-and-swap; every other reader — in the
+// same window or racing for the same boundary — returns the rate already
+// published. A gap longer than a window is averaged over, not reported as 0.
 func (s *StatusTracker) GetMPS() float64 {
-	now := time.Now().Unix()
-	lastTime := s.lastMpsTime.Load()
+	now := s.clock().UnixNano()
+	count := s.processedMessages.Load()
 
-	if now > lastTime {
-		// Time has advanced, rotate buckets
-		count := s.mpsCounter.Swap(0)
-		s.lastMps.Store(count)
-		s.lastMpsTime.Store(now)
-
-		// If more than 1 second passed since last check, the gap had 0 throughput
-		if now > lastTime+1 && lastTime > 0 {
-			s.lastMps.Store(0)
+	prev := s.mps.Load()
+	if prev == nil {
+		// First observation: nothing to measure a window against yet.
+		if s.mps.CompareAndSwap(nil, &mpsSample{at: now, count: count}) {
 			return 0
 		}
-		return float64(count)
+		return s.mps.Load().rate
 	}
 
-	// Still within the same second, return last completed second's count
-	return float64(s.lastMps.Load())
+	elapsed := now - prev.at
+	if elapsed < int64(mpsWindow) {
+		return prev.rate
+	}
+
+	var delta uint64
+	if count > prev.count {
+		delta = count - prev.count
+	}
+	next := &mpsSample{
+		at:    now,
+		count: count,
+		rate:  float64(delta) / (float64(elapsed) / float64(time.Second)),
+	}
+	if s.mps.CompareAndSwap(prev, next) {
+		return next.rate
+	}
+	// Another reader published the sample for this boundary first.
+	return s.mps.Load().rate
 }
 
 func (s *StatusTracker) GetNodeMetrics() map[string]uint64 {

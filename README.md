@@ -70,6 +70,7 @@ Hermod is built for mission-critical enterprise data workloads, providing robust
 
 - **Two-Phase Commit (2PC) across a transactional sink group**: A group of sinks commits atomically — either every member applied the batch or none did — and the guarantee survives a crash, because the coordinator's decision is durable before any member is told about it. Recovery uses **presumed abort**, and a reaper rolls back anything left in doubt past a deadline, which is what keeps an interrupted round from holding PostgreSQL locks indefinitely. Scope, stated plainly: **only the Postgres sink can participate today**, so the realistic shape is two or more Postgres sinks kept consistent; a group containing a sink that cannot take part is refused at construction rather than silently degraded. Kafka does *not* participate — it previously carried no-op stubs that would have reported a failed rollback as a success. See [Distributed transactions](#distributed-transactions-transactional-sink-groups), including the operational hazard note, before enabling.
 - **SSO & OpenID Connect (OIDC)**: Support for centralized identity providers like **Okta**, **Auth0**, and **Azure AD** for platform-wide authentication and RBAC.
+- **AI automation**: Prompt, extract, classify, embed and retrieve with Claude, ChatGPT, Gemini, DeepSeek, Ollama or any OpenAI-compatible model; an **AI Agent** node whose writes wait for human approval; an **MCP server** so Claude and other MCP clients can run Hermod workflows; run history with replay. See [AI automation](docs/ai-automation.md).
 - **Vector Database Sinks**: Built-in support for **Pinecone**, **Milvus**, and **pgvector** to power enterprise AI knowledge bases and RAG pipelines.
 - **Hermod CLI (`hermodctl`)**: A powerful terminal-based tool for workflow linting, secret management, and real-time remote monitoring.
 - **Global Schema Registry**: Enforce data contracts with built-in JSON Schema, Avro, and Protobuf support. Automatically tracks schema versions and ensures backward compatibility.
@@ -1266,6 +1267,46 @@ Every time you save a workflow, Hermod automatically creates an immutable versio
 - **Immutable History**: View all previous versions of a workflow, including the author, timestamp, and a summary of changes.
 - **One-Click Rollback**: Instantly revert a production workflow to any previous stable version via the **History** tab in the Workflow Detail page.
 - **GitOps Readiness**: Versioning ensures that workflow configurations can be managed as code and safely promoted across environments.
+
+### Self-healing proposals
+
+The optimizer's self-correction gate never changes a workflow on its own. When a node keeps
+failing, it stores a **proposal**: a small patch with the value each field has now and the value it
+would get (today, more retries with a longer interval on the workflow's `max_retries` /
+`retry_interval`, capped at 10 retries and 10s).
+
+- `GET /api/workflows/{id}/proposals` lists them, newest first (Viewer and up).
+- `POST /api/workflows/{id}/proposals/{pid}/approve` applies one through the normal update
+  path: it is validated, saved as a new workflow version and can be rolled back from the
+  **History** tab. If the workflow has changed since the proposal was made, it is refused with
+  `409` and marked `stale` (Editor and up).
+- `POST /api/workflows/{id}/proposals/{pid}/reject` closes it without changing anything.
+
+AI mapping suggestions for nodes that keep failing validation are **off** unless
+`HERMOD_SELF_HEALING_AI_PROVIDER` is set, with `HERMOD_SELF_HEALING_AI_MODEL`,
+`HERMOD_SELF_HEALING_AI_BASE_URL` and `HERMOD_SELF_HEALING_AI_API_KEY`. The key must be a
+`{{secret("NAME")}}` reference, which is resolved for the failing workflow's vhost. Every string
+in the sample is PII-masked before it is sent.
+
+## Workflows as MCP tools
+
+Hermod serves the [Model Context Protocol](https://modelcontextprotocol.io) at `POST /api/mcp`
+(Streamable HTTP, stateless), so an MCP client such as Claude or an IDE agent can use your
+workflows as tools:
+
+| Tool | What it does | Roles |
+| --- | --- | --- |
+| `list_workflows` | The exposed workflows you may see, with whether each can be run and whether it replies | any |
+| `get_workflow_status` | Active flag, status, processed / error / lag counters | any |
+| `run_workflow` | Sends `input` to the workflow's webhook source; a source in `response_mode: sync` answers with the workflow's result (`status`, `error`, `record`) | Editor, Administrator |
+
+- **Opt-in per workflow.** Only workflows tagged `mcp` are offered. Others, and workflows in a
+  vhost you cannot access, answer "not found".
+- **Same authentication as the API.** Send a Hermod session token as `Authorization: Bearer ...`.
+  There is no separate MCP credential and no anonymous access. The webhook's own API key and
+  signature are not asked for: the caller is already an authenticated user.
+- **Audited.** Every run is written to the audit log (`MCP_RUN_WORKFLOW`) and to the webhook
+  request log, where it can be replayed.
 
 ## Distributed State & Coordination
 

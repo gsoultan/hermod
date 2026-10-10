@@ -89,8 +89,10 @@ func (r *Registry) resumeSuspendedMessage(ctx context.Context, sm storage.Suspen
 	r.BroadcastLog(sm.WorkflowID, "INFO", "Resuming suspended message at node "+sm.NodeID, m.ID())
 
 	// AE has the needed maps
-	r.resumeFromNode(sm.WorkflowID, sm.NodeID, m, ae.engine, ae.workflow, ae.nodeMap, ae.adj, ae.sinks, ae.sinkNodeToIndex, "")
-	if s := r.store(); s != nil {
+	r.resumeFromNode(ctx, sm.WorkflowID, sm.NodeID, m, ae.engine, ae.workflow, ae.nodeMap, ae.adj, ae.sinks, ae.sinkNodeToIndex, "")
+	// A walk cut short by shutdown keeps its suspended row, so the message is
+	// resumed again rather than lost.
+	if s := r.store(); s != nil && ctx.Err() == nil {
 		_ = s.DeleteSuspendedMessage(ctx, sm.ID)
 	}
 	// Release, not ReleaseMessage: the latter resets and pools the message

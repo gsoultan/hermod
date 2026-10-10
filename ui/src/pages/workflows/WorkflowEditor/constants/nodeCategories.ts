@@ -5,7 +5,8 @@ import {
   IconTerminal2, IconVariable, IconWorld, IconCircleCheck, IconChartBar, IconCode, 
   IconTable, IconBroadcast, IconRefresh, IconLetterCase, IconPercentage, IconTableExport, IconNumbers,
   IconDatabaseExport, IconNote, IconTag, IconBrandDiscord, IconBrandSlack, IconBrandTwitter, 
-  IconBrandFacebook, IconBrandInstagram, IconBrandLinkedin, IconBrandTiktok, IconExternalLink, IconLock, IconLockOpen, IconSitemap, IconBrain, IconSchool
+  IconBrandFacebook, IconBrandInstagram, IconBrandLinkedin, IconBrandTiktok, IconExternalLink, IconLock, IconLockOpen, IconSitemap,
+  IconSparkles, IconTextScan2, IconTags, IconFileDescription, IconLanguage, IconVector, IconDatabaseSearch, IconRobot, IconBrain, IconSchool
 } from '@tabler/icons-react';
 
 export const NODE_CATEGORIES = [
@@ -45,14 +46,29 @@ export const NODE_CATEGORIES = [
     ]
   },
   {
+    // AI Enrichment and AI Mapper used to be offered under Advanced
+    // Transformations. Their editors stay registered (configs/registry.ts) so
+    // workflows that use them still open; new work uses these nodes.
+    title: 'AI',
+    group: 'transformations',
+    items: [
+      { type: 'transformation', refId: 'new', label: 'AI Prompt', subType: 'ai_prompt', icon: IconSparkles, color: 'grape', description: 'Ask a model and write its answer to the record' },
+      { type: 'transformation', refId: 'new', label: 'AI Extract', subType: 'ai_extract', icon: IconTextScan2, color: 'grape', description: 'Pull structured fields out of text with a JSON Schema' },
+      { type: 'ai_classify', refId: 'new', label: 'AI Classify', subType: 'ai_classify', icon: IconTags, color: 'grape', description: 'Route each record by the label a model picks' },
+      { type: 'ai_agent', refId: 'new', label: 'AI Agent', subType: 'ai_agent', icon: IconRobot, color: 'grape', description: 'Let a model reach a goal with the tools you allow; writes wait for approval' },
+      { type: 'transformation', refId: 'new', label: 'Summarize', subType: 'ai_prompt', icon: IconFileDescription, color: 'grape', description: 'Summarise each record in a few sentences', defaults: { prompt: 'Summarise the input in three sentences.', includeData: true } },
+      { type: 'transformation', refId: 'new', label: 'Translate', subType: 'ai_prompt', icon: IconLanguage, color: 'grape', description: 'Translate each record\'s text with a model', defaults: { prompt: 'Translate the text values of the input into English. Answer with the translation only.', includeData: true } },
+      { type: 'transformation', refId: 'new', label: 'AI Embed', subType: 'ai_embed', icon: IconVector, color: 'grape', description: 'Turn text into a vector for semantic search' },
+      { type: 'transformation', refId: 'new', label: 'AI Retrieve', subType: 'ai_retrieve', icon: IconDatabaseSearch, color: 'grape', description: 'Find the closest documents in a vector store (RAG)' },
+    ]
+  },
+  {
     title: 'Advanced Transformations',
     group: 'transformations',
     items: [
       { type: 'transformation', refId: 'new', label: 'DB Lookup', subType: 'db_lookup', icon: IconSearch, color: 'teal', description: 'Enrich data from a database' },
       { type: 'transformation', refId: 'new', label: 'API Lookup', subType: 'api_lookup', icon: IconCloud, color: 'teal', description: 'Fetch and merge from HTTP APIs' },
       { type: 'transformation', refId: 'new', label: 'Panmail Providers', subType: 'panmail_providers', icon: IconMail, color: 'teal', description: 'List a panmail tenant\'s email providers' },
-      { type: 'transformation', refId: 'new', label: 'AI Enrichment', subType: 'ai_enrichment', icon: IconSettingsAutomation, color: 'teal', description: 'Enrich data using LLMs (OpenAI, Ollama)' },
-      { type: 'transformation', refId: 'new', label: 'AI Mapper', subType: 'ai_mapper', icon: IconSettingsAutomation, color: 'teal', description: 'Map unstructured data to schema using AI' },
       { type: 'transformation', refId: 'new', label: 'Pipeline', subType: 'pipeline', icon: IconPlaylist, color: 'teal', description: 'Compose multiple steps' },
       { type: 'transformation', refId: 'new', label: 'Lua Script', subType: 'lua', icon: IconCode, color: 'teal', description: 'Custom logic with Lua' },
       { type: 'transformation', refId: 'new', label: 'WASM Transform', subType: 'wasm', icon: IconTerminal2, color: 'teal', description: 'Run high-performance WebAssembly' },
@@ -268,3 +284,17 @@ export const NODE_CATEGORIES = [
  */
 export const categoryKey = (cat: { group: string; title: string }): string =>
   `${cat.group}:${cat.title}`;
+
+/**
+ * The node data a palette item adds on top of its type: an installed plugin's
+ * id, and the item's preset settings (`defaults`) — Summarize, for instance,
+ * is an ai_prompt node with its prompt filled in. Undefined when there is
+ * neither, so a plain item adds nothing.
+ */
+export function paletteItemData(item: {
+  pluginID?: string;
+  defaults?: Record<string, unknown>;
+}): Record<string, unknown> | undefined {
+  if (!item.pluginID && !item.defaults) return undefined;
+  return { ...(item.pluginID ? { pluginID: item.pluginID } : {}), ...(item.defaults ?? {}) };
+}
