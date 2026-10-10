@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/internal/workflow/redact"
 )
 
 // aiNodeTypes are the nodes that call a language model, with the setting
@@ -58,12 +59,20 @@ func aiNodeIssues(wf storage.Workflow) (issues []ValidationIssue) {
 			issues = append(issues, retrieveNodeIssues(n)...)
 		}
 		key := str("apiKey")
-		if key != "" && !strings.Contains(key, "{{") && !keylessAIProviders[provider] {
+		switch {
+		case key == redact.Placeholder:
+			issues = append(issues, ValidationIssue{
+				Severity:       "warning",
+				Message:        fmt.Sprintf("AI node '%s' has no API key: it was removed when the workflow was exported.", n.ID),
+				Recommendation: `Save the key as a vhost secret and set the node's API key to {{secret("NAME")}}; until then every call to the provider is refused.`,
+				NodeID:         n.ID,
+			})
+		case key != "" && !strings.Contains(key, "{{") && !keylessAIProviders[provider]:
 			issues = append(issues, ValidationIssue{
 				Severity: "warning",
 				Message:  fmt.Sprintf("AI node '%s' stores its API key in the workflow.", n.ID),
 				Recommendation: `Save the key as a vhost secret and set the node's API key to {{secret("NAME")}}. ` +
-					"A key typed into the node is saved with the workflow and included in exports.",
+					"A key typed into the node is saved with the workflow and its version history (exports replace it with a placeholder).",
 				NodeID: n.ID,
 			})
 		}

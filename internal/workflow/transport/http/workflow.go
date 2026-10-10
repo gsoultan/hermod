@@ -20,6 +20,7 @@ import (
 	"github.com/gsoultan/hermod/internal/engine/registry"
 	"github.com/gsoultan/hermod/internal/governance"
 	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/internal/workflow/redact"
 	"github.com/gsoultan/hermod/pkg/comm/message"
 	"github.com/gsoultan/hermod/pkg/comm/transformer/security"
 
@@ -1691,7 +1692,9 @@ func stripWorkflowRuntime(wf storage.Workflow) storage.Workflow {
 	wf.TotalProcessed = 0
 	wf.TotalErrors = 0
 	wf.TotalLag = 0
-	wf.Nodes = stripCapturedSamples(wf.Nodes)
+	// A provider key typed into an AI node is a credential, and a bundle is
+	// downloaded, shared and committed. A {{secret("NAME")}} reference stays.
+	wf.Nodes = redact.AIKeys(stripCapturedSamples(wf.Nodes))
 	return wf
 }
 

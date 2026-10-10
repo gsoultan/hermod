@@ -11,6 +11,7 @@ import (
 	"github.com/gsoultan/hermod/internal/api/handlers"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/internal/testutil"
+	"github.com/gsoultan/hermod/internal/workflow/redact"
 )
 
 type MockWorkflowStorage struct {
@@ -154,5 +155,53 @@ func TestWorkflowExportImport(t *testing.T) {
 	}
 	if _, ok := mockStorage.workflows[wfID]; !ok {
 		t.Error("Legacy workflow was not imported")
+	}
+}
+
+// An export travels: it is downloaded, mailed, committed and imported
+// elsewhere. A provider key typed into an AI node must not travel with it,
+// while a {{secret("NAME")}} reference, which names a key without being one,
+// does.
+func TestExportRedactsPlaintextAIKeys(t *testing.T) {
+	stored := storage.Workflow{
+		ID: "wf-ai", Name: "AI",
+		Nodes: []storage.WorkflowNode{
+			{ID: "p", Type: "transformation", Config: map[string]any{
+				"transType": "ai_prompt", "provider": "openai", "apiKey": "sk-live-secret",
+			}},
+			{ID: "c", Type: "ai_classify", Config: map[string]any{
+				"provider": "anthropic", "apiKey": `{{secret("ANTHROPIC_KEY")}}`,
+			}},
+		},
+	}
+	mockStorage := &MockWorkflowStorage{
+		workflows: map[string]storage.Workflow{stored.ID: stored},
+		sources:   map[string]storage.Source{},
+		sinks:     map[string]storage.Sink{},
+	}
+	h := &WorkflowHandler{Handler: &handlers.Handler{Storage: mockStorage, LogStorage: mockStorage}}
+	mux := http.NewServeMux()
+	h.RegisterWorkflowRoutes(mux)
+
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/workflows/wf-ai/export", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("export: %d %s", rr.Code, rr.Body.String())
+	}
+	if bytes.Contains(rr.Body.Bytes(), []byte("sk-live-secret")) {
+		t.Fatalf("the export carries the plaintext key: %s", rr.Body.String())
+	}
+	var bundle storage.WorkflowExportBundle
+	if err := json.Unmarshal(rr.Body.Bytes(), &bundle); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got := bundle.Workflow.Nodes[0].Config["apiKey"]; got != redact.Placeholder {
+		t.Errorf("exported apiKey = %v, want the placeholder", got)
+	}
+	if got := bundle.Workflow.Nodes[1].Config["apiKey"]; got != `{{secret("ANTHROPIC_KEY")}}` {
+		t.Errorf("a secret reference was not exported as written: %v", got)
+	}
+	if mockStorage.workflows["wf-ai"].Nodes[0].Config["apiKey"] != "sk-live-secret" {
+		t.Error("exporting changed the stored workflow")
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/internal/workflow/redact"
 )
 
 func aiIssues(nodes ...storage.WorkflowNode) []ValidationIssue {
@@ -154,5 +155,16 @@ func TestAINodeIssues_RetrieveNeedsItsStore(t *testing.T) {
 		if issues := aiIssues(base(extra)); len(issues) != 0 {
 			t.Errorf("%v: issues = %+v", extra, issues)
 		}
+	}
+}
+// An imported export has its keys replaced. Validation says what happened and
+// what to do, rather than calling the placeholder a stored key.
+func TestAINodeIssues_RedactedKeyFromAnExportAsksForTheKey(t *testing.T) {
+	issues := aiIssues(storage.WorkflowNode{ID: "n1", Type: "ai_classify", Config: map[string]any{
+		"provider": "openai", "apiKey": redact.Placeholder, "labels": "a,b",
+	}})
+	if len(issues) != 1 || issues[0].Severity != "warning" ||
+		!strings.Contains(issues[0].Message, "removed when the workflow was exported") {
+		t.Fatalf("issues = %+v", issues)
 	}
 }
