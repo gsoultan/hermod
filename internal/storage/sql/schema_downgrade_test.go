@@ -38,6 +38,16 @@ import (
 // callable and scores them all on the worker, which is what the column's NULL
 // means anyway, until the newer binary returns with the setting intact.
 //
+// The note before that: adding the ai_budgets and ai_usage tables, a vhost's AI
+// spending limits and what it has spent per month. currentSchemaVersion was
+// left alone, as for ml_models: both are standalone tables no earlier code path
+// reads or writes. What a rollback costs is the feature, and it is worth
+// saying plainly what that means: the previous release does not enforce the
+// limits or the kill switch, and does not count the calls it makes, so a vhost
+// can spend past its budget for as long as the rollback lasts. Its DeleteVHost
+// also leaves a deleted vhost's budget and usage for a later vhost of the same
+// name; they hold limits and counters, never a secret.
+//
 // The note before that: adding retrain, retrain_status, training_owner and
 // training_until to ml_models, a trained model's retrain policy, what its last
 // retraining did, and the claim one Hermod holds while it trains the model.
@@ -145,7 +155,7 @@ import (
 // unpopulated — a gap in a chart that fills itself in when the newer binary
 // returns — so bumping the version would buy nothing and cost a refused
 // start-up during exactly the rollback it was supposed to make safe.
-const knownSchemaFingerprint = "cfaf1195227687c543be2f417a3049676320716ff4e1a624c224cd74a4f568df"
+const knownSchemaFingerprint = "4ea09a71cdb60ece631071c074ffe0601515e5c624547c4c1c2342573f083e6c"
 
 func TestSchemaVersionIsReconsideredWhenTheSchemaChanges(t *testing.T) {
 	if got := SchemaFingerprint(); got != knownSchemaFingerprint {

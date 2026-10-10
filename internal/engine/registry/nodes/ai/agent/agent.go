@@ -117,7 +117,7 @@ func (n *Node) Execute(ctx context.Context, nctx interfaces.NodeContext, workflo
 	if err != nil {
 		return []hermod.Message{msg}, "", fmt.Errorf("ai_agent %s: %w", node.ID, err)
 	}
-	ctx, cancel := context.WithTimeout(ctx, r.cfg.timeout)
+	ctx, cancel := context.WithTimeout(genai.WithWorkflow(ctx, workflowID), r.cfg.timeout)
 	defer cancel()
 	if err := r.prepare(ctx); err != nil {
 		return r.fail(err)
@@ -295,8 +295,8 @@ func (b *tokenBudget) Allow(context.Context) error {
 	return nil
 }
 
-func (b *tokenBudget) Record(_ context.Context, u llm.Usage) {
+func (b *tokenBudget) Record(_ context.Context, rec llm.CallRecord) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.used += u.InputTokens + u.OutputTokens
+	b.used += rec.Usage.InputTokens + rec.Usage.OutputTokens
 }
