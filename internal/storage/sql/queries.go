@@ -27,6 +27,7 @@ const (
 	QueryInitUsersTable              = "InitUsersTable"
 	QueryInitVHostsTable             = "InitVHostsTable"
 	QueryInitVHostSecretsTable       = "InitVHostSecretsTable"
+	QueryInitMLModelsTable           = "InitMLModelsTable"
 	QueryInitWorkersTable            = "InitWorkersTable"
 	QueryInitLogsTable               = "InitLogsTable"
 	QueryInitWorkflowsTable          = "InitWorkflowsTable"
@@ -93,6 +94,14 @@ const (
 	QueryUpdateVHostSecret  = "UpdateVHostSecret"  //nolint:gosec // G101: a query name
 	QueryDeleteVHostSecret  = "DeleteVHostSecret"  //nolint:gosec // G101: a query name
 	QueryDeleteVHostSecrets = "DeleteVHostSecrets" //nolint:gosec // G101: a query name
+
+	QueryListMLModels          = "ListMLModels"
+	QueryGetMLModel            = "GetMLModel"
+	QueryInsertMLModel         = "InsertMLModel"
+	QueryUpdateMLModel         = "UpdateMLModel"
+	QuerySetMLModelServingKey  = "SetMLModelServingKey"
+	QueryDeleteMLModel         = "DeleteMLModel"
+	QueryDeleteMLModelsOfVHost = "DeleteMLModelsOfVHost"
 
 	// Workflows
 	QueryListWorkflows        = "ListWorkflows"
@@ -275,6 +284,19 @@ var commonQueries = map[string]string{
 			vhost TEXT,
 			name TEXT,
 			value TEXT,
+			updated_by TEXT,
+			created_at TIMESTAMP,
+			updated_at TIMESTAMP
+		)`,
+	// id is vhost + "/" + name, as for vhost_secrets: a model name cannot hold
+	// a slash. spec is the model's definition as JSON, so a new field on a
+	// model is not a schema change.
+	QueryInitMLModelsTable: `CREATE TABLE IF NOT EXISTS ml_models (
+			id TEXT PRIMARY KEY,
+			vhost TEXT,
+			name TEXT,
+			spec TEXT,
+			serving_key_hash TEXT,
 			updated_by TEXT,
 			created_at TIMESTAMP,
 			updated_at TIMESTAMP
@@ -584,7 +606,15 @@ var commonQueries = map[string]string{
 	QueryUpdateVHostSecret:  "UPDATE vhost_secrets SET value = ?, updated_by = ?, updated_at = ? WHERE id = ?",
 	QueryDeleteVHostSecret:  "DELETE FROM vhost_secrets WHERE id = ?",
 	QueryDeleteVHostSecrets: "DELETE FROM vhost_secrets WHERE vhost = ?",
-	QueryGetVHost:           "SELECT id, name, description, created_at FROM vhosts WHERE id = ?",
+
+	QueryListMLModels:          "SELECT name, spec, serving_key_hash, updated_by, created_at, updated_at FROM ml_models WHERE vhost = ? ORDER BY name",
+	QueryGetMLModel:            "SELECT spec, serving_key_hash, updated_by, created_at, updated_at FROM ml_models WHERE id = ?",
+	QueryInsertMLModel:         "INSERT INTO ml_models (id, vhost, name, spec, serving_key_hash, updated_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryUpdateMLModel:         "UPDATE ml_models SET spec = ?, updated_by = ?, updated_at = ? WHERE id = ?",
+	QuerySetMLModelServingKey:  "UPDATE ml_models SET serving_key_hash = ? WHERE id = ?",
+	QueryDeleteMLModel:         "DELETE FROM ml_models WHERE id = ?",
+	QueryDeleteMLModelsOfVHost: "DELETE FROM ml_models WHERE vhost = ?",
+	QueryGetVHost:              "SELECT id, name, description, created_at FROM vhosts WHERE id = ?",
 
 	QueryListWorkflows:        "SELECT id, name, vhost, active, status, worker_id, owner_id, lease_until, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request, total_processed, total_errors, total_lag, created_at FROM workflows",
 	QueryCountWorkflows:       "SELECT COUNT(*) FROM workflows",

@@ -6,7 +6,7 @@ import {
   IconTable, IconBroadcast, IconRefresh, IconLetterCase, IconPercentage, IconTableExport, IconNumbers,
   IconDatabaseExport, IconNote, IconTag, IconBrandDiscord, IconBrandSlack, IconBrandTwitter, 
   IconBrandFacebook, IconBrandInstagram, IconBrandLinkedin, IconBrandTiktok, IconExternalLink, IconLock, IconLockOpen, IconSitemap,
-  IconSparkles, IconTextScan2, IconTags, IconFileDescription, IconLanguage, IconVector, IconDatabaseSearch, IconRobot
+  IconSparkles, IconTextScan2, IconTags, IconFileDescription, IconLanguage, IconVector, IconDatabaseSearch, IconRobot, IconBrain
 } from '@tabler/icons-react';
 
 export const NODE_CATEGORIES = [
@@ -75,6 +75,13 @@ export const NODE_CATEGORIES = [
       { type: 'transformation', refId: 'new', label: 'Advanced', subType: 'advanced', icon: IconCode, color: 'teal', description: 'Power-user transforms' },
       { type: 'transformation', refId: 'new', label: 'Pivot', subType: 'pivot', icon: IconTable, color: 'teal', description: 'Rotate rows into columns' },
       { type: 'transformation', refId: 'new', label: 'Multicast', subType: 'multicast', icon: IconBroadcast, color: 'teal', description: 'Clone message to multiple branches' },
+    ]
+  },
+  {
+    title: 'Machine Learning',
+    group: 'transformations',
+    items: [
+      { type: 'transformation', refId: 'new', label: 'Predict', subType: 'ml_predict', icon: IconBrain, color: 'grape', description: 'Score each record with a registered model' },
     ]
   },
   {

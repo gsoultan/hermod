@@ -29,6 +29,7 @@ import (
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/genai/retrieve"
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/logic"
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/lookup"
+	_ "github.com/gsoultan/hermod/pkg/comm/transformer/ml"
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/security"
 	"github.com/gsoultan/hermod/pkg/engine/telemetry"
 	"github.com/gsoultan/hermod/pkg/security/crypto"

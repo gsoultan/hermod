@@ -64,6 +64,16 @@ decision answers 409), and approvals are listed, read and decided only within
 the caller's vhosts. Exported workflows have plaintext AI keys replaced with
 `[REDACTED]`. The AI Enrichment and AI Mapper nodes leave the palette; saved
 workflows that use them keep working.
+### Added — call machine-learning models from workflows, REST and gRPC
+
+A vhost can register models that a model server runs — any server speaking the
+Open Inference Protocol (KServe, Triton, Seldon MLServer, BentoML) or MLflow's
+scoring API — on the new **Models** page. The **Predict** node (Machine
+Learning) sends a record's fields to a model and writes the answer onto the
+record. With a serving key, other applications call the same model at
+`POST /api/ml/serve/{vhost}/{name}` or `hermod.ml.v1.InferenceService/Predict`.
+See [docs/ml.md](docs/ml.md). Training models in Hermod follows in a later
+release.
 
 ### Added — a vhost keeps its own secrets
 

@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package hermod.ml.v1;
+
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/gsoultan/hermod/pkg/ml/proto";
+
+// InferenceService runs rows through a model registered in a Hermod vhost.
+//
+// It is the gRPC twin of POST /api/ml/serve/{vhost}/{name}: the same models,
+// the same serving keys and the same answers. A model is callable only once an
+// Editor has made a serving key for it; send that key as "x-api-key" metadata.
+service InferenceService {
+  // Predict sends a batch of rows to the model and returns one prediction per
+  // row, in order. At most 1000 rows per call.
+  //
+  // Errors: UNAUTHENTICATED for a missing or wrong key, or a model without
+  // serving turned on (the same answer for each, so the service does not say
+  // which models exist); INVALID_ARGUMENT for no rows or too many;
+  // UNAVAILABLE when the model server could not answer.
+  rpc Predict(PredictRequest) returns (PredictResponse);
+}
+
+message PredictRequest {
+  // The vhost the model belongs to.
+  string vhost = 1;
+  // The model's name in that vhost.
+  string model = 2;
+  // One object per row, with the fields the model takes.
+  repeated google.protobuf.Struct instances = 3;
+}
+
+message PredictResponse {
+  // The model that answered.
+  string model = 1;
+  // One object per row of the request, in the same order. A model with a
+  // single output answers {"prediction": value}.
+  repeated google.protobuf.Struct predictions = 2;
+}

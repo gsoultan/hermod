@@ -37,6 +37,7 @@ const SettingsPage = lazy(async () => ({ default: (await import('./pages/system/
 const LogsPage = lazy(async () => ({ default: (await import('./pages/monitoring/LogsPage')).LogsPage }))
 const SchemasPage = lazy(async () => ({ default: (await import('./pages/system/SchemasPage')).SchemasPage }))
 const SecretsPage = lazy(async () => ({ default: (await import('./pages/secrets/SecretsPage')).SecretsPage }))
+const ModelsPage = lazy(async () => ({ default: (await import('./pages/ml/ModelsPage')).ModelsPage }))
 const AuditLogsPage = lazy(async () => ({ default: (await import('./pages/monitoring/AuditLogsPage')).AuditLogsPage }))
 const LineagePage = lazy(async () => ({ default: (await import('./pages/monitoring/LineagePage')).LineagePage }))
 const GlobalHealthPage = lazy(async () => ({ default: (await import('./pages/monitoring/GlobalHealthPage')).default }))
@@ -471,6 +472,24 @@ const secretsRoute = createRoute({
   ),
 })
 
+// A vhost's models are managed by Administrators and by Editors who have the
+// vhost, as its secrets are; the API lets a Viewer read them, not change them.
+const modelsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/ml/models',
+  beforeLoad: () => {
+    const role = getSessionRole()
+    if (role !== 'Administrator' && role !== 'Editor') {
+      throw redirect({ to: '/' })
+    }
+  },
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader /></Center>}>
+      <ModelsPage />
+    </Suspense>
+  ),
+})
+
 const auditLogsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/audit-logs',
@@ -638,6 +657,7 @@ const routeTree = rootRoute.addChildren([
   auditLogsRoute,
   schemasRoute,
   secretsRoute,
+  modelsRoute,
   lineageRoute,
   healthRoute,
   complianceRoute,

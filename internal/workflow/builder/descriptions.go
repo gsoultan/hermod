@@ -55,6 +55,9 @@ var descriptions = map[string]string{
 		`store. config: {"provider","model","apiKey":"{{secret(\"NAME\")}}","store":"pgvector|pinecone","query" or ` +
 		`"queryField","topK","minScore","targetField"}; pgvector also needs "connectionString" and "table", pinecone "indexHost" ` +
 		`and "storeApiKey", each as a {{secret(\"NAME\")}} reference.`,
+	"transformation:ml_predict": `Calls a machine-learning model registered in the workflow's vhost and writes its ` +
+		`prediction onto the record. config: {"model":"<registered model name>","inputs":{"feature":"field.path"},` +
+		`"outputField":"prediction"}. Empty inputs send the whole record.`,
 	"transformation:ai_prompt": `Generates text or JSON with a language model. config: {"provider","model",` +
 		`"apiKey":"{{secret(\"NAME\")}}","prompt":"Summarise {{text}}","system","outputMode":"text|json","targetField"}.`,
 	"transformation:api_lookup":        "Fetches data from an HTTP API and merges it into the record.",
