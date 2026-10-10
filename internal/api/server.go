@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/gsoultan/hermod/internal/ai"
+	aibudgethttp "github.com/gsoultan/hermod/internal/aibudget/transport/http"
 	"github.com/gsoultan/hermod/internal/api/handlers"
 	approvalhttp "github.com/gsoultan/hermod/internal/approval/transport/http"
 	authhttp "github.com/gsoultan/hermod/internal/auth/transport/http"
@@ -171,6 +172,7 @@ func (s *Server) Routes() http.Handler {
 	builderH := builderhttp.NewBuilderHandler(s.Handler)
 	proposalH := selfhealhttp.NewProposalHandler(s.Handler)
 	mlH := mlhttp.NewHandler(s.Handler)
+	aiBudgetH := aibudgethttp.NewHandler(s.Handler)
 
 	// Health endpoints (unauthenticated; used by Kubernetes and load balancers)
 	mux.HandleFunc("GET /healthz", infraH.HandleLiveness)
@@ -209,6 +211,7 @@ func (s *Server) Routes() http.Handler {
 	builderH.RegisterBuilderRoutes(mux)
 	proposalH.RegisterProposalRoutes(mux)
 	mlH.RegisterRoutes(mux)
+	aiBudgetH.RegisterRoutes(mux)
 
 	mux.HandleFunc("POST /api/graphql/{path...}", webhooksH.HandleGraphQL)
 

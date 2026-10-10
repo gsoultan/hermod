@@ -149,6 +149,23 @@ decision answers 409), and approvals are listed, read and decided only within
 the caller's vhosts. Exported workflows have plaintext AI keys replaced with
 `[REDACTED]`. The AI Enrichment and AI Mapper nodes leave the palette; saved
 workflows that use them keep working.
+
+### Added — AI budgets and a kill switch per vhost
+
+A vhost can limit what its AI nodes and agents spend each month, in tokens and
+in cost worked out from prices it sets, for the whole vhost and for single
+workflows, on the new **AI Budget** page. At 80% of a limit Hermod logs it,
+counts it in `hermod_ai_budget_warnings_total` and sends a notification. At
+100% calls are refused before they reach the provider, with an `AI budget:`
+error that sends the record down the node's error branch. Refusals are counted
+in `hermod_ai_budget_blocked_total`. A kill switch stops every AI call in the
+vhost at once. Usage is kept in storage (SQL or MongoDB), shared by every
+replica and counted per UTC calendar month. A call is checked before it is made
+and counted after, so a month can end slightly over a limit. When the budget
+cannot be read, calls are refused. Changes are audited. The legacy AI Enrichment
+and AI Mapper nodes are not covered. See
+[docs/ai-automation.md](docs/ai-automation.md#budgets-and-the-kill-switch).
+
 ### Added — call machine-learning models from workflows, REST and gRPC
 
 A vhost can register models that a model server runs — any server speaking the

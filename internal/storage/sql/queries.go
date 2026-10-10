@@ -28,6 +28,8 @@ const (
 	QueryInitVHostsTable             = "InitVHostsTable"
 	QueryInitVHostSecretsTable       = "InitVHostSecretsTable"
 	QueryInitMLModelsTable           = "InitMLModelsTable"
+	QueryInitAIBudgetsTable          = "InitAIBudgetsTable"
+	QueryInitAIUsageTable            = "InitAIUsageTable"
 	QueryInitWorkersTable            = "InitWorkersTable"
 	QueryInitLogsTable               = "InitLogsTable"
 	QueryInitWorkflowsTable          = "InitWorkflowsTable"
@@ -103,6 +105,17 @@ const (
 	QueryDeleteMLModel         = "DeleteMLModel"
 	QueryDeleteMLModelsOfVHost = "DeleteMLModelsOfVHost"
 
+	QueryGetAIBudget             = "GetAIBudget"
+	QueryInsertAIBudget          = "InsertAIBudget"
+	QueryUpdateAIBudget          = "UpdateAIBudget"
+	QueryDeleteAIBudget          = "DeleteAIBudget"
+	QueryAddAIUsage              = "AddAIUsage"
+	QueryInsertAIUsage           = "InsertAIUsage"
+	QueryGetAIUsage              = "GetAIUsage"
+	QueryListAIUsage             = "ListAIUsage"
+	QueryMarkAIUsageTokensWarned = "MarkAIUsageTokensWarned"
+	QueryMarkAIUsageCostWarned   = "MarkAIUsageCostWarned"
+	QueryDeleteAIUsageOfVHost    = "DeleteAIUsageOfVHost"
 	QueryListRetrainingMLModels  = "ListRetrainingMLModels"
 	QuerySetMLModelRetrain       = "SetMLModelRetrain"
 	QuerySetMLModelRetrainStatus = "SetMLModelRetrainStatus"
@@ -313,6 +326,32 @@ var commonQueries = map[string]string{
 			retrain_status TEXT,
 			training_owner TEXT,
 			training_until TIMESTAMP
+		)`,
+	// One row per vhost. spec is the budget as JSON, as ml_models keeps a
+	// model, so a new limit is not a schema change.
+	QueryInitAIBudgetsTable: `CREATE TABLE IF NOT EXISTS ai_budgets (
+			vhost TEXT PRIMARY KEY,
+			spec TEXT,
+			updated_by TEXT,
+			updated_at TIMESTAMP
+		)`,
+	// One row per vhost, month and workflow; workflow_id is empty for the
+	// vhost's own total. id is storage.AIUsageID. The counters are only ever
+	// changed by an UPDATE that adds to them, so replicas sharing the
+	// database never lose each other's calls. A *_warned_at column is set once,
+	// by whichever replica raises that 80% alert.
+	QueryInitAIUsageTable: `CREATE TABLE IF NOT EXISTS ai_usage (
+			id TEXT PRIMARY KEY,
+			vhost TEXT,
+			period TEXT,
+			workflow_id TEXT,
+			calls BIGINT,
+			input_tokens BIGINT,
+			output_tokens BIGINT,
+			cost_micros BIGINT,
+			tokens_warned_at TIMESTAMP,
+			cost_warned_at TIMESTAMP,
+			updated_at TIMESTAMP
 		)`,
 	QueryInitWorkersTable: `CREATE TABLE IF NOT EXISTS workers (
 			id TEXT PRIMARY KEY,
@@ -634,7 +673,19 @@ var commonQueries = map[string]string{
 	// it takes an unclaimed or expired claim, or renews the owner's own.
 	QueryClaimMLModelTraining:   "UPDATE ml_models SET training_owner = ?, training_until = ? WHERE id = ? AND (training_owner IS NULL OR training_until IS NULL OR training_until < ? OR training_owner = ?)",
 	QueryReleaseMLModelTraining: "UPDATE ml_models SET training_owner = NULL, training_until = NULL WHERE id = ? AND training_owner = ?",
-	QueryGetVHost:               "SELECT id, name, description, created_at FROM vhosts WHERE id = ?",
+
+	QueryGetAIBudget:             "SELECT spec, updated_by, updated_at FROM ai_budgets WHERE vhost = ?",
+	QueryInsertAIBudget:          "INSERT INTO ai_budgets (vhost, spec, updated_by, updated_at) VALUES (?, ?, ?, ?)",
+	QueryUpdateAIBudget:          "UPDATE ai_budgets SET spec = ?, updated_by = ?, updated_at = ? WHERE vhost = ?",
+	QueryDeleteAIBudget:          "DELETE FROM ai_budgets WHERE vhost = ?",
+	QueryAddAIUsage:              "UPDATE ai_usage SET calls = calls + 1, input_tokens = input_tokens + ?, output_tokens = output_tokens + ?, cost_micros = cost_micros + ?, updated_at = ? WHERE id = ?",
+	QueryInsertAIUsage:           "INSERT INTO ai_usage (id, vhost, period, workflow_id, calls, input_tokens, output_tokens, cost_micros, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)",
+	QueryGetAIUsage:              "SELECT calls, input_tokens, output_tokens, cost_micros, tokens_warned_at, cost_warned_at, updated_at FROM ai_usage WHERE id = ?",
+	QueryListAIUsage:             "SELECT workflow_id, calls, input_tokens, output_tokens, cost_micros, tokens_warned_at, cost_warned_at, updated_at FROM ai_usage WHERE vhost = ? AND period = ? ORDER BY workflow_id",
+	QueryMarkAIUsageTokensWarned: "UPDATE ai_usage SET tokens_warned_at = ? WHERE id = ? AND tokens_warned_at IS NULL",
+	QueryMarkAIUsageCostWarned:   "UPDATE ai_usage SET cost_warned_at = ? WHERE id = ? AND cost_warned_at IS NULL",
+	QueryDeleteAIUsageOfVHost:    "DELETE FROM ai_usage WHERE vhost = ?",
+	QueryGetVHost:                "SELECT id, name, description, created_at FROM vhosts WHERE id = ?",
 
 	QueryListWorkflows:        "SELECT id, name, vhost, active, status, worker_id, owner_id, lease_until, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request, total_processed, total_errors, total_lag, created_at FROM workflows",
 	QueryCountWorkflows:       "SELECT COUNT(*) FROM workflows",

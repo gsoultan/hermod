@@ -21,8 +21,8 @@ func init() {
 type ClassifyNode struct{}
 
 // Execute implements interfaces.NodeExecutor.
-func (n *ClassifyNode) Execute(ctx context.Context, _ interfaces.NodeContext, _ string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
-	c, err := genai.Classify(ctx, msg, node.Config)
+func (n *ClassifyNode) Execute(ctx context.Context, _ interfaces.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
+	c, err := genai.Classify(genai.WithWorkflow(ctx, workflowID), msg, node.Config)
 	if err != nil {
 		return []hermod.Message{msg}, "", err
 	}

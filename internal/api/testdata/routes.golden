@@ -65,6 +65,7 @@ GET /api/version
 GET /api/vhosts
 GET /api/vhosts/
 GET /api/vhosts/{id}
+GET /api/vhosts/{vhost}/ai/budget
 GET /api/vhosts/{vhost}/ml/datasets
 GET /api/vhosts/{vhost}/ml/datasets/{name}
 GET /api/vhosts/{vhost}/ml/models
@@ -180,6 +181,8 @@ POST /api/vhosts/{vhost}/ml/models/{name}/train
 POST /api/vhosts/{vhost}/ml/models/{name}/versions/{version}/promote
 POST /api/webhooks/requests/{id}/replay
 POST /api/webhooks/{path...}
+POST /api/worker/ai/check
+POST /api/worker/ai/usage
 POST /api/workers
 POST /api/workers/{id}/heartbeat
 POST /api/workers/{id}/shutdown
@@ -214,6 +217,8 @@ PUT /api/sources/{id}/sample
 PUT /api/users/{id}
 PUT /api/users/{id}/password
 PUT /api/vhosts/{id}
+PUT /api/vhosts/{vhost}/ai/budget
+PUT /api/vhosts/{vhost}/ai/kill-switch
 PUT /api/vhosts/{vhost}/ml/datasets/{name}/file
 PUT /api/vhosts/{vhost}/ml/models/{name}
 PUT /api/vhosts/{vhost}/ml/models/{name}/retrain
