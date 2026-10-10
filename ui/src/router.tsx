@@ -38,6 +38,7 @@ const LogsPage = lazy(async () => ({ default: (await import('./pages/monitoring/
 const SchemasPage = lazy(async () => ({ default: (await import('./pages/system/SchemasPage')).SchemasPage }))
 const SecretsPage = lazy(async () => ({ default: (await import('./pages/secrets/SecretsPage')).SecretsPage }))
 const ModelsPage = lazy(async () => ({ default: (await import('./pages/ml/ModelsPage')).ModelsPage }))
+const AIBudgetPage = lazy(async () => ({ default: (await import('./pages/ai/AIBudgetPage')).AIBudgetPage }))
 const AuditLogsPage = lazy(async () => ({ default: (await import('./pages/monitoring/AuditLogsPage')).AuditLogsPage }))
 const LineagePage = lazy(async () => ({ default: (await import('./pages/monitoring/LineagePage')).LineagePage }))
 const GlobalHealthPage = lazy(async () => ({ default: (await import('./pages/monitoring/GlobalHealthPage')).default }))
@@ -490,6 +491,18 @@ const modelsRoute = createRoute({
   ),
 })
 
+// Every role may read a vhost's AI budget; the page leaves only Editors and
+// Administrators able to change it, as the API does.
+const aiBudgetRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/ai/budget',
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader /></Center>}>
+      <AIBudgetPage />
+    </Suspense>
+  ),
+})
+
 const auditLogsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/audit-logs',
@@ -658,6 +671,7 @@ const routeTree = rootRoute.addChildren([
   schemasRoute,
   secretsRoute,
   modelsRoute,
+  aiBudgetRoute,
   lineageRoute,
   healthRoute,
   complianceRoute,

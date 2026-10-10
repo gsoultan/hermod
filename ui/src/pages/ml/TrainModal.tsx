@@ -5,10 +5,11 @@ import {
 import { IconAlertCircle, IconCircleCheck, IconInfoCircle } from '@tabler/icons-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  DEVICE_OPTIONS, MODEL_NAME_PATTERN, TASK_OPTIONS, algorithmOptions, isCustomAlgorithm, mlModelsKey, modelNameRule,
+  DEVICE_OPTIONS, MODEL_NAME_PATTERN, TASK_OPTIONS, algorithmOptions, isCustomAlgorithm, isDeepAlgorithm, mlModelsKey, modelNameRule,
   trainModel, useDataset, useVHostDatasets, useVHostScripts, useWorkerStatus, versionsKey, type GoLive, type TrainAlgorithm,
-  type TrainDevice, type TrainResult, type TrainTask,
+  type TrainDevice, type TrainParams, type TrainResult, type TrainTask,
 } from '@/lib/mlModels'
+import { DeepParamsFields, readDeepParams, type DeepParamsText } from './deepParams'
 import { GoLiveField } from './goLive'
 
 /** Shows a metric the way people read it: four significant digits. */
@@ -30,19 +31,22 @@ export function TrainModal({ vhost, modelName, onClose }: { vhost: string; model
   const [device, setDevice] = useState<TrainDevice>('cpu')
   const [goLive, setGoLive] = useState<GoLive>({ mode: 'never' })
   const [nameError, setNameError] = useState<string | null>(null)
+  const [deepText, setDeepText] = useState<DeepParamsText>({})
+  const [deepErrors, setDeepErrors] = useState<ReturnType<typeof readDeepParams>['errors']>({})
 
+  const { data: worker } = useWorkerStatus()
   const { data: datasets = [] } = useVHostDatasets(vhost)
   const { data: info } = useDataset(vhost, dataset)
   const columns = (info?.columns ?? []).map((c) => c.name)
-  const { data: worker } = useWorkerStatus()
   const caps = worker?.capabilities
   const { data: scripts = [] } = useVHostScripts(vhost, !!caps?.custom_scripts)
   const custom = isCustomAlgorithm(algorithm)
   // A script trains on its own pool; the device applies to built-in algorithms.
   const showDevice = !!caps?.gpu && !custom
+  const deep = isDeepAlgorithm(algorithm)
 
   const train = useMutation({
-    mutationFn: () =>
+    mutationFn: (params: TrainParams | undefined) =>
       trainModel(vhost, name.trim(), {
         dataset: dataset as string,
         target: target as string,
@@ -50,6 +54,7 @@ export function TrainModal({ vhost, modelName, onClose }: { vhost: string; model
         task,
         algorithm,
         device: showDevice && device === 'gpu' ? 'gpu' : undefined,
+        params: deep ? params : undefined,
         go_live: goLive,
       }),
     onSuccess: (res) => {
@@ -62,8 +67,10 @@ export function TrainModal({ vhost, modelName, onClose }: { vhost: string; model
     event.preventDefault()
     const badName = !MODEL_NAME_PATTERN.test(name.trim())
     setNameError(badName ? `"${name.trim()}" is not a valid name.` : null)
-    if (badName || !dataset || !target) return
-    train.mutate()
+    const { params, errors } = deep ? readDeepParams(deepText) : { params: undefined, errors: {} }
+    setDeepErrors(errors)
+    if (badName || !dataset || !target || Object.keys(errors).length) return
+    train.mutate(params)
   }
 
   return (
@@ -83,7 +90,7 @@ export function TrainModal({ vhost, modelName, onClose }: { vhost: string; model
             disabled={!target} data={columns.filter((c) => c !== target)} value={features} onChange={setFeatures} />
           <Group grow align="flex-start">
             <Select label="Task" data={TASK_OPTIONS} value={task} allowDeselect={false} onChange={(v) => setTask((v ?? 'auto') as TrainTask)} />
-            <Select label="Algorithm" data={algorithmOptions(scripts, caps)} value={algorithm} allowDeselect={false}
+            <Select label="Algorithm" data={algorithmOptions(worker, scripts)} value={algorithm} allowDeselect={false}
               onChange={(v) => setAlgorithm((v ?? 'auto') as TrainAlgorithm)} />
             {showDevice && (
               <Select label="Device" description="GPU trains on the GPU worker pool." data={DEVICE_OPTIONS} value={device}
@@ -95,6 +102,10 @@ export function TrainModal({ vhost, modelName, onClose }: { vhost: string; model
               The script runs in a sandbox on the custom-script worker pool. Its ONNX export is checked and scored on the held-back rows
               like any other version.
             </Text>
+          )}
+          {deep && (
+            <DeepParamsFields value={deepText} errors={deepErrors}
+              onChange={(patch) => { setDeepText((t) => ({ ...t, ...patch })); setDeepErrors({}) }} />
           )}
           <GoLiveField value={goLive} onChange={setGoLive} />
 

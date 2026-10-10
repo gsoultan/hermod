@@ -46,6 +46,82 @@ func observe(ctx context.Context, rec llm.CallRecord) {
 	}
 }
 
+type budgetBox struct{ b llm.Budget }
+
+var budget atomic.Pointer[budgetBox]
+
+// SetBudget gates every model call any AI node makes, the agent's included:
+// the registry installs the vhost and workflow spending limits here. nil
+// turns it off.
+func SetBudget(b llm.Budget) {
+	if b == nil {
+		budget.Store(nil)
+		return
+	}
+	budget.Store(&budgetBox{b: b})
+}
+
+// installedBudget is the llm.Budget every cached provider is built with. It
+// reads SetBudget's value per call, so a provider cached before the budget was
+// installed is gated all the same.
+type installedBudget struct{}
+
+func (installedBudget) Allow(ctx context.Context) error {
+	if b := budget.Load(); b != nil {
+		return b.b.Allow(ctx)
+	}
+	return nil
+}
+
+func (installedBudget) Record(ctx context.Context, rec llm.CallRecord) {
+	if b := budget.Load(); b != nil {
+		b.b.Record(ctx, rec)
+	}
+}
+
+// vhostProvider runs every call in the scope of the vhost the engine stamped
+// on the message, keeping whatever workflow the caller's context names. The
+// vhost comes from hermod.VHostScoped, never from the message's data or
+// metadata, so a payload cannot charge its calls to another vhost.
+type vhostProvider struct {
+	llm.Provider
+	vhost string
+}
+
+func (v vhostProvider) scope(ctx context.Context) context.Context {
+	s := llm.ScopeFrom(ctx)
+	s.VHost = v.vhost
+	return llm.WithScope(ctx, s)
+}
+
+func (v vhostProvider) Chat(ctx context.Context, req llm.ChatRequest) (llm.ChatResponse, error) {
+	return v.Provider.Chat(v.scope(ctx), req)
+}
+
+func (v vhostProvider) Embed(ctx context.Context, req llm.EmbedRequest) (llm.EmbedResponse, error) {
+	e, ok := v.Provider.(llm.Embedder)
+	if !ok {
+		return llm.EmbedResponse{}, llm.ErrUnsupported
+	}
+	return e.Embed(v.scope(ctx), req)
+}
+
+// messageVHost is the vhost the engine stamped on msg, or "".
+func messageVHost(msg hermod.Message) string {
+	if scoped, ok := msg.(hermod.VHostScoped); ok && scoped != nil {
+		return scoped.VHost()
+	}
+	return ""
+}
+
+// WithWorkflow returns ctx naming the workflow whose node makes the calls in
+// it, for the per-workflow spending caps.
+func WithWorkflow(ctx context.Context, workflowID string) context.Context {
+	s := llm.ScopeFrom(ctx)
+	s.WorkflowID = workflowID
+	return llm.WithScope(ctx, s)
+}
+
 // maxCachedProviders bounds the provider cache. A provider is cheap to
 // rebuild; the cache exists so that a connection's concurrency limit is
 // shared by every message rather than per message.
@@ -90,7 +166,21 @@ func connection(config map[string]any, msg hermod.Message, prefix string) connec
 // ProviderFor returns the provider a node's config names, and the model to
 // ask for. A fallback connection is configured with the fallback* keys
 // (fallbackProvider, fallbackModel, fallbackApiKey, fallbackBaseUrl).
+//
+// Every call through it is checked against, and counted in, the budget
+// SetBudget installed, in the scope of msg's vhost.
 func ProviderFor(config map[string]any, msg hermod.Message) (llm.Provider, string, error) {
+	p, model, err := cachedProvider(config, msg)
+	if err != nil {
+		return nil, "", err
+	}
+	if vhost := messageVHost(msg); vhost != "" {
+		return vhostProvider{Provider: p, vhost: vhost}, model, nil
+	}
+	return p, model, nil
+}
+
+func cachedProvider(config map[string]any, msg hermod.Message) (llm.Provider, string, error) {
 	spec := connection(config, msg, "")
 	if spec.Kind == "" {
 		return nil, "", errors.New("no AI provider configured")
@@ -109,7 +199,9 @@ func ProviderFor(config map[string]any, msg hermod.Message) (llm.Provider, strin
 	if err != nil {
 		return nil, "", err
 	}
-	p := llm.Chain(built, llm.WithObserver(observe))
+	// The budget sits inside the observer, so a refused call is still
+	// counted, under the budget_exceeded outcome.
+	p := llm.Chain(built, llm.WithObserver(observe), llm.WithBudget(installedBudget{}))
 	if len(providers) >= maxCachedProviders {
 		clear(providers)
 	}

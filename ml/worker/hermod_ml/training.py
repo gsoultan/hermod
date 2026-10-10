@@ -2,7 +2,9 @@
 
 A training call is synchronous: load the dataset, fit a scikit-learn
 pipeline, export it with skl2onnx, prove the ONNX graph predicts what the
-pipeline predicts, then save the version atomically.
+pipeline predicts, then save the version atomically. The deep-learning
+algorithms (deep.py) end the same pipeline with a PyTorch or Keras network,
+whose ONNX graph is joined to the skl2onnx one.
 
 Layout on disk:
 
@@ -55,6 +57,7 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from skl2onnx import convert_sklearn, get_latest_tested_opset_version
 from skl2onnx.common.data_types import FloatTensorType, StringTensorType
 
+from . import deep
 from .datasets import BOOL, NUMBER, STRING, DatasetStore, is_null, to_text
 from .errors import ApiError, bad_request, not_found
 from .names import validate_name
@@ -64,7 +67,10 @@ MAX_AUTO_CLASSES = 20  # integer targets with at most this many values are class
 REGRESSION_RTOL = 1e-3
 
 TASKS = ("auto", "classification", "regression")
-ALGORITHMS = ("auto", "random_forest", "gradient_boosting", "linear", "xgboost")
+ALGORITHMS = ("auto", "random_forest", "gradient_boosting", "linear", "xgboost", *deep.ALGORITHMS)
+# A deep-learning model's labels may differ from its framework's where the top
+# two probabilities are closer than this: float32 rounding decides those ties.
+PROBABILITY_ATOL = 1e-4
 VERSION_RE = re.compile(r"[0-9]+\Z")
 
 
@@ -174,6 +180,9 @@ class TrainRequest:
     algorithm: str
     test_size: float
     seed: int
+    # The deep-learning hyperparameters with defaults filled in; None for
+    # every other algorithm.
+    params: dict[str, Any] | None = None
 
 
 def parse_request(body: dict[str, Any]) -> TrainRequest:
@@ -210,7 +219,13 @@ def parse_request(body: dict[str, Any]) -> TrainRequest:
     if isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed < 2**32:
         raise bad_request("'seed' must be an integer between 0 and 4294967295.")
 
-    return TrainRequest(dataset, target, list(features), task, algorithm, float(test_size), seed)
+    params = None
+    if algorithm in deep.ALGORITHMS:
+        params = deep.parse_params(body.get("params"))
+    elif body.get("params") is not None:
+        raise bad_request(f"'params' applies only to the algorithms {', '.join(deep.ALGORITHMS)}.")
+
+    return TrainRequest(dataset, target, list(features), task, algorithm, float(test_size), seed, params)
 
 
 # --------------------------------------------------------------------------
@@ -412,6 +427,68 @@ def _estimator(task: str, algorithm: str, seed: int):
     raise bad_request(f"Unknown algorithm {algorithm!r}.")  # unreachable after parse_request
 
 
+def algorithm_capabilities() -> tuple[list[str], dict[str, str]]:
+    """The algorithms this image can train, and why each other one cannot."""
+    available: list[str] = []
+    unavailable: dict[str, str] = {}
+    for algorithm in ALGORITHMS:
+        if algorithm == "xgboost":
+            reason = _xgboost_unavailable()
+        elif algorithm in deep.ALGORITHMS:
+            reason = deep.unavailable(algorithm)
+        else:
+            reason = None
+        if reason is None:
+            available.append(algorithm)
+        else:
+            unavailable[algorithm] = reason
+    return available, unavailable
+
+
+def export_onnx(pipeline: Pipeline, features: list[str], feature_types: dict[str, str], task: str, algorithm: str) -> onnx.ModelProto:
+    """Export a fitted pipeline to one ONNX graph with one input per feature,
+    named exactly as the feature."""
+    initial_types = [
+        (f, FloatTensorType([None, 1]) if feature_types[f] == NUMBER else StringTensorType([None, 1]))
+        for f in features
+    ]
+    estimator = pipeline.named_steps["model"]
+    if algorithm in deep.ALGORITHMS:
+        # skl2onnx exports the preprocessing alone; the framework exports the
+        # network, at the same opset so the two graphs can be merged.
+        prep = convert_sklearn(
+            pipeline.named_steps["prep"],
+            initial_types=initial_types,
+            target_opset={"": deep.OPSET, "ai.onnx.ml": 3},
+        )
+        labels = list(pipeline.classes_) if task == "classification" else None
+        onnx_model = deep.compose(prep, estimator.to_onnx(), task, labels)
+    else:
+        options = {id(estimator): {"zipmap": False}} if task == "classification" else None
+        target_opset = None
+        if algorithm == "xgboost":
+            # The onnxmltools xgboost converter supports ai.onnx.ml up to v3.
+            target_opset = {"": get_latest_tested_opset_version(), "ai.onnx.ml": 3}
+        onnx_model = convert_sklearn(pipeline, initial_types=initial_types, options=options, target_opset=target_opset)
+    _rename_inputs(onnx_model, features)
+    onnx.checker.check_model(onnx_model)
+    return onnx_model
+
+
+def _labels_agree(got: np.ndarray, expected: np.ndarray, probabilities: np.ndarray | None) -> bool:
+    """Exact label agreement, except that when `probabilities` (the trained
+    model's own) is given, rows whose top two classes are within
+    PROBABILITY_ATOL may differ."""
+    if len(got) != len(expected):
+        return False
+    same = np.asarray([a == b for a, b in zip(got.tolist(), expected.tolist())], dtype=bool)
+    if probabilities is None or probabilities.shape[1] < 2:
+        return bool(same.all())
+    top = np.sort(probabilities, axis=1)
+    tie = (top[:, -1] - top[:, -2]) <= PROBABILITY_ATOL
+    return bool((same | tie).all())
+
+
 def _finite(metrics: dict[str, float]) -> dict[str, float]:
     """Drop metrics that came out NaN/inf (e.g. r2 on a one-row test split)."""
     return {k: float(v) for k, v in metrics.items() if v is not None and math.isfinite(v)}
@@ -520,10 +597,15 @@ class Trainer:
 
         # -- fit -------------------------------------------------------------
         algorithm = "random_forest" if req.algorithm == "auto" else req.algorithm
-        estimator = _estimator(task, algorithm, req.seed)
+        is_deep = algorithm in deep.ALGORITHMS
+        if is_deep:
+            estimator = deep.make_estimator(algorithm, task, req.params, req.seed)
+        else:
+            estimator = _estimator(task, algorithm, req.seed)
         transformers = []
         if numeric:
-            transformers.append(("num", StandardScaler() if algorithm == "linear" else "passthrough", numeric))
+            scale = algorithm == "linear" or is_deep
+            transformers.append(("num", StandardScaler() if scale else "passthrough", numeric))
         if strings:
             transformers.append(("str", OneHotEncoder(handle_unknown="ignore"), strings))
         # sparse_threshold=0 keeps the transformed matrix dense, which is what
@@ -532,19 +614,7 @@ class Trainer:
         pipeline.fit(X_train, y_train)
 
         # -- export ----------------------------------------------------------
-        initial_types = [
-            (f, FloatTensorType([None, 1]) if feature_types[f] == NUMBER else StringTensorType([None, 1]))
-            for f in features
-        ]
-        options = {id(estimator): {"zipmap": False}} if task == "classification" else None
-        target_opset = None
-        if algorithm == "xgboost":
-            # The onnxmltools xgboost converter supports ai.onnx.ml up to v3.
-            target_opset = {"": get_latest_tested_opset_version(), "ai.onnx.ml": 3}
-        onnx_model = convert_sklearn(pipeline, initial_types=initial_types, options=options, target_opset=target_opset)
-        _rename_inputs(onnx_model, features)
-        onnx.checker.check_model(onnx_model)
-        model_bytes = onnx_model.SerializeToString()
+        model_bytes = export_onnx(pipeline, features, feature_types, task, algorithm).SerializeToString()
 
         meta: dict[str, Any] = {
             "model": name,
@@ -558,14 +628,20 @@ class Trainer:
         }
         if task == "classification":
             meta["labels"] = [c.item() if hasattr(c, "item") else c for c in pipeline.classes_]
+        if is_deep:
+            meta["params"] = req.params
 
         # -- parity: the ONNX graph must agree with sklearn on the test split --
         session = ort.InferenceSession(model_bytes, providers=["CPUExecutionProvider"])
         expected = pipeline.predict(X_test)
-        got, _ = onnx_predict_for_parity(session, X_test, meta)
+        got, got_proba = onnx_predict_for_parity(session, X_test, meta)
         if task == "classification":
-            same = len(got) == len(expected) and all(a == b for a, b in zip(got.tolist(), expected.tolist()))
-            if not same:
+            # A network computes in float32 in both places, but not in the same
+            # order, so its probabilities agree to a tolerance, not exactly.
+            proba = pipeline.predict_proba(X_test) if is_deep else None
+            if proba is not None and not np.allclose(got_proba, proba, atol=PROBABILITY_ATOL):
+                raise ApiError(500, "ONNX export check failed: the exported model's probabilities differ from the trained model's.")
+            if not _labels_agree(got, expected, proba):
                 raise ApiError(500, "ONNX export check failed: the exported model's labels differ from the trained model's.")
         else:
             expected = np.asarray(expected, dtype=np.float64)

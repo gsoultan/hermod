@@ -193,6 +193,12 @@ mlWorker:
     repository: ghcr.io/gsoultan/hermod-ml
     # Defaults to .Chart.AppVersion, like the Hermod image.
     tag: ""
+    # "" for the slim image, or "dl" for the "-dl" variant (linux/amd64
+    # only) that adds CPU-only PyTorch and TensorFlow, which the pytorch_mlp
+    # and keras_mlp algorithms need. "dl" appends "-dl" to the default tag;
+    # an explicit tag is used as given. Give the dl image about 1Gi more
+    # memory: the libraries add ~650Mi once a network has trained.
+    variant: ""
     pullPolicy: IfNotPresent
   token: ""
   existingSecret: ""

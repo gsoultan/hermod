@@ -37,8 +37,12 @@ type modelTrainer interface {
 //   - features: the columns to learn from, as a JSON list or comma-separated;
 //     empty means every column but the target.
 //   - task: auto, classification or regression. algorithm: auto,
-//     random_forest, gradient_boosting, linear, xgboost, or custom:NAME for
-//     one of the vhost's custom training scripts.
+//     random_forest, gradient_boosting, linear, xgboost, pytorch_mlp or
+//     keras_mlp (the last two need the worker's "-dl" image), or custom:NAME
+//     for one of the vhost's custom training scripts.
+//   - hiddenLayers ("64, 32"), epochs, batchSize, learningRate, patience:
+//     optional hyperparameters for pytorch_mlp and keras_mlp; unset ones use
+//     the worker's defaults.
 //   - device: cpu (the default) or gpu, which trains on the GPU worker pool.
 //   - goLive: never (the default), always, or if; goLiveMetric (default
 //     "score"), goLiveMin and goLiveMax bound "if".
@@ -121,6 +125,14 @@ func trainRequest(config map[string]any) (map[string]any, error) {
 	}
 	req["goLive"] = goLive
 
+	params, err := deepParams(config)
+	if err != nil {
+		return nil, err
+	}
+	if len(params) > 0 {
+		req["params"] = params
+	}
+
 	source, query := core.GetConfigString(config, "sourceId"), core.GetConfigString(config, "query")
 	switch {
 	case query != "" && source == "":
@@ -136,6 +148,84 @@ func trainRequest(config map[string]any) (map[string]any, error) {
 		}
 	}
 	return req, nil
+}
+
+// deepParamKeys maps the node's settings to the worker's params keys.
+var deepParamKeys = []struct{ setting, param string }{
+	{"epochs", "epochs"}, {"batchSize", "batch_size"}, {"patience", "patience"},
+}
+
+// deepParams reads the pytorch_mlp / keras_mlp settings the node sets. Unset
+// ones are left out so the worker's defaults apply; the worker checks the
+// bounds.
+func deepParams(config map[string]any) (map[string]any, error) {
+	params := map[string]any{}
+	layers, err := parseLayers(config["hiddenLayers"])
+	if err != nil {
+		return nil, err
+	}
+	if len(layers) > 0 {
+		params["hidden_layers"] = layers
+	}
+	for _, k := range deepParamKeys {
+		n, ok, err := number(config[k.setting])
+		if err != nil {
+			return nil, fmt.Errorf("ml_train: %s %w", k.setting, err)
+		}
+		if !ok {
+			continue
+		}
+		if n != float64(int(n)) {
+			return nil, fmt.Errorf("ml_train: %s must be a whole number, not %v", k.setting, n)
+		}
+		params[k.param] = int(n)
+	}
+	rate, ok, err := number(config["learningRate"])
+	if err != nil {
+		return nil, fmt.Errorf("ml_train: learningRate %w", err)
+	}
+	if ok {
+		params["learning_rate"] = rate
+	}
+	return params, nil
+}
+
+// parseLayers reads hidden layer sizes: "64, 32" as the editor saves them, a
+// JSON list, or a list value from an API client.
+func parseLayers(v any) ([]int, error) {
+	var items []any
+	switch in := v.(type) {
+	case nil:
+		return nil, nil
+	case []any:
+		items = in
+	case []int:
+		return in, nil
+	case string:
+		s := strings.TrimSpace(in)
+		if strings.HasPrefix(s, "[") {
+			if err := json.Unmarshal([]byte(s), &items); err != nil {
+				return nil, fmt.Errorf("ml_train: hiddenLayers must be a JSON list of layer sizes: %w", err)
+			}
+			break
+		}
+		for _, part := range strings.Split(s, ",") {
+			if part = strings.TrimSpace(part); part != "" {
+				items = append(items, part)
+			}
+		}
+	default:
+		return nil, fmt.Errorf("ml_train: hiddenLayers must be a list of layer sizes, not %T", v)
+	}
+	sizes := make([]int, 0, len(items))
+	for _, item := range items {
+		n, ok, err := number(item)
+		if err != nil || !ok || n != float64(int(n)) {
+			return nil, fmt.Errorf("ml_train: hiddenLayers must be whole numbers, not %v", item)
+		}
+		sizes = append(sizes, int(n))
+	}
+	return sizes, nil
 }
 
 // parseFeatures reads a JSON list, a comma-separated list, or a list value.

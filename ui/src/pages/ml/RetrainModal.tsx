@@ -36,7 +36,7 @@ export function RetrainModal({ vhost, model, onClose }: { vhost: string; model: 
   const { data: worker } = useWorkerStatus()
   const caps = worker?.capabilities
   const { data: scripts = [] } = useVHostScripts(vhost, !!caps?.custom_scripts)
-  const algorithms = algorithmOptions(scripts, caps)
+  const algorithms = algorithmOptions(worker, scripts)
   // A policy's script stays visible even if the server stops offering it.
   if (!algorithms.some((a) => a.value === algorithm)) algorithms.push({ value: algorithm, label: `${algorithm} (unavailable)` })
   const custom = isCustomAlgorithm(algorithm)

@@ -131,6 +131,13 @@ export interface WorkerStatus {
   ready: boolean
   error?: string
   capabilities?: WorkerCapabilities
+  /**
+   * What the worker can train. Absent from a worker older than its
+   * capabilities route, which then is assumed to train every algorithm.
+   */
+  algorithms?: TrainAlgorithm[]
+  /** Why each algorithm missing from `algorithms` cannot train there. */
+  unavailable?: Partial<Record<TrainAlgorithm, string>>
 }
 
 export interface DatasetColumn {
@@ -148,8 +155,39 @@ export interface DatasetInfo {
 
 export type TrainTask = 'auto' | 'classification' | 'regression'
 /** A built-in algorithm, or `custom:<script>` for one of the vhost's training scripts. */
-export type TrainAlgorithm = 'auto' | 'random_forest' | 'gradient_boosting' | 'linear' | 'xgboost' | `custom:${string}`
+export type TrainAlgorithm =
+  | 'auto' | 'random_forest' | 'gradient_boosting' | 'linear' | 'xgboost' | 'pytorch_mlp' | 'keras_mlp' | `custom:${string}`
 export type TrainDevice = 'cpu' | 'gpu'
+
+/** The neural-network algorithms: they take TrainParams and need the worker's "-dl" image. */
+export const DEEP_ALGORITHMS: readonly TrainAlgorithm[] = ['pytorch_mlp', 'keras_mlp']
+
+export const isDeepAlgorithm = (a: string | null | undefined) => DEEP_ALGORITHMS.includes(a as TrainAlgorithm)
+
+/**
+ * Hyperparameters of pytorch_mlp and keras_mlp. An absent field takes the
+ * worker's default; the worker checks the bounds.
+ */
+export interface TrainParams {
+  hidden_layers?: number[]
+  epochs?: number
+  batch_size?: number
+  learning_rate?: number
+  patience?: number
+}
+
+/** The worker's defaults, shown as placeholders. */
+export const DEFAULT_TRAIN_PARAMS = { hidden_layers: '64, 32', epochs: '200', batch_size: '32', learning_rate: '0.001', patience: '10' }
+
+/**
+ * Reads "64, 32" as layer sizes: [] for an empty field, null when a size is
+ * not a whole number above zero.
+ */
+export function parseHiddenLayers(text: string): number[] | null {
+  const parts = text.split(',').map((s) => s.trim()).filter(Boolean)
+  const sizes = parts.map(Number)
+  return sizes.every((n) => Number.isInteger(n) && n > 0) ? sizes : null
+}
 
 export interface GoLive {
   mode: 'never' | 'always' | 'if'
@@ -166,6 +204,8 @@ export interface TrainSpec {
   algorithm?: TrainAlgorithm
   /** 'gpu' trains on the GPU worker pool; empty or 'cpu' on the main worker. */
   device?: TrainDevice
+  /** Only for pytorch_mlp and keras_mlp; the worker refuses it otherwise. */
+  params?: TrainParams
   go_live: GoLive
 }
 
@@ -242,6 +282,8 @@ export const ALGORITHM_OPTIONS: Array<{ value: TrainAlgorithm; label: string }> 
   { value: 'gradient_boosting', label: 'Gradient boosting' },
   { value: 'linear', label: 'Linear / logistic regression' },
   { value: 'xgboost', label: 'XGBoost' },
+  { value: 'pytorch_mlp', label: 'PyTorch MLP (neural network)' },
+  { value: 'keras_mlp', label: 'Keras MLP (neural network)' },
 ]
 
 export const DEVICE_OPTIONS: Array<{ value: TrainDevice; label: string }> = [
@@ -254,14 +296,17 @@ export const CUSTOM_PREFIX = 'custom:'
 export const isCustomAlgorithm = (a: string | undefined | null) => !!a && a.startsWith(CUSTOM_PREFIX)
 
 /**
- * The algorithms a training can pick: the built-in ones, then the vhost's
+ * The algorithms a training can pick: the built-in ones the worker says it can
+ * train (all of them when it does not say; "auto" always), then the vhost's
  * scripts when the server can train with them.
  */
-export function algorithmOptions(scripts: MLScript[], caps?: WorkerCapabilities) {
-  const custom = caps?.custom_scripts
+export function algorithmOptions(status: WorkerStatus | undefined, scripts: MLScript[] = []) {
+  const available = status?.algorithms
+  const builtIn = available ? ALGORITHM_OPTIONS.filter((o) => o.value === 'auto' || available.includes(o.value)) : ALGORITHM_OPTIONS
+  const custom = status?.capabilities?.custom_scripts
     ? scripts.map((s) => ({ value: `${CUSTOM_PREFIX}${s.name}`, label: `Script: ${s.name}` }))
     : []
-  return [...ALGORITHM_OPTIONS, ...custom]
+  return [...builtIn, ...custom]
 }
 
 /** The database source types a dataset can be read from. */

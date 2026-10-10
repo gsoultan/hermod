@@ -1,9 +1,10 @@
 import { Alert, Divider, Group, MultiSelect, Select, Stack, Text, TextInput, Textarea } from '@mantine/core'
 import { IconInfoCircle } from '@tabler/icons-react'
 import {
-  CUSTOM_PREFIX, DEVICE_OPTIONS, SQL_SOURCE_TYPES, TASK_OPTIONS, algorithmOptions, isCustomAlgorithm, useDataset, useVHostDatasets,
+  CUSTOM_PREFIX, DEVICE_OPTIONS, SQL_SOURCE_TYPES, TASK_OPTIONS, algorithmOptions, isCustomAlgorithm, isDeepAlgorithm, useDataset, useVHostDatasets,
   useVHostScripts, useWorkerStatus, type GoLive,
 } from '@/lib/mlModels'
+import { DeepParamsFields, readDeepParams } from '@/pages/ml/deepParams'
 import { GoLiveField } from '@/pages/ml/goLive'
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore'
 
@@ -43,7 +44,7 @@ export function MLTrainConfig({ config, updateNodeConfig, nodeId, sources = [] }
   const { data: worker } = useWorkerStatus()
   const caps = worker?.capabilities
   const { data: scripts = [] } = useVHostScripts(vhost, !!caps?.custom_scripts)
-  const algorithms = algorithmOptions(scripts, caps)
+  const algorithms = algorithmOptions(worker, scripts)
   // A saved custom:<script> stays visible even if the server stops offering it,
   // so the node does not silently change what it trains with.
   if (config.algorithm && !algorithms.some((a) => a.value === config.algorithm)) {
@@ -58,6 +59,12 @@ export function MLTrainConfig({ config, updateNodeConfig, nodeId, sources = [] }
   const dbSources = (Array.isArray(sources) ? sources : [])
     .filter((s: any) => SQL_SOURCE_TYPES.includes(s.type) && (s.vhost || 'default') === vhost)
     .map((s: any) => ({ value: s.id, label: s.name }))
+
+  // Saved as typed; the engine reads them (pkg/comm/transformer/ml deepParams).
+  const deepText = {
+    hiddenLayers: config.hiddenLayers ?? '', epochs: config.epochs ?? '', batchSize: config.batchSize ?? '',
+    learningRate: config.learningRate ?? '', patience: config.patience ?? '',
+  }
 
   const goLive: GoLive = {
     mode: (config.goLive || 'never') as GoLive['mode'],
@@ -102,6 +109,9 @@ export function MLTrainConfig({ config, updateNodeConfig, nodeId, sources = [] }
             allowDeselect={false} onChange={(v) => set({ device: v === 'gpu' ? 'gpu' : '' })} />
         )}
       </Group>
+      {isDeepAlgorithm(config.algorithm) && (
+        <DeepParamsFields value={deepText} errors={readDeepParams(deepText).errors} onChange={(patch) => set({ ...patch })} />
+      )}
       <GoLiveField value={goLive} onChange={setGoLive} />
 
       <Divider label="Refill from a database first (optional)" labelPosition="left" mt="xs" />

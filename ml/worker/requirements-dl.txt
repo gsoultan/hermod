@@ -1,0 +1,54 @@
+# Deep-learning extras for hermod-ml (pytorch_mlp, keras_mlp), fully pinned
+# (direct and transitive). Installed on top of requirements.txt, never alone:
+# the Docker build does so when HERMOD_ML_EXTRAS=dl, giving the "-dl" image.
+#
+# Every pin ships CPU-only wheels for CPython 3.12 (the Docker image) and
+# resolves against requirements.txt unchanged:
+# - torch comes from the PyTorch CPU index ("+cpu" local versions exist only
+#   there, so no PyPI package can shadow it). The PyPI torch wheel would pull
+#   ~3 GB of CUDA libraries.
+# - tensorflow-cpu 2.20.0 is the release that fits the base pins: 2.21 needs
+#   protobuf>=6.31.1 (base pins protobuf 5.29.5 for onnx 1.18), and 2.18/2.19
+#   cap numpy below 2.1/2.2 (base pins numpy 2.2.6).
+# - tf2onnx 1.17.0 is the first release that accepts protobuf 5 and numpy 2;
+#   1.16.1 pins protobuf~=3.20.
+# - torch 2.9.1 still has the TorchScript ONNX exporter (dynamo=False), which
+#   needs no onnxscript; deep.py uses it.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.9.1+cpu
+filelock==4.1.0
+fsspec==2026.9.0
+jinja2==3.1.6
+markupsafe==3.0.4
+networkx==3.7
+setuptools==84.0.0
+tensorflow-cpu==2.20.0
+absl-py==2.5.1
+astunparse==1.6.3
+certifi==2026.7.22
+charset-normalizer==3.5.2
+gast==0.7.0
+google-pasta==0.2.0
+grpcio==1.84.0
+h5py==3.16.0
+keras==3.15.1
+libclang==18.1.1
+markdown==3.11
+markdown-it-py==4.2.0
+mdurl==0.1.2
+ml-dtypes==0.6.0
+namex==0.1.0
+opt-einsum==3.4.0
+optree==0.20.0
+pillow==12.3.0
+pygments==2.21.0
+requests==2.34.2
+rich==15.0.0
+tensorboard==2.20.0
+tensorboard-data-server==0.7.2
+termcolor==3.3.0
+tf2onnx==1.17.0
+urllib3==2.8.0
+werkzeug==3.1.9
+wheel==0.48.0
+wrapt==2.5.0
