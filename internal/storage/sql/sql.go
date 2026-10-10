@@ -3584,13 +3584,18 @@ func (s *sqlStorage) DeleteSuspendedMessage(ctx context.Context, id string) erro
 func (s *sqlStorage) UpdateApprovalStatus(ctx context.Context, id string, status string, processedBy string, notes string, formData map[string]any) error {
 	formDataBytes, _ := json.Marshal(formData)
 	exec := func() error {
+		// The update only matches a pending approval, so of two decisions that
+		// arrive together exactly one wins and resumes the workflow.
 		res, err := s.exec(ctx, s.queries.get(QueryUpdateApprovalStatus), status, time.Now(), processedBy, notes, string(formDataBytes), id)
 		if err != nil {
 			return err
 		}
 		n, _ := res.RowsAffected()
 		if n == 0 {
-			return storage.ErrNotFound
+			if _, err := s.GetApproval(ctx, id); err != nil {
+				return err
+			}
+			return storage.ErrApprovalDecided
 		}
 		return nil
 	}

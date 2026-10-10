@@ -125,12 +125,18 @@ func (s *mongoStorage) UpdateApprovalStatus(ctx context.Context, id string, stat
 			"form_data":    formData,
 		},
 	}
-	res, err := s.db.Collection("approvals").UpdateOne(ctx, bson.M{"id": id}, upd)
+	// Only a pending approval matches, so of two decisions that arrive
+	// together exactly one wins and resumes the workflow.
+	filter := bson.M{"id": id, "status": bson.M{"$in": bson.A{"pending", "", nil}}}
+	res, err := s.db.Collection("approvals").UpdateOne(ctx, filter, upd)
 	if err != nil {
 		return err
 	}
 	if res.MatchedCount == 0 {
-		return storage.ErrNotFound
+		if _, err := s.GetApproval(ctx, id); err != nil {
+			return err
+		}
+		return storage.ErrApprovalDecided
 	}
 	return nil
 }

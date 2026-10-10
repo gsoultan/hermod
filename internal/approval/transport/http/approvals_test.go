@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/gsoultan/hermod/internal/api/handlers"
 	"github.com/gsoultan/hermod/internal/storage"
@@ -52,5 +53,41 @@ func TestADecidedApprovalCannotBeDecidedAgain(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+type racedStore struct {
+	testutil.BaseMockStorage
+	gets atomic.Int32
+}
+
+func (s *racedStore) GetApproval(context.Context, string) (storage.Approval, error) {
+	s.gets.Add(1)
+	return storage.Approval{ID: "a1", WorkflowID: "wf", NodeID: "agent", Status: "pending"}, nil
+}
+
+// Another decision won between this request's read and its update.
+func (s *racedStore) UpdateApprovalStatus(context.Context, string, string, string, string, map[string]any) error {
+	return storage.ErrApprovalDecided
+}
+
+// The status check above cannot see a decision that lands between the read
+// and the update. The store refuses that update, and the loser must answer 409
+// without resuming the workflow.
+func TestALosingConcurrentDecisionIsAConflictAndDoesNotResume(t *testing.T) {
+	store := &racedStore{}
+	h := NewApprovalHandler(&handlers.Handler{Storage: store})
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/approvals/{id}/approve", h.ApproveApproval)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/approvals/a1/approve", strings.NewReader(`{}`)))
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body %s", rec.Code, rec.Body.String())
+	}
+	time.Sleep(50 * time.Millisecond)
+	if n := store.gets.Load(); n != 1 {
+		t.Fatalf("approval read %d times, want 1: a resume was started", n)
 	}
 }

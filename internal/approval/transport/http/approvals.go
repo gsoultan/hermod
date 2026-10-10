@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -99,21 +100,28 @@ func (h *ApprovalHandler) HandleApprovalDecision(w http.ResponseWriter, r *http.
 	}
 
 	if err := h.Storage.UpdateApprovalStatus(r.Context(), id, status, processedBy, body.Notes, body.FormData); err != nil {
+		if errors.Is(err, storage.ErrApprovalDecided) {
+			h.JsonError(w, "Approval was already decided", http.StatusConflict)
+			return
+		}
 		h.JsonError(w, "Failed to update approval: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Resume workflow from this approval node
+	// Resume workflow from this approval node. The request's context ends
+	// when this handler returns, so the resume must not inherit its
+	// cancellation or the reload below can fail and the resume never happen.
+	resumeCtx := context.WithoutCancel(r.Context())
 	go func() {
 		// small delay to ensure transactional visibility on some backends
 		time.Sleep(10 * time.Millisecond)
 		// reload approval to get updated fields if needed
-		if app2, e := h.Storage.GetApproval(r.Context(), id); e == nil {
+		if app2, e := h.Storage.GetApproval(resumeCtx, id); e == nil {
 			branch := "approved"
 			if status == "rejected" {
 				branch = "rejected"
 			}
-			_ = h.Registry.ResumeApproval(r.Context(), app2, branch)
+			_ = h.Registry.ResumeApproval(resumeCtx, app2, branch)
 		}
 	}()
 

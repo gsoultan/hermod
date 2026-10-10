@@ -11,6 +11,10 @@ import (
 
 var ErrNotFound = errors.New("not found")
 
+// ErrApprovalDecided is returned when an approval is no longer pending, so a
+// second decision cannot resume its workflow again.
+var ErrApprovalDecided = errors.New("approval was already decided")
+
 type Log struct {
 	ID         string    `json:"id"`
 	Timestamp  time.Time `json:"timestamp"`
