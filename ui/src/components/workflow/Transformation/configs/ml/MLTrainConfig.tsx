@@ -1,8 +1,10 @@
 import { Alert, Divider, Group, MultiSelect, Select, Stack, Text, TextInput, Textarea } from '@mantine/core'
 import { IconInfoCircle } from '@tabler/icons-react'
 import {
-  ALGORITHM_OPTIONS, SQL_SOURCE_TYPES, TASK_OPTIONS, useDataset, useVHostDatasets, useWorkerStatus, type GoLive,
+  SQL_SOURCE_TYPES, TASK_OPTIONS, algorithmOptions, isDeepAlgorithm, useDataset, useVHostDatasets, useWorkerStatus,
+  type GoLive,
 } from '@/lib/mlModels'
+import { DeepParamsFields, readDeepParams } from '@/pages/ml/deepParams'
 import { GoLiveField } from '@/pages/ml/goLive'
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore'
 
@@ -48,6 +50,12 @@ export function MLTrainConfig({ config, updateNodeConfig, nodeId, sources = [] }
     .filter((s: any) => SQL_SOURCE_TYPES.includes(s.type) && (s.vhost || 'default') === vhost)
     .map((s: any) => ({ value: s.id, label: s.name }))
 
+  // Saved as typed; the engine reads them (pkg/comm/transformer/ml deepParams).
+  const deepText = {
+    hiddenLayers: config.hiddenLayers ?? '', epochs: config.epochs ?? '', batchSize: config.batchSize ?? '',
+    learningRate: config.learningRate ?? '', patience: config.patience ?? '',
+  }
+
   const goLive: GoLive = {
     mode: (config.goLive || 'never') as GoLive['mode'],
     metric: config.goLiveMetric || undefined,
@@ -84,9 +92,12 @@ export function MLTrainConfig({ config, updateNodeConfig, nodeId, sources = [] }
         onChange={(list) => set({ features: list.length ? JSON.stringify(list) : '' })} />
       <Group grow align="flex-start">
         <Select label="Task" data={TASK_OPTIONS} value={config.task || 'auto'} allowDeselect={false} onChange={(v) => set({ task: v ?? 'auto' })} />
-        <Select label="Algorithm" data={ALGORITHM_OPTIONS} value={config.algorithm || 'auto'} allowDeselect={false}
+        <Select label="Algorithm" data={algorithmOptions(worker)} value={config.algorithm || 'auto'} allowDeselect={false}
           onChange={(v) => set({ algorithm: v ?? 'auto' })} />
       </Group>
+      {isDeepAlgorithm(config.algorithm) && (
+        <DeepParamsFields value={deepText} errors={readDeepParams(deepText).errors} onChange={(patch) => set({ ...patch })} />
+      )}
       <GoLiveField value={goLive} onChange={setGoLive} />
 
       <Divider label="Refill from a database first (optional)" labelPosition="left" mt="xs" />

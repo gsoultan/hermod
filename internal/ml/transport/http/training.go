@@ -16,7 +16,9 @@ const maxDatasetFile = 200 << 20
 
 // WorkerStatus says whether training is available: a worker is configured,
 // and it answers. Any signed-in user may ask; the UI uses it to show or hide
-// training.
+// training, and offers only the algorithms listed here when the worker says.
+// A worker that cannot say (one older than its capabilities route) leaves
+// the list out.
 func (h *Handler) WorkerStatus(w http.ResponseWriter, r *http.Request) {
 	wk, err := h.service().Worker()
 	if err != nil {
@@ -27,6 +29,12 @@ func (h *Handler) WorkerStatus(w http.ResponseWriter, r *http.Request) {
 	if err := wk.Ready(r.Context()); err != nil {
 		status["ready"] = false
 		status["error"] = "the ML worker does not answer"
+		writeJSON(w, status)
+		return
+	}
+	if caps, err := wk.Capabilities(r.Context()); err == nil {
+		status["algorithms"] = caps.Algorithms
+		status["unavailable"] = caps.Unavailable
 	}
 	writeJSON(w, status)
 }

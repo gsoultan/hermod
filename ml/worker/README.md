@@ -57,7 +57,30 @@ Errors are always `{"error": "<sentence>"}` with 400, 401, 404, 413, 429 or 500.
 | GET | `/vhosts/{vhost}/v2/models/{name}[/versions/{v}]` | OIP model metadata |
 | POST | `/vhosts/{vhost}/v2/models/{name}[/versions/{v}]/infer` | OIP inference |
 
+| GET | `/v1/capabilities` | `{"tasks", "algorithms", "unavailable": {algorithm: reason}}`: what this image can train |
+
 Algorithms: `random_forest` (default), `gradient_boosting`, `linear` and
 `xgboost` (200 trees, depth 6, `hist`; exported to ONNX via `onnxmltools`).
 The image uses `xgboost-cpu`, which has the same API as `xgboost` without
 the CUDA/NCCL dependency.
+
+`pytorch_mlp` and `keras_mlp` (`hermod_ml/deep.py`) train a multilayer
+perceptron on the same preprocessing. A train request may carry
+`"params": {"hidden_layers": [64, 32], "epochs": 200, "batch_size": 32,
+"learning_rate": 0.001, "patience": 10}` (those are the defaults; any key may
+be left out) for them, and only them. The network is exported with
+`torch.onnx.export` or `tf2onnx` and merged after the skl2onnx preprocessing
+graph, so the model's inputs and outputs are the same as every other
+algorithm's. They need `requirements-dl.txt`, which only the `-dl` image
+installs:
+
+```bash
+docker build --build-arg HERMOD_ML_EXTRAS=dl -t hermod-ml:dl ml/worker
+# or, for a local venv (Python 3.12):
+pip install -r requirements.txt -r requirements-dl.txt
+```
+
+Without those libraries a request for either answers 400 "not available in
+this image", and `/v1/capabilities` lists them under `unavailable`. Their
+tests skip; `HERMOD_ML_REQUIRE_DL=1 pytest -q` makes the skips failures, as
+the CI job that installs the extras does.

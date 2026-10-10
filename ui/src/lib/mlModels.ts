@@ -116,6 +116,13 @@ export interface WorkerStatus {
   configured: boolean
   ready: boolean
   error?: string
+  /**
+   * What the worker can train. Absent from a worker older than its
+   * capabilities route, which then is assumed to train every algorithm.
+   */
+  algorithms?: TrainAlgorithm[]
+  /** Why each algorithm missing from `algorithms` cannot train there. */
+  unavailable?: Partial<Record<TrainAlgorithm, string>>
 }
 
 export interface DatasetColumn {
@@ -132,7 +139,38 @@ export interface DatasetInfo {
 }
 
 export type TrainTask = 'auto' | 'classification' | 'regression'
-export type TrainAlgorithm = 'auto' | 'random_forest' | 'gradient_boosting' | 'linear' | 'xgboost'
+export type TrainAlgorithm =
+  | 'auto' | 'random_forest' | 'gradient_boosting' | 'linear' | 'xgboost' | 'pytorch_mlp' | 'keras_mlp'
+
+/** The neural-network algorithms: they take TrainParams and need the worker's "-dl" image. */
+export const DEEP_ALGORITHMS: readonly TrainAlgorithm[] = ['pytorch_mlp', 'keras_mlp']
+
+export const isDeepAlgorithm = (a: string | null | undefined) => DEEP_ALGORITHMS.includes(a as TrainAlgorithm)
+
+/**
+ * Hyperparameters of pytorch_mlp and keras_mlp. An absent field takes the
+ * worker's default; the worker checks the bounds.
+ */
+export interface TrainParams {
+  hidden_layers?: number[]
+  epochs?: number
+  batch_size?: number
+  learning_rate?: number
+  patience?: number
+}
+
+/** The worker's defaults, shown as placeholders. */
+export const DEFAULT_TRAIN_PARAMS = { hidden_layers: '64, 32', epochs: '200', batch_size: '32', learning_rate: '0.001', patience: '10' }
+
+/**
+ * Reads "64, 32" as layer sizes: [] for an empty field, null when a size is
+ * not a whole number above zero.
+ */
+export function parseHiddenLayers(text: string): number[] | null {
+  const parts = text.split(',').map((s) => s.trim()).filter(Boolean)
+  const sizes = parts.map(Number)
+  return sizes.every((n) => Number.isInteger(n) && n > 0) ? sizes : null
+}
 
 export interface GoLive {
   mode: 'never' | 'always' | 'if'
@@ -147,6 +185,8 @@ export interface TrainSpec {
   features?: string[]
   task?: TrainTask
   algorithm?: TrainAlgorithm
+  /** Only for pytorch_mlp and keras_mlp; the worker refuses it otherwise. */
+  params?: TrainParams
   go_live: GoLive
 }
 
@@ -185,7 +225,19 @@ export const ALGORITHM_OPTIONS: Array<{ value: TrainAlgorithm; label: string }> 
   { value: 'gradient_boosting', label: 'Gradient boosting' },
   { value: 'linear', label: 'Linear / logistic regression' },
   { value: 'xgboost', label: 'XGBoost' },
+  { value: 'pytorch_mlp', label: 'PyTorch MLP (neural network)' },
+  { value: 'keras_mlp', label: 'Keras MLP (neural network)' },
 ]
+
+/**
+ * The algorithms to offer: the ones the worker says it can train, or all of
+ * them when it does not say. "auto" is always offered.
+ */
+export function algorithmOptions(status: WorkerStatus | undefined) {
+  const available = status?.algorithms
+  if (!available) return ALGORITHM_OPTIONS
+  return ALGORITHM_OPTIONS.filter((o) => o.value === 'auto' || available.includes(o.value))
+}
 
 /** The database source types a dataset can be read from. */
 export const SQL_SOURCE_TYPES = ['postgres', 'yugabyte', 'mysql', 'mariadb', 'mssql', 'oracle', 'sqlite', 'clickhouse', 'db2']

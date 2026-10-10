@@ -34,8 +34,9 @@ flowchart LR
 ## Train a model
 
 Training runs in **hermod-ml**, a Python worker beside Hermod (scikit-learn,
-XGBoost, exported to ONNX and served with ONNX Runtime; it never loads a
-pickle). Run it and point Hermod at it:
+XGBoost, and in the `-dl` image PyTorch and Keras; every model is exported to
+ONNX and served with ONNX Runtime; it never loads a pickle). Run it and point
+Hermod at it:
 
 | Setting | On | Meaning |
 |---|---|---|
@@ -54,6 +55,34 @@ docker run -d --name hermod-ml -p 8090:8090 -e HERMOD_ML_TOKEN=change-me \
   -v hermod-ml:/var/lib/hermod-ml ghcr.io/gsoultan/hermod-ml:latest
 ```
 
+### Image variants
+
+| Image | Tags | Adds | Platforms |
+|---|---|---|---|
+| `hermod-ml` | `X.Y.Z`, `X.Y`, `latest` | scikit-learn, XGBoost | linux/amd64, linux/arm64 |
+| `hermod-ml` deep learning | `X.Y.Z-dl`, `X.Y-dl`, `latest-dl` | CPU-only PyTorch 2.9 and TensorFlow 2.20 with Keras 3 (`pytorch_mlp`, `keras_mlp`) | linux/amd64 |
+
+The `-dl` image is the same worker with `requirements-dl.txt` installed
+(`docker build --build-arg HERMOD_ML_EXTRAS=dl ml/worker`). It is about 2 GB
+larger (TensorFlow alone installs 1.2 GB) and is amd64 only: `tensorflow-cpu`
+publishes no aarch64 wheels.
+With Helm, choose it with `--set mlWorker.image.variant=dl` (the chart appends
+`-dl` to its default tag; an explicit `mlWorker.image.tag` is used as given).
+
+The slim image refuses `pytorch_mlp` and `keras_mlp` with a 400 that says they
+are "not available in this image". The worker's `GET /v1/capabilities` lists
+what it can train; Hermod passes the list on (`GET /api/ml/worker`), and the
+Train dialog and the Train Model node offer only those algorithms.
+
+**Resources.** The libraries load on the first deep-learning training and stay
+loaded: PyTorch, TensorFlow and tf2onnx add about 650 MiB to the worker
+(measured 274 MiB → 910 MiB resident, before any data). Raise
+`mlWorker.resources.limits.memory` by at least 1Gi over what your datasets
+need, and request a core or more of CPU: a network trains on CPU, for up to
+`epochs` passes over the data. Training holds a worker slot
+(`HERMOD_ML_MAX_TRAININGS`) until it finishes, and `HERMOD_ML_TRAIN_TIMEOUT`
+still bounds it on Hermod's side.
+
 ### Datasets
 
 On the **Models** page, under **Datasets**:
@@ -71,8 +100,43 @@ Filling a dataset again replaces its rows.
 **Train a model** asks for a dataset, the column to predict, and optionally the
 columns to learn from (empty means all the others). The task (classify, or
 predict a number) is chosen from the target unless you pick it; the algorithm
-is random forest unless you pick gradient boosting, linear/logistic regression
-or XGBoost. A fifth of the rows are held back to score the model:
+is random forest unless you pick another:
+
+| Algorithm | Library | Notes |
+|---|---|---|
+| `random_forest` (auto) | scikit-learn | 100 trees. |
+| `gradient_boosting` | scikit-learn | |
+| `linear` | scikit-learn | Logistic regression to classify, least squares for numbers; numbers are standardised. |
+| `xgboost` | XGBoost | 200 trees, depth 6, `hist`. |
+| `pytorch_mlp` | PyTorch | Multilayer perceptron; `-dl` image only. |
+| `keras_mlp` | TensorFlow/Keras | The same network in Keras; `-dl` image only. |
+
+Every algorithm reads the same inputs: numbers as they are (missing ones get
+the training median), text one-hot encoded, and for `linear` and the two
+networks, numbers standardised. The exported model takes one tensor per
+feature and answers like any other, so a model can be retrained with another
+algorithm without touching the workflows that call it.
+
+The two networks (ReLU hidden layers, softmax or a linear output, Adam) hold a
+tenth of the training rows back to stop early, and keep the weights that did
+best on them. Under **Advanced** in the Train dialog, or the node's settings,
+you can change:
+
+| Parameter | Default | Range |
+|---|---|---|
+| Hidden layers | `64, 32` | 1 to 5 layers of 1 to 1024 units |
+| Epochs | 200 | 1 to 1000 |
+| Batch size | 32 | 1 to 4096 |
+| Learning rate | 0.001 | above 0, at most 1 |
+| Patience | 10 | epochs without a better validation loss before stopping, 1 to 1000 |
+
+The seed is fixed (42 unless the API request sets `seed`), so the same data
+and settings train the same model. Each version records the parameters it used
+as `params`. Numbers are standardised before training and the target too for
+regression; the exported graph does both, so predictions come back in the
+target's units.
+
+A fifth of the rows are held back to score the model:
 
 - classification: `accuracy`, `f1` (macro), `roc_auc` (two classes); `score` is accuracy
 - numbers: `rmse`, `mae`, `r2`; `score` is R²
