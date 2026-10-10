@@ -1,0 +1,152 @@
+{{- if .Values.mlWorker.enabled }}
+{{- $w := .Values.mlWorker }}
+{{- if $w.token }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "hermod.mlWorker.fullname" . }}
+  labels:
+    {{- include "hermod.mlWorker.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  {{ $w.existingSecretKey }}: {{ $w.token | quote }}
+---
+{{- end }}
+{{- if $w.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "hermod.mlWorker.fullname" . }}
+  labels:
+    {{- include "hermod.mlWorker.labels" . | nindent 4 }}
+  annotations:
+    # Datasets and every trained model version live here.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    {{- toYaml $w.persistence.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ $w.persistence.size }}
+  {{- with $w.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "hermod.mlWorker.fullname" . }}
+  labels:
+    {{- include "hermod.mlWorker.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ $w.port }}
+      targetPort: http
+  selector:
+    {{- include "hermod.mlWorker.selectorLabels" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hermod.mlWorker.fullname" . }}
+  labels:
+    {{- include "hermod.mlWorker.labels" . | nindent 4 }}
+spec:
+  # One replica: the datasets and models are on its volume.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "hermod.mlWorker.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hermod.mlWorker.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: hermod-ml
+          image: "{{ $w.image.repository }}:{{ $w.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ $w.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: {{ $w.port }}
+          env:
+            - name: HERMOD_ML_ADDR
+              value: {{ printf "0.0.0.0:%v" $w.port | quote }}
+            - name: HERMOD_ML_DATA_DIR
+              value: /var/lib/hermod-ml
+            - name: HERMOD_ML_MAX_TRAININGS
+              value: {{ $w.maxTrainings | quote }}
+            - name: HERMOD_ML_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hermod.mlWorker.secretName" . }}
+                  key: {{ $w.existingSecretKey }}
+            {{- range $k, $v := $w.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /v2/health/ready
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /v2/health/live
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            {{- toYaml $w.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/hermod-ml
+            # Training libraries write scratch files.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          {{- if $w.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "hermod.mlWorker.fullname" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: tmp
+          emptyDir: {}
+      {{- with $w.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $w.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $w.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

@@ -44,6 +44,7 @@ import (
 	"github.com/gsoultan/hermod/pkg/infra/pgxutil"
 	"github.com/gsoultan/hermod/pkg/infra/schema"
 	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
+	"github.com/gsoultan/hermod/pkg/ml/worker"
 	"github.com/gsoultan/hermod/pkg/security/secrets"
 	"github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/microsoft/go-mssqldb"
@@ -91,6 +92,9 @@ type PIIStats struct {
 type Registry struct {
 	engines map[string]*activeEngine
 	mu      sync.RWMutex
+
+	// mlWorker replaces the ML worker the environment names; tests set it.
+	mlWorker *worker.Client
 
 	// storeMu guards storage and logStorage, and nothing else.
 	//

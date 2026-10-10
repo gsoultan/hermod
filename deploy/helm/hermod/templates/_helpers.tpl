@@ -33,6 +33,33 @@ app.kubernetes.io/name: {{ include "hermod.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
+{{/*
+The ML worker's labels. Its name label differs from Hermod's, so Hermod's
+Service never selects the worker's pods, nor the worker's Service Hermod's.
+*/}}
+{{- define "hermod.mlWorker.fullname" -}}
+{{- printf "%s-ml" (include "hermod.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "hermod.mlWorker.selectorLabels" -}}
+app.kubernetes.io/name: {{ printf "%s-ml" (include "hermod.name" .) }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: ml-worker
+{{- end }}
+
+{{- define "hermod.mlWorker.labels" -}}
+helm.sh/chart: {{ include "hermod.chart" . }}
+{{ include "hermod.mlWorker.selectorLabels" . }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{- define "hermod.mlWorker.secretName" -}}
+{{- .Values.mlWorker.existingSecret | default (include "hermod.mlWorker.fullname" .) }}
+{{- end }}
+
 {{- define "hermod.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
 {{- default (include "hermod.fullname" .) .Values.serviceAccount.name }}
@@ -81,6 +108,12 @@ finding out during a rolling restart.
 {{- end -}}
 {{- if and .Values.masterKey .Values.existingSecret -}}
 {{- fail "set either masterKey or existingSecret, not both: it is ambiguous which key encrypts stored credentials" -}}
+{{- end -}}
+{{- if and .Values.mlWorker.enabled (not .Values.mlWorker.token) (not .Values.mlWorker.existingSecret) -}}
+{{- fail "mlWorker needs a token (mlWorker.token or mlWorker.existingSecret): it holds datasets and model files, and anything that can reach it could read or replace them" -}}
+{{- end -}}
+{{- if and .Values.mlWorker.token .Values.mlWorker.existingSecret -}}
+{{- fail "set either mlWorker.token or mlWorker.existingSecret, not both" -}}
 {{- end -}}
 {{- if and (gt (int .Values.replicaCount) 1) (not .Values.database.type) (not .Values.database.connectionSecret) -}}
 {{- fail "replicaCount > 1 needs a shared database: with the on-disk default each replica keeps its own workflows, leases and users, so they cannot coordinate" -}}

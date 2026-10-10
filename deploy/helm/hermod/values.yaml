@@ -179,6 +179,47 @@ metrics:
     # Two of these page. Read the runbook annotations before changing that.
     severityOverride: {}
 
+# --- ML worker ----------------------------------------------------------------
+#
+# hermod-ml trains models on datasets and serves them; Hermod calls it for the
+# Models page, the Train Model node and every prediction of a model it trained.
+# Models served elsewhere (KServe, Triton, MLflow) do not need it.
+#
+# The worker holds datasets and model files, so it needs a token: the chart
+# refuses to render it open. Set token, or existingSecret holding one.
+mlWorker:
+  enabled: false
+  image:
+    repository: ghcr.io/gsoultan/hermod-ml
+    # Defaults to .Chart.AppVersion, like the Hermod image.
+    tag: ""
+    pullPolicy: IfNotPresent
+  token: ""
+  existingSecret: ""
+  existingSecretKey: mlWorkerToken
+  port: 8090
+  # How long Hermod waits for one training before giving up.
+  trainTimeout: 30m
+  # Trainings run at once; more get "busy" until one finishes.
+  maxTrainings: 1
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+  # Training holds the dataset in memory; size the limit for the largest one.
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      memory: 4Gi
+  env: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
 podAnnotations: {}
 podLabels: {}
 nodeSelector: {}
