@@ -14,6 +14,11 @@ var descriptions = map[string]string{
 		`which kind is needed, e.g. {"sinkType":"slack"}.`,
 
 	// Node executors.
+	"ai_agent": `Language-model agent that pursues a goal with a bounded loop over the tools it is given. config: ` +
+		`{"provider","model","apiKey":"{{secret(\"NAME\")}}","goal","system","maxSteps","tools":[{"name","description",` +
+		`"kind":"db_lookup|api_lookup|ai_retrieve|sink","config":{...},"nodeId":"<sink node id, for kind sink>",` +
+		`"parameters":[{"name","type","description","required"}]}]}. Sink tools pause for human approval before ` +
+		`writing. Writes the answer to targetField (default "ai_agent_answer").`,
 	"ai_classify": `Language-model classifier and router. config: {"provider","model","apiKey":"{{secret(\"NAME\")}}",` +
 		`"labels":"billing,bug,refund","instructions","threshold","targetField"}. Each label is an outgoing ` +
 		`branch: use the label as the edge's source_handle, plus "unsure" below the threshold.`,
@@ -42,6 +47,10 @@ var descriptions = map[string]string{
 	"transformation:ai_extract": `Extracts structured fields with a language model against a JSON Schema. config: {"provider",` +
 		`"model","apiKey":"{{secret(\"NAME\")}}","schema":"<JSON Schema>","instructions","targetField"}.`,
 	"transformation:ai_mapper": "Legacy AI mapper; prefer transformation:ai_extract.",
+	"transformation:ai_retrieve": `Retrieval for RAG: embeds a query and returns the closest documents from a vector ` +
+		`store. config: {"provider","model","apiKey":"{{secret(\"NAME\")}}","store":"pgvector|pinecone","query" or ` +
+		`"queryField","topK","minScore","targetField"}; pgvector also needs "connectionString" and "table", pinecone "indexHost" ` +
+		`and "storeApiKey", each as a {{secret(\"NAME\")}} reference.`,
 	"transformation:ai_prompt": `Generates text or JSON with a language model. config: {"provider","model",` +
 		`"apiKey":"{{secret(\"NAME\")}}","prompt":"Summarise {{text}}","system","outputMode":"text|json","targetField"}.`,
 	"transformation:api_lookup":        "Fetches data from an HTTP API and merges it into the record.",

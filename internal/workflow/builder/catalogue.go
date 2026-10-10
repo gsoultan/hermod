@@ -18,6 +18,7 @@ import (
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/ai"
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/core"
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/genai"
+	_ "github.com/gsoultan/hermod/pkg/comm/transformer/genai/retrieve"
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/logic"
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/lookup"
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/security"
