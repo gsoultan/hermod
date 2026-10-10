@@ -1,0 +1,12 @@
+# Local virtualenvs, caches and runtime data never belong in the repo.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+data/
+*.parquet
+*.onnx

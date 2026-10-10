@@ -14,6 +14,7 @@ DELETE /api/sinks/{id}
 DELETE /api/sources/{id}
 DELETE /api/users/{id}
 DELETE /api/vhosts/{id}
+DELETE /api/vhosts/{vhost}/ml/datasets/{name}
 DELETE /api/vhosts/{vhost}/ml/models/{name}
 DELETE /api/vhosts/{vhost}/ml/models/{name}/serving-key
 DELETE /api/vhosts/{vhost}/secrets/{name}
@@ -40,6 +41,7 @@ GET /api/logs
 GET /api/marketplace/plugins
 GET /api/marketplace/plugins/{id}
 GET /api/me
+GET /api/ml/worker
 GET /api/notifications/sse
 GET /api/schemas
 GET /api/schemas/{name}
@@ -59,8 +61,11 @@ GET /api/version
 GET /api/vhosts
 GET /api/vhosts/
 GET /api/vhosts/{id}
+GET /api/vhosts/{vhost}/ml/datasets
+GET /api/vhosts/{vhost}/ml/datasets/{name}
 GET /api/vhosts/{vhost}/ml/models
 GET /api/vhosts/{vhost}/ml/models/{name}
+GET /api/vhosts/{vhost}/ml/models/{name}/versions
 GET /api/vhosts/{vhost}/secrets
 GET /api/webhooks/requests
 GET /api/webhooks/{path...}
@@ -158,8 +163,11 @@ POST /api/users
 POST /api/utils/token
 POST /api/vhosts
 POST /api/vhosts/
+POST /api/vhosts/{vhost}/ml/datasets/{name}/query
 POST /api/vhosts/{vhost}/ml/models/{name}/predict
 POST /api/vhosts/{vhost}/ml/models/{name}/serving-key
+POST /api/vhosts/{vhost}/ml/models/{name}/train
+POST /api/vhosts/{vhost}/ml/models/{name}/versions/{version}/promote
 POST /api/webhooks/requests/{id}/replay
 POST /api/webhooks/{path...}
 POST /api/workers
@@ -192,6 +200,7 @@ PUT /api/sources/{id}/sample
 PUT /api/users/{id}
 PUT /api/users/{id}/password
 PUT /api/vhosts/{id}
+PUT /api/vhosts/{vhost}/ml/datasets/{name}/file
 PUT /api/vhosts/{vhost}/ml/models/{name}
 PUT /api/vhosts/{vhost}/secrets/{name}
 PUT /api/workers/{id}
