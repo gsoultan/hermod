@@ -30,7 +30,17 @@ import (
 // is computed from the DDL itself, so changing the schema fails this test and
 // forces the question to be asked out loud.
 //
-// Last moved by: adding the ml_models table, the models a vhost can call from
+// Last moved by: adding the ai_budgets and ai_usage tables, a vhost's AI
+// spending limits and what it has spent per month. currentSchemaVersion was
+// left alone, as for ml_models: both are standalone tables no earlier code path
+// reads or writes. What a rollback costs is the feature, and it is worth
+// saying plainly what that means: the previous release does not enforce the
+// limits or the kill switch, and does not count the calls it makes, so a vhost
+// can spend past its budget for as long as the rollback lasts. Its DeleteVHost
+// also leaves a deleted vhost's budget and usage for a later vhost of the same
+// name; they hold limits and counters, never a secret.
+//
+// The note before that: adding the ml_models table, the models a vhost can call from
 // the Predict node and the serving endpoints. currentSchemaVersion was left
 // alone deliberately, for the reasons the vhost_secrets note below gives: it is
 // a standalone table no earlier code path reads or writes, and a rollback costs
@@ -126,7 +136,7 @@ import (
 // unpopulated — a gap in a chart that fills itself in when the newer binary
 // returns — so bumping the version would buy nothing and cost a refused
 // start-up during exactly the rollback it was supposed to make safe.
-const knownSchemaFingerprint = "901e04e4650fe340a4d10a649eb34b365e1045604ab40ceb5d8c234245d9c6e1"
+const knownSchemaFingerprint = "dcd2aa823026f5ff67d4cddfc84ed6304221825574fd8df5e4770c61a4e9d217"
 
 func TestSchemaVersionIsReconsideredWhenTheSchemaChanges(t *testing.T) {
 	if got := SchemaFingerprint(); got != knownSchemaFingerprint {

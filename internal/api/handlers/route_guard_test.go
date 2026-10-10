@@ -76,6 +76,8 @@ var unguardedMutatingRoutes = map[string]string{
 	"POST /api/workers/{id}/heartbeat": "worker agents report liveness here",
 	"PATCH /api/workflows/{id}/status": "worker agents report workflow status",
 	"PATCH /api/workflows/{id}/stats":  "worker agents report throughput counters",
+	"POST /api/worker/ai/check":        "worker agents ask whether a model call is within the vhost's AI budget; answers a worker token only",
+	"POST /api/worker/ai/usage":        "worker agents report a model call's tokens; answers a worker token only",
 
 	// in-handler role checks (see the named handler)
 	"POST /api/workers/{id}/start":                  "StartWorker checks RoleAdministrator itself",

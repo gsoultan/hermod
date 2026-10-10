@@ -24,6 +24,9 @@ func setupRegistry(store, logStore storage.Storage, logger hermod.Logger, o *Opt
 	// Every model call an AI node makes is counted in the hermod_ai_*
 	// metrics. The observer sees provider, model, usage and outcome only.
 	genai.SetObserver(aimetrics.Observe)
+	// ...and checked against, then counted in, its vhost's AI budget: the
+	// kill switch, the monthly vhost budget and the per-workflow caps.
+	genai.SetBudget(reg.AIBudget())
 
 	cfg, err := config.LoadConfig(o.configPath)
 	if err != nil {
