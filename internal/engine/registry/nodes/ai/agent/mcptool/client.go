@@ -94,7 +94,7 @@ func Default() *Client { return defaultClient }
 func (c *Client) Describe(ctx context.Context, ep Endpoint, tool string) (Remote, error) {
 	key := cacheKey(ep, tool)
 	if r, ok := c.cache.get(key); ok {
-		return r, nil
+		return r.copied()
 	}
 	var found *mcp.Tool
 	err := c.session(ctx, ep, func(ctx context.Context, cs *mcp.ClientSession) error {
@@ -133,6 +133,17 @@ func (c *Client) Describe(ctx context.Context, ep Endpoint, tool string) (Remote
 		ReadOnly:    readOnly(found.Annotations),
 	}
 	c.cache.put(key, r)
+	return r.copied()
+}
+
+// copied gives the caller its own schema, so nothing a caller does to it
+// reaches the cache that other runs read.
+func (r Remote) copied() (Remote, error) {
+	schema, err := sanitizeSchema(r.Schema)
+	if err != nil {
+		return Remote{}, err
+	}
+	r.Schema = schema
 	return r, nil
 }
 

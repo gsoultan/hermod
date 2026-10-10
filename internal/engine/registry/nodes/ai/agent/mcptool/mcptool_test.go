@@ -224,6 +224,24 @@ func TestDescribe_RemoteTextIsCappedAndCached(t *testing.T) {
 	}
 }
 
+func TestDescribe_CallersCannotChangeTheCachedSchema(t *testing.T) {
+	f := newFakeServer(t)
+	c := New(Options{})
+	ep := Endpoint{URL: f.url}
+	r, err := c.Describe(t.Context(), ep, "read_x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Schema["properties"].(map[string]any)["injected"] = map[string]any{"type": "string"}
+	again, err := c.Describe(t.Context(), ep, "read_x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := again.Schema["properties"].(map[string]any)["injected"]; ok {
+		t.Fatal("a change to a described schema reached the cache")
+	}
+}
+
 func TestDescribe_CacheExpires(t *testing.T) {
 	f := newFakeServer(t)
 	c := New(Options{TTL: time.Minute})
