@@ -4,16 +4,20 @@
 # but there was no buf configuration and CI never ran either. This makes the
 # claim true rather than weakening it.
 #
-# Only pkg/comm/source/grpc/proto is a module. It defines
+# Two modules. pkg/comm/source/grpc/proto defines
 # `hermod.source.grpc.v1 SourceService`, which external clients call to push
 # records into the gRPC source — a published wire contract, versioned v1, that
-# nothing was stopping anyone from changing. pkg/comm/conformance/testdata is
+# nothing was stopping anyone from changing. pkg/ml/proto defines
+# `hermod.ml.v1 InferenceService`, which applications call to run a model. pkg/comm/conformance/testdata is
 # deliberately not a module: it is a fixture for the connector contract suite,
 # has no clients, and gating it would only make the fixture expensive to edit.
 version: v2
 
 modules:
   - path: pkg/comm/source/grpc/proto
+  # hermod.ml.v1 InferenceService: applications call a vhost's models with the
+  # model's serving key. A published wire contract like the one above.
+  - path: pkg/ml/proto
 
 lint:
   use:

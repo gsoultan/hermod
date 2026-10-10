@@ -28,6 +28,8 @@ import (
 	infrahttp "github.com/gsoultan/hermod/internal/infra/transport/http"
 	logshttp "github.com/gsoultan/hermod/internal/logs/transport/http"
 	marketplacehttp "github.com/gsoultan/hermod/internal/marketplace/transport/http"
+	"github.com/gsoultan/hermod/internal/ml"
+	mlgrpc "github.com/gsoultan/hermod/internal/ml/transport/grpc"
 	mlhttp "github.com/gsoultan/hermod/internal/ml/transport/http"
 	schemahttp "github.com/gsoultan/hermod/internal/schema/transport/http"
 	sinkhttp "github.com/gsoultan/hermod/internal/sink/transport/http"
@@ -41,6 +43,7 @@ import (
 	grpcsource "github.com/gsoultan/hermod/pkg/comm/source/grpc"
 	"github.com/gsoultan/hermod/pkg/comm/source/grpc/proto"
 	"github.com/gsoultan/hermod/pkg/infra/filestorage"
+	mlproto "github.com/gsoultan/hermod/pkg/ml/proto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	googlegrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
@@ -406,7 +409,18 @@ func (s *Server) newGRPCServer() *googlegrpc.Server {
 	// start, when a first run has no database yet; the store setup installs
 	// later is the one holding the API keys.
 	proto.RegisterSourceServiceServer(s.GrpcServer, &grpcsource.Server{StorageFunc: s.currentStorage})
+	mlproto.RegisterInferenceServiceServer(s.GrpcServer, &mlgrpc.Server{ServiceFunc: s.mlService})
 	return s.GrpcServer
+}
+
+// mlService is the ML service over the registry, so a model's token secret is
+// read the way a workflow's is; before setup there is no registry, and the
+// service reads the store alone.
+func (s *Server) mlService() *ml.Service {
+	if s.Handler.Registry != nil {
+		return s.Handler.Registry.MLService()
+	}
+	return ml.NewService(func() any { return s.currentStorage() }, nil, nil)
 }
 
 // currentStorage returns the store the handler holds right now, which
