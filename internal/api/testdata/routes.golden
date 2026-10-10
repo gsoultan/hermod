@@ -10,6 +10,7 @@
 /debug/pprof/trace
 /metrics
 DELETE /api/logs
+DELETE /api/mcp
 DELETE /api/sinks/{id}
 DELETE /api/sources/{id}
 DELETE /api/users/{id}
@@ -37,6 +38,7 @@ GET /api/infra/mesh-health
 GET /api/logs
 GET /api/marketplace/plugins
 GET /api/marketplace/plugins/{id}
+GET /api/mcp
 GET /api/me
 GET /api/notifications/sse
 GET /api/schemas
@@ -120,6 +122,7 @@ POST /api/logs
 POST /api/logs/batch
 POST /api/marketplace/install
 POST /api/marketplace/uninstall
+POST /api/mcp
 POST /api/mesh/clusters
 POST /api/proxy/fetch
 POST /api/schemas

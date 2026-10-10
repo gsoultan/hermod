@@ -1267,6 +1267,26 @@ Every time you save a workflow, Hermod automatically creates an immutable versio
 - **One-Click Rollback**: Instantly revert a production workflow to any previous stable version via the **History** tab in the Workflow Detail page.
 - **GitOps Readiness**: Versioning ensures that workflow configurations can be managed as code and safely promoted across environments.
 
+## Workflows as MCP tools
+
+Hermod serves the [Model Context Protocol](https://modelcontextprotocol.io) at `POST /api/mcp`
+(Streamable HTTP, stateless), so an MCP client such as Claude or an IDE agent can use your
+workflows as tools:
+
+| Tool | What it does | Roles |
+| --- | --- | --- |
+| `list_workflows` | The exposed workflows you may see, with whether each can be run and whether it replies | any |
+| `get_workflow_status` | Active flag, status, processed / error / lag counters | any |
+| `run_workflow` | Sends `input` to the workflow's webhook source; a source in `response_mode: sync` answers with the workflow's result (`status`, `error`, `record`) | Editor, Administrator |
+
+- **Opt-in per workflow.** Only workflows tagged `mcp` are offered. Others, and workflows in a
+  vhost you cannot access, answer "not found".
+- **Same authentication as the API.** Send a Hermod session token as `Authorization: Bearer ...`.
+  There is no separate MCP credential and no anonymous access. The webhook's own API key and
+  signature are not asked for: the caller is already an authenticated user.
+- **Audited.** Every run is written to the audit log (`MCP_RUN_WORKFLOW`) and to the webhook
+  request log, where it can be replayed.
+
 ## Distributed State & Coordination
 
 For large-scale, high-availability deployments, Hermod supports distributed backends for state management and worker coordination:
