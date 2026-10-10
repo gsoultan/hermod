@@ -31,8 +31,10 @@ export function usePreviewTransformation() {
           headers: { 'Content-Type': 'application/json' },
         });
       } finally {
-        // Clear controller when the request settles
-        abortRef.current = null;
+        // Only the request that still owns the slot clears it. An aborted
+        // request settles after its successor has taken the slot, and clearing
+        // it unconditionally left the newer request with nothing to cancel it.
+        if (abortRef.current === controller) abortRef.current = null;
       }
     },
   });

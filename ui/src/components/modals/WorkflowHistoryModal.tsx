@@ -29,7 +29,6 @@ export function WorkflowHistoryModal({ workflowId, opened, onClose, onRollbackSu
 
   const rollbackMutation = useMutation({
     mutationFn: async (version: number) => {
-      if (!await confirm({ title: 'Roll back workflow', message: `Replace the current definition with version ${version}?`, consequence: 'The running definition is overwritten. Current unsaved edits are lost.', confirmLabel: 'Roll back', danger: true })) return;
       const res = await apiFetch(`/api/workflows/${workflowId}/rollback/${version}`, {
         method: 'POST'
       });
@@ -43,6 +42,14 @@ export function WorkflowHistoryModal({ workflowId, opened, onClose, onRollbackSu
       onClose();
     }
   });
+
+  // Asked before the mutation, not inside it: a cancelled confirm returned from
+  // the mutation with no value, which React Query counts as a success, so the
+  // rollback was reported as done when nothing had been sent.
+  const restoreVersion = async (version: number) => {
+    if (!await confirm({ title: 'Roll back workflow', message: `Replace the current definition with version ${version}?`, consequence: 'The running definition is overwritten. Current unsaved edits are lost.', confirmLabel: 'Roll back', danger: true })) return;
+    rollbackMutation.mutate(version);
+  };
 
   return (
     <Modal 
@@ -99,7 +106,7 @@ export function WorkflowHistoryModal({ workflowId, opened, onClose, onRollbackSu
                         size="xs" 
                         color="orange" 
                         leftSection={<IconRotateDot size="0.8rem" />}
-                        onClick={() => rollbackMutation.mutate(v.version)}
+                        onClick={() => void restoreVersion(v.version)}
                         loading={rollbackMutation.isPending}
                       >
                         Restore
