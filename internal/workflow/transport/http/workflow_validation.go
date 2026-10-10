@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/engine/registry/noderetry"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/infra/evaluator"
 )
@@ -317,7 +318,38 @@ func (h *WorkflowHandler) ValidateWorkflow(ctx context.Context, wf storage.Workf
 	issues = append(issues, edgeIssues(wf)...)
 	issues = append(issues, orphanIssues(wf)...)
 	issues = append(issues, aiNodeIssues(wf)...)
+	issues = append(issues, retryIssues(wf)...)
 
+	return issues
+}
+
+// retryIssues checks each node's retry policy (see noderetry). One the engine
+// cannot read is an error: the node would run once and the operator would
+// believe it retries. One that can never fire is a warning.
+func retryIssues(wf storage.Workflow) (issues []ValidationIssue) {
+	for _, n := range wf.Nodes {
+		if !noderetry.Configured(n.Config) {
+			continue
+		}
+		if _, err := noderetry.Parse(n.Config); err != nil {
+			issues = append(issues, ValidationIssue{
+				Severity:       "error",
+				Message:        fmt.Sprintf("Node '%s' has a retry policy that cannot be read: %v", n.ID, err),
+				Recommendation: `Set retry to {"maxAttempts": 3, "backoff": "1s", "maxBackoff": "30s"}; "on" is an optional regular expression the error must match.`,
+				NodeID:         n.ID,
+			})
+			continue
+		}
+		switch onError, _ := n.Config["onError"].(string); onError {
+		case "continue", "drop":
+			issues = append(issues, ValidationIssue{
+				Severity:       "warning",
+				Message:        fmt.Sprintf("Node '%s' retries on failure but its On Error setting is %q, which handles every failure first, so it never retries.", n.ID, onError),
+				Recommendation: "Set On Error to fail for the retry policy to apply, or remove the retry policy.",
+				NodeID:         n.ID,
+			})
+		}
+	}
 	return issues
 }
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/engine/registry/interfaces"
+	"github.com/gsoultan/hermod/internal/engine/registry/noderetry"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/engine/telemetry"
 	"github.com/gsoultan/hermod/pkg/infra/evaluator"
@@ -473,13 +474,17 @@ func (r *Registry) runWorkflowNode(root context.Context, workflowID string, node
 	// Broadcast live message for observability
 	r.broadcastLiveMessageFromHermod(workflowID, node.ID, msg, false, "")
 
-	msgs, branch, err := func() ([]hermod.Message, string, error) {
+	execute := func() ([]hermod.Message, string, error) {
 		if executor, ok := interfaces.GetNodeExecutor(node.Type); ok {
 			return executor.Execute(ctx, r, workflowID, node, msg)
 		}
 		// Default/Fallback behavior (merging, sink, source, etc.)
 		return []hermod.Message{msg}, "", nil
-	}()
+	}
+	msgs, branch, err := execute()
+	if err != nil && noderetry.Configured(node.Config) {
+		msgs, branch, err = r.retryNode(ctx, workflowID, node, msg, msgs, branch, err, execute)
+	}
 
 	// Ensure all messages returned are owned by the caller (they should each have
 	// exactly one reference for the caller to manage). If we are returning the
@@ -494,6 +499,54 @@ func (r *Registry) runWorkflowNode(root context.Context, workflowID string, node
 	inheritVHost(msg, msgs)
 
 	return msgs, branch, err
+}
+
+// retryNode applies a node's retry policy after its first attempt failed.
+//
+// It runs inside the node's execution, so everything around it sees one
+// outcome per message: the trace step, the per-node telemetry, the circuit
+// breaker count and the dead-lettering in the traversal all happen once, after
+// the last attempt. A policy that does not parse leaves the first failure as it
+// is; workflow validation reports the policy before the workflow is saved.
+func (r *Registry) retryNode(ctx context.Context, workflowID string, node *storage.WorkflowNode, msg hermod.Message,
+	firstMsgs []hermod.Message, firstBranch string, firstErr error,
+	execute func() ([]hermod.Message, string, error),
+) ([]hermod.Message, string, error) {
+	policy, perr := noderetry.Parse(node.Config)
+	if perr != nil || policy.MaxAttempts <= 1 {
+		return firstMsgs, firstBranch, firstErr
+	}
+
+	type attempt struct {
+		msgs   []hermod.Message
+		branch string
+	}
+	first := true
+	res, err := noderetry.Run(ctx, policy,
+		func() (attempt, error) {
+			if first {
+				first = false
+				return attempt{firstMsgs, firstBranch}, firstErr
+			}
+			m, b, e := execute()
+			return attempt{m, b}, e
+		},
+		// A failed attempt's own messages are released before the next one.
+		// The input is not: runWorkflowNode retains it for the caller only
+		// when it is returned, which a discarded attempt never is.
+		func(a attempt) {
+			for _, m := range a.msgs {
+				if m != nil && m != msg {
+					m.Release()
+				}
+			}
+		},
+		func(n int, wait time.Duration, cause error) {
+			r.broadcastLog(workflowID, "WARN", fmt.Sprintf("Node %s failed (attempt %d of %d), retrying in %s: %v",
+				r.getNodeName(*node), n, policy.MaxAttempts, wait, cause))
+		},
+	)
+	return res.msgs, res.branch, err
 }
 
 // inheritVHost marks the messages a node produced with the vhost of the

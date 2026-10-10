@@ -147,3 +147,47 @@ func TestHandleValidateWorkflow(t *testing.T) {
 		t.Errorf("expected 0 issues, got %d", len(issues))
 	}
 }
+
+func TestRetryPolicyIssues(t *testing.T) {
+	wf := func(cfg map[string]any) storage.Workflow {
+		return storage.Workflow{Name: "w", Nodes: []storage.WorkflowNode{{ID: "n1", Type: "transformation", Config: cfg}}}
+	}
+	cases := []struct {
+		name     string
+		cfg      map[string]any
+		severity string
+	}{
+		{"valid", map[string]any{"transType": "set", "retry": map[string]any{"maxAttempts": float64(3), "backoff": "1s"}}, ""},
+		{"bad duration", map[string]any{"transType": "set", "retry": map[string]any{"maxAttempts": float64(3), "backoff": "soon"}}, "error"},
+		{"bad pattern", map[string]any{"transType": "set", "retry": map[string]any{"maxAttempts": float64(3), "on": "("}}, "error"},
+		{"swallowed by onError", map[string]any{"transType": "set", "onError": "continue", "retry": map[string]any{"maxAttempts": float64(3)}}, "warning"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			issues := retryIssues(wf(tc.cfg))
+			if tc.severity == "" {
+				if len(issues) != 0 {
+					t.Fatalf("issues = %+v", issues)
+				}
+				return
+			}
+			if len(issues) != 1 || issues[0].Severity != tc.severity || issues[0].NodeID != "n1" {
+				t.Fatalf("issues = %+v, want one %s on n1", issues, tc.severity)
+			}
+		})
+	}
+
+	h := &WorkflowHandler{Handler: &handlers.Handler{}}
+	full := storage.Workflow{
+		Name: "w",
+		Nodes: []storage.WorkflowNode{
+			{ID: "src1", Type: "source", RefID: "s"},
+			{ID: "n1", Type: "transformation", Config: map[string]any{"transType": "set", "retry": map[string]any{"maxAttempts": "x"}}},
+			{ID: "snk1", Type: "sink", RefID: "k"},
+		},
+		Edges: []storage.WorkflowEdge{{ID: "e1", SourceID: "src1", TargetID: "n1"}, {ID: "e2", SourceID: "n1", TargetID: "snk1"}},
+	}
+	if err := h.validateWorkflow(context.Background(), full); err == nil {
+		t.Fatal("a workflow with an unreadable retry policy must be refused")
+	}
+}
