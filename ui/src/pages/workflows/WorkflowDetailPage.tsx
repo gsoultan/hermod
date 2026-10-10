@@ -22,12 +22,14 @@ import { normalizeWorkflowStatus } from '@/utils/workflowStatus';
 import { downloadWorkflowExport } from '@/utils/workflowExport';
 import { 
   IconArrowLeft, IconArrowsExchange, IconChartBar, IconChevronRight, IconCircleCheck, IconCircleX, IconClock, IconEye, IconHistory, IconInfoCircle, IconRefresh, IconRotateDot, IconSearch, IconTerminal2, IconTimeline,
-  IconBug, IconBrain, IconActivity,
+  IconBug, IconBrain, IconActivity, IconListDetails,
   IconDownload
 } from '@tabler/icons-react';
 import { WorkflowDebugger } from './WorkflowDebugger';
 import { DetailFlowCanvas } from './WorkflowEditor/components/DetailFlowCanvas';
 import { useConfirm } from '@/components/common/ConfirmProvider';
+import { useSessionStore } from '@/auth/session';
+import { ExecutionsPanel } from './executions/ExecutionsPanel';
 const API_BASE = '/api';
 
 export function WorkflowDetailPage() {
@@ -36,6 +38,11 @@ export function WorkflowDetailPage() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<string | null>('graph');
   const [selectedTraceID, setSelectedTraceID] = useState<string | null>(null);
+  const [selectedRunID, setSelectedRunID] = useState<string | null>(null);
+  // Running, replaying and deciding are Editor actions; the server enforces
+  // the same rule, this only keeps the buttons off a Viewer's screen.
+  const role = useSessionStore((s) => s.user?.role);
+  const canEdit = role === 'Administrator' || role === 'Editor';
   // Paging by cursor rather than by offset. The server reads traces newest
   // first, so "the next page" is "older than the last row I saw" — one index
   // seek, whatever page you are on. An offset has to read and discard
@@ -399,6 +406,7 @@ export function WorkflowDetailPage() {
           <Tabs value={activeTab} onChange={setActiveTab} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
             <Tabs.List px="md">
               <Tabs.Tab value="graph" leftSection={<IconChartBar size="1rem" />}>Graph View</Tabs.Tab>
+              <Tabs.Tab value="executions" leftSection={<IconListDetails size="1rem" />}>Executions</Tabs.Tab>
               <Tabs.Tab value="traces" leftSection={<IconTimeline size="1rem" />}>Message Traces</Tabs.Tab>
               <Tabs.Tab value="history" leftSection={<IconHistory size="1rem" />}>History</Tabs.Tab>
               <Tabs.Tab value="logs" leftSection={<IconTerminal2 size="1rem" />}>Logs</Tabs.Tab>
@@ -416,6 +424,19 @@ export function WorkflowDetailPage() {
                   setNodes={setNodes}
                 />
               </ReactFlowProvider>
+            </Tabs.Panel>
+
+            <Tabs.Panel value="executions" style={{ flex: 1, overflow: 'hidden' }}>
+              {activeTab === 'executions' && (
+                <ScrollArea h="100%">
+                  <ExecutionsPanel
+                    workflowId={id}
+                    canReplay={canEdit}
+                    selectedRunId={selectedRunID}
+                    onSelectRun={setSelectedRunID}
+                  />
+                </ScrollArea>
+              )}
             </Tabs.Panel>
 
             <Tabs.Panel value="traces" style={{ flex: 1, overflow: 'hidden' }}>
