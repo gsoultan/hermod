@@ -10,12 +10,11 @@ let saved: Record<string, any> = {}
 
 function Harness({ Form, initial }: { Form: ComponentType<any>; initial: Record<string, any> }) {
   const [config, setConfig] = useState(initial)
-  saved = config
   return (
     <Form
       config={config}
       nodeId="n1"
-      updateNodeConfig={(_id: string, patch: any) => setConfig((c: any) => ({ ...c, ...patch }))}
+      updateNodeConfig={(_id: string, patch: any) => setConfig((c: any) => (saved = { ...c, ...patch }))}
     />
   )
 }
