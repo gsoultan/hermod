@@ -423,12 +423,7 @@ func (r *Registry) flushStatsToStorage() {
 		status := ae.engine.GetStatus()
 		processed := ae.baseProcessed + status.ProcessedCount
 		errors := ae.baseErrors + status.DeadLetterCount
-		var lag uint64
-		if l, ok := status.NodeMetrics["source_lag"]; ok {
-			lag = l
-		} else if l, ok := status.NodeMetrics["lag"]; ok {
-			lag = l
-		}
+		lag := engineLag(status)
 
 		// Update stats in DB (fast path)
 		_ = store.UpdateWorkflowStats(r.ctx, ae.workflow.ID, processed, errors, lag)
