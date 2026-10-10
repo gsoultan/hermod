@@ -572,7 +572,14 @@ type ApprovalFilter struct {
 	CommonFilter
 	WorkflowID string
 	Status     string
+	// VHosts, when not nil, limits the list to approvals raised by workflows
+	// in these vhosts or in the shared default vhost ("", "default", "all"),
+	// matching Handler.HasVHostAccess. Nil means no limit.
+	VHosts []string
 }
+
+// SharedVHosts are the vhost names every user may access.
+var SharedVHosts = []string{"", "default", "all"}
 
 type SuspendedMessage struct {
 	ID         string            `json:"id"`

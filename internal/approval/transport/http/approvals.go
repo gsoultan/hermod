@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/gsoultan/hermod/internal/api/handlers"
@@ -27,6 +28,9 @@ func (h *ApprovalHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 	if v := r.URL.Query().Get("status"); v != "" {
 		af.Status = v
 	}
+	if role, vhosts := h.GetRoleAndVHosts(r); role != storage.RoleAdministrator && !slices.Contains(vhosts, "*") {
+		af.VHosts = append([]string{}, vhosts...)
+	}
 
 	apps, total, err := h.Storage.ListApprovals(r.Context(), af)
 	if err != nil {
@@ -42,18 +46,43 @@ func (h *ApprovalHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *ApprovalHandler) GetApproval(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	app, err := h.Storage.GetApproval(r.Context(), id)
+	app, ok := h.approval(w, r)
+	if !ok {
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(app)
+}
+
+// approval reads the approval named in the path, if the caller may see the
+// workflow that raised it, having written the refusal when not. An approval of
+// another vhost answers "not found", so its existence is not disclosed either.
+func (h *ApprovalHandler) approval(w http.ResponseWriter, r *http.Request) (storage.Approval, bool) {
+	app, err := h.Storage.GetApproval(r.Context(), r.PathValue("id"))
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			h.JsonError(w, "Approval not found", http.StatusNotFound)
 		} else {
 			h.JsonError(w, "Failed to get approval: "+err.Error(), http.StatusInternalServerError)
 		}
-		return
+		return app, false
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(app)
+	role, vhosts := h.GetRoleAndVHosts(r)
+	if role == storage.RoleAdministrator {
+		return app, true
+	}
+	wf, err := h.Storage.GetWorkflow(r.Context(), app.WorkflowID)
+	switch {
+	case err != nil && !errors.Is(err, storage.ErrNotFound):
+		h.JsonError(w, "Failed to get approval: "+err.Error(), http.StatusInternalServerError)
+		return app, false
+	case err != nil || !h.HasVHostAccess(wf.VHost, vhosts):
+		// A workflow that no longer exists has no vhost to check against,
+		// so only an administrator may see what it left behind.
+		h.JsonError(w, "Approval not found", http.StatusNotFound)
+		return app, false
+	}
+	return app, true
 }
 
 type decisionBody struct {
@@ -76,13 +105,8 @@ func (h *ApprovalHandler) RejectApproval(w http.ResponseWriter, r *http.Request)
 func (h *ApprovalHandler) HandleApprovalDecision(w http.ResponseWriter, r *http.Request, status string) {
 	id := r.PathValue("id")
 
-	app, err := h.Storage.GetApproval(r.Context(), id)
-	if err != nil {
-		if errors.Is(err, storage.ErrNotFound) {
-			h.JsonError(w, "Approval not found", http.StatusNotFound)
-		} else {
-			h.JsonError(w, "Failed to get approval: "+err.Error(), http.StatusInternalServerError)
-		}
+	app, ok := h.approval(w, r)
+	if !ok {
 		return
 	}
 

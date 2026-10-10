@@ -3423,6 +3423,14 @@ func (s *sqlStorage) ListApprovals(ctx context.Context, filter storage.ApprovalF
 		where = append(where, "status = ?")
 		args = append(args, filter.Status)
 	}
+	if filter.VHosts != nil {
+		vhosts := append(append([]string{}, storage.SharedVHosts...), filter.VHosts...)
+		marks := strings.TrimSuffix(strings.Repeat("?, ", len(vhosts)), ", ")
+		where = append(where, "workflow_id IN (SELECT id FROM workflows WHERE vhost IS NULL OR vhost IN ("+marks+"))")
+		for _, v := range vhosts {
+			args = append(args, v)
+		}
+	}
 
 	if len(where) > 0 {
 		w := " WHERE " + strings.Join(where, " AND ")

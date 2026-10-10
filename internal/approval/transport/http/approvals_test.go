@@ -43,7 +43,7 @@ func TestADecidedApprovalCannotBeDecidedAgain(t *testing.T) {
 				mux.HandleFunc("POST /api/approvals/{id}/reject", h.RejectApproval)
 
 				rec := httptest.NewRecorder()
-				mux.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/approvals/a1/"+decide, strings.NewReader(`{}`)))
+				mux.ServeHTTP(rec, asAdmin(httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/approvals/a1/"+decide, strings.NewReader(`{}`))))
 
 				if rec.Code != http.StatusConflict {
 					t.Fatalf("status = %d, want 409; body %s", rec.Code, rec.Body.String())
@@ -81,7 +81,7 @@ func TestALosingConcurrentDecisionIsAConflictAndDoesNotResume(t *testing.T) {
 	mux.HandleFunc("POST /api/approvals/{id}/approve", h.ApproveApproval)
 
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/approvals/a1/approve", strings.NewReader(`{}`)))
+	mux.ServeHTTP(rec, asAdmin(httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/approvals/a1/approve", strings.NewReader(`{}`))))
 
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want 409; body %s", rec.Code, rec.Body.String())
@@ -90,4 +90,9 @@ func TestALosingConcurrentDecisionIsAConflictAndDoesNotResume(t *testing.T) {
 	if n := store.gets.Load(); n != 1 {
 		t.Fatalf("approval read %d times, want 1: a resume was started", n)
 	}
+}
+
+// asAdmin makes r an administrator's request, as the auth middleware would.
+func asAdmin(r *http.Request) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), handlers.UserContextKey, &storage.User{Username: "admin", Role: storage.RoleAdministrator}))
 }
