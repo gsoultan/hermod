@@ -19,10 +19,12 @@ type memStore struct {
 	storage.Storage
 	mu     sync.Mutex
 	models map[string]storage.MLModel
+	// claims holds each model's training claim (retrain_test.go).
+	claims map[string]memClaim
 }
 
 func newMemStore(models ...storage.MLModel) *memStore {
-	s := &memStore{models: map[string]storage.MLModel{}}
+	s := &memStore{models: map[string]storage.MLModel{}, claims: map[string]memClaim{}}
 	for _, m := range models {
 		s.models[m.VHost+"/"+m.Name] = m
 	}
@@ -46,6 +48,7 @@ func (s *memStore) PutMLModel(_ context.Context, m storage.MLModel) error {
 	defer s.mu.Unlock()
 	if old, ok := s.models[m.VHost+"/"+m.Name]; ok {
 		m.ServingKeyHash, m.Serving = old.ServingKeyHash, old.Serving
+		m.Retrain, m.RetrainStatus = old.Retrain, old.RetrainStatus
 	}
 	s.models[m.VHost+"/"+m.Name] = m
 	return nil
@@ -70,7 +73,7 @@ func (s *memStore) DeleteMLModel(_ context.Context, vhost, name string) error {
 	delete(s.models, vhost+"/"+name)
 	return nil
 }
-func (s *memStore) DeleteMLModels(_ context.Context, vhost string) error      { return nil }
+func (s *memStore) DeleteMLModels(_ context.Context, vhost string) error { return nil }
 
 // secretsOf answers secrets from a map keyed "vhost/name".
 type secretsOf map[string]string
