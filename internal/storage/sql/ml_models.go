@@ -34,6 +34,8 @@ type mlModelSpec struct {
 	// is not a schema change.
 	FeatureTypes map[string]string `json:"feature_types,omitempty"`
 	MCPExposed   bool              `json:"mcp_exposed,omitempty"`
+
+	Monitoring storage.MLMonitoring `json:"monitoring"`
 }
 
 func specOf(m storage.MLModel) mlModelSpec {
@@ -41,7 +43,7 @@ func specOf(m storage.MLModel) mlModelSpec {
 		Description: m.Description, Backend: string(m.Backend), URL: m.URL,
 		RemoteModel: m.RemoteModel, RemoteVersion: m.RemoteVersion, TokenSecret: m.TokenSecret,
 		InputName: m.InputName, Features: m.Features, TimeoutMs: m.TimeoutMs,
-		FeatureTypes: m.FeatureTypes, MCPExposed: m.MCPExposed,
+		FeatureTypes: m.FeatureTypes, MCPExposed: m.MCPExposed, Monitoring: m.Monitoring,
 	}
 }
 
@@ -50,6 +52,7 @@ func (sp mlModelSpec) apply(m *storage.MLModel) {
 	m.RemoteModel, m.RemoteVersion, m.TokenSecret = sp.RemoteModel, sp.RemoteVersion, sp.TokenSecret
 	m.InputName, m.Features, m.TimeoutMs = sp.InputName, sp.Features, sp.TimeoutMs
 	m.FeatureTypes, m.MCPExposed = sp.FeatureTypes, sp.MCPExposed
+	m.Monitoring = sp.Monitoring
 }
 
 // scanMLModel fills m from a row's spec and bookkeeping columns.
@@ -196,6 +199,112 @@ func (s *sqlStorage) DeleteMLModel(ctx context.Context, vhost, name string) erro
 func (s *sqlStorage) DeleteMLModels(ctx context.Context, vhost string) error {
 	if _, err := s.exec(ctx, s.queries.get(QueryDeleteMLModelsOfVHost), vhost); err != nil {
 		return fmt.Errorf("deleting the models of vhost %q: %w", vhost, err)
+	}
+	return nil
+}
+
+// InsertMLPredictionLogs writes the batch in one transaction, through one
+// prepared statement, as CreateLogs does.
+func (s *sqlStorage) InsertMLPredictionLogs(ctx context.Context, logs []storage.MLPredictionLog) error {
+	if len(logs) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("writing prediction logs: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	stmt, err := tx.PrepareContext(ctx, s.prepareQuery(s.queries.get(QueryInsertMLPredictionLog)))
+	if err != nil {
+		return fmt.Errorf("writing prediction logs: %w", err)
+	}
+	defer func() { _ = stmt.Close() }()
+
+	for _, l := range logs {
+		inputs, err := json.Marshal(l.Inputs)
+		if err != nil {
+			return fmt.Errorf("encoding a logged prediction of model %q: %w", l.Model, err)
+		}
+		outputs, err := json.Marshal(l.Outputs)
+		if err != nil {
+			return fmt.Errorf("encoding a logged prediction of model %q: %w", l.Model, err)
+		}
+		if _, err := stmt.ExecContext(ctx, l.VHost, l.Model, l.Version, l.Timestamp.UTC(),
+			string(inputs), string(outputs), l.LatencyMs, l.CallerKind, l.CallerID); err != nil {
+			return fmt.Errorf("writing prediction logs: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("writing prediction logs: %w", err)
+	}
+	return nil
+}
+
+func (s *sqlStorage) ListMLPredictionLogs(ctx context.Context, vhost, model string, limit int) ([]storage.MLPredictionLog, error) {
+	rows, err := s.query(ctx, s.queries.get(QueryListMLPredictionLogs), vhost, model, storage.MLPredictionLogLimit(limit))
+	if err != nil {
+		return nil, fmt.Errorf("reading the prediction log of model %q of vhost %q: %w", model, vhost, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []storage.MLPredictionLog
+	for rows.Next() {
+		l := storage.MLPredictionLog{VHost: vhost, Model: model}
+		var version, inputs, outputs, kind, id sql.NullString
+		if err := rows.Scan(&version, &l.Timestamp, &inputs, &outputs, &l.LatencyMs, &kind, &id); err != nil {
+			return nil, fmt.Errorf("reading the prediction log of model %q of vhost %q: %w", model, vhost, err)
+		}
+		l.Version, l.CallerKind, l.CallerID = version.String, kind.String, id.String
+		if err := decodeLogged(inputs, &l.Inputs); err != nil {
+			return nil, err
+		}
+		if err := decodeLogged(outputs, &l.Outputs); err != nil {
+			return nil, err
+		}
+		out = append(out, l)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("reading the prediction log of model %q of vhost %q: %w", model, vhost, err)
+	}
+	return out, nil
+}
+
+func decodeLogged(raw sql.NullString, into *map[string]any) error {
+	if raw.String == "" || raw.String == "null" {
+		return nil
+	}
+	if err := json.Unmarshal([]byte(raw.String), into); err != nil {
+		return fmt.Errorf("a logged prediction is unreadable: %w", err)
+	}
+	return nil
+}
+
+func (s *sqlStorage) PurgeMLPredictionLogs(ctx context.Context, vhost, model string, before time.Time) error {
+	var err error
+	switch {
+	case vhost == "":
+		_, err = s.exec(ctx, s.queries.get(QueryPurgeMLPredictionLogs), before.UTC())
+	case model == "":
+		_, err = s.exec(ctx, s.queries.get(QueryPurgeMLPredictionLogsOfVHost), vhost, before.UTC())
+	default:
+		_, err = s.exec(ctx, s.queries.get(QueryPurgeMLPredictionLogsOfModel), vhost, model, before.UTC())
+	}
+	if err != nil {
+		return fmt.Errorf("purging prediction logs: %w", err)
+	}
+	return nil
+}
+
+func (s *sqlStorage) DeleteMLPredictionLogs(ctx context.Context, vhost, model string) error {
+	var err error
+	if model == "" {
+		_, err = s.exec(ctx, s.queries.get(QueryDeleteMLPredictionLogsOfVHost), vhost)
+	} else {
+		_, err = s.exec(ctx, s.queries.get(QueryDeleteMLPredictionLogsOfModel), vhost, model)
+	}
+	if err != nil {
+		return fmt.Errorf("deleting the prediction logs of vhost %q: %w", vhost, err)
 	}
 	return nil
 }

@@ -218,7 +218,7 @@ func (s *mongoStorage) Ping(ctx context.Context) error {
 
 func (s *mongoStorage) Init(ctx context.Context) error {
 	// Create indexes
-	collections := []string{"sources", "sinks", "users", "vhosts", "workflows", "workers", "logs", "settings", "audit_logs", "webhook_requests", "schemas", "message_traces", "workflow_versions"}
+	collections := []string{"sources", "sinks", "users", "vhosts", "workflows", "workers", "logs", "settings", "audit_logs", "webhook_requests", "schemas", "message_traces", "workflow_versions", "ml_prediction_logs"}
 
 	for _, collName := range collections {
 		coll := s.db.Collection(collName)
@@ -233,6 +233,11 @@ func (s *mongoStorage) Init(ctx context.Context) error {
 			})
 			indexModels = append(indexModels, mongo.IndexModel{
 				Keys: bson.D{{Key: "created_at", Value: -1}},
+			})
+		case "ml_prediction_logs":
+			// A model's log is read newest first and purged by age.
+			indexModels = append(indexModels, mongo.IndexModel{
+				Keys: bson.D{{Key: "vhost", Value: 1}, {Key: "model", Value: 1}, {Key: "timestamp", Value: -1}},
 			})
 		case "workflow_versions":
 			indexModels = append(indexModels, mongo.IndexModel{
@@ -856,9 +861,9 @@ func (s *mongoStorage) UpdateVHost(ctx context.Context, vhost storage.VHost) err
 	return err
 }
 
-// DeleteVHost removes the vhost and the secrets, models, ML quotas and AI
-// budget it holds. All are keyed by the vhost's name, so one left behind would
-// be inherited by the next vhost created under that name.
+// DeleteVHost removes the vhost and the secrets, models, prediction logs, ML
+// quotas and AI budget it holds. All are keyed by the vhost's name, so one left
+// behind would be inherited by the next vhost created under that name.
 func (s *mongoStorage) DeleteVHost(ctx context.Context, id string) error {
 	vhost, err := s.GetVHost(ctx, id)
 	if err != nil && !errors.Is(err, storage.ErrNotFound) {
@@ -869,6 +874,9 @@ func (s *mongoStorage) DeleteVHost(ctx context.Context, id string) error {
 			return err
 		}
 		if err := s.DeleteMLModels(ctx, vhost.Name); err != nil {
+			return err
+		}
+		if err := s.DeleteMLPredictionLogs(ctx, vhost.Name, ""); err != nil {
 			return err
 		}
 		if err := s.DeleteMLQuotas(ctx, vhost.Name); err != nil {

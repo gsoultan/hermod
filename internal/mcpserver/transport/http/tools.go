@@ -34,7 +34,7 @@ type runInput struct {
 // newServer builds the MCP server that answers one request, bound to the
 // user that request authenticated as.
 func (m *MCPHandler) newServer(r *http.Request, user *storage.User) *mcp.Server {
-	svc := &mcpserver.Service{Store: m.Storage, Wake: m.WakeUpWorkflow, Models: models{svc: m.mlService()}}
+	svc := &mcpserver.Service{Store: m.Storage, Wake: m.WakeUpWorkflow, Models: models{svc: m.mlService(), user: user.Username}}
 	caller := mcpserver.Caller{
 		Name:   user.Username,
 		CanRun: user.Role == storage.RoleAdministrator || user.Role == storage.RoleEditor,

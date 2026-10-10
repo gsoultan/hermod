@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gsoultan/hermod/pkg/ml/inference"
@@ -47,6 +50,9 @@ type MLModel struct {
 	// Serving reports whether a serving key is set; it is what the API shows.
 	Serving bool `json:"serving"`
 
+	// Monitoring is how the model's predictions are logged and its drift
+	// judged. The zero value logs nothing and uses the default thresholds.
+	Monitoring MLMonitoring `json:"monitoring"`
 	// Retrain is when a trained model trains again by itself, nil for never.
 	// RetrainStatus is what its last training did. PutMLModel changes
 	// neither; MLRetrainStore does.
@@ -135,6 +141,9 @@ func ValidateMLModel(m MLModel) error {
 			return fmt.Errorf("feature %q has a type longer than %d characters", f, maxMLFeatureTypeLen)
 		}
 	}
+	if err := m.Monitoring.Validate(); err != nil {
+		return err
+	}
 	if m.Backend == MLBackendWorker {
 		return validateWorkerModel(m)
 	}
@@ -185,4 +194,181 @@ type MLModelStore interface {
 	DeleteMLModel(ctx context.Context, vhost, name string) error
 	// DeleteMLModels removes every model the vhost holds.
 	DeleteMLModels(ctx context.Context, vhost string) error
+}
+
+// Defaults and bounds of a model's monitoring.
+const (
+	DefaultMLDriftWarn    = 0.1
+	DefaultMLDriftAlert   = 0.25
+	DefaultMLLogRetention = 7 * 24 * time.Hour
+
+	// MaxMLLogRetention is the longest a logged prediction is kept, whatever
+	// its model says; the retention sweep applies it to every row, so the
+	// log of a model or vhost deleted elsewhere does not outlive it.
+	MaxMLLogRetention = 365 * 24 * time.Hour
+
+	minMLLogRetention  = time.Hour
+	maxMLLogMaskFields = 100
+)
+
+// MLMaskTypes are the ways a logged field can be masked: the mask
+// transformer's (pkg/comm/transformer/security), "all" replacing the value.
+var MLMaskTypes = []string{"all", "partial", "email", "pii"}
+
+// MLMonitoring is how a model is watched.
+//
+// Prediction logging is off until LogSampleRate is above zero: a logged row
+// holds what the model was sent, which may be personal data, so it is never
+// kept unless someone asks for it. LogMaskFields are masked before a row is
+// written, never after.
+type MLMonitoring struct {
+	// LogSampleRate is the share of predictions logged, 0 to 1.
+	LogSampleRate float64 `json:"log_sample_rate,omitempty"`
+	// LogMaskFields are input or output fields masked in a logged row, as
+	// dotted paths; "*" masks every string.
+	LogMaskFields []string `json:"log_mask_fields,omitempty"`
+	// LogMaskType is one of MLMaskTypes; empty means "all".
+	LogMaskType string `json:"log_mask_type,omitempty"`
+	// LogRetention is how long a logged row is kept, as "7d" or "12h"; empty
+	// means DefaultMLLogRetention.
+	LogRetention string `json:"log_retention,omitempty"`
+
+	// DriftWarn and DriftAlert are the population stability index at which a
+	// feature is reported as drifting, and at which an alert is sent; zero
+	// means the default.
+	DriftWarn  float64 `json:"drift_warn,omitempty"`
+	DriftAlert float64 `json:"drift_alert,omitempty"`
+}
+
+// Logging reports whether any prediction is logged.
+func (m MLMonitoring) Logging() bool { return m.LogSampleRate > 0 }
+
+// Thresholds returns the drift thresholds, defaults filled in.
+func (m MLMonitoring) Thresholds() (warn, alert float64) {
+	warn, alert = m.DriftWarn, m.DriftAlert
+	if warn == 0 {
+		warn = DefaultMLDriftWarn
+	}
+	if alert == 0 {
+		alert = DefaultMLDriftAlert
+	}
+	return warn, alert
+}
+
+// Retention returns how long a logged prediction is kept. An unreadable
+// value, which Validate refuses, is read as the default.
+func (m MLMonitoring) Retention() time.Duration {
+	d, err := parseRetention(m.LogRetention)
+	if err != nil || d == 0 {
+		return DefaultMLLogRetention
+	}
+	return d
+}
+
+// Validate reports what is wrong with the setting.
+func (m MLMonitoring) Validate() error {
+	if m.LogSampleRate < 0 || m.LogSampleRate > 1 {
+		return errors.New("the prediction log sample rate is between 0 and 1")
+	}
+	if m.LogMaskType != "" && !slices.Contains(MLMaskTypes, m.LogMaskType) {
+		return fmt.Errorf("mask type %q is one of %s", m.LogMaskType, strings.Join(MLMaskTypes, ", "))
+	}
+	if len(m.LogMaskFields) > maxMLLogMaskFields {
+		return fmt.Errorf("at most %d fields can be masked", maxMLLogMaskFields)
+	}
+	for _, f := range m.LogMaskFields {
+		if strings.TrimSpace(f) == "" {
+			return errors.New("a masked field needs a name")
+		}
+	}
+	if m.LogRetention != "" {
+		d, err := parseRetention(m.LogRetention)
+		if err != nil {
+			return fmt.Errorf("prediction log retention %q is not a duration such as 7d or 12h", m.LogRetention)
+		}
+		if d < minMLLogRetention || d > MaxMLLogRetention {
+			return errors.New("prediction log retention is between 1h and 365d")
+		}
+	}
+	if m.DriftWarn < 0 || m.DriftAlert < 0 {
+		return errors.New("drift thresholds cannot be negative")
+	}
+	if warn, alert := m.Thresholds(); alert < warn {
+		return fmt.Errorf("the drift alert threshold %.3g is below the warning threshold %.3g", alert, warn)
+	}
+	return nil
+}
+
+// parseRetention reads "7d" as days and anything else as a Go duration,
+// the way workflow trace retention is written.
+func parseRetention(s string) (time.Duration, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, nil
+	}
+	if days, ok := strings.CutSuffix(s, "d"); ok {
+		f, err := strconv.ParseFloat(days, 64)
+		if err != nil {
+			return 0, err
+		}
+		return time.Duration(f * float64(24*time.Hour)), nil
+	}
+	return time.ParseDuration(s)
+}
+
+// Who made a prediction.
+const (
+	MLCallerWorkflow = "workflow" // a Predict node; CallerID is the workflow
+	MLCallerREST     = "rest"     // the serving endpoint, with a serving key
+	MLCallerGRPC     = "grpc"     // hermod.ml.v1.InferenceService
+	MLCallerUI       = "ui"       // an Editor testing the model
+	MLCallerMCP      = "mcp"      // a predict_<model> tool on the MCP server
+)
+
+// MLPredictionLog is one logged prediction: one row a model was sent and
+// what it answered. Inputs hold the row after masking.
+type MLPredictionLog struct {
+	VHost     string         `json:"vhost"`
+	Model     string         `json:"model"`
+	Version   string         `json:"version,omitempty"`
+	Timestamp time.Time      `json:"timestamp"`
+	Inputs    map[string]any `json:"inputs"`
+	Outputs   map[string]any `json:"outputs"`
+	// LatencyMs is how long the whole call, of which this row was part, took.
+	LatencyMs  float64 `json:"latency_ms"`
+	CallerKind string  `json:"caller_kind"`
+	CallerID   string  `json:"caller_id,omitempty"`
+}
+
+// MaxMLPredictionLogPage bounds one read of a model's prediction log.
+const MaxMLPredictionLogPage = 500
+
+// ErrMLPredictionLogsUnsupported is returned when the log store cannot hold
+// prediction logs.
+var ErrMLPredictionLogsUnsupported = errors.New("this storage backend cannot hold ML prediction logs")
+
+// MLPredictionLogStore is implemented by a log store that can keep a
+// model's logged predictions. Like MLModelStore, callers find it with a type
+// assertion.
+type MLPredictionLogStore interface {
+	// InsertMLPredictionLogs writes a batch of logged predictions.
+	InsertMLPredictionLogs(ctx context.Context, logs []MLPredictionLog) error
+	// ListMLPredictionLogs returns a model's most recent logged predictions,
+	// newest first, at most limit (bounded by MaxMLPredictionLogPage).
+	ListMLPredictionLogs(ctx context.Context, vhost, model string, limit int) ([]MLPredictionLog, error)
+	// PurgeMLPredictionLogs removes logged predictions older than before: of
+	// one model, of every model of the vhost when model is empty, or of
+	// everything when vhost is empty too.
+	PurgeMLPredictionLogs(ctx context.Context, vhost, model string, before time.Time) error
+	// DeleteMLPredictionLogs removes every logged prediction of a model, or of
+	// every model of the vhost when model is empty.
+	DeleteMLPredictionLogs(ctx context.Context, vhost, model string) error
+}
+
+// MLPredictionLogLimit bounds a requested page size.
+func MLPredictionLogLimit(limit int) int {
+	if limit <= 0 || limit > MaxMLPredictionLogPage {
+		return MaxMLPredictionLogPage
+	}
+	return limit
 }

@@ -15,7 +15,11 @@ import (
 
 // models is the model registry as the model tools see it: the same service
 // the REST and gRPC predict paths use, so quotas and metrics apply alike.
-type models struct{ svc *ml.Service }
+// user is who calls, for the prediction log.
+type models struct {
+	svc  *ml.Service
+	user string
+}
 
 func (m models) ListModels(ctx context.Context, vhost string) ([]storage.MLModel, error) {
 	ms, err := m.svc.Models()
@@ -30,7 +34,7 @@ func (m models) ListModels(ctx context.Context, vhost string) ([]storage.MLModel
 
 // Predict is the service's: an inference.Row is a map[string]any.
 func (m models) Predict(ctx context.Context, vhost, name string, rows []map[string]any) ([]map[string]any, error) {
-	return m.svc.Predict(ctx, vhost, name, rows)
+	return m.svc.Predict(ml.WithCaller(ctx, storage.MLCallerMCP, m.user), vhost, name, rows)
 }
 
 // mlService is the registry's ML service when the engine runs, so a model's

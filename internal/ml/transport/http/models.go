@@ -11,6 +11,7 @@ import (
 
 	"github.com/gsoultan/hermod/internal/api/handlers"
 	"github.com/gsoultan/hermod/internal/ml"
+	"github.com/gsoultan/hermod/internal/ml/monitor"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/ml/inference"
 	"github.com/gsoultan/hermod/pkg/ml/worker"
@@ -28,9 +29,10 @@ type Handler struct {
 	*handlers.Handler
 
 	// worker replaces the ML worker the environment names, and noEnvWorker
-	// drops it; tests set them.
+	// drops it; monitor replaces the registry's; tests set them.
 	worker      *worker.Client
 	noEnvWorker bool
+	monitor     *monitor.Monitor
 }
 
 // NewHandler wraps the shared API handler.
@@ -66,23 +68,31 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/vhosts/{vhost}/ml/models/{name}/versions/{version}/promote", h.EditorOnly(h.PromoteVersion))
 	mux.Handle("PUT /api/vhosts/{vhost}/ml/models/{name}/retrain", h.EditorOnly(h.PutRetrain))
 	mux.Handle("DELETE /api/vhosts/{vhost}/ml/models/{name}/retrain", h.EditorOnly(h.DeleteRetrain))
+
+	mux.HandleFunc("GET /api/vhosts/{vhost}/ml/models/{name}/predictions", h.ListPredictionLogs)
+	mux.HandleFunc("GET /api/vhosts/{vhost}/ml/models/{name}/drift", h.GetDrift)
+	mux.Handle("PUT /api/vhosts/{vhost}/ml/models/{name}/monitoring", h.EditorOnly(h.PutMonitoring))
 }
 
 // service is the registry's ML service when there is a registry, so a model's
-// token secret is answered the way a workflow's is; otherwise one over the
-// API's storage, which can still answer everything but a token.
+// token secret is answered the way a workflow's is and its predictions reach
+// the registry's monitor; otherwise one over the API's storage, which can
+// still answer everything but a token.
 func (h *Handler) service() *ml.Service {
 	var svc *ml.Service
 	if h.Registry != nil {
 		svc = h.Registry.MLService()
 	} else {
-		svc = ml.NewService(func() any { return h.Storage }, nil, nil)
+		svc = ml.NewService(func() any { return h.Storage }, nil, nil).WithLogStore(func() any { return h.LogStorage })
 	}
 	switch {
 	case h.worker != nil:
 		svc.WithWorker(h.worker)
 	case h.noEnvWorker:
 		svc.WithWorker(nil)
+	}
+	if h.monitor != nil {
+		svc.WithMonitor(h.monitor)
 	}
 	return svc
 }
@@ -230,9 +240,12 @@ func (h *Handler) PutModel(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
+	// The definition is replaced; how the model is monitored is set on its
+	// own (PutMonitoring) and kept.
 	if old, err := ms.GetMLModel(r.Context(), vhost, m.Name); err == nil {
 		m.MCPExposed = old.MCPExposed
 		m.FeatureTypes = keptTypes(old.FeatureTypes, m.Features)
+		m.Monitoring = old.Monitoring
 	}
 	if req.MCPExposed != nil {
 		m.MCPExposed = *req.MCPExposed
@@ -338,7 +351,7 @@ func (h *Handler) Predict(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	h.predict(w, r, vhost, r.PathValue("name"))
+	h.predict(w, r.WithContext(ml.WithCaller(r.Context(), storage.MLCallerUI, "")), vhost, r.PathValue("name"))
 }
 
 // Serve is how an application calls a model: no session, the model's serving
@@ -354,7 +367,7 @@ func (h *Handler) Serve(w http.ResponseWriter, r *http.Request) {
 		h.JsonError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	h.predict(w, r, vhost, name)
+	h.predict(w, r.WithContext(ml.WithCaller(r.Context(), storage.MLCallerREST, "")), vhost, name)
 }
 
 func (h *Handler) predict(w http.ResponseWriter, r *http.Request, vhost, name string) {

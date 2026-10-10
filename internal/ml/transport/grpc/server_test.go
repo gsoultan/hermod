@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -18,6 +20,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/gsoultan/hermod/internal/ml"
+	"github.com/gsoultan/hermod/internal/ml/monitor"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/ml/inference"
 	"github.com/gsoultan/hermod/pkg/ml/proto"
@@ -58,16 +61,17 @@ func (s *store) DeleteMLModel(context.Context, string, string) error { return ni
 func (s *store) DeleteMLModels(context.Context, string) error        { return nil }
 
 // dial serves the InferenceService in memory and returns a client for it, with
-// a model "double" in vhost "a" whose serving key is returned too.
-func dial(t *testing.T) (proto.InferenceServiceClient, string) {
+// a model "double" in vhost "a" whose serving key is returned too. with
+// adjusts the service, and the stored model, before it serves.
+func dial(t *testing.T, with ...func(*ml.Service, *storage.MLModel)) (proto.InferenceServiceClient, string) {
 	t.Helper()
-	c, key, _ := dialService(t)
+	c, key, _ := dialService(t, with...)
 	return c, key
 }
 
 // dialService is dial, also returning the service. Vhost "grpc-q" holds a
 // model "double" too, and may predict one row a second.
-func dialService(t *testing.T) (proto.InferenceServiceClient, string, *ml.Service) {
+func dialService(t *testing.T, with ...func(*ml.Service, *storage.MLModel)) (proto.InferenceServiceClient, string, *ml.Service) {
 	t.Helper()
 	modelSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
@@ -88,6 +92,11 @@ func dialService(t *testing.T) (proto.InferenceServiceClient, string, *ml.Servic
 		"grpc-q/double": {VHost: "grpc-q", Name: "double", Backend: inference.BackendMLflow, URL: modelSrv.URL},
 	}, quotas: map[string]storage.MLQuotas{"grpc-q": {VHost: "grpc-q", MaxPredictionsPerSecond: new(1.0)}}}
 	svc := ml.NewService(func() any { return st }, nil, nil)
+	for _, fn := range with {
+		m := st.models["a/double"]
+		fn(svc, &m)
+		st.models["a/double"] = m
+	}
 	key, err := svc.RotateServingKey(context.Background(), "a", "double")
 	if err != nil {
 		t.Fatal(err)
@@ -187,5 +196,67 @@ func TestAPredictionOverTheVHostsRateIsResourceExhausted(t *testing.T) {
 	_, err = c.Predict(withKey(key), req)
 	if status.Code(err) != codes.ResourceExhausted || !strings.Contains(status.Convert(err).Message(), "max_predictions_per_second") {
 		t.Fatalf("over the rate: err = %v, want ResourceExhausted naming the quota", err)
+	}
+}
+
+// logStore is a prediction log in memory.
+type logStore struct {
+	mu   sync.Mutex
+	rows []storage.MLPredictionLog
+}
+
+func (l *logStore) InsertMLPredictionLogs(_ context.Context, rows []storage.MLPredictionLog) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.rows = append(l.rows, rows...)
+	return nil
+}
+func (l *logStore) ListMLPredictionLogs(context.Context, string, string, int) ([]storage.MLPredictionLog, error) {
+	return nil, nil
+}
+func (l *logStore) PurgeMLPredictionLogs(context.Context, string, string, time.Time) error {
+	return nil
+}
+func (l *logStore) DeleteMLPredictionLogs(context.Context, string, string) error { return nil }
+
+func TestAPredictionOverGRPCIsLoggedAsOne(t *testing.T) {
+	logs := &logStore{}
+	mon := monitor.New(monitor.Config{Flush: 5 * time.Millisecond}, monitor.Deps{Logs: func() any { return logs }})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		mon.Run(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+	c, key := dial(t, func(svc *ml.Service, m *storage.MLModel) {
+		svc.WithMonitor(mon)
+		m.Monitoring.LogSampleRate = 1
+	})
+	if _, err := c.Predict(withKey(key), &proto.PredictRequest{Vhost: "a", Model: "double", Instances: rows(t, 3)}); err != nil {
+		t.Fatalf("Predict: %v", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		logs.mu.Lock()
+		n := len(logs.rows)
+		var kind string
+		if n > 0 {
+			kind = logs.rows[0].CallerKind
+		}
+		logs.mu.Unlock()
+		if n > 0 {
+			if kind != storage.MLCallerGRPC {
+				t.Errorf("caller = %q, want grpc", kind)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the prediction was never logged")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }

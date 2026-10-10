@@ -203,6 +203,7 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		s.queries.get(QueryInitVHostSecretsTable),
 		s.queries.get(QueryInitMLModelsTable),
 		s.queries.get(QueryInitMLQuotasTable),
+		s.queries.get(QueryInitMLPredictionLogsTable),
 		s.queries.get(QueryInitAIBudgetsTable),
 		s.queries.get(QueryInitAIUsageTable),
 		s.queries.get(QueryInitWorkersTable),
@@ -357,6 +358,9 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		// composite covers the filter and the sort, so the page is an index
 		// scan whose cost is the page size rather than the table size.
 		"CREATE INDEX IF NOT EXISTS idx_message_traces_wf_started ON message_traces(workflow_id, started_at DESC)",
+		// A model's prediction log is read newest first and purged by age,
+		// always within one model of one vhost.
+		"CREATE INDEX IF NOT EXISTS idx_ml_prediction_logs_model_ts ON ml_prediction_logs(vhost, model, timestamp DESC)",
 	}
 
 	for _, q := range indexQueries {
@@ -1494,9 +1498,9 @@ func (s *sqlStorage) UpdateVHost(ctx context.Context, vhost storage.VHost) error
 	return err
 }
 
-// DeleteVHost removes the vhost and the secrets, models, ML quotas and AI
-// budget it holds. All are keyed by the vhost's name, so one left behind would
-// be inherited by the next vhost created under that name.
+// DeleteVHost removes the vhost and the secrets, models, prediction logs, ML
+// quotas and AI budget it holds. All are keyed by the vhost's name, so one left
+// behind would be inherited by the next vhost created under that name.
 func (s *sqlStorage) DeleteVHost(ctx context.Context, id string) error {
 	vhost, err := s.GetVHost(ctx, id)
 	if err != nil && !errors.Is(err, storage.ErrNotFound) {
@@ -1507,6 +1511,9 @@ func (s *sqlStorage) DeleteVHost(ctx context.Context, id string) error {
 			return err
 		}
 		if err := s.DeleteMLModels(ctx, vhost.Name); err != nil {
+			return err
+		}
+		if err := s.DeleteMLPredictionLogs(ctx, vhost.Name, ""); err != nil {
 			return err
 		}
 		if err := s.DeleteMLQuotas(ctx, vhost.Name); err != nil {

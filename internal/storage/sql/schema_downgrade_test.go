@@ -38,6 +38,16 @@ import (
 // for a later vhost of the same name, which can only limit that vhost, never
 // grant it anything.
 //
+// The note before that: adding the ml_prediction_logs table, the sampled and
+// masked predictions a model logs when its monitoring turns logging on.
+// currentSchemaVersion was left alone deliberately: it is a standalone table no
+// earlier code path reads or writes, and the setting that fills it lives in
+// ml_models' JSON spec, which the previous release decodes into a struct
+// without it. A rollback stops the logging (and saving a model from the older
+// binary drops the setting, so logging stays off until it is set again); the
+// rows already written are left for the newer binary's retention sweep. That is
+// a lost feature, not a misread of live data.
+//
 // The note before that: adding the ai_budgets and ai_usage tables, a vhost's AI
 // spending limits and what it has spent per month. currentSchemaVersion was
 // left alone, as for ml_models: both are standalone tables no earlier code path
@@ -155,7 +165,7 @@ import (
 // unpopulated — a gap in a chart that fills itself in when the newer binary
 // returns — so bumping the version would buy nothing and cost a refused
 // start-up during exactly the rollback it was supposed to make safe.
-const knownSchemaFingerprint = "60781af88f749add91afd9bafdb0be39c25f4e315d26eee40dde9aca5e526d19"
+const knownSchemaFingerprint = "34a4804652c6283d934a6ea300cacbe4ab09eb7e9c3de67d5cd07960ad79b2f1"
 
 func TestSchemaVersionIsReconsideredWhenTheSchemaChanges(t *testing.T) {
 	if got := SchemaFingerprint(); got != knownSchemaFingerprint {

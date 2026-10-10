@@ -5,11 +5,15 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/gsoultan/hermod/internal/api/handlers"
 	"github.com/gsoultan/hermod/internal/ml"
+	"github.com/gsoultan/hermod/internal/ml/monitor"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/ml/inference"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -210,5 +214,65 @@ func TestAServingKeyDoesNotOpenTheMCPServer(t *testing.T) {
 		if resp.StatusCode != http.StatusUnauthorized {
 			t.Errorf("a serving key in %s reached the MCP server: %d", header, resp.StatusCode)
 		}
+	}
+}
+
+// predictionLog is a prediction log in memory.
+type predictionLog struct {
+	mu   sync.Mutex
+	rows []storage.MLPredictionLog
+}
+
+func (l *predictionLog) InsertMLPredictionLogs(_ context.Context, rows []storage.MLPredictionLog) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.rows = append(l.rows, rows...)
+	return nil
+}
+func (l *predictionLog) ListMLPredictionLogs(context.Context, string, string, int) ([]storage.MLPredictionLog, error) {
+	return nil, nil
+}
+func (l *predictionLog) PurgeMLPredictionLogs(context.Context, string, string, time.Time) error {
+	return nil
+}
+func (l *predictionLog) DeleteMLPredictionLogs(context.Context, string, string) error { return nil }
+
+// A model tool's prediction is logged like any other, as made over MCP.
+func TestAModelToolsPredictionIsLoggedAsMCP(t *testing.T) {
+	logs := &predictionLog{}
+	mon := monitor.New(monitor.Config{Flush: 5 * time.Millisecond}, monitor.Deps{Logs: func() any { return logs }})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		mon.Run(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+	st := &modelStore{store: &store{}, models: map[string]storage.MLModel{
+		"a/fraud": {VHost: "a", Name: "fraud", Backend: inference.BackendMLflow, URL: scorer(t),
+			Monitoring: storage.MLMonitoring{LogSampleRate: 1}},
+	}}
+	svc := ml.NewService(func() any { return st }, nil, nil).WithMonitor(mon)
+	if _, err := (models{svc: svc}).Predict(t.Context(), "a", "fraud", []map[string]any{{"amount": 2.0}}); err != nil {
+		t.Fatalf("Predict: %v", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		logs.mu.Lock()
+		rows := slices.Clone(logs.rows)
+		logs.mu.Unlock()
+		if len(rows) > 0 {
+			if rows[0].CallerKind != storage.MLCallerMCP {
+				t.Errorf("caller = %q, want %q", rows[0].CallerKind, storage.MLCallerMCP)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the prediction was never logged")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }

@@ -194,4 +194,16 @@ describe('Models page', () => {
     await waitFor(() => expect(writes.find((w) => w.method === 'QUOTAS')).toBeTruthy())
     expect(writes.find((w) => w.method === 'QUOTAS')!.body).toEqual({ ...noQuotas, max_models: 10, max_concurrent_trainings: 2 })
   })
+
+  it('opens a model\'s monitoring', async () => {
+    modelsApi([{ name: 'fraud', backend: 'mlflow', url: 'http://ml', serving: false }])
+    server.use(http.get('/api/vhosts/:vhost/ml/models/:name/predictions', () => HttpResponse.json({ data: [], total: 0 })))
+    renderPage()
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('button', { name: 'Monitoring of fraud' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('tab', { name: /prediction log/i })).toBeInTheDocument()
+    expect(await within(dialog).findByText(/logging is off/i)).toBeInTheDocument()
+  })
 })
