@@ -43,6 +43,19 @@ request that does not carry it in the `X-API-Key` header. It used to accept
 every request. Before upgrading, make sure each sender of a keyed webhook sends
 the header, or clear the key on the source.
 
+### Added — neural networks with PyTorch and Keras
+
+Two more training algorithms, `pytorch_mlp` and `keras_mlp`: a multilayer
+perceptron for classification and regression, on the same inputs as the other
+algorithms and exported to the same ONNX contract, so a model can be retrained
+with a network without changing what calls it. Layer sizes, epochs, batch size,
+learning rate and early-stopping patience can be set under **Advanced** in the
+Train dialog and on the Train Model node. They need the new
+`hermod-ml:<version>-dl` image (CPU-only PyTorch and TensorFlow, linux/amd64;
+Helm: `mlWorker.image.variant=dl`); the default image stays slim, and Hermod
+offers only the algorithms the running worker can train. See
+[docs/ml.md](docs/ml.md#image-variants).
+
 ### Added — chat trigger
 
 A **Chat** source receives one message of a conversation and answers with the
