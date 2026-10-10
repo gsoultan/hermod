@@ -1,4 +1,5 @@
 import { ActionIcon, Alert, Autocomplete, Button, Group, NumberInput, Select, Stack, Text, TextInput } from '@mantine/core'
+import { FormRow } from '@/components/common/FormRow'
 import { IconInfoCircle, IconPlus, IconTrash } from '@tabler/icons-react'
 import { DATASET_NAME_PATTERN, useVHostDatasets } from '@/lib/mlModels'
 
@@ -80,12 +81,12 @@ export function MLDatasetSinkConfig({ config, updateConfig, vhost }: MLDatasetSi
         </Group>
       </Stack>
 
-      <Group grow align="flex-start">
+      <FormRow cols={2}>
         <TextInput label="Mask these columns" description="Comma separated; masked before the row leaves Hermod."
           placeholder="email, phone" value={config.mask_fields || ''} onChange={(e) => updateConfig('mask_fields', e.currentTarget.value)} />
         <Select label="Mask" data={MASK_TYPES} value={config.mask_type || 'all'} allowDeselect={false}
           onChange={(v) => updateConfig('mask_type', v ?? 'all')} />
-      </Group>
+      </FormRow>
 
       <NumberInput label="Stop at this many rows" description="Later records are not added once the dataset holds this many."
         placeholder="1000000" min={1} allowDecimal={false} value={config.max_rows ? Number(config.max_rows) : ''}
