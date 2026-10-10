@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/engine/registry/interfaces"
 	"github.com/gsoultan/hermod/internal/engine/registry/traversal"
 	"github.com/gsoultan/hermod/internal/factory"
 	"github.com/gsoultan/hermod/internal/storage"
@@ -1414,12 +1415,58 @@ func (r *Registry) ResumeApproval(ctx context.Context, app storage.Approval, bra
 		}
 	}
 
-	// Continue traversal from the approval node with forced branch
-	r.resumeFromNode(app.WorkflowID, app.NodeID, m, r.liveEngine(app.WorkflowID), wf, nodeMap, adj, sinks, sinkNodeToIndex, branch)
+	r.resumeApprovalAt(ctx, app, branch, m, r.liveEngine(app.WorkflowID), wf, nodeMap, adj, sinks, sinkNodeToIndex)
 	// See resumeSuspendedMessage: honour the refcount rather than forcing the
 	// message back into the pool under a possible second owner.
 	m.Release()
 	return nil
+}
+
+// resumeApprovalAt continues a workflow from the node that asked for app.
+//
+// An approval node has finished once it asks, so the message continues on the
+// edges for the decision. A node that asked part-way through its own work (an
+// interfaces.ApprovalResumer, such as ai_agent before a write tool) is handed
+// the approval and the decision instead, and what it returns is routed on its
+// own branch.
+func (r *Registry) resumeApprovalAt(ctx context.Context, app storage.Approval, branch string, m hermod.Message, eng *pkgengine.Engine, wf storage.Workflow, nodeMap map[string]*storage.WorkflowNode, adj map[string][]string, sinks []hermod.Sink, sinkNodeToIndex map[string]int) {
+	node := nodeMap[app.NodeID]
+	var resumer interfaces.ApprovalResumer
+	if node != nil {
+		if ex, ok := interfaces.GetNodeExecutor(node.Type); ok {
+			resumer, _ = ex.(interfaces.ApprovalResumer)
+		}
+	}
+	if resumer == nil {
+		// Continue traversal from the approval node with forced branch
+		r.resumeFromNode(app.WorkflowID, app.NodeID, m, eng, wf, nodeMap, adj, sinks, sinkNodeToIndex, branch)
+		return
+	}
+
+	// The approval endpoint resumes after it has answered, when its request
+	// context is already cancelled; the resumed node's own work (model calls,
+	// tool calls) has to outlive that, bounded by the node's own timeout.
+	rctx := context.WithValue(context.WithoutCancel(ctx), hermod.RegistryKey, r)
+	out, nodeBranch, err := resumer.ResumeApproval(rctx, r, app.WorkflowID, node, m, app, branch)
+	defer func() {
+		for _, pm := range out {
+			if pm != m {
+				pm.Release()
+			}
+		}
+	}()
+	if err != nil {
+		r.broadcastLog(app.WorkflowID, "error", fmt.Sprintf("Node %s error on resume: %v", r.getNodeName(*node), err))
+		r.replayLost(app.WorkflowID, node, eng, m, err)
+		return
+	}
+	for _, pm := range out {
+		for _, targetID := range replayTargets(wf, adj, node.ID, nodeBranch) {
+			if tn := nodeMap[targetID]; tn != nil {
+				r.runWorkflowNodeFromReplay(app.WorkflowID, tn, pm, node.ID, eng, wf, nodeMap, adj, sinks, sinkNodeToIndex)
+			}
+		}
+	}
 }
 
 // --- Test Workflow ---

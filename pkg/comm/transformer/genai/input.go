@@ -41,6 +41,13 @@ func selectInput(msg hermod.Message, config map[string]any) map[string]any {
 	return out
 }
 
+// InputJSON is the part of msg a node may send to a model (see selectInput:
+// inputFields, maskFields, maskPII), as JSON. Go's encoder escapes <, > and &,
+// so the result cannot close a delimiter a caller wraps it in.
+func InputJSON(msg hermod.Message, config map[string]any) string {
+	return inputJSON(msg, config)
+}
+
 // inputJSON is selectInput rendered for a prompt.
 func inputJSON(msg hermod.Message, config map[string]any) string {
 	b, err := json.Marshal(selectInput(msg, config))

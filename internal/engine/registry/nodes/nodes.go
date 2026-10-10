@@ -15,6 +15,7 @@ import (
 	// binary, and a workflow using one then fails at runtime rather than at
 	// build time.
 	_ "github.com/gsoultan/hermod/internal/engine/registry/nodes/ai"
+	_ "github.com/gsoultan/hermod/internal/engine/registry/nodes/ai/agent"
 	_ "github.com/gsoultan/hermod/internal/engine/registry/nodes/control"
 	_ "github.com/gsoultan/hermod/internal/engine/registry/nodes/core"
 	_ "github.com/gsoultan/hermod/internal/engine/registry/nodes/flow"

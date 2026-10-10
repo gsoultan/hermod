@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/engine/registry/interfaces"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/comm/message"
 	pkgengine "github.com/gsoultan/hermod/pkg/engine"
@@ -244,5 +245,71 @@ func TestAnApprovalDecisionTakesItsEdgeAndUnlabelledOnes(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// A node that asked for approval part-way through its own work (the ai_agent
+// waiting to run a write tool) resumes inside itself, not on the node after
+// it. The registry hands it the approval and the decision and routes what it
+// returns.
+// ---------------------------------------------------------------------------
+
+type resumeRecord struct {
+	mu       sync.Mutex
+	appID    string
+	decision string
+	ctxErr   error
+	registry bool
+	calls    int
+}
+
+type recordingResumer struct{ rec *resumeRecord }
+
+func (recordingResumer) Execute(context.Context, interfaces.NodeContext, string, *storage.WorkflowNode, hermod.Message) ([]hermod.Message, string, error) {
+	return nil, "", errors.New("a resumed node must not be executed afresh")
+}
+
+func (e recordingResumer) ResumeApproval(ctx context.Context, _ interfaces.NodeContext, _ string, _ *storage.WorkflowNode, msg hermod.Message, app storage.Approval, decision string) ([]hermod.Message, string, error) {
+	e.rec.mu.Lock()
+	defer e.rec.mu.Unlock()
+	e.rec.calls++
+	e.rec.appID, e.rec.decision, e.rec.ctxErr = app.ID, decision, ctx.Err()
+	_, e.rec.registry = ctx.Value(hermod.RegistryKey).(*Registry)
+	msg.SetData("resumed", decision)
+	return []hermod.Message{msg}, "done", nil
+}
+
+var resumerRecord = &resumeRecord{}
+
+func init() {
+	interfaces.RegisterNodeExecutor("test_approval_resumer", recordingResumer{rec: resumerRecord})
+}
+
+func TestAnApprovalAskedForInsideANodeResumesThatNode(t *testing.T) {
+	node := storage.WorkflowNode{ID: "R", Type: "test_approval_resumer"}
+	wf, nodeMap, adj, sinks, sinkNodeToIndex, recorded := routedResume(node, "done", "other")
+
+	m := message.AcquireMessage()
+	defer m.Release()
+	m.SetID("agent-msg")
+
+	// The approval endpoint resumes on a goroutine after it has answered, so
+	// the request's context is already cancelled by the time this runs.
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	app := storage.Approval{ID: "app-1", WorkflowID: wf.ID, NodeID: "R", MessageID: "agent-msg"}
+	(&Registry{}).resumeApprovalAt(ctx, app, "approved", m, nil, wf, nodeMap, adj, sinks, sinkNodeToIndex)
+
+	resumerRecord.mu.Lock()
+	defer resumerRecord.mu.Unlock()
+	if resumerRecord.calls != 1 || resumerRecord.appID != "app-1" || resumerRecord.decision != "approved" {
+		t.Fatalf("resumer saw calls=%d app=%q decision=%q", resumerRecord.calls, resumerRecord.appID, resumerRecord.decision)
+	}
+	if resumerRecord.ctxErr != nil || !resumerRecord.registry {
+		t.Fatalf("resumer ran on a cancelled context (%v) or without the registry (%v)", resumerRecord.ctxErr, resumerRecord.registry)
+	}
+	if recorded[0].count() != 1 || recorded[1].count() != 0 {
+		t.Fatalf("the node's own branch was not followed: done=%d other=%d", recorded[0].count(), recorded[1].count())
 	}
 }
