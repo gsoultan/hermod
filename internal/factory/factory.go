@@ -470,6 +470,10 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 		src, err = sourcerabbitmq.NewRabbitMQQueueSource(connString, cfg.Config["queue_name"])
 	case "webhook":
 		src = webhook.NewWebhookSource(cfg.Config["path"])
+	case "chat":
+		// A chat source receives on its own path under /api/chat/, through the
+		// same path registry as a webhook (internal/chat/transport/http).
+		src = webhook.NewWebhookSource(cfg.Config["path"])
 	case "graphql":
 		src = sourcegraphql.NewGraphQLSource(cfg.Config["path"])
 	case "grpc":

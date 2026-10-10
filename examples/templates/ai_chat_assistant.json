@@ -1,0 +1,62 @@
+{
+  "name": "AI Chat Assistant: Chat Trigger with Memory",
+  "description": "A chat message arrives on a chat source (a web widget, Slack or Telegram). An AI Prompt node answers it, remembering the last ten exchanges of the conversation, and the answer goes back to whoever asked. Set the ANTHROPIC_API_KEY and CHAT_API_KEY secrets in your vhost, configure a state store for the memory, and for the widget add a widget key and your site's origin to the source before starting.",
+  "icon": "IconMessageChatbot",
+  "color": "violet",
+  "data": {
+    "workflow": {
+      "id": "ai-chat-assistant",
+      "name": "AI Chat Assistant",
+      "nodes": [
+        {
+          "id": "src_chat",
+          "type": "source",
+          "ref_id": "ai-chat-inbound",
+          "config": { "label": "Chat In" },
+          "x": 80,
+          "y": 220
+        },
+        {
+          "id": "answer",
+          "type": "transformation",
+          "config": {
+            "label": "Answer",
+            "transType": "ai_prompt",
+            "provider": "anthropic",
+            "model": "claude-opus-5-5",
+            "apiKey": "{{secret(\"ANTHROPIC_API_KEY\")}}",
+            "system": "You are a helpful, concise assistant for our customers. If you do not know an answer, say so and offer to put the customer in touch with a person. Never make up order details, prices or dates.",
+            "prompt": "{{.message}}",
+            "targetField": "ai_output",
+            "maxTokens": "800",
+            "maskPII": true,
+            "memory": { "conversationField": "conversation_id", "maxTurns": 10, "ttl": "24h" },
+            "retry": { "maxAttempts": 3, "backoff": "1s", "maxBackoff": "10s" }
+          },
+          "x": 380,
+          "y": 220
+        }
+      ],
+      "edges": [
+        { "id": "e1", "source_id": "src_chat", "target_id": "answer" }
+      ]
+    },
+    "sources": [
+      {
+        "id": "ai-chat-inbound",
+        "name": "Chat",
+        "type": "chat",
+        "active": true,
+        "config": {
+          "path": "/api/chat/assistant",
+          "platform": "web",
+          "api_key": "secret:CHAT_API_KEY",
+          "reply_field": "ai_output",
+          "response_timeout": "30s",
+          "rate_limit": "120"
+        }
+      }
+    ],
+    "sinks": []
+  }
+}
