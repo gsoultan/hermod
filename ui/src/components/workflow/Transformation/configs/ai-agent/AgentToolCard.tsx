@@ -2,8 +2,10 @@ import { ActionIcon, Alert, Badge, Box, Group, Select, Stack, Switch, Text, Text
 import { IconAlertTriangle, IconHandStop, IconTrash } from '@tabler/icons-react'
 import { AgentFixedConfig } from './AgentFixedConfig'
 import { AgentParamsEditor } from './AgentParamsEditor'
+import { McpToolSettings } from './McpToolSettings'
 import {
   isWriteTool,
+  MCP_KIND,
   needsApproval,
   SINK_KIND,
   TOOL_KINDS,
@@ -32,18 +34,25 @@ export function AgentToolCard({ index, tool, issues, sinks, onChange, onRemove }
   const errorFor = (field: string) =>
     issues.filter((i) => i.severity === 'error' && i.field === field).map((i) => i.message).join(' ') || undefined
   const isSink = tool.kind === SINK_KIND
+  const isMcp = tool.kind === MCP_KIND
   const writes = isWriteTool(tool)
   const approval = needsApproval(tool)
   const label = `Tool ${index + 1}`
 
   const chooseKind = (kind: string) => {
+    if (kind === tool.kind) return
+    // Each kind keeps only its own settings.
+    const { config: _config, nodeId: _nodeId, server: _server, tool: _remote, ...rest } = tool
     if (kind === SINK_KIND) {
-      // A sink has no fixed config and always writes.
-      const { config: _config, write: _write, ...rest } = tool
-      onChange({ ...rest, kind })
+      // A sink always writes.
+      const { write: _write, ...sink } = rest
+      onChange({ ...sink, kind })
+    } else if (kind === MCP_KIND) {
+      // With no arguments declared yet, the model sees the server's own schema.
+      const { parameters, ...mcp } = rest
+      onChange({ ...mcp, kind, server: { url: '' }, tool: '', ...(parameters?.length ? { parameters } : {}) })
     } else {
-      const { nodeId: _nodeId, ...rest } = tool
-      onChange({ ...rest, kind, config: tool.kind === kind ? tool.config : {} })
+      onChange({ ...rest, kind, config: {} })
     }
   }
 
@@ -109,7 +118,9 @@ export function AgentToolCard({ index, tool, issues, sinks, onChange, onRemove }
           description="What the model is told the tool does and when to use it."
         />
 
-        {isSink ? (
+        {isMcp ? (
+          <McpToolSettings tool={tool} issues={issues} onChange={onChange} />
+        ) : isSink ? (
           <Select
             label="Sink node"
             placeholder={sinks.length ? 'Choose the sink node' : 'Add a sink node to the workflow first'}
@@ -157,7 +168,9 @@ export function AgentToolCard({ index, tool, issues, sinks, onChange, onRemove }
           </Alert>
         )}
 
-        <AgentParamsEditor params={tool.parameters ?? []} onChange={(parameters) => set({ parameters })} />
+        {!(isMcp && tool.parameters === undefined) && (
+          <AgentParamsEditor params={tool.parameters ?? []} onChange={(parameters) => set({ parameters })} />
+        )}
         {errorFor('parameters') && (
           <Text size="xs" c="var(--mantine-color-error)">
             {errorFor('parameters')}

@@ -75,11 +75,92 @@ describe('ai_agent validation', () => {
       }),
     ).toEqual([
       'error [0]: Tool name "bad name" must be 1-64 letters, digits, _ or -.',
-      'error [1]: Tool "x" needs a kind: a lookup, an API call, a vector search or a sink.',
+      'error [1]: Tool "x" needs a kind: a lookup, an API call, a vector search, a sink or an MCP tool.',
       'error [2]: Tool name "x" is used twice.',
       'error [3]: Tool "p" parameter "id" has type "object"; use string, number, integer or boolean.',
       'error [3]: Tool "p" has a parameter with a missing, invalid or repeated name.',
     ])
+  })
+
+  // mcptool.ParseServer (server.go), parseMCP (config.go) and mcpToolIssues
+  // (workflow_validation_ai.go).
+  describe('an mcp tool', () => {
+    const mcp = (extra: Record<string, unknown>) => issues({ ...base, tools: [{ name: 'm', kind: 'mcp', ...extra }] })
+
+    it('needs a server url and the remote tool to call', () => {
+      expect(mcp({})).toEqual([
+        'error [0]: MCP tool "m" needs the server\'s url (server.url).',
+        'error [0]: MCP tool "m" needs the name of the remote tool it calls (tool).',
+      ])
+      expect(mcp({ server: { url: '  ' }, tool: ' ' })).toEqual([
+        'error [0]: MCP tool "m" needs the server\'s url (server.url).',
+        'error [0]: MCP tool "m" needs the name of the remote tool it calls (tool).',
+      ])
+      expect(mcp({ server: { url: 'https://mcp.example.com/mcp' }, tool: 'search' })).toEqual([])
+    })
+
+    it('needs an http or https url unless the url is a template', () => {
+      for (const url of ['ftp://mcp.example.com', 'file:///etc/passwd', 'mcp.example.com', 'https://']) {
+        expect(mcp({ server: { url }, tool: 't' })).toEqual(['error [0]: MCP tool "m" needs an http or https server url.'])
+      }
+      expect(mcp({ server: { url: 'http://localhost:8080/mcp' }, tool: 't' })).toEqual([])
+      expect(mcp({ server: { url: '{{secret("MCP_URL")}}' }, tool: 't' })).toEqual([])
+    })
+
+    it('refuses headers the MCP transport sets itself, in any case', () => {
+      expect(
+        mcp({
+          server: { url: 'https://h', headers: { 'mcp-session-id': 'x', Accept: 'y', 'X-Team': 'ops' } },
+          tool: 't',
+        }),
+      ).toEqual([
+        'error [0]: Header "Mcp-Session-Id" is set by the MCP transport and cannot be configured.',
+        'error [0]: Header "Accept" is set by the MCP transport and cannot be configured.',
+      ])
+    })
+
+    it('refuses header names and values the engine refuses', () => {
+      expect(
+        mcp({ server: { url: 'https://h', headers: { 'Bad Name': 'x', 'X-N': 3, 'X-Split': 'a\nb' } }, tool: 't' }),
+      ).toEqual([
+        'error [0]: Header name "Bad Name" is not valid.',
+        'error [0]: Header "X-N" must be text.',
+        'error [0]: Header "X-Split" has a value with control characters.',
+      ])
+    })
+
+    it('warns about a credential header typed into the workflow', () => {
+      expect(
+        mcp({
+          server: {
+            url: 'https://h',
+            headers: {
+              Authorization: 'Bearer abc',
+              'Proxy-Authorization': 'Basic x',
+              Cookie: 'sid=1',
+              'X-Api-Key': 'k',
+              'X-Auth-Token': 't',
+              'X-Client-Secret': 's',
+              'X-Password': 'p',
+              'X-Team': 'ops',
+              'X-Other-Key': '',
+              'X-Key-Ref': 'Bearer {{secret("K")}}',
+            },
+          },
+          tool: 't',
+        }),
+      ).toEqual(
+        ['Authorization', 'Proxy-Authorization', 'Cookie', 'X-Api-Key', 'X-Auth-Token', 'X-Client-Secret', 'X-Password'].map(
+          (h) => `warning [0]: MCP tool "m" stores header "${h}" in the workflow. Use {{secret("NAME")}} instead.`,
+        ),
+      )
+    })
+
+    it('warns when approval is turned off, as the server may say it writes', () => {
+      expect(mcp({ server: { url: 'https://h' }, tool: 't', write: false, requireApproval: false })).toEqual([
+        'warning [0]: Tool "m" can write without anyone approving it.',
+      ])
+    })
   })
 
   it('warns about an API key typed into the node', () => {
@@ -107,6 +188,16 @@ describe('agent tools', () => {
     expect(needsApproval({ name: 'a', kind: 'sink' })).toBe(true)
     expect(needsApproval({ name: 'a', kind: 'sink', requireApproval: false })).toBe(false)
     expect(needsApproval({ name: 'a', kind: 'db_lookup', requireApproval: true })).toBe(false)
+  })
+
+  // useRemote (config.go): an mcp tool is spared approval only at run time,
+  // when the workflow says write: false and the server marks it read-only,
+  // so the editor treats every mcp tool as one that may write.
+  it('treats every mcp tool as one that may write', () => {
+    expect(isWriteTool({ name: 'a', kind: 'mcp' })).toBe(true)
+    expect(isWriteTool({ name: 'a', kind: 'mcp', write: false })).toBe(true)
+    expect(needsApproval({ name: 'a', kind: 'mcp', write: false })).toBe(true)
+    expect(needsApproval({ name: 'a', kind: 'mcp', requireApproval: false })).toBe(false)
   })
 
   it('reads Go durations', () => {

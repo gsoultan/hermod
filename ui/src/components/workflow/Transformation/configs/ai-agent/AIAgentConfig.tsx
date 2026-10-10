@@ -22,7 +22,9 @@ const NEW_TOOL: AgentTool = { name: '', description: '', kind: 'db_lookup', para
 /**
  * ai_agent: a model works towards a goal by calling only the tools listed
  * here, with only the arguments each declares. Tools that write wait for a
- * person on the Approvals page unless approval is turned off for them.
+ * person on the Approvals page unless approval is turned off for them; an
+ * mcp tool counts as one unless the workflow marks it write: false and its
+ * server marks it read-only.
  * Keys match internal/engine/registry/nodes/ai/agent/config.go.
  */
 export function AIAgentConfig({ config, nodeId, updateNodeConfig }: AISectionProps) {

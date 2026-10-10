@@ -137,6 +137,104 @@ describe('AI Agent settings', () => {
     expect(tool(1).getByRole('switch', { name: /approve each call/i })).toBeChecked()
   })
 
+  describe('an mcp tool', () => {
+    const mcpTool = { name: 'search', kind: 'mcp', server: { url: 'https://mcp.example.com/mcp' }, tool: 'search_docs' }
+
+    it('switches a tool to mcp: server, remote tool, server schema, write unset and approval on', async () => {
+      const user = userEvent.setup()
+      renderConfig({ provider: 'anthropic', goal: 'g', tools: [{ name: 'search', kind: 'db_lookup', parameters: [], config: {} }] })
+      await user.click(tool(1).getByRole('combobox', { name: /^kind/i }))
+      await user.click(screen.getByText('Remote MCP server tool (mcp)'))
+      expect(saved.tools).toEqual([{ name: 'search', kind: 'mcp', server: { url: '' }, tool: '' }])
+      expect(tool(1).getByText(/needs the server's url/)).toBeInTheDocument()
+      expect(tool(1).getByText(/needs the name of the remote tool/)).toBeInTheDocument()
+      fireEvent.change(tool(1).getByRole('textbox', { name: /server url/i }), {
+        target: { value: 'https://mcp.example.com/mcp' },
+      })
+      fireEvent.change(tool(1).getByRole('textbox', { name: /remote tool/i }), { target: { value: 'search_docs' } })
+      expect(saved.tools[0].server).toEqual({ url: 'https://mcp.example.com/mcp' })
+      expect(saved.tools[0].tool).toBe('search_docs')
+      expect(tool(1).getByRole('checkbox', { name: /server's input schema/i })).toBeChecked()
+      expect(tool(1).queryByRole('button', { name: /add argument/i })).toBeNull()
+      expect(tool(1).getByRole('radio', { name: /not set/i })).toBeChecked()
+      expect(tool(1).getByRole('switch', { name: /approve each call/i })).toBeChecked()
+      expect(tool(1).queryByText(/without anyone approving/i)).toBeNull()
+    })
+
+    it('leaves a tool switched away from mcp without its server', async () => {
+      const user = userEvent.setup()
+      renderConfig({ provider: 'anthropic', goal: 'g', tools: [{ ...mcpTool, write: true }] })
+      await user.click(tool(1).getByRole('combobox', { name: /^kind/i }))
+      await user.click(screen.getByText('Write to a sink node'))
+      expect(saved.tools).toEqual([{ name: 'search', kind: 'sink' }])
+    })
+
+    it('says plainly when an mcp tool can run without approval', () => {
+      renderConfig({ provider: 'anthropic', goal: 'g', tools: [mcpTool] })
+      expect(tool(1).getByText(/only when you mark it read-only here and the server marks it read-only/i)).toBeInTheDocument()
+    })
+
+    it('asks whether the tool changes anything: unset, read-only or writes', async () => {
+      const user = userEvent.setup()
+      renderConfig({ provider: 'anthropic', goal: 'g', tools: [mcpTool] })
+      await user.click(tool(1).getByRole('radio', { name: /read-only \(write: false\)/i }))
+      expect(saved.tools[0].write).toBe(false)
+      expect(tool(1).getByText(/still needs the server's read-only annotation/i)).toBeInTheDocument()
+      expect(tool(1).getByRole('switch', { name: /approve each call/i })).toBeChecked()
+      await user.click(tool(1).getByRole('radio', { name: /writes \(write: true\)/i }))
+      expect(saved.tools[0].write).toBe(true)
+      expect(tool(1).queryByText(/still needs the server's read-only annotation/i)).toBeNull()
+      await user.click(tool(1).getByRole('radio', { name: /not set/i }))
+      expect('write' in saved.tools[0]).toBe(false)
+    })
+
+    it('declares its own arguments, or none, instead of the server schema', async () => {
+      const user = userEvent.setup()
+      renderConfig({ provider: 'anthropic', goal: 'g', tools: [mcpTool] })
+      const schema = tool(1).getByRole('checkbox', { name: /server's input schema/i })
+      await user.click(schema)
+      expect(saved.tools[0].parameters).toEqual([])
+      await user.click(tool(1).getByRole('button', { name: /add argument/i }))
+      expect(saved.tools[0].parameters).toHaveLength(1)
+      await user.click(schema)
+      expect('parameters' in saved.tools[0]).toBe(false)
+    })
+
+    it('suggests a secret for header values and warns about a typed-in credential', async () => {
+      const user = userEvent.setup()
+      renderConfig({ provider: 'anthropic', goal: 'g', tools: [mcpTool] })
+      await user.click(tool(1).getByRole('button', { name: /add header/i }))
+      const value = tool(1).getByRole('textbox', { name: /header 1 value/i })
+      expect(value).toHaveAttribute('placeholder', expect.stringContaining('{{secret("NAME")}}'))
+      fireEvent.change(tool(1).getByRole('textbox', { name: /header 1 name/i }), { target: { value: 'Authorization' } })
+      fireEvent.change(value, { target: { value: 'Bearer abc' } })
+      expect(saved.tools[0].server).toEqual({ url: 'https://mcp.example.com/mcp', headers: { Authorization: 'Bearer abc' } })
+      expect(tool(1).getByText(/stores header "Authorization" in the workflow/)).toBeInTheDocument()
+      fireEvent.change(value, { target: { value: 'Bearer {{secret("MCP_TOKEN")}}' } })
+      expect(tool(1).queryByText(/stores header "Authorization"/)).toBeNull()
+      await user.click(tool(1).getByRole('button', { name: /remove header 1/i }))
+      expect(saved.tools[0].server).toEqual({ url: 'https://mcp.example.com/mcp' })
+    })
+
+    it('refuses a header the MCP transport sets and a non-http url', () => {
+      renderConfig({
+        provider: 'anthropic',
+        goal: 'g',
+        tools: [{ ...mcpTool, server: { url: 'ftp://mcp.example.com', headers: { 'Mcp-Session-Id': 'x' } } }],
+      })
+      expect(tool(1).getByText(/needs an http or https server url/)).toBeInTheDocument()
+      expect(tool(1).getByText(/"Mcp-Session-Id" is set by the MCP transport/)).toBeInTheDocument()
+    })
+
+    it('warns when approval is turned off', async () => {
+      const user = userEvent.setup()
+      renderConfig({ provider: 'anthropic', goal: 'g', tools: [{ ...mcpTool, write: false }] })
+      await user.click(tool(1).getByRole('switch', { name: /approve each call/i }))
+      expect(saved.tools[0].requireApproval).toBe(false)
+      expect(tool(1).getByText(/without anyone approving/i)).toBeInTheDocument()
+    })
+  })
+
   it('removes a tool', async () => {
     const user = userEvent.setup()
     renderConfig({ provider: 'anthropic', goal: 'g', tools: [{ name: 'a', kind: 'db_lookup' }, { name: 'b', kind: 'db_lookup' }] })
