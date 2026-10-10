@@ -1199,8 +1199,9 @@ func (h *WorkflowHandler) TestWorkflow(w http.ResponseWriter, r *http.Request) {
 		// a graph, not for whether it could run (see Registry.SimulateWorkflow).
 		Partial bool `json:"partial"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.JsonError(w, "Failed to decode request body: "+err.Error(), http.StatusBadRequest)
+	r, cancel := handlers.WithPreviewDeadline(r)
+	defer cancel()
+	if !h.DecodeJSONBody(w, r, handlers.PreviewMaxBodyBytes, &req, "Failed to decode request body: ") {
 		return
 	}
 	// The simulation runs as the workflow's vhost, and the workflow is the
@@ -1290,8 +1291,9 @@ func (h *WorkflowHandler) TestTransformation(w http.ResponseWriter, r *http.Requ
 		// previewed node is answered from that vhost's secrets.
 		VHost string `json:"vhost"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.JsonError(w, "Failed to decode request body: "+err.Error(), http.StatusBadRequest)
+	r, cancel := handlers.WithPreviewDeadline(r)
+	defer cancel()
+	if !h.DecodeJSONBody(w, r, handlers.PreviewMaxBodyBytes, &req, "Failed to decode request body: ") {
 		return
 	}
 	if !h.mayPreviewVHost(w, r, req.VHost) {
