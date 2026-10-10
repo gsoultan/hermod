@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gsoultan/hermod/internal/ml/monitor"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/ml/inference"
 	"github.com/gsoultan/hermod/pkg/ml/worker"
@@ -56,6 +57,11 @@ type Service struct {
 	client  *inference.Client
 	worker  *worker.Client
 	pools   Pools
+
+	// monitor is told of every prediction, for the prediction log and drift;
+	// logs is the store the prediction log is read from. Both are optional.
+	monitor *monitor.Monitor
+	logs    func() any
 }
 
 // envWorker is the worker HERMOD_ML_WORKER_URL names, read once.
@@ -124,10 +130,15 @@ func (s *Service) Predict(ctx context.Context, vhost, name string, rows []infere
 
 	start := time.Now()
 	out, err := s.client.Predict(ctx, target, rows)
-	observe(vhost, name, len(rows), time.Since(start), err)
+	took := time.Since(start)
+	observe(vhost, name, len(rows), took, err)
 	if err != nil {
 		return nil, fmt.Errorf("model %q: %w", name, err)
 	}
+	c := callerOf(ctx)
+	s.monitor.Observe(monitor.Observation{
+		Model: m, CallerKind: c.kind, CallerID: c.id, Inputs: rows, Outputs: out, Latency: took, At: start,
+	})
 	return out, nil
 }
 

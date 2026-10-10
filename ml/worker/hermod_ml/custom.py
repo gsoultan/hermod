@@ -35,6 +35,7 @@ from .datasets import BOOL, NUMBER, STRING, DatasetStore, is_null
 from .errors import ApiError, bad_request
 from .names import NAME_RE
 from .sandbox import SandboxSettings, ScriptFailed, run_script
+from .stats import feature_stats
 from .training import MAX_AUTO_CLASSES, MIN_ROWS, ModelStore, Trainer, _finite, numeric_column, parse_request, string_column, utc_now
 
 PREFIX = "custom:"
@@ -164,6 +165,8 @@ class CustomTrainer:
             columns=features,
         ).reset_index(drop=True)
         X_train, X_test, y_train, y_test = Trainer._split(X, y, task, req)
+        # Before the fill below, so missing values are counted as missing.
+        training_stats = feature_stats(X_train, feature_types)
         fill: dict[str, float] = {}
         for f in features:
             if feature_types[f] == NUMBER:
@@ -200,6 +203,7 @@ class CustomTrainer:
             "features": features,
             "feature_types": feature_types,
             "fill": fill,
+            "feature_stats": training_stats,
         }
         if task == "classification":
             meta["labels"] = labels

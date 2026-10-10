@@ -61,6 +61,11 @@ def test_a_good_classification_script_trains_and_serves(custom, tmp_path):
     assert {"accuracy", "f1", "roc_auc", "score"} <= set(meta["metrics"])
     assert meta["metrics"]["accuracy"] > 0.6
     assert meta["rows"] == {"train": 96, "test": 24}
+    # The training split's stats, the baseline drift is measured against.
+    assert set(meta["feature_stats"]) == {"x1", "x2", "city", "flag"}
+    assert meta["feature_stats"]["x1"]["kind"] == "numeric"
+    assert meta["feature_stats"]["city"]["kind"] == "categorical"
+    assert meta["feature_stats"]["x1"]["count"] == 96
     assert "training on 96 rows" in meta["log"]
     assert json.loads((tmp_path / "data/models/acme/churn/1/meta.json").read_text()) == meta
 
