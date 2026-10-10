@@ -5,7 +5,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strings"
 	"testing"
+
+	"github.com/gsoultan/hermod/internal/engine/registry/nodes/ai/agent"
 )
 
 // The catalogue is what the model is told it may build with. It is read
@@ -25,6 +28,15 @@ func TestEveryCatalogueKindIsDescribed(t *testing.T) {
 	for key := range descriptions {
 		if !keys[key] {
 			t.Errorf("descriptions.go describes %q, which is not a registered node kind", key)
+		}
+	}
+}
+
+func TestTheAgentDescriptionNamesEveryToolKind(t *testing.T) {
+	desc := descriptions["ai_agent"]
+	for _, kind := range agent.ToolKinds() {
+		if !strings.Contains(desc, kind) {
+			t.Errorf("the ai_agent description does not mention tool kind %q; the model cannot build what it is not told about", kind)
 		}
 	}
 }

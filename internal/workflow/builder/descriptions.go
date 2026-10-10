@@ -16,9 +16,12 @@ var descriptions = map[string]string{
 	// Node executors.
 	"ai_agent": `Language-model agent that pursues a goal with a bounded loop over the tools it is given. config: ` +
 		`{"provider","model","apiKey":"{{secret(\"NAME\")}}","goal","system","maxSteps","tools":[{"name","description",` +
-		`"kind":"db_lookup|api_lookup|ai_retrieve|sink","config":{...},"nodeId":"<sink node id, for kind sink>",` +
-		`"parameters":[{"name","type","description","required"}]}]}. Sink tools pause for human approval before ` +
-		`writing. Writes the answer to targetField (default "ai_agent_answer").`,
+		`"kind":"db_lookup|api_lookup|ai_retrieve|sink|mcp","config":{...},"nodeId":"<sink node id, for kind sink>",` +
+		`"server":{"url":"https://...","headers":{"Authorization":"Bearer {{secret(\"NAME\")}}"}},"tool":"<remote tool, for kind mcp>",` +
+		`"write","requireApproval","parameters":[{"name","type","description","required"}]}]}. A kind mcp tool calls ` +
+		`that one tool of a remote MCP server (parameters default to its input schema). Sink tools, tools marked write, ` +
+		`and mcp tools the server does not mark read-only pause for human approval unless requireApproval is false. ` +
+		`Writes the answer to targetField (default "ai_agent_answer").`,
 	"ai_classify": `Language-model classifier and router. config: {"provider","model","apiKey":"{{secret(\"NAME\")}}",` +
 		`"labels":"billing,bug,refund","instructions","threshold","targetField"}. Each label is an outgoing ` +
 		`branch: use the label as the edge's source_handle, plus "unsure" below the threshold.`,
