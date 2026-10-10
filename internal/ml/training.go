@@ -21,15 +21,11 @@ const (
 )
 
 // GoLive says whether a newly trained version is put live. The zero value
-// keeps it off, the safe choice for a caller that says nothing.
-type GoLive struct {
-	Mode string `json:"mode"`
-	// Metric is the metric GoLiveIf checks; empty means "score", which is
-	// accuracy for a classifier and R² for a regression.
-	Metric string   `json:"metric,omitempty"`
-	Min    *float64 `json:"min,omitempty"`
-	Max    *float64 `json:"max,omitempty"`
-}
+// keeps it off, the safe choice for a caller that says nothing. It is the
+// rule storage keeps with a retrain policy (storage.MLGoLive): Mode, and
+// Metric with Min and Max for GoLiveIf, where an empty Metric means "score",
+// which is accuracy for a classifier and R² for a regression.
+type GoLive storage.MLGoLive
 
 // Validate reports what is wrong with the rule.
 func (g GoLive) Validate() error {
@@ -83,7 +79,20 @@ type TrainResult struct {
 // Train trains a new version of a vhost's model on the worker and registers
 // the model, if it is new. Whether the version goes live is up to rule; a
 // version kept off stays on the worker, and Promote can put it live later.
+//
+// One training of a model runs at a time, across every Hermod sharing the
+// store: while another holds the model, Train returns ErrTrainingRunning.
 func (s *Service) Train(ctx context.Context, vhost, name string, spec worker.TrainSpec, rule GoLive, by string) (TrainResult, error) {
+	release, err := s.claimTraining(ctx, vhost, name, newClaimOwner())
+	if err != nil {
+		return TrainResult{}, err
+	}
+	defer release()
+	return s.train(ctx, vhost, name, spec, rule, by)
+}
+
+// train is Train for a caller that already holds the model's claim.
+func (s *Service) train(ctx context.Context, vhost, name string, spec worker.TrainSpec, rule GoLive, by string) (TrainResult, error) {
 	w, err := s.Worker()
 	if err != nil {
 		return TrainResult{}, err
@@ -108,6 +117,11 @@ func (s *Service) Train(ctx context.Context, vhost, name string, spec worker.Tra
 		return TrainResult{}, fmt.Errorf("vhost %q already has a model %q served elsewhere; train under another name", vhost, name)
 	}
 
+	// How many rows the training sees, for the next "after N new rows". Read
+	// before it starts, so rows added while it runs count as new; a dataset
+	// that cannot be read leaves the count where it was.
+	rows, rowsErr := w.Dataset(ctx, vhost, spec.Dataset)
+
 	v, err := s.trainVersion(ctx, w, vhost, name, spec)
 	if err != nil {
 		return TrainResult{}, fmt.Errorf("training %q: %w", name, err)
@@ -127,6 +141,9 @@ func (s *Service) Train(ctx context.Context, vhost, name string, spec worker.Tra
 	m.UpdatedBy = by
 	if err := ms.PutMLModel(ctx, m); err != nil {
 		return TrainResult{}, fmt.Errorf("version %s of %q was trained but not registered: %w", v.Version, name, err)
+	}
+	if rowsErr == nil {
+		s.recordTrainedRows(ctx, vhost, name, rows.Rows)
 	}
 	return TrainResult{Model: m, Version: v, Live: live, Reason: reason}, nil
 }

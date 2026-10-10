@@ -37,6 +37,21 @@ import { AIAgentConfig } from './ai-agent/AIAgentConfig'
 // machine learning
 import { MLPredictConfig } from './ml/MLPredictConfig'
 import { MLTrainConfig } from './ml/MLTrainConfig'
+// feature engineering
+import { ScaleConfig } from './features/ScaleConfig'
+import { EncodeConfig } from './features/EncodeConfig'
+import { BucketizeConfig } from './features/BucketizeConfig'
+import { RollingConfig } from './features/RollingConfig'
+import { AnomalyScoreConfig } from './features/AnomalyScoreConfig'
+
+// structure, parsing and reference data
+import { FlattenConfig } from './structure/FlattenConfig'
+import { ExplodeConfig } from './structure/ExplodeConfig'
+import { ParseFieldConfig } from './structure/ParseFieldConfig'
+import { TemplateRenderConfig } from './structure/TemplateRenderConfig'
+import { FieldDiffConfig } from './structure/FieldDiffConfig'
+import { ReferenceLookupConfig } from './structure/ReferenceLookupConfig'
+import { GeoConfig } from './structure/GeoConfig'
 
 // logic
 import { ConditionConfig } from './logic/ConditionConfig'
@@ -157,6 +172,22 @@ export const TRANSFORM_CONFIGS: Record<string, ConfigComponent> = {
   // machine learning
   ml_predict: MLPredictConfig,
   ml_train: MLTrainConfig,
+  // feature engineering (pkg/comm/transformer/features)
+  scale: ScaleConfig,
+  encode: EncodeConfig,
+  bucketize: BucketizeConfig,
+  rolling: RollingConfig,
+  anomaly_score: AnomalyScoreConfig,
+
+  // structure & parsing (pkg/comm/transformer/structure)
+  flatten: FlattenConfig,
+  unflatten: FlattenConfig,
+  parse_field: ParseFieldConfig,
+  template_render: TemplateRenderConfig,
+  field_diff: FieldDiffConfig,
+  // reference data and geometry
+  reference_lookup: ReferenceLookupConfig,
+  geo: GeoConfig,
 
   // logic & flow
   condition: ConditionConfig,
@@ -208,6 +239,7 @@ export const NODE_TYPE_CONFIGS: Record<string, ConfigComponent> = {
   validator: ValidatorConfig,
   ai_classify: AIClassifyConfig,
   ai_agent: AIAgentConfig,
+  explode: ExplodeConfig,
 }
 
 /**

@@ -229,8 +229,16 @@ func TestATrainingIsRefusedWhenItsPoolIsMissingOrOff(t *testing.T) {
 			if !errors.Is(err, tc.want) {
 				t.Errorf("err = %v, want %v", err, tc.want)
 			}
-			if n := len(ps.main.calls) + len(ps.custom.calls) + len(ps.gpu.calls); n != 0 {
-				t.Errorf("%d worker calls were made: %v %v %v", n, ps.main.calls, ps.custom.calls, ps.gpu.calls)
+			// Reading the dataset's row count (for retraining after new rows)
+			// is the one call allowed; nothing is copied or trained.
+			var main []string
+			for _, c := range ps.main.calls {
+				if c != "GET /v1/datasets/tenant-a/customers" {
+					main = append(main, c)
+				}
+			}
+			if n := len(main) + len(ps.custom.calls) + len(ps.gpu.calls); n != 0 {
+				t.Errorf("%d worker calls were made: %v %v %v", n, main, ps.custom.calls, ps.gpu.calls)
 			}
 		})
 	}

@@ -1,4 +1,4 @@
-import { IconAlertCircle, IconCloud, IconDatabase, IconGitBranch, IconHistory, IconSearch, IconSend, IconTimeline } from '@tabler/icons-react';
+import { IconAlertCircle, IconCloud, IconDatabase, IconGitBranch, IconHistory, IconMessageChatbot, IconSearch, IconSend, IconTimeline } from '@tabler/icons-react';
 import { Button, Card, SimpleGrid, Stack, Text, ThemeIcon, Group, Loader, Alert, Box } from '@mantine/core'
 
 import { useQuery } from '@tanstack/react-query'
@@ -9,7 +9,8 @@ import { apiFetch } from '@/api'const ICON_MAP: Record<string, any> = {
   IconTimeline,
   IconDatabase,
   IconCloud,
-  IconSearch
+  IconSearch,
+  IconMessageChatbot
 }
 
 type TemplateDef = {

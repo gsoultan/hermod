@@ -1,0 +1,59 @@
+{
+  "_comment": [
+    "json_get, json_parse and json_stringify, as the engine runs them. Every",
+    "file in this directory is read by pkg/infra/evaluator/function_fixture_test.go;",
+    "each case is a whole expression evaluated against `source`.",
+    "",
+    "json_get reads a path -- keys between dots, [n] for an item, counted from",
+    "the end when negative -- in an object, a list, or text holding JSON. A path",
+    "that leads nowhere, or that cannot be read, is null. json_parse reads JSON",
+    "text and leaves a value that is already an object, a list or a number as",
+    "it is. json_stringify writes a value as JSON text, a missing one as null."
+  ],
+  "source": {
+    "profile": {
+      "address": { "city": "Jakarta", "zip": "10110" },
+      "phones": ["+62 812", "+62 813"]
+    },
+    "text": "{\"a\":{\"b\":[10,20]}}",
+    "bad": "{not json",
+    "n": 5,
+    "s": "hi",
+    "list": [1, "two", { "x": 3 }]
+  },
+  "cases": [
+    { "name": "json_get: a nested key", "expr": "json_get(source.profile, 'address.city')", "want": "Jakarta" },
+    { "name": "json_get: an item", "expr": "json_get(source.profile, 'phones[1]')", "want": "+62 813" },
+    { "name": "json_get: an item from the end", "expr": "json_get(source.profile, 'phones[-1]')", "want": "+62 813" },
+    { "name": "json_get: inside JSON text", "expr": "json_get(source.text, 'a.b[0]')", "want": 10 },
+    { "name": "json_get: a list inside JSON text", "expr": "json_get(source.text, 'a.b')", "want": [10, 20] },
+    { "name": "json_get: starting with an item", "expr": "json_get(source.list, '[2].x')", "want": 3 },
+    { "name": "json_get: an empty path is the value", "expr": "json_get(source.n, '')", "want": 5 },
+    { "name": "json_get: an item past the end", "expr": "json_get(source.profile, 'phones[5]')", "want": null },
+    { "name": "json_get: a key that is not there", "expr": "json_get(source.profile, 'nope.deeper')", "want": null },
+    { "name": "json_get: under text there is nothing", "expr": "json_get(source.profile, 'address.city.x')", "want": null },
+    { "name": "json_get: an index that is not a number", "expr": "json_get(source.profile, 'phones[x]')", "want": null },
+    { "name": "json_get: an unclosed bracket", "expr": "json_get(source.profile, 'phones[0')", "want": null },
+    { "name": "json_get: text that is not JSON", "expr": "json_get(source.bad, 'a')", "want": null },
+    { "name": "json_get: no path", "expr": "json_get(source.profile)", "want": null },
+
+    { "name": "json_parse: an object", "expr": "json_parse(source.text)", "want": { "a": { "b": [10, 20] } } },
+    { "name": "json_parse: a list", "expr": "json_parse('[1,2]')", "want": [1, 2] },
+    { "name": "json_parse: a number in text", "expr": "json_parse('42')", "want": 42 },
+    { "name": "json_parse: a JSON string", "expr": "json_parse('\"x\"')", "want": "x" },
+    { "name": "json_parse: already an object", "expr": "json_parse(source.profile.address)", "want": { "city": "Jakarta", "zip": "10110" } },
+    { "name": "json_parse: already a number", "expr": "json_parse(source.n)", "want": 5 },
+    { "name": "json_parse: not JSON", "expr": "json_parse(source.bad)", "want": null },
+    { "name": "json_parse: empty text", "expr": "json_parse('')", "want": null },
+    { "name": "json_parse: a missing field", "expr": "json_parse(source.missing)", "want": null },
+    { "name": "json_parse: no arguments", "expr": "json_parse()", "want": null },
+
+    { "name": "json_stringify: an object, keys sorted", "expr": "json_stringify(source.profile.address)", "want": "{\"city\":\"Jakarta\",\"zip\":\"10110\"}" },
+    { "name": "json_stringify: text is quoted", "expr": "json_stringify(source.s)", "want": "\"hi\"" },
+    { "name": "json_stringify: a number", "expr": "json_stringify(source.n)", "want": "5" },
+    { "name": "json_stringify: a list", "expr": "json_stringify(source.list)", "want": "[1,\"two\",{\"x\":3}]" },
+    { "name": "json_stringify: a missing field is null", "expr": "json_stringify(source.missing)", "want": "null" },
+    { "name": "json_stringify: < and & are written as they are", "expr": "json_stringify('<a&b>')", "want": "\"<a&b>\"" },
+    { "name": "json_stringify: no arguments", "expr": "json_stringify()", "want": null }
+  ]
+}

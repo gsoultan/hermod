@@ -1,0 +1,73 @@
+{
+  "_comment": [
+    "len, starts_with, ends_with, pad_left, pad_right, title, slug and",
+    "normalize_space, as the engine runs them. Every file in this directory is",
+    "read by pkg/infra/evaluator/function_fixture_test.go; each case is a whole",
+    "expression evaluated against `source`.",
+    "",
+    "A value is read as text the way the other text functions read it, so a",
+    "missing field is empty text. Lengths and widths count characters, not bytes.",
+    "len of a list counts its items and of an object its keys. A pad width that",
+    "is not a whole number from 0 to 10000 is null rather than a guess."
+  ],
+  "source": {
+    "name": "Ada Lovelace",
+    "shout": "ADA LOVELACE",
+    "mixed": "jean-luc o'neil",
+    "accent": "Café Crème, São Paulo!",
+    "messy": "  a \t b\n\n c  ",
+    "code": "42",
+    "num": 7,
+    "accented": "héllo",
+    "tags": ["a", "b", "c"],
+    "obj": { "a": 1 }
+  },
+  "cases": [
+    { "name": "len: text", "expr": "len(source.name)", "want": 12 },
+    { "name": "len: counts characters, not bytes", "expr": "len(source.accented)", "want": 5 },
+    { "name": "len: a missing field is empty text", "expr": "len(source.missing)", "want": 0 },
+    { "name": "len: a number is its digits", "expr": "len(source.num)", "want": 1 },
+    { "name": "len: a list counts its items", "expr": "len(source.tags)", "want": 3 },
+    { "name": "len: an object counts its keys", "expr": "len(source.obj)", "want": 1 },
+    { "name": "len: no arguments", "expr": "len()", "want": null },
+
+    { "name": "starts_with: a prefix", "expr": "starts_with(source.name, 'Ada')", "want": true },
+    { "name": "starts_with: case matters", "expr": "starts_with(source.name, 'ada')", "want": false },
+    { "name": "starts_with: a number reads as its digits", "expr": "starts_with(source.num, 7)", "want": true },
+    { "name": "starts_with: every text starts with empty text", "expr": "starts_with(source.name, '')", "want": true },
+    { "name": "starts_with: one argument", "expr": "starts_with(source.name)", "want": null },
+    { "name": "ends_with: a suffix", "expr": "ends_with(source.name, 'lace')", "want": true },
+    { "name": "ends_with: not a suffix", "expr": "ends_with(source.name, 'Ada')", "want": false },
+    { "name": "ends_with: one argument", "expr": "ends_with(source.name)", "want": null },
+
+    { "name": "pad_left: zeros", "expr": "pad_left(source.code, 5, '0')", "want": "00042" },
+    { "name": "pad_left: spaces by default", "expr": "pad_left(source.code, 5)", "want": "   42" },
+    { "name": "pad_left: never cuts", "expr": "pad_left(source.code, 1, '0')", "want": "42" },
+    { "name": "pad_left: a longer pad repeats and is cut", "expr": "pad_left(source.code, 5, 'ab')", "want": "aba42" },
+    { "name": "pad_left: counts characters", "expr": "pad_left(source.accented, 7, '*')", "want": "**héllo" },
+    { "name": "pad_left: a missing field is padded from nothing", "expr": "pad_left(source.missing, 3, '0')", "want": "000" },
+    { "name": "pad_left: a width that is not a number", "expr": "pad_left(source.code, 'x', '0')", "want": null },
+    { "name": "pad_left: a fractional width", "expr": "pad_left(source.code, 2.5)", "want": null },
+    { "name": "pad_left: a negative width", "expr": "pad_left(source.code, -1)", "want": null },
+    { "name": "pad_left: a width past the cap", "expr": "pad_left(source.code, 100000)", "want": null },
+    { "name": "pad_left: no width", "expr": "pad_left(source.code)", "want": null },
+    { "name": "pad_right: dots", "expr": "pad_right(source.code, 5, '.')", "want": "42..." },
+    { "name": "pad_right: spaces by default", "expr": "pad_right(source.code, 4)", "want": "42  " },
+    { "name": "pad_right: a width past the cap", "expr": "pad_right(source.code, 10001)", "want": null },
+
+    { "name": "title: every word capitalised, the rest lowercase", "expr": "title(source.shout)", "want": "Ada Lovelace" },
+    { "name": "title: a hyphen starts a word, an apostrophe does not", "expr": "title(source.mixed)", "want": "Jean-Luc O'neil" },
+    { "name": "title: a missing field", "expr": "title(source.missing)", "want": "" },
+    { "name": "title: no arguments", "expr": "title()", "want": null },
+
+    { "name": "slug: accents dropped, punctuation becomes one hyphen", "expr": "slug(source.accent)", "want": "cafe-creme-sao-paulo" },
+    { "name": "slug: lowercase", "expr": "slug(source.name)", "want": "ada-lovelace" },
+    { "name": "slug: no hyphen at either end", "expr": "slug('  --Hello__World--  ')", "want": "hello-world" },
+    { "name": "slug: a number", "expr": "slug(source.num)", "want": "7" },
+    { "name": "slug: no arguments", "expr": "slug()", "want": null },
+
+    { "name": "normalize_space: runs of whitespace become one space", "expr": "normalize_space(source.messy)", "want": "a b c" },
+    { "name": "normalize_space: a missing field", "expr": "normalize_space(source.missing)", "want": "" },
+    { "name": "normalize_space: no arguments", "expr": "normalize_space()", "want": null }
+  ]
+}

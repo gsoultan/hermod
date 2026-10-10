@@ -28,7 +28,7 @@ const SOURCE = 'def train(df, spec):\n    return None\n\ndef export_onnx(model, 
 
 interface Caps { custom_scripts?: boolean; scripts_enabled?: boolean; gpu?: boolean }
 
-function api(caps: Caps = {}) {
+function api(caps: Caps = {}, models: any[] = []) {
   const writes: Array<{ method: string; path: string; body?: any }> = []
   const scripts: any[] = [{ vhost: 'tenant-a', name: 'tabnet', version: 2, sha256: 'ab'.repeat(32), created_by: 'root', created_at: '2026-10-10T00:00:00Z' }]
   server.use(
@@ -36,7 +36,12 @@ function api(caps: Caps = {}) {
       configured: true, ready: true,
       capabilities: { custom_scripts: false, scripts_enabled: false, gpu: false, ...caps },
     })),
-    http.get('/api/vhosts/:vhost/ml/models', () => HttpResponse.json({ data: [], total: 0 })),
+    http.get('/api/vhosts/:vhost/ml/models', () => HttpResponse.json({ data: models, total: models.length })),
+    http.put('/api/vhosts/:vhost/ml/models/:name/retrain', async ({ params, request }) => {
+      const body = (await request.json()) as any
+      writes.push({ method: 'RETRAIN', path: `${params.vhost}/${params.name}`, body })
+      return HttpResponse.json({ ...models[0], retrain: body })
+    }),
     http.get('/api/vhosts/:vhost/ml/datasets', () => HttpResponse.json({ data: [customers], total: 1 })),
     http.get('/api/vhosts/:vhost/ml/datasets/:name', () => HttpResponse.json(customers)),
     http.get('/api/vhosts/:vhost/ml/scripts', () => HttpResponse.json({ data: scripts, total: scripts.length })),
@@ -206,6 +211,42 @@ describe('GPU pool', () => {
     await user.click(within(dialog).getByRole('button', { name: /^train$/i }))
     await waitFor(() => expect(writes.find((w) => w.method === 'TRAIN')).toBeTruthy())
     expect(writes.find((w) => w.method === 'TRAIN')!.body).toMatchObject({ device: 'gpu', algorithm: 'auto' })
+  })
+})
+
+describe('Retraining', () => {
+  const trained = { name: 'churn', backend: 'hermod-ml', url: '', remote_version: '1', serving: false, features: ['age'] }
+
+  it('retrains with a custom script when the server offers it', async () => {
+    const writes = api({ custom_scripts: true, scripts_enabled: true, gpu: true }, [trained])
+    renderPage()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: /retrain churn automatically/i }))
+    const dialog = await screen.findByRole('dialog')
+    await user.type(within(dialog).getByRole('textbox', { name: /schedule/i }), '@daily')
+    await pick(user, dialog, /^dataset/i, 'customers')
+    await pick(user, dialog, /column to predict/i, 'churned')
+    await pick(user, dialog, /^algorithm/i, 'Script: tabnet')
+    expect(within(dialog).queryByRole('textbox', { name: /^device/i })).not.toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(writes.find((w) => w.method === 'RETRAIN')).toBeTruthy())
+    expect(writes.find((w) => w.method === 'RETRAIN')!.body.spec).toMatchObject({ algorithm: 'custom:tabnet' })
+    expect(writes.find((w) => w.method === 'RETRAIN')!.body.spec.device).toBeUndefined()
+  })
+
+  it('retrains on the GPU when one is configured and chosen', async () => {
+    const writes = api({ gpu: true }, [trained])
+    renderPage()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: /retrain churn automatically/i }))
+    const dialog = await screen.findByRole('dialog')
+    await user.type(within(dialog).getByRole('textbox', { name: /schedule/i }), '@daily')
+    await pick(user, dialog, /^dataset/i, 'customers')
+    await pick(user, dialog, /column to predict/i, 'churned')
+    await pick(user, dialog, /^device/i, 'GPU')
+    await user.click(within(dialog).getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(writes.find((w) => w.method === 'RETRAIN')).toBeTruthy())
+    expect(writes.find((w) => w.method === 'RETRAIN')!.body.spec).toMatchObject({ algorithm: 'auto', device: 'gpu' })
   })
 })
 

@@ -6,7 +6,9 @@ import {
   IconTable, IconBroadcast, IconRefresh, IconLetterCase, IconPercentage, IconTableExport, IconNumbers,
   IconDatabaseExport, IconNote, IconTag, IconBrandDiscord, IconBrandSlack, IconBrandTwitter, 
   IconBrandFacebook, IconBrandInstagram, IconBrandLinkedin, IconBrandTiktok, IconExternalLink, IconLock, IconLockOpen, IconSitemap,
-  IconSparkles, IconTextScan2, IconTags, IconFileDescription, IconLanguage, IconVector, IconDatabaseSearch, IconRobot, IconBrain, IconSchool
+  IconSparkles, IconTextScan2, IconTags, IconFileDescription, IconLanguage, IconVector, IconDatabaseSearch, IconRobot, IconBrain, IconSchool,
+  IconLayoutList, IconStack2, IconArrowsMaximize, IconBraces, IconTemplate, IconGitCompare, IconFileSearch, IconMapPin,
+  IconScale, IconBinary, IconChartHistogram, IconTimeline, IconAlertTriangle
 } from '@tabler/icons-react';
 
 export const NODE_CATEGORIES = [
@@ -75,6 +77,20 @@ export const NODE_CATEGORIES = [
       { type: 'transformation', refId: 'new', label: 'Advanced', subType: 'advanced', icon: IconCode, color: 'teal', description: 'Power-user transforms' },
       { type: 'transformation', refId: 'new', label: 'Pivot', subType: 'pivot', icon: IconTable, color: 'teal', description: 'Rotate rows into columns' },
       { type: 'transformation', refId: 'new', label: 'Multicast', subType: 'multicast', icon: IconBroadcast, color: 'teal', description: 'Clone message to multiple branches' },
+      { type: 'transformation', refId: 'new', label: 'Reference Lookup', subType: 'reference_lookup', icon: IconFileSearch, color: 'teal', description: 'Enrich from a CSV or Excel file held in memory' },
+      { type: 'transformation', refId: 'new', label: 'Geo', subType: 'geo', icon: IconMapPin, color: 'teal', description: 'Distance between points, or point in a polygon' },
+    ]
+  },
+  {
+    title: 'Structure & Parsing',
+    group: 'transformations',
+    items: [
+      { type: 'transformation', refId: 'new', label: 'Flatten', subType: 'flatten', icon: IconLayoutList, color: 'cyan', description: 'Nested objects to one level of joined keys' },
+      { type: 'transformation', refId: 'new', label: 'Unflatten', subType: 'unflatten', icon: IconStack2, color: 'cyan', description: 'Joined keys back to nested objects' },
+      { type: 'explode', refId: 'new', label: 'Explode', subType: 'explode', icon: IconArrowsMaximize, color: 'cyan', description: 'One record per array element, other fields kept' },
+      { type: 'transformation', refId: 'new', label: 'Parse Field', subType: 'parse_field', icon: IconBraces, color: 'cyan', description: 'Parse JSON, CSV, XML or key=value text' },
+      { type: 'transformation', refId: 'new', label: 'Template', subType: 'template_render', icon: IconTemplate, color: 'cyan', description: 'Render a text template into a field' },
+      { type: 'transformation', refId: 'new', label: 'Field Diff (CDC)', subType: 'field_diff', icon: IconGitCompare, color: 'cyan', description: 'Only the columns a change event changed' },
     ]
   },
   {
@@ -83,6 +99,17 @@ export const NODE_CATEGORIES = [
     items: [
       { type: 'transformation', refId: 'new', label: 'Predict', subType: 'ml_predict', icon: IconBrain, color: 'grape', description: 'Score each record with a registered model' },
       { type: 'transformation', refId: 'new', label: 'Train Model', subType: 'ml_train', icon: IconSchool, color: 'grape', description: 'Train a new model version on a dataset' },
+    ]
+  },
+  {
+    title: 'Feature Engineering',
+    group: 'transformations',
+    items: [
+      { type: 'transformation', refId: 'new', label: 'Scale', subType: 'scale', icon: IconScale, color: 'grape', description: 'Min-max or z-score with fitted statistics' },
+      { type: 'transformation', refId: 'new', label: 'Encode', subType: 'encode', icon: IconBinary, color: 'grape', description: 'One-hot, label or hash-bucket a category' },
+      { type: 'transformation', refId: 'new', label: 'Bucketize', subType: 'bucketize', icon: IconChartHistogram, color: 'grape', description: 'Put a number into labelled bins' },
+      { type: 'transformation', refId: 'new', label: 'Rolling Features', subType: 'rolling', icon: IconTimeline, color: 'grape', description: 'Per-key count, sum, mean, std, min, max over recent records' },
+      { type: 'transformation', refId: 'new', label: 'Anomaly Score', subType: 'anomaly_score', icon: IconAlertTriangle, color: 'grape', description: 'Flag values far from their key\'s recent history' },
     ]
   },
   {
@@ -161,6 +188,7 @@ export const NODE_CATEGORIES = [
     items: [
       { type: 'source', refId: 'new', label: 'Webhook', subType: 'webhook', icon: IconWorld, color: 'cyan', description: 'Receive HTTP POST events' },
       { type: 'source', refId: 'new', label: 'Form Submission', subType: 'form', icon: IconWorld, color: 'cyan', description: 'Accept form submissions via HTTP' },
+      { type: 'source', refId: 'new', label: 'Chat', subType: 'chat', icon: IconMessage, color: 'cyan', description: 'Answer chat messages from a web widget, Slack or Telegram' },
       { type: 'source', refId: 'new', label: 'Cron / Schedule', subType: 'cron', icon: IconSettingsAutomation, color: 'cyan', description: 'Emit on a schedule' },
       { type: 'source', refId: 'new', label: 'CSV / File', subType: 'file', icon: IconFileSpreadsheet, color: 'cyan', description: 'Read rows from CSV/TSV and files' },
       { type: 'source', refId: 'new', label: 'Excel (.xlsx)', subType: 'excel', icon: IconFileSpreadsheet, color: 'cyan', description: 'Stream rows from Excel workbooks' },
@@ -204,6 +232,13 @@ export const NODE_CATEGORIES = [
       { type: 'sink', refId: 'new', label: 'Pgvector', subType: 'pgvector', icon: IconDatabase, color: 'grape', description: 'Store embeddings in Postgres' },
       { type: 'sink', refId: 'new', label: 'Pinecone', subType: 'pinecone', icon: IconCloud, color: 'grape', description: 'Managed vector database' },
       { type: 'sink', refId: 'new', label: 'Milvus', subType: 'milvus', icon: IconDatabase, color: 'grape', description: 'Open-source vector database' },
+    ]
+  },
+  {
+    title: 'ML Datasets',
+    group: 'sinks',
+    items: [
+      { type: 'sink', refId: 'new', label: 'Collect Dataset', subType: 'ml_dataset', icon: IconSchool, color: 'grape', description: 'Append records to a dataset for training' },
     ]
   },
   {

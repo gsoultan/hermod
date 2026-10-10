@@ -17,6 +17,7 @@ DELETE /api/users/{id}
 DELETE /api/vhosts/{id}
 DELETE /api/vhosts/{vhost}/ml/datasets/{name}
 DELETE /api/vhosts/{vhost}/ml/models/{name}
+DELETE /api/vhosts/{vhost}/ml/models/{name}/retrain
 DELETE /api/vhosts/{vhost}/ml/models/{name}/serving-key
 DELETE /api/vhosts/{vhost}/ml/scripts/{name}
 DELETE /api/vhosts/{vhost}/secrets/{name}
@@ -28,6 +29,7 @@ GET /api/approvals/{id}
 GET /api/auth/callback
 GET /api/auth/oidc
 GET /api/backup/export
+GET /api/chat/widget.js
 GET /api/config/database
 GET /api/config/observability
 GET /api/config/secrets
@@ -124,6 +126,7 @@ POST /api/auth/2fa/verify
 POST /api/auth/2fa/verify/pending
 POST /api/auth/generate-password
 POST /api/backup/import
+POST /api/chat/{path...}
 POST /api/config/database
 POST /api/config/database/test
 POST /api/config/databases
@@ -216,6 +219,7 @@ PUT /api/users/{id}/password
 PUT /api/vhosts/{id}
 PUT /api/vhosts/{vhost}/ml/datasets/{name}/file
 PUT /api/vhosts/{vhost}/ml/models/{name}
+PUT /api/vhosts/{vhost}/ml/models/{name}/retrain
 PUT /api/vhosts/{vhost}/ml/scripts/{name}
 PUT /api/vhosts/{vhost}/secrets/{name}
 PUT /api/workers/{id}

@@ -104,12 +104,17 @@ const (
 	QueryDeleteMLModel         = "DeleteMLModel"
 	QueryDeleteMLModelsOfVHost = "DeleteMLModelsOfVHost"
 
-	QueryListMLScripts          = "ListMLScripts"
-	QueryListMLScriptVersions   = "ListMLScriptVersions"
-	QueryGetLatestMLScript      = "GetLatestMLScript"
-	QueryInsertMLScript         = "InsertMLScript"
-	QueryDeleteMLScript         = "DeleteMLScript"
-	QueryDeleteMLScriptsOfVHost = "DeleteMLScriptsOfVHost"
+	QueryListRetrainingMLModels  = "ListRetrainingMLModels"
+	QuerySetMLModelRetrain       = "SetMLModelRetrain"
+	QuerySetMLModelRetrainStatus = "SetMLModelRetrainStatus"
+	QueryClaimMLModelTraining    = "ClaimMLModelTraining"
+	QueryReleaseMLModelTraining  = "ReleaseMLModelTraining"
+	QueryListMLScripts           = "ListMLScripts"
+	QueryListMLScriptVersions    = "ListMLScriptVersions"
+	QueryGetLatestMLScript       = "GetLatestMLScript"
+	QueryInsertMLScript          = "InsertMLScript"
+	QueryDeleteMLScript          = "DeleteMLScript"
+	QueryDeleteMLScriptsOfVHost  = "DeleteMLScriptsOfVHost"
 
 	// Workflows
 	QueryListWorkflows        = "ListWorkflows"
@@ -298,7 +303,10 @@ var commonQueries = map[string]string{
 		)`,
 	// id is vhost + "/" + name, as for vhost_secrets: a model name cannot hold
 	// a slash. spec is the model's definition as JSON, so a new field on a
-	// model is not a schema change.
+	// model is not a schema change. retrain and retrain_status are JSON too,
+	// in columns of their own so that saving a definition leaves them alone,
+	// as it does serving_key_hash. training_owner and training_until are the
+	// claim one Hermod holds while it trains the model.
 	QueryInitMLModelsTable: `CREATE TABLE IF NOT EXISTS ml_models (
 			id TEXT PRIMARY KEY,
 			vhost TEXT,
@@ -307,7 +315,11 @@ var commonQueries = map[string]string{
 			serving_key_hash TEXT,
 			updated_by TEXT,
 			created_at TIMESTAMP,
-			updated_at TIMESTAMP
+			updated_at TIMESTAMP,
+			retrain TEXT,
+			retrain_status TEXT,
+			training_owner TEXT,
+			training_until TIMESTAMP
 		)`,
 	// One row per script version. id is vhost + "/" + name + "/" + version,
 	// so two saves racing for the same next version cannot both land.
@@ -628,13 +640,20 @@ var commonQueries = map[string]string{
 	QueryDeleteVHostSecret:  "DELETE FROM vhost_secrets WHERE id = ?",
 	QueryDeleteVHostSecrets: "DELETE FROM vhost_secrets WHERE vhost = ?",
 
-	QueryListMLModels:          "SELECT name, spec, serving_key_hash, updated_by, created_at, updated_at FROM ml_models WHERE vhost = ? ORDER BY name",
-	QueryGetMLModel:            "SELECT spec, serving_key_hash, updated_by, created_at, updated_at FROM ml_models WHERE id = ?",
-	QueryInsertMLModel:         "INSERT INTO ml_models (id, vhost, name, spec, serving_key_hash, updated_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-	QueryUpdateMLModel:         "UPDATE ml_models SET spec = ?, updated_by = ?, updated_at = ? WHERE id = ?",
-	QuerySetMLModelServingKey:  "UPDATE ml_models SET serving_key_hash = ? WHERE id = ?",
-	QueryDeleteMLModel:         "DELETE FROM ml_models WHERE id = ?",
-	QueryDeleteMLModelsOfVHost: "DELETE FROM ml_models WHERE vhost = ?",
+	QueryListMLModels:            "SELECT name, spec, serving_key_hash, updated_by, created_at, updated_at, retrain, retrain_status FROM ml_models WHERE vhost = ? ORDER BY name",
+	QueryGetMLModel:              "SELECT spec, serving_key_hash, updated_by, created_at, updated_at, retrain, retrain_status FROM ml_models WHERE id = ?",
+	QueryInsertMLModel:           "INSERT INTO ml_models (id, vhost, name, spec, serving_key_hash, updated_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryUpdateMLModel:           "UPDATE ml_models SET spec = ?, updated_by = ?, updated_at = ? WHERE id = ?",
+	QuerySetMLModelServingKey:    "UPDATE ml_models SET serving_key_hash = ? WHERE id = ?",
+	QueryDeleteMLModel:           "DELETE FROM ml_models WHERE id = ?",
+	QueryDeleteMLModelsOfVHost:   "DELETE FROM ml_models WHERE vhost = ?",
+	QueryListRetrainingMLModels:  "SELECT vhost, name, spec, serving_key_hash, updated_by, created_at, updated_at, retrain, retrain_status FROM ml_models WHERE retrain IS NOT NULL ORDER BY id",
+	QuerySetMLModelRetrain:       "UPDATE ml_models SET retrain = ? WHERE id = ?",
+	QuerySetMLModelRetrainStatus: "UPDATE ml_models SET retrain_status = ? WHERE id = ?",
+	// The workflow lease's compare-and-set (QueryAcquireLease), on the model:
+	// it takes an unclaimed or expired claim, or renews the owner's own.
+	QueryClaimMLModelTraining:   "UPDATE ml_models SET training_owner = ?, training_until = ? WHERE id = ? AND (training_owner IS NULL OR training_until IS NULL OR training_until < ? OR training_owner = ?)",
+	QueryReleaseMLModelTraining: "UPDATE ml_models SET training_owner = NULL, training_until = NULL WHERE id = ? AND training_owner = ?",
 
 	QueryListMLScripts:          "SELECT name, version, sha256, description, created_by, created_at FROM ml_scripts WHERE vhost = ? ORDER BY name, version DESC",
 	QueryListMLScriptVersions:   "SELECT version, sha256, description, created_by, created_at FROM ml_scripts WHERE vhost = ? AND name = ? ORDER BY version DESC",
@@ -642,7 +661,7 @@ var commonQueries = map[string]string{
 	QueryInsertMLScript:         "INSERT INTO ml_scripts (id, vhost, name, version, sha256, source, description, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 	QueryDeleteMLScript:         "DELETE FROM ml_scripts WHERE vhost = ? AND name = ?",
 	QueryDeleteMLScriptsOfVHost: "DELETE FROM ml_scripts WHERE vhost = ?",
-	QueryGetVHost:              "SELECT id, name, description, created_at FROM vhosts WHERE id = ?",
+	QueryGetVHost:               "SELECT id, name, description, created_at FROM vhosts WHERE id = ?",
 
 	QueryListWorkflows:        "SELECT id, name, vhost, active, status, worker_id, owner_id, lease_until, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request, total_processed, total_errors, total_lag, created_at FROM workflows",
 	QueryCountWorkflows:       "SELECT COUNT(*) FROM workflows",

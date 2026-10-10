@@ -105,24 +105,36 @@ func (s *Service) Capabilities() Capabilities {
 	}
 }
 
+// checkDevice reports a spec whose device is unknown, or that asks for the GPU
+// with a custom script, which runs on the custom pool whatever it asks.
+func checkDevice(spec worker.TrainSpec) error {
+	switch spec.Device {
+	case "", DeviceCPU:
+		return nil
+	case DeviceGPU:
+		if strings.HasPrefix(spec.Algorithm, CustomPrefix) {
+			return fmt.Errorf("%w: a custom script runs on the custom worker pool, so device %q does not apply; give that pool a GPU instead", ErrBadTraining, spec.Device)
+		}
+		return nil
+	default:
+		return fmt.Errorf("%w: device is %q or %q, not %q", ErrBadTraining, DeviceCPU, DeviceGPU, spec.Device)
+	}
+}
+
 // trainVersion trains one version where the spec says it should run: a
 // custom script on the custom pool, a gpu training on the GPU pool, anything
 // else on the main worker. A version trained on a pool is moved to the main
 // worker, which serves it; the version returned is the main worker's.
 func (s *Service) trainVersion(ctx context.Context, main *worker.Client, vhost, name string, spec worker.TrainSpec) (worker.Version, error) {
+	if err := checkDevice(spec); err != nil {
+		return worker.Version{}, err
+	}
 	custom := strings.HasPrefix(spec.Algorithm, CustomPrefix)
-	switch spec.Device {
-	case "", DeviceCPU:
-	case DeviceGPU:
-		if custom {
-			return worker.Version{}, fmt.Errorf("%w: a custom script runs on the custom worker pool, so device %q does not apply; give that pool a GPU instead", ErrBadTraining, spec.Device)
-		}
+	if spec.Device == DeviceGPU {
 		if s.pools.GPU == nil {
 			return worker.Version{}, ErrNoGPUPool
 		}
 		return s.trainOnPool(ctx, main, s.pools.GPU, vhost, name, spec, nil)
-	default:
-		return worker.Version{}, fmt.Errorf("%w: device is %q or %q, not %q", ErrBadTraining, DeviceCPU, DeviceGPU, spec.Device)
 	}
 	if !custom {
 		return main.Train(ctx, vhost, name, spec)
