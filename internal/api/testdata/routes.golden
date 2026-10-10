@@ -17,6 +17,7 @@ DELETE /api/users/{id}
 DELETE /api/vhosts/{id}
 DELETE /api/vhosts/{vhost}/ml/datasets/{name}
 DELETE /api/vhosts/{vhost}/ml/models/{name}
+DELETE /api/vhosts/{vhost}/ml/models/{name}/retrain
 DELETE /api/vhosts/{vhost}/ml/models/{name}/serving-key
 DELETE /api/vhosts/{vhost}/secrets/{name}
 DELETE /api/workers/{id}
@@ -216,6 +217,7 @@ PUT /api/vhosts/{id}
 PUT /api/vhosts/{vhost}/ml/datasets/{name}/file
 PUT /api/vhosts/{vhost}/ml/models/{name}
 PUT /api/vhosts/{vhost}/ml/models/{name}/monitoring
+PUT /api/vhosts/{vhost}/ml/models/{name}/retrain
 PUT /api/vhosts/{vhost}/secrets/{name}
 PUT /api/workers/{id}
 PUT /api/workflows/{id}

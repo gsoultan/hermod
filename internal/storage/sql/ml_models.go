@@ -50,16 +50,40 @@ func (sp mlModelSpec) apply(m *storage.MLModel) {
 }
 
 // scanMLModel fills m from a row's spec and bookkeeping columns.
-func scanMLModel(m *storage.MLModel, spec, hash, by sql.NullString, created, updated sql.NullTime) error {
+// mlModelRow is what a query reads after the keys: the definition, the
+// bookkeeping, and the retrain policy and status.
+type mlModelRow struct {
+	spec, hash, by, retrain, status sql.NullString
+	created, updated                sql.NullTime
+}
+
+func (r *mlModelRow) targets() []any {
+	return []any{&r.spec, &r.hash, &r.by, &r.created, &r.updated, &r.retrain, &r.status}
+}
+
+// fill fills m from the row.
+func (r *mlModelRow) fill(m *storage.MLModel) error {
 	var sp mlModelSpec
-	if spec.String != "" {
-		if err := json.Unmarshal([]byte(spec.String), &sp); err != nil {
+	if r.spec.String != "" {
+		if err := json.Unmarshal([]byte(r.spec.String), &sp); err != nil {
 			return fmt.Errorf("model %q of vhost %q has an unreadable definition: %w", m.Name, m.VHost, err)
 		}
 	}
 	sp.apply(m)
-	m.ServingKeyHash, m.Serving = hash.String, hash.String != ""
-	m.UpdatedBy, m.CreatedAt, m.UpdatedAt = by.String, created.Time, updated.Time
+	m.ServingKeyHash, m.Serving = r.hash.String, r.hash.String != ""
+	m.UpdatedBy, m.CreatedAt, m.UpdatedAt = r.by.String, r.created.Time, r.updated.Time
+	if r.retrain.String != "" {
+		m.Retrain = &storage.MLRetrainPolicy{}
+		if err := json.Unmarshal([]byte(r.retrain.String), m.Retrain); err != nil {
+			return fmt.Errorf("model %q of vhost %q has an unreadable retrain policy: %w", m.Name, m.VHost, err)
+		}
+	}
+	if r.status.String != "" {
+		m.RetrainStatus = &storage.MLRetrainStatus{}
+		if err := json.Unmarshal([]byte(r.status.String), m.RetrainStatus); err != nil {
+			return fmt.Errorf("model %q of vhost %q has an unreadable retrain status: %w", m.Name, m.VHost, err)
+		}
+	}
 	return nil
 }
 
@@ -73,12 +97,11 @@ func (s *sqlStorage) ListMLModels(ctx context.Context, vhost string) ([]storage.
 	var out []storage.MLModel
 	for rows.Next() {
 		m := storage.MLModel{VHost: vhost}
-		var spec, hash, by sql.NullString
-		var created, updated sql.NullTime
-		if err := rows.Scan(&m.Name, &spec, &hash, &by, &created, &updated); err != nil {
+		var r mlModelRow
+		if err := rows.Scan(append([]any{&m.Name}, r.targets()...)...); err != nil {
 			return nil, fmt.Errorf("listing models of vhost %q: %w", vhost, err)
 		}
-		if err := scanMLModel(&m, spec, hash, by, created, updated); err != nil {
+		if err := r.fill(&m); err != nil {
 			return nil, err
 		}
 		out = append(out, m)
@@ -91,17 +114,15 @@ func (s *sqlStorage) ListMLModels(ctx context.Context, vhost string) ([]storage.
 
 func (s *sqlStorage) GetMLModel(ctx context.Context, vhost, name string) (storage.MLModel, error) {
 	m := storage.MLModel{VHost: vhost, Name: name}
-	var spec, hash, by sql.NullString
-	var created, updated sql.NullTime
-	err := s.queryRow(ctx, s.queries.get(QueryGetMLModel), mlModelID(vhost, name)).
-		Scan(&spec, &hash, &by, &created, &updated)
+	var r mlModelRow
+	err := s.queryRow(ctx, s.queries.get(QueryGetMLModel), mlModelID(vhost, name)).Scan(r.targets()...)
 	if errors.Is(err, sql.ErrNoRows) {
 		return storage.MLModel{}, storage.ErrNotFound
 	}
 	if err != nil {
 		return storage.MLModel{}, fmt.Errorf("reading model %q of vhost %q: %w", name, vhost, err)
 	}
-	if err := scanMLModel(&m, spec, hash, by, created, updated); err != nil {
+	if err := r.fill(&m); err != nil {
 		return storage.MLModel{}, err
 	}
 	return m, nil

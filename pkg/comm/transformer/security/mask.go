@@ -62,14 +62,45 @@ func (t *MaskTransformer) Transform(ctx context.Context, msg hermod.Message, con
 	if val == nil {
 		return msg, nil
 	}
-	msg.SetData(field, t.maskValue(fmt.Sprintf("%v", val), maskType))
+	fieldVal := fmt.Sprintf("%v", val)
+
+	msg.SetData(field, MaskValue(fieldVal, maskType))
 	return msg, nil
 }
 
-// MaskValue masks one value the way the mask node does: maskType is "email",
-// "partial", "pii", or anything else to replace it whole.
+func (t *MaskTransformer) scanAndMask(data map[string]any, maskType string) {
+	for k, v := range data {
+		switch val := v.(type) {
+		case string:
+			data[k] = MaskValue(val, maskType)
+		case map[string]any:
+			t.scanAndMask(val, maskType)
+		case []any:
+			for i, item := range val {
+				if m, ok := item.(map[string]any); ok {
+					t.scanAndMask(m, maskType)
+				} else if s, ok := item.(string); ok {
+					val[i] = MaskValue(s, maskType)
+				}
+			}
+		}
+	}
+}
+
+// MaskValue masks s the way the mask node does: maskType "email" keeps the
+// first letter and the domain, "partial" two characters at each end, "pii"
+// masks what the PII engine finds, and anything else gives "****".
 func MaskValue(s, maskType string) string {
-	return (&MaskTransformer{}).maskValue(s, maskType)
+	switch maskType {
+	case "email":
+		return maskEmail(s)
+	case "partial":
+		return maskPartial(s)
+	case "pii":
+		return transformer.PIIEngine().Mask(s)
+	default:
+		return "****"
+	}
 }
 
 // MaskFields masks fields of a plain map in place, by dotted path. A path to
@@ -102,48 +133,16 @@ func MaskFields(data map[string]any, fields []string, maskType string) {
 		switch v := parent[key].(type) {
 		case nil:
 		case string:
-			parent[key] = t.maskValue(v, maskType)
+			parent[key] = MaskValue(v, maskType)
 		case map[string]any:
 			t.scanAndMask(v, maskType)
 		default:
-			parent[key] = t.maskValue(fmt.Sprintf("%v", v), maskType)
+			parent[key] = MaskValue(fmt.Sprintf("%v", v), maskType)
 		}
 	}
 }
 
-func (t *MaskTransformer) maskValue(s, maskType string) string {
-	switch maskType {
-	case "email":
-		return t.maskEmail(s)
-	case "partial":
-		return t.maskPartial(s)
-	case "pii":
-		return t.maskPII(s)
-	default:
-		return "****"
-	}
-}
-
-func (t *MaskTransformer) scanAndMask(data map[string]any, maskType string) {
-	for k, v := range data {
-		switch val := v.(type) {
-		case string:
-			data[k] = t.maskValue(val, maskType)
-		case map[string]any:
-			t.scanAndMask(val, maskType)
-		case []any:
-			for i, item := range val {
-				if m, ok := item.(map[string]any); ok {
-					t.scanAndMask(m, maskType)
-				} else if s, ok := item.(string); ok {
-					val[i] = t.maskValue(s, maskType)
-				}
-			}
-		}
-	}
-}
-
-func (t *MaskTransformer) maskEmail(s string) string {
+func maskEmail(s string) string {
 	parts := strings.Split(s, "@")
 	if len(parts) == 2 {
 		if len(parts[0]) > 1 {
@@ -154,13 +153,9 @@ func (t *MaskTransformer) maskEmail(s string) string {
 	return "****"
 }
 
-func (t *MaskTransformer) maskPartial(s string) string {
+func maskPartial(s string) string {
 	if len(s) > 4 {
 		return s[:2] + "****" + s[len(s)-2:]
 	}
 	return "****"
-}
-
-func (t *MaskTransformer) maskPII(s string) string {
-	return transformer.PIIEngine().Mask(s)
 }

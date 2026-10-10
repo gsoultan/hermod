@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/factory"
 	"github.com/gsoultan/hermod/internal/ml"
 	"github.com/gsoultan/hermod/internal/ml/monitor"
 	"github.com/gsoultan/hermod/internal/notification"
@@ -15,6 +16,23 @@ import (
 	"github.com/gsoultan/hermod/pkg/ml/inference"
 	"github.com/gsoultan/hermod/pkg/ml/worker"
 )
+
+// A Collect Dataset sink's batch when its config names none: up to this many
+// rows per append to the worker, or whatever has arrived after this long.
+const (
+	mlDatasetBatchSize    = 500
+	mlDatasetBatchTimeout = 5 * time.Second
+)
+
+// createMLDatasetSink builds a Collect Dataset sink on the registry's ML
+// worker, so it reaches the same worker training does.
+func (r *Registry) createMLDatasetSink(cfg factory.SinkConfig) (hermod.Sink, error) {
+	w, err := r.MLService().Worker()
+	if err != nil {
+		return nil, fmt.Errorf("ml_dataset sink: %w", err)
+	}
+	return factory.CreateMLDatasetSink(cfg, w)
+}
 
 // MLService is the model registry and inference path over whatever storage
 // and secrets the registry holds right now. It is cheap to build, so it is

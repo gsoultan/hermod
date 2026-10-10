@@ -46,6 +46,11 @@ type MLModel struct {
 	// Monitoring is how the model's predictions are logged and its drift
 	// judged. The zero value logs nothing and uses the default thresholds.
 	Monitoring MLMonitoring `json:"monitoring"`
+	// Retrain is when a trained model trains again by itself, nil for never.
+	// RetrainStatus is what its last training did. PutMLModel changes
+	// neither; MLRetrainStore does.
+	Retrain       *MLRetrainPolicy `json:"retrain,omitempty"`
+	RetrainStatus *MLRetrainStatus `json:"retrain_status,omitempty"`
 
 	UpdatedBy string    `json:"updated_by,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
