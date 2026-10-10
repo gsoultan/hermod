@@ -24,6 +24,11 @@ type workerStub struct {
 	uploaded string
 	versions []worker.Version
 	busy     bool
+	// trained is the last training spec the worker was sent.
+	trained string
+	// capabilities answers /v1/capabilities; empty answers 404, like a
+	// worker from before that route.
+	capabilities string
 }
 
 func (s *workerStub) start(t *testing.T) *worker.Client {
@@ -36,6 +41,8 @@ func (s *workerStub) start(t *testing.T) *worker.Client {
 		switch {
 		case p == "/v2/health/ready":
 			w.WriteHeader(http.StatusOK)
+		case p == "/v1/capabilities" && s.capabilities != "":
+			_, _ = io.WriteString(w, s.capabilities)
 		case r.Method == http.MethodGet && p == "/v1/datasets/tenant-a":
 			_, _ = io.WriteString(w, `{"datasets":[{"name":"customers","rows":2,"columns":[{"name":"age","type":"number"}],"updated_at":"2026-10-10T00:00:00Z"}]}`)
 		case r.Method == http.MethodGet && p == "/v1/datasets/tenant-a/customers":
@@ -52,6 +59,8 @@ func (s *workerStub) start(t *testing.T) *worker.Client {
 				_, _ = io.WriteString(w, `{"error":"a training is already running"}`)
 				return
 			}
+			b, _ := io.ReadAll(r.Body)
+			s.trained = string(b)
 			v := worker.Version{Model: "churn", Version: "1", Task: "classification", Dataset: "customers",
 				Target: "churned", Features: []string{"age"}, Metrics: map[string]float64{"score": 0.6}}
 			s.versions = append([]worker.Version{v}, s.versions...)
@@ -102,6 +111,47 @@ func TestWorkerStatusSaysWhetherTrainingIsAvailable(t *testing.T) {
 	w = do(h.WorkerStatus, viewerA, http.MethodGet, "/api/ml/worker", nil, nil)
 	if !strings.Contains(w.Body.String(), `"configured":false`) {
 		t.Errorf("no worker: %s", w.Body)
+	}
+}
+
+func TestWorkerStatusListsTheAlgorithmsTheWorkerCanTrain(t *testing.T) {
+	h, _, stub := newTrainingAPI(t)
+	// A worker from before /v1/capabilities: ready, and no list, so the UI
+	// offers every algorithm as it did.
+	w := do(h.WorkerStatus, viewerA, http.MethodGet, "/api/ml/worker", nil, nil)
+	if !strings.Contains(w.Body.String(), `"ready":true`) || strings.Contains(w.Body.String(), "algorithms") {
+		t.Errorf("old worker: %s", w.Body)
+	}
+
+	stub.capabilities = `{"tasks":["auto"],"algorithms":["auto","random_forest","linear"],"unavailable":{"pytorch_mlp":"the torch package is not installed"}}`
+	w = do(h.WorkerStatus, viewerA, http.MethodGet, "/api/ml/worker", nil, nil)
+	var status struct {
+		Ready       bool              `json:"ready"`
+		Algorithms  []string          `json:"algorithms"`
+		Unavailable map[string]string `json:"unavailable"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if !status.Ready || strings.Join(status.Algorithms, ",") != "auto,random_forest,linear" {
+		t.Errorf("status = %+v", status)
+	}
+	if status.Unavailable["pytorch_mlp"] != "the torch package is not installed" {
+		t.Errorf("unavailable = %v", status.Unavailable)
+	}
+}
+
+func TestTrainPassesDeepLearningParamsToTheWorker(t *testing.T) {
+	h, _, stub := newTrainingAPI(t)
+	body := `{"dataset":"customers","target":"churned","algorithm":"keras_mlp",
+		"params":{"hidden_layers":[32,16],"epochs":40,"batch_size":16,"learning_rate":0.005,"patience":4},"go_live":{"mode":"never"}}`
+	w := do(h.TrainModel, editorA, http.MethodPost, "/x", strings.NewReader(body), map[string]string{"vhost": "tenant-a", "name": "churn"})
+	if w.Code != http.StatusOK {
+		t.Fatalf("train = %d %s", w.Code, w.Body)
+	}
+	want := `"params":{"hidden_layers":[32,16],"epochs":40,"batch_size":16,"learning_rate":0.005,"patience":4}`
+	if !strings.Contains(stub.trained, `"algorithm":"keras_mlp"`) || !strings.Contains(stub.trained, want) {
+		t.Errorf("worker got %s, want the algorithm and %s", stub.trained, want)
 	}
 }
 

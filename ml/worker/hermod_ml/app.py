@@ -24,7 +24,7 @@ from .errors import ApiError, bad_request
 from .names import validate_name
 from .serving import ModelServer
 from .settings import Settings
-from .training import ModelStore, Trainer
+from .training import TASKS, ModelStore, Trainer, algorithm_capabilities
 
 log = logging.getLogger("hermod_ml")
 
@@ -116,6 +116,15 @@ def create_app(settings: Settings) -> FastAPI:
         return {"ready": True}
 
     api = APIRouter(dependencies=[Depends(require_token)])
+
+    # -- capabilities --------------------------------------------------------
+
+    @api.get("/v1/capabilities")
+    async def capabilities() -> dict[str, Any]:
+        """What this image can train: the slim image has no deep-learning
+        libraries, so Hermod offers only the algorithms listed here."""
+        available, unavailable = await run_in_threadpool(algorithm_capabilities)
+        return {"tasks": list(TASKS), "algorithms": available, "unavailable": unavailable}
 
     # -- datasets ------------------------------------------------------------
 

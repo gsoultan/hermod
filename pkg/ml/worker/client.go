@@ -117,10 +117,36 @@ type TrainSpec struct {
 	Features []string `json:"features,omitempty"`
 	// Task is auto, classification or regression.
 	Task string `json:"task,omitempty"`
-	// Algorithm is auto, random_forest, gradient_boosting, linear or xgboost.
+	// Algorithm is auto, random_forest, gradient_boosting, linear, xgboost,
+	// pytorch_mlp or keras_mlp.
 	Algorithm string  `json:"algorithm,omitempty"`
 	TestSize  float64 `json:"test_size,omitempty"`
 	Seed      *int    `json:"seed,omitempty"`
+	// Params tunes pytorch_mlp and keras_mlp; the worker refuses it for any
+	// other algorithm.
+	Params *TrainParams `json:"params,omitempty"`
+}
+
+// TrainParams are a deep-learning model's hyperparameters. A zero field is
+// left out, so the worker uses its default; the worker also checks the
+// bounds (at most 5 layers of 1024 units, 1000 epochs, a learning rate in
+// (0, 1]).
+type TrainParams struct {
+	HiddenLayers []int   `json:"hidden_layers,omitempty"`
+	Epochs       int     `json:"epochs,omitempty"`
+	BatchSize    int     `json:"batch_size,omitempty"`
+	LearningRate float64 `json:"learning_rate,omitempty"`
+	// Patience is how many epochs without a better validation loss end
+	// training early.
+	Patience int `json:"patience,omitempty"`
+}
+
+// Capabilities is what a worker can train. The slim image cannot train the
+// deep-learning algorithms; Unavailable says why, per algorithm.
+type Capabilities struct {
+	Tasks       []string          `json:"tasks"`
+	Algorithms  []string          `json:"algorithms"`
+	Unavailable map[string]string `json:"unavailable"`
 }
 
 // Version is one trained, immutable model version and how it scored on the
@@ -146,6 +172,14 @@ type Version struct {
 // Ready reports whether the worker answers its readiness check.
 func (c *Client) Ready(ctx context.Context) error {
 	return c.call(ctx, http.MethodGet, "/v2/health/ready", "", nil, nil, callTimeout)
+}
+
+// Capabilities asks the worker what it can train. A worker older than this
+// call answers ErrNotFound.
+func (c *Client) Capabilities(ctx context.Context) (Capabilities, error) {
+	var caps Capabilities
+	err := c.call(ctx, http.MethodGet, "/v1/capabilities", "", nil, &caps, callTimeout)
+	return caps, err
 }
 
 // AppendRows adds rows to a dataset, first emptying it when replace is set,

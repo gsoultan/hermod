@@ -129,6 +129,42 @@ func TestMLTrainRefillsFromTheSourceTrainsAndRegisters(t *testing.T) {
 	}
 }
 
+// A deep-learning Train Model node, from its stored settings to the spec the
+// worker receives: the algorithm and the hyperparameters arrive as the
+// worker's params.
+func TestMLTrainSendsTheNodesDeepLearningParamsToTheWorker(t *testing.T) {
+	reg := newSimRegistry(t)
+	var sent map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&sent)
+		_ = json.NewEncoder(w).Encode(worker.Version{Model: "churn", Version: "1", Task: "classification",
+			Algorithm: "pytorch_mlp", Metrics: map[string]float64{"score": 0.9}})
+	}))
+	t.Cleanup(srv.Close)
+	reg.mlWorker = worker.New(srv.URL, "", nil)
+
+	got := transform(t, reg, map[string]any{"tick": 1.0}, map[string]any{
+		"transType": "ml_train", "model": "churn", "dataset": "customers", "target": "churned",
+		"algorithm": "pytorch_mlp", "hiddenLayers": "32, 16", "epochs": "40", "learningRate": "0.01",
+	})
+	if res, _ := got["training"].(map[string]any); res["algorithm"] != "pytorch_mlp" {
+		t.Fatalf("training = %v", got["training"])
+	}
+	if sent["algorithm"] != "pytorch_mlp" {
+		t.Errorf("algorithm = %v", sent["algorithm"])
+	}
+	want := map[string]any{"hidden_layers": []any{32.0, 16.0}, "epochs": 40.0, "learning_rate": 0.01}
+	if params, _ := sent["params"].(map[string]any); !sameJSON(params, want) {
+		t.Errorf("params = %v, want %v", sent["params"], want)
+	}
+}
+
+func sameJSON(a, b map[string]any) bool {
+	x, _ := json.Marshal(a)
+	y, _ := json.Marshal(b)
+	return string(x) == string(y)
+}
+
 func TestMLDatasetFromQueryRefusesAnotherVHostsSource(t *testing.T) {
 	reg := newSimRegistry(t)
 	w, calls, _ := fakeTrainingWorker(t)

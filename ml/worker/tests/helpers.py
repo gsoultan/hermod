@@ -70,3 +70,28 @@ def load(client, name: str, rows: list[dict], vhost: str = "acme") -> None:
 
 def train(client, model: str, vhost: str = "acme", **body):
     return client.post(f"/v1/models/{vhost}/{model}/train", json=body)
+
+
+# The Python modules each deep-learning algorithm needs. They ship only in the
+# "-dl" image, so tests that train with them skip where they are missing.
+DL_MODULES = {"pytorch_mlp": ("torch",), "keras_mlp": ("tensorflow", "keras", "tf2onnx")}
+
+
+def require_dl(algorithm: str) -> None:
+    """Skip the calling test unless `algorithm`'s libraries are installed.
+
+    With HERMOD_ML_REQUIRE_DL=1 (the CI job that installs them) a missing
+    library fails the test instead, so a broken install cannot pass as a skip.
+    """
+    import importlib.util
+    import os
+
+    import pytest
+
+    missing = [m for m in DL_MODULES[algorithm] if importlib.util.find_spec(m) is None]
+    if not missing:
+        return
+    message = f"{algorithm} needs {', '.join(missing)} (requirements-dl.txt)"
+    if os.environ.get("HERMOD_ML_REQUIRE_DL") == "1":
+        pytest.fail(message)
+    pytest.skip(message)

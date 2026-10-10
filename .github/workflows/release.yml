@@ -281,6 +281,40 @@ jobs:
           grep -q "linux/amd64" /tmp/manifest.txt
           grep -q "linux/arm64" /tmp/manifest.txt
 
+      # The "-dl" variant: the same worker with CPU-only PyTorch and
+      # TensorFlow, for pytorch_mlp and keras_mlp. linux/amd64 only:
+      # tensorflow-cpu publishes no aarch64 wheels.
+      - name: Image metadata (deep learning)
+        id: meta-dl
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ steps.repo.outputs.owner }}/hermod-ml
+          flavor: |
+            latest=false
+            suffix=-dl,onlatest=true
+          tags: |
+            type=semver,pattern={{version}},value=${{ env.RELEASE_TAG }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ env.RELEASE_TAG }}
+            type=raw,value=latest,enable=${{ !contains(env.RELEASE_TAG, '-') }}
+
+      - name: Build and push (deep learning)
+        uses: docker/build-push-action@v6
+        with:
+          context: ml/worker
+          platforms: linux/amd64
+          build-args: HERMOD_ML_EXTRAS=dl
+          push: true
+          tags: ${{ steps.meta-dl.outputs.tags }}
+          labels: ${{ steps.meta-dl.outputs.labels }}
+          cache-from: type=gha,scope=hermod-ml-dl
+          cache-to: type=gha,mode=max,scope=hermod-ml-dl
+
+      - name: Verify the published manifest (deep learning)
+        run: |
+          docker buildx imagetools inspect "ghcr.io/${{ steps.repo.outputs.owner }}/hermod-ml:${RELEASE_TAG#v}-dl" \
+            | tee /tmp/manifest-dl.txt
+          grep -q "linux/amd64" /tmp/manifest-dl.txt
+
   # Helm chart, published as an OCI artifact next to the image.
   #
   # appVersion is set from the tag so a chart always names the image it was cut

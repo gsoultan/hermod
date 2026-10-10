@@ -98,6 +98,46 @@ func TestTrainDefaultsAndCommaFeatures(t *testing.T) {
 	}
 }
 
+func TestTrainSendsDeepLearningParams(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  map[string]any
+		want map[string]any
+	}{
+		{"editor text", map[string]any{
+			"hiddenLayers": "64, 32", "epochs": "50", "batchSize": "16", "learningRate": "0.005", "patience": "5",
+		}, map[string]any{"hidden_layers": []int{64, 32}, "epochs": 50, "batch_size": 16, "learning_rate": 0.005, "patience": 5}},
+		{"api values", map[string]any{
+			"hiddenLayers": []any{8.0}, "epochs": 20.0,
+		}, map[string]any{"hidden_layers": []int{8}, "epochs": 20}},
+		{"json list", map[string]any{"hiddenLayers": "[128,64,32]"}, map[string]any{"hidden_layers": []int{128, 64, 32}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := map[string]any{"model": "m", "dataset": "d", "target": "y", "algorithm": "pytorch_mlp"}
+			for k, v := range tc.cfg {
+				cfg[k] = v
+			}
+			reg := &fakeTrainer{reply: map[string]any{"version": "1"}}
+			if _, err := runTrain(t, reg, "v", cfg); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(reg.req["params"], tc.want) {
+				t.Errorf("params = %#v, want %#v", reg.req["params"], tc.want)
+			}
+		})
+	}
+
+	// Nothing set: no params, so the worker's defaults apply.
+	reg := &fakeTrainer{reply: map[string]any{"version": "1"}}
+	if _, err := runTrain(t, reg, "v", map[string]any{"model": "m", "dataset": "d", "target": "y", "algorithm": "keras_mlp", "epochs": ""}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := reg.req["params"]; ok {
+		t.Errorf("params = %v, want none when the node sets none", reg.req["params"])
+	}
+}
+
 func TestTrainRefusesWhatItCannotDo(t *testing.T) {
 	ok := map[string]any{"model": "m", "dataset": "d", "target": "y"}
 	with := func(k string, v any) map[string]any {
@@ -119,6 +159,10 @@ func TestTrainRefusesWhatItCannotDo(t *testing.T) {
 		{"no target", &fakeTrainer{}, with("target", ""), "target"},
 		{"bad min", &fakeTrainer{}, with("goLiveMin", "lots"), "goLiveMin"},
 		{"query without source", &fakeTrainer{}, with("query", "SELECT 1"), "source"},
+		{"bad epochs", &fakeTrainer{}, with("epochs", "many"), "epochs"},
+		{"fractional epochs", &fakeTrainer{}, with("epochs", "2.5"), "epochs"},
+		{"bad layer", &fakeTrainer{}, with("hiddenLayers", "64,wide"), "hiddenLayers"},
+		{"fractional layer", &fakeTrainer{}, with("hiddenLayers", []any{1.5}), "hiddenLayers"},
 		{"no registry", nil, ok, "registry"},
 		{"training error", &fakeTrainer{err: errors.New("worker down")}, ok, "worker down"},
 	}

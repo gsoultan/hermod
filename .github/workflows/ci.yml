@@ -532,6 +532,10 @@ jobs:
           fails --set mlWorker.enabled=true
           fails --set mlWorker.enabled=true --set mlWorker.token=a --set mlWorker.existingSecret=s
           helm template t deploy/helm/hermod --set mlWorker.enabled=true --set mlWorker.token=a > /dev/null
+          # The deep-learning image is the "-dl" tag release.yml publishes.
+          fails --set mlWorker.enabled=true --set mlWorker.token=a --set mlWorker.image.variant=gpu
+          helm template t deploy/helm/hermod --set mlWorker.enabled=true --set mlWorker.token=a \
+            --set mlWorker.image.variant=dl | grep -qE 'image: "[^"]+/hermod-ml:[^"]+-dl"'
 
       # The release tarball, not `go install`: the Prometheus module carries
       # replace directives, so `go install .../cmd/promtool@latest` refuses with
@@ -602,7 +606,68 @@ jobs:
           curl -sf http://127.0.0.1:8090/v2/health/ready
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8090/v1/datasets/default)" = 401
           test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer ci-token' http://127.0.0.1:8090/v1/datasets/default)" = 200
+          # The slim image says it cannot train the deep-learning algorithms.
+          curl -sf -H 'Authorization: Bearer ci-token' http://127.0.0.1:8090/v1/capabilities | tee /tmp/caps.json
+          python -c "import json; c = json.load(open('/tmp/caps.json')); assert {'pytorch_mlp', 'keras_mlp'} <= set(c['unavailable']), c"
           docker rm -f hermod-ml-ci
+
+  # The deep-learning extras (requirements-dl.txt: CPU-only PyTorch and
+  # TensorFlow): the pytorch_mlp and keras_mlp tests, which skip in the job
+  # above, and the "-dl" image. HERMOD_ML_REQUIRE_DL=1 turns those skips into
+  # failures, so a broken install cannot pass as skipped tests.
+  ml-worker-dl:
+    name: Verify (ML worker, deep learning)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ml/worker
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            ml/worker/requirements.txt
+            ml/worker/requirements-dl.txt
+
+      - name: Install
+        run: |
+          python -m pip install --only-binary=:all: -r requirements.txt -r requirements-dl.txt
+          python -m pip install --only-binary=:all: pytest==8.3.4 httpx==0.28.1
+          python -m pip check
+
+      - name: Test
+        env:
+          HERMOD_ML_REQUIRE_DL: '1'
+        run: python -m pytest -q
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: ml/worker
+          build-args: HERMOD_ML_EXTRAS=dl
+          load: true
+          tags: hermod-ml:ci-dl
+          cache-from: type=gha,scope=hermod-ml-dl
+          cache-to: type=gha,mode=max,scope=hermod-ml-dl
+
+      - name: Container starts and can train the deep-learning algorithms
+        run: |
+          docker run -d --name hermod-ml-ci-dl -p 8090:8090 -e HERMOD_ML_TOKEN=ci-token hermod-ml:ci-dl
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8090/v2/health/ready && break
+            sleep 2
+          done
+          curl -sf -H 'Authorization: Bearer ci-token' http://127.0.0.1:8090/v1/capabilities | tee /tmp/caps.json
+          python -c "import json; c = json.load(open('/tmp/caps.json')); assert {'pytorch_mlp', 'keras_mlp'} <= set(c['algorithms']), c"
+          docker rm -f hermod-ml-ci-dl
 
   # Go integration tests: real Postgres, no browser.
   #
