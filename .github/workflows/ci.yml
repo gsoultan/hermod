@@ -527,6 +527,11 @@ jobs:
           fails --set masterKey=abc --set existingSecret=s
           fails --set replicaCount=3
           fails --set replicaCount=3 --set database.type=postgres --set database.connectionSecret=dsn
+          # An ML worker without a token would hand its datasets and models to
+          # anything that can reach it.
+          fails --set mlWorker.enabled=true
+          fails --set mlWorker.enabled=true --set mlWorker.token=a --set mlWorker.existingSecret=s
+          helm template t deploy/helm/hermod --set mlWorker.enabled=true --set mlWorker.token=a > /dev/null
 
       # The release tarball, not `go install`: the Prometheus module carries
       # replace directives, so `go install .../cmd/promtool@latest` refuses with
@@ -547,6 +552,57 @@ jobs:
           test -s /tmp/rules.yaml
           "$promtool" check rules /tmp/rules.yaml | tee /tmp/promtool.out
           grep -q "SUCCESS: 4 rules found" /tmp/promtool.out
+
+  # The hermod-ml worker: its tests, then its image, started and probed the
+  # way the chart's readiness probe will.
+  ml-worker:
+    name: Verify (ML worker)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ml/worker
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: ml/worker/requirements.txt
+
+      - name: Install
+        run: |
+          python -m pip install --only-binary=:all: -r requirements.txt
+          python -m pip install --only-binary=:all: pytest==8.3.4 httpx==0.28.1
+
+      - name: Test
+        run: python -m pytest -q
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: ml/worker
+          load: true
+          tags: hermod-ml:ci
+          cache-from: type=gha,scope=hermod-ml
+          cache-to: type=gha,mode=max,scope=hermod-ml
+
+      - name: Container starts, answers its probe and wants its token
+        run: |
+          docker run -d --name hermod-ml-ci -p 8090:8090 -e HERMOD_ML_TOKEN=ci-token hermod-ml:ci
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8090/v2/health/ready && break
+            sleep 2
+          done
+          curl -sf http://127.0.0.1:8090/v2/health/ready
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8090/v1/datasets/default)" = 401
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer ci-token' http://127.0.0.1:8090/v1/datasets/default)" = 200
+          docker rm -f hermod-ml-ci
 
   # Go integration tests: real Postgres, no browser.
   #

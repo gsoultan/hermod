@@ -12,10 +12,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/ml/inference"
+	"github.com/gsoultan/hermod/pkg/ml/worker"
 	"github.com/gsoultan/hermod/pkg/security/secrets"
 )
 
@@ -33,6 +35,14 @@ var (
 	ErrServingOff = errors.New("serving is not enabled for this model")
 	// ErrBadServingKey is returned when the key presented is not the model's.
 	ErrBadServingKey = errors.New("invalid serving key")
+	// ErrNoWorker is returned for training, datasets, or a trained model's
+	// prediction when Hermod has no ML worker configured.
+	ErrNoWorker = errors.New("no ML worker is configured: set HERMOD_ML_WORKER_URL")
+	// ErrNoLiveVersion is returned for a trained model none of whose versions
+	// has been put live.
+	ErrNoLiveVersion = errors.New("no version of this model is live yet")
+	// ErrVersionNotFound is returned for a version the model does not have.
+	ErrVersionNotFound = errors.New("model version not found")
 )
 
 // servingKeyPrefix marks a serving key so a leaked one is recognisable in a
@@ -44,7 +54,11 @@ type Service struct {
 	store   func() any
 	secrets secrets.ScopedManager
 	client  *inference.Client
+	worker  *worker.Client
 }
+
+// envWorker is the worker HERMOD_ML_WORKER_URL names, read once.
+var envWorker = sync.OnceValue(worker.FromEnv)
 
 // NewService builds a Service. store is called on every use, because setup and
 // a database switch replace the store while Hermod runs. secrets answers a
@@ -54,7 +68,21 @@ func NewService(store func() any, sec secrets.ScopedManager, client *inference.C
 	if client == nil {
 		client = inference.NewClient(nil)
 	}
-	return &Service{store: store, secrets: sec, client: client}
+	return &Service{store: store, secrets: sec, client: client, worker: envWorker()}
+}
+
+// WithWorker replaces the ML worker the environment names; nil means none.
+func (s *Service) WithWorker(w *worker.Client) *Service {
+	s.worker = w
+	return s
+}
+
+// Worker returns the configured ML worker, or ErrNoWorker.
+func (s *Service) Worker() (*worker.Client, error) {
+	if s.worker == nil {
+		return nil, ErrNoWorker
+	}
+	return s.worker, nil
 }
 
 // Models returns the store's model registry, or ErrMLModelsUnsupported.
@@ -88,18 +116,42 @@ func (s *Service) Predict(ctx context.Context, vhost, name string, rows []infere
 	if err != nil {
 		return nil, err
 	}
-	token, err := s.token(ctx, m)
+	target, err := s.target(ctx, m)
 	if err != nil {
 		return nil, err
 	}
 
 	start := time.Now()
-	out, err := s.client.Predict(ctx, m.Target(token), rows)
+	out, err := s.client.Predict(ctx, target, rows)
 	observe(vhost, name, len(rows), time.Since(start), err)
 	if err != nil {
 		return nil, fmt.Errorf("model %q: %w", name, err)
 	}
 	return out, nil
+}
+
+// target is where the model is called. A model trained by Hermod is on the
+// configured worker, at its live version, with the worker's token; any other
+// is where its definition says, with the token its secret holds.
+func (s *Service) target(ctx context.Context, m storage.MLModel) (inference.Target, error) {
+	if m.Backend != storage.MLBackendWorker {
+		token, err := s.token(ctx, m)
+		if err != nil {
+			return inference.Target{}, err
+		}
+		return m.Target(token), nil
+	}
+	if s.worker == nil {
+		return inference.Target{}, ErrNoWorker
+	}
+	if m.RemoteVersion == "" {
+		return inference.Target{}, fmt.Errorf("model %q: %w", m.Name, ErrNoLiveVersion)
+	}
+	return inference.Target{
+		Backend: inference.BackendOIP, URL: s.worker.ServingURL(m.VHost),
+		Model: m.Name, Version: m.RemoteVersion, Token: s.worker.Token,
+		Features: m.Features, Timeout: time.Duration(m.TimeoutMs) * time.Millisecond,
+	}, nil
 }
 
 // token reads the model's bearer token from its vhost's secrets. A model that

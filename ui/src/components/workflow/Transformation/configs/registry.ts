@@ -36,6 +36,7 @@ import { AIRetrieveConfig } from './ai-retrieve/AIRetrieveConfig'
 import { AIAgentConfig } from './ai-agent/AIAgentConfig'
 // machine learning
 import { MLPredictConfig } from './ml/MLPredictConfig'
+import { MLTrainConfig } from './ml/MLTrainConfig'
 
 // logic
 import { ConditionConfig } from './logic/ConditionConfig'
@@ -155,6 +156,7 @@ export const TRANSFORM_CONFIGS: Record<string, ConfigComponent> = {
   ai_retrieve: AIRetrieveConfig,
   // machine learning
   ml_predict: MLPredictConfig,
+  ml_train: MLTrainConfig,
 
   // logic & flow
   condition: ConditionConfig,

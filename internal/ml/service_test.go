@@ -41,7 +41,15 @@ func (s *memStore) GetMLModel(_ context.Context, vhost, name string) (storage.ML
 	}
 	return m, nil
 }
-func (s *memStore) PutMLModel(_ context.Context, m storage.MLModel) error { return nil }
+func (s *memStore) PutMLModel(_ context.Context, m storage.MLModel) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if old, ok := s.models[m.VHost+"/"+m.Name]; ok {
+		m.ServingKeyHash, m.Serving = old.ServingKeyHash, old.Serving
+	}
+	s.models[m.VHost+"/"+m.Name] = m
+	return nil
+}
 func (s *memStore) SetMLModelServingKey(_ context.Context, vhost, name, hash string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -53,7 +61,15 @@ func (s *memStore) SetMLModelServingKey(_ context.Context, vhost, name, hash str
 	s.models[vhost+"/"+name] = m
 	return nil
 }
-func (s *memStore) DeleteMLModel(_ context.Context, vhost, name string) error { return nil }
+func (s *memStore) DeleteMLModel(_ context.Context, vhost, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.models[vhost+"/"+name]; !ok {
+		return storage.ErrNotFound
+	}
+	delete(s.models, vhost+"/"+name)
+	return nil
+}
 func (s *memStore) DeleteMLModels(_ context.Context, vhost string) error      { return nil }
 
 // secretsOf answers secrets from a map keyed "vhost/name".

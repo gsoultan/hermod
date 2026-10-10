@@ -221,6 +221,66 @@ jobs:
           grep -q "linux/amd64" /tmp/manifest.txt
           grep -q "linux/arm64" /tmp/manifest.txt
 
+  # hermod-ml worker image, tagged like Hermod's so the chart's default
+  # (.Chart.AppVersion) resolves for both.
+  #
+  # One job, both architectures: unlike Hermod nothing is compiled here, only
+  # wheels installed, so the arm64 half under QEMU stays quick.
+  ml-worker-image:
+    needs: tombstone
+    if: needs.tombstone.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Repository owner, lowercased
+        id: repo
+        run: echo "owner=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ steps.repo.outputs.owner }}/hermod-ml
+          tags: |
+            type=semver,pattern={{version}},value=${{ env.RELEASE_TAG }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ env.RELEASE_TAG }}
+            type=raw,value=latest,enable=${{ !contains(env.RELEASE_TAG, '-') }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ml/worker
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=hermod-ml
+          cache-to: type=gha,mode=max,scope=hermod-ml
+
+      - name: Verify the published manifest
+        run: |
+          docker buildx imagetools inspect "ghcr.io/${{ steps.repo.outputs.owner }}/hermod-ml:${RELEASE_TAG#v}" \
+            | tee /tmp/manifest.txt
+          grep -q "linux/amd64" /tmp/manifest.txt
+          grep -q "linux/arm64" /tmp/manifest.txt
+
   # Helm chart, published as an OCI artifact next to the image.
   #
   # appVersion is set from the tag so a chart always names the image it was cut
@@ -230,7 +290,8 @@ jobs:
     runs-on: ubuntu-latest
     # The manifest, not the per-architecture builds: a chart published while
     # only one arch had landed would name a tag that does not resolve yet.
-    needs: image-manifest
+    # The ML worker's image too, which the chart names when mlWorker is on.
+    needs: [image-manifest, ml-worker-image]
     steps:
       - name: Checkout
         uses: actions/checkout@v4

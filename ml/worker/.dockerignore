@@ -1,0 +1,12 @@
+# Only requirements.txt and hermod_ml/ are copied into the image.
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.venv
+venv
+tests
+data
+*.parquet
+*.onnx
+.gitignore
+README.md

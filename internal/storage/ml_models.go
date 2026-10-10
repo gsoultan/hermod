@@ -45,6 +45,12 @@ type MLModel struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// MLBackendWorker marks a model trained by Hermod's own hermod-ml worker. Its
+// server is the worker Hermod is configured with, so it holds no URL; its
+// features are its inputs, one tensor each; and RemoteVersion is the version
+// that is live, empty until one is put live.
+const MLBackendWorker inference.Backend = "hermod-ml"
+
 // MaxMLModelNameLen bounds a model name, which appears in URLs and metrics.
 const MaxMLModelNameLen = 64
 
@@ -104,7 +110,36 @@ func ValidateMLModel(m MLModel) error {
 	if len(m.Features) > maxMLModelFeatures {
 		return fmt.Errorf("a model may declare at most %d features", maxMLModelFeatures)
 	}
+	if m.Backend == MLBackendWorker {
+		return validateWorkerModel(m)
+	}
 	return m.Target("").Validate()
+}
+
+func validateWorkerModel(m MLModel) error {
+	if m.URL != "" {
+		return errors.New("a model trained by Hermod is served by its ML worker: it takes no URL")
+	}
+	if m.InputName != "" {
+		return errors.New("a model trained by Hermod takes one input per feature, not an input name")
+	}
+	if m.RemoteVersion != "" && !validVersion(m.RemoteVersion) {
+		return fmt.Errorf("version %q must be a version number", m.RemoteVersion)
+	}
+	return nil
+}
+
+// validVersion accepts the worker's version numbers.
+func validVersion(v string) bool {
+	if v == "" || len(v) > 12 {
+		return false
+	}
+	for _, c := range v {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // MLModelStore is implemented by a storage backend that can hold models per

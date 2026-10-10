@@ -13,6 +13,7 @@ import (
 	"github.com/gsoultan/hermod/internal/ml"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/ml/inference"
+	"github.com/gsoultan/hermod/pkg/ml/worker"
 )
 
 // maxModelBody bounds a model definition; maxPredictBody bounds a prediction
@@ -25,6 +26,11 @@ const (
 // Handler serves the model routes.
 type Handler struct {
 	*handlers.Handler
+
+	// worker replaces the ML worker the environment names, and noEnvWorker
+	// drops it; tests set them.
+	worker      *worker.Client
+	noEnvWorker bool
 }
 
 // NewHandler wraps the shared API handler.
@@ -45,16 +51,35 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/vhosts/{vhost}/ml/models/{name}/serving-key", h.EditorOnly(h.RotateServingKey))
 	mux.Handle("DELETE /api/vhosts/{vhost}/ml/models/{name}/serving-key", h.EditorOnly(h.DisableServing))
 	mux.HandleFunc("POST /api/ml/serve/{vhost}/{name}", h.Serve)
+
+	mux.HandleFunc("GET /api/ml/worker", h.WorkerStatus)
+	mux.HandleFunc("GET /api/vhosts/{vhost}/ml/datasets", h.ListDatasets)
+	mux.Handle("GET /api/vhosts/{vhost}/ml/datasets/{name}", h.EditorOnly(h.GetDataset))
+	mux.Handle("PUT /api/vhosts/{vhost}/ml/datasets/{name}/file", h.EditorOnly(h.UploadDataset))
+	mux.Handle("POST /api/vhosts/{vhost}/ml/datasets/{name}/query", h.EditorOnly(h.DatasetFromQuery))
+	mux.Handle("DELETE /api/vhosts/{vhost}/ml/datasets/{name}", h.EditorOnly(h.DeleteDataset))
+	mux.Handle("POST /api/vhosts/{vhost}/ml/models/{name}/train", h.EditorOnly(h.TrainModel))
+	mux.HandleFunc("GET /api/vhosts/{vhost}/ml/models/{name}/versions", h.ListVersions)
+	mux.Handle("POST /api/vhosts/{vhost}/ml/models/{name}/versions/{version}/promote", h.EditorOnly(h.PromoteVersion))
 }
 
 // service is the registry's ML service when there is a registry, so a model's
 // token secret is answered the way a workflow's is; otherwise one over the
 // API's storage, which can still answer everything but a token.
 func (h *Handler) service() *ml.Service {
+	var svc *ml.Service
 	if h.Registry != nil {
-		return h.Registry.MLService()
+		svc = h.Registry.MLService()
+	} else {
+		svc = ml.NewService(func() any { return h.Storage }, nil, nil)
 	}
-	return ml.NewService(func() any { return h.Storage }, nil, nil)
+	switch {
+	case h.worker != nil:
+		svc.WithWorker(h.worker)
+	case h.noEnvWorker:
+		svc.WithWorker(nil)
+	}
+	return svc
 }
 
 // access answers who is asking about which vhost, and refuses anyone who may
@@ -88,6 +113,14 @@ func (h *Handler) fail(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ml.ErrModelNotFound):
 		h.JsonError(w, "this vhost has no model by that name", http.StatusNotFound)
+	case errors.Is(err, ml.ErrVersionNotFound), errors.Is(err, worker.ErrNotFound):
+		h.JsonError(w, err.Error(), http.StatusNotFound)
+	case errors.Is(err, ml.ErrNoWorker):
+		h.JsonError(w, err.Error(), http.StatusServiceUnavailable)
+	case errors.Is(err, ml.ErrNoLiveVersion):
+		h.JsonError(w, err.Error(), http.StatusConflict)
+	case errors.Is(err, worker.ErrBusy):
+		h.JsonError(w, err.Error(), http.StatusTooManyRequests)
 	case errors.Is(err, storage.ErrMLModelsUnsupported):
 		h.JsonError(w, err.Error(), http.StatusNotImplemented)
 	case errors.Is(err, ml.ErrTooManyRows):
@@ -193,19 +226,13 @@ func (h *Handler) DeleteModel(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	ms, err := h.service().Models()
-	if err != nil {
-		h.fail(w, err)
-		return
-	}
 	name := r.PathValue("name")
-	err = ms.DeleteMLModel(r.Context(), vhost, name)
-	if errors.Is(err, storage.ErrNotFound) {
-		h.JsonError(w, "this vhost has no model by that name", http.StatusNotFound)
-		return
-	}
-	if err != nil {
-		h.JsonError(w, "Failed to delete the model", http.StatusInternalServerError)
+	if err := h.service().DeleteModel(r.Context(), vhost, name); err != nil {
+		if errors.Is(err, ml.ErrModelNotFound) || errors.Is(err, storage.ErrMLModelsUnsupported) {
+			h.fail(w, err)
+			return
+		}
+		h.JsonError(w, "Failed to delete the model: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	h.RecordAuditLog(r, "INFO", "Deleted model "+name+" in vhost "+vhost, "delete", vhost, "vhost", "",

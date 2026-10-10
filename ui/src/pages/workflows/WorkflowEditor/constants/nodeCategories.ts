@@ -6,7 +6,7 @@ import {
   IconTable, IconBroadcast, IconRefresh, IconLetterCase, IconPercentage, IconTableExport, IconNumbers,
   IconDatabaseExport, IconNote, IconTag, IconBrandDiscord, IconBrandSlack, IconBrandTwitter, 
   IconBrandFacebook, IconBrandInstagram, IconBrandLinkedin, IconBrandTiktok, IconExternalLink, IconLock, IconLockOpen, IconSitemap,
-  IconSparkles, IconTextScan2, IconTags, IconFileDescription, IconLanguage, IconVector, IconDatabaseSearch, IconRobot, IconBrain
+  IconSparkles, IconTextScan2, IconTags, IconFileDescription, IconLanguage, IconVector, IconDatabaseSearch, IconRobot, IconBrain, IconSchool
 } from '@tabler/icons-react';
 
 export const NODE_CATEGORIES = [
@@ -82,6 +82,7 @@ export const NODE_CATEGORIES = [
     group: 'transformations',
     items: [
       { type: 'transformation', refId: 'new', label: 'Predict', subType: 'ml_predict', icon: IconBrain, color: 'grape', description: 'Score each record with a registered model' },
+      { type: 'transformation', refId: 'new', label: 'Train Model', subType: 'ml_train', icon: IconSchool, color: 'grape', description: 'Train a new model version on a dataset' },
     ]
   },
   {
