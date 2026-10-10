@@ -15,9 +15,13 @@ import (
 )
 
 type Registry interface {
-	RunWorkflowNode(workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error)
+	// RunWorkflowNodeContext runs a node bound to ctx, the workflow's lifetime
+	// context, so stopping the workflow cancels the node's in-flight calls.
+	RunWorkflowNodeContext(ctx context.Context, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error)
 	IsDebuggerAttached(workflowID string) bool
-	PauseForDebugger(workflowID string, nodeID string, msg hermod.Message)
+	// PauseForDebuggerContext returns when ctx ends as well as when the
+	// debugger answers.
+	PauseForDebuggerContext(ctx context.Context, workflowID string, nodeID string, msg hermod.Message)
 	BroadcastLog(workflowID, level, message, details string)
 	Logger() hermod.Logger
 	// RecordCircuitBreakerFailure counts a downstream failure against a breaker.
@@ -81,6 +85,11 @@ type WorkflowTraversal struct {
 	// to acknowledge either. Together these tell them apart; see MetaFiltered.
 	Filtered    atomic.Bool
 	Unaccounted atomic.Bool
+
+	// Telemetry receives per-node and per-edge counts for a live workflow. It
+	// is built once per workflow (NewTelemetry) and shared by every traversal
+	// of it; nil records nothing, which is what a simulation wants.
+	Telemetry *Telemetry
 }
 
 var TraversalPool = sync.Pool{
@@ -157,6 +166,7 @@ func Release(t *WorkflowTraversal) {
 	t.MsgMu.Unlock()
 	t.Registry = nil
 	t.Eng = nil
+	t.Telemetry = nil
 	TraversalPool.Put(t)
 }
 
@@ -252,7 +262,7 @@ func (t *WorkflowTraversal) processNode(ctx context.Context, currID string) {
 	}
 	defer currMsg.Release()
 
-	msgs, branch, err := t.runNode(ctx, currNode, currMsg)
+	msgs, branch, err := t.runNode(ctx, idx, currNode, currMsg)
 
 	// Deferred, not trailing. This function recovers from panics in everything
 	// below — which is deliberate, so one bad node cannot take the worker with
@@ -276,13 +286,22 @@ func (t *WorkflowTraversal) processNode(ctx context.Context, currID string) {
 	//
 	// The message is dead-lettered here, while it is still alive: the deferred
 	// release above frees it as soon as this function returns.
+	// A node that failed because the workflow's context ended was cut off by
+	// a stop or drain, not by anything wrong with the message or the node's
+	// target. It is neither dead-lettered nor counted against a breaker: it
+	// stays unaccounted, so the engine leaves it unacknowledged and the source
+	// redelivers it on the next run.
+	stopping := err != nil && ctx.Err() != nil
+
 	if err != nil {
-		t.countAgainstBreakers(currID)
+		if !stopping {
+			t.countAgainstBreakers(currID)
+		}
 		// A failure is never a deliberate drop, whatever else the walk did.
 		t.Unaccounted.Store(true)
 	}
 
-	if err != nil && t.Eng != nil {
+	if err != nil && t.Eng != nil && !stopping {
 		switch {
 		case t.Eng.DeadLetterNodeFailure(ctx, currNode.ID, currMsg, err):
 			t.DeadLettered.Store(true)
@@ -351,8 +370,10 @@ func (t *WorkflowTraversal) processNode(ctx context.Context, currID string) {
 	t.handleResults(ctx, currNode, msgs, branch, err)
 }
 
-func (t *WorkflowTraversal) runNode(ctx context.Context, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
+func (t *WorkflowTraversal) runNode(ctx context.Context, idx int, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
 	if node.Type == "source" {
+		t.Telemetry.count(idx)
+		t.Telemetry.sample(idx, node.ID, msg, time.Time{})
 		// Every message in the returned slice is owned by the caller, which
 		// releases each one after handleResults — the same contract
 		// Registry.RunWorkflowNode implements by retaining when it passes the
@@ -368,11 +389,11 @@ func (t *WorkflowTraversal) runNode(ctx context.Context, node *storage.WorkflowN
 	}
 
 	if t.Registry.IsDebuggerAttached(t.WorkflowID) {
-		t.Registry.PauseForDebugger(t.WorkflowID, node.ID, msg)
+		t.Registry.PauseForDebuggerContext(ctx, t.WorkflowID, node.ID, msg)
 	}
 
 	start := time.Now()
-	msgs, branch, err := t.Registry.RunWorkflowNode(t.WorkflowID, node, msg)
+	msgs, branch, err := t.Registry.RunWorkflowNodeContext(ctx, t.WorkflowID, node, msg)
 
 	// Stamped when the node finished, not when it started. The step's payload is
 	// the node's output, and a `pipeline` node's own steps record under their
@@ -382,6 +403,13 @@ func (t *WorkflowTraversal) runNode(ctx context.Context, node *storage.WorkflowN
 	// dropping a field it had not yet produced. One instant for every fan-out
 	// sibling: they did all finish together.
 	done := time.Now()
+
+	// Per-node count, errors and run time. The debugger pause above is
+	// outside the measured span, so a breakpoint does not read as a slow node.
+	t.Telemetry.observe(idx, done.Sub(start), err != nil)
+	if err == nil && len(msgs) > 0 {
+		t.Telemetry.sample(idx, node.ID, msgs[0], done)
+	}
 
 	if len(msgs) > 0 {
 		for _, m := range msgs {
@@ -453,10 +481,15 @@ func (t *WorkflowTraversal) handleResults(ctx context.Context, node *storage.Wor
 	// brought it went unwritten. The editor's simulation counts such an edge as
 	// walked (simulation.forward); this is the same rule.
 	targets := t.Adj[node.ID]
+	nodeIdx := -1
+	if t.Telemetry != nil {
+		nodeIdx = t.NodeIndex[node.ID]
+	}
 	took := false
-	for _, targetID := range targets {
+	for pos, targetID := range targets {
 		if len(msgs) > 0 && TakesEdge(branch, t.EdgeLabels[node.ID+":"+targetID]) {
 			took = true
+			t.Telemetry.edge(nodeIdx, pos, len(msgs))
 			for _, msg := range msgs {
 				// Clone the message if it's going to multiple targets to avoid data races
 				// when nodes modify the message concurrently.
@@ -532,6 +565,7 @@ func (t *WorkflowTraversal) forkFanout(ctx context.Context, node *storage.Workfl
 func (t *WorkflowTraversal) walkFrom(ctx context.Context, node *storage.WorkflowNode, msg hermod.Message, branch string) {
 	child := Acquire(t.Registry, t.Eng, t.WorkflowID, t.NodeMap, t.Adj, t.NodeIndex,
 		t.EdgeLabels, t.EdgeBreakpoints, t.InDegree, t.SinkNodeToIndex)
+	child.Telemetry = t.Telemetry
 
 	child.handleResults(ctx, node, []hermod.Message{msg}, branch, nil)
 	child.Wg.Wait()

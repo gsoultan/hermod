@@ -8,40 +8,45 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gsoultan/hermod/pkg/comm/transformer"
+	"github.com/gsoultan/hermod/pkg/infra/evaluator"
 
 	"github.com/gsoultan/hermod"
 )
 
 func init() {
 	transformer.Register("ai_enrichment", &AITransformer{})
-	transformer.Register("ai_mapper", &AIMapperTransformer{})
 }
 
 // AITransformer uses Large Language Models to enrich or transform data.
+//
+// One registered value serves every message of every workflow, so it holds
+// nothing that is written after construction.
 type AITransformer struct {
 	client *http.Client
 }
 
-// AIMapperTransformer uses Large Language Models to map data to a target schema.
-type AIMapperTransformer struct {
-	AITransformer
+// defaultAIClient is used when a transformer was built without its own client.
+var defaultAIClient = &http.Client{Timeout: 30 * time.Second}
+
+// maxAIErrorBody is how much of a provider's error response is kept in the
+// returned error. Providers can answer with whole HTML pages.
+const maxAIErrorBody = 2 << 10
+
+func (t *AITransformer) httpClient() *http.Client {
+	if t.client != nil {
+		return t.client
+	}
+	return defaultAIClient
 }
 
-func (t *AIMapperTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
-	targetSchema, _ := config["targetSchema"].(string)
-	hints, _ := config["hints"].(string)
-
-	prompt := "Map the following data to this JSON schema: " + targetSchema
-	if hints != "" {
-		prompt += "\nHints: " + hints
-	}
-	prompt += "\nOutput ONLY valid JSON that matches the schema. Do not include any explanations or markdown blocks."
-
-	config["prompt"] = prompt
-	return t.AITransformer.Transform(ctx, msg, config)
+// errorBody reads at most maxAIErrorBody bytes of an error response.
+func errorBody(r io.Reader) string {
+	b, _ := io.ReadAll(io.LimitReader(r, maxAIErrorBody))
+	return string(b)
 }
 
 func (t *AITransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
@@ -52,6 +57,9 @@ func (t *AITransformer) Transform(ctx context.Context, msg hermod.Message, confi
 	provider, _ := config["provider"].(string) // "openai", "ollama"
 	endpoint, _ := config["endpoint"].(string)
 	apiKey, _ := config["apiKey"].(string)
+	// The key decides whose account is billed, so row data must not choose
+	// it: only {{secret("NAME")}} resolves, for the message's vhost.
+	apiKey = strings.TrimSpace(evaluator.ResolveTemplateScoped(apiKey, msg))
 	model, _ := config["model"].(string)
 	prompt, _ := config["prompt"].(string)
 	targetField, _ := config["targetField"].(string)
@@ -66,10 +74,6 @@ func (t *AITransformer) Transform(ctx context.Context, msg hermod.Message, confi
 			provider = "openai"
 			endpoint = "https://api.openai.com/v1/chat/completions"
 		}
-	}
-
-	if t.client == nil {
-		t.client = &http.Client{Timeout: 30 * time.Second}
 	}
 
 	// Prepare data for the prompt
@@ -132,15 +136,14 @@ func (t *AITransformer) callOpenAI(ctx context.Context, endpoint, apiKey, model,
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 
-	resp, err := t.client.Do(req)
+	resp, err := t.httpClient().Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("openai error (status %d): %s", resp.StatusCode, string(b))
+		return "", fmt.Errorf("openai error (status %d): %s", resp.StatusCode, errorBody(resp.Body))
 	}
 
 	var res struct {
@@ -181,15 +184,14 @@ func (t *AITransformer) callOllama(ctx context.Context, endpoint, model, prompt 
 
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := t.client.Do(req)
+	resp, err := t.httpClient().Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("ollama error (status %d): %s", resp.StatusCode, string(b))
+		return "", fmt.Errorf("ollama error (status %d): %s", resp.StatusCode, errorBody(resp.Body))
 	}
 
 	var res struct {

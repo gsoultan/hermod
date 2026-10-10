@@ -13,7 +13,7 @@ import {
 } from '@mantine/core';
 import { Spotlight, spotlight } from '@mantine/spotlight';
 import '@mantine/spotlight/styles.css';
-import { NODE_CATEGORIES } from './WorkflowEditor/constants/nodeCategories';
+import { NODE_CATEGORIES, paletteItemData } from './WorkflowEditor/constants/nodeCategories';
 import { IconSearch } from '@tabler/icons-react';
 import { useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
@@ -189,7 +189,7 @@ function EditorInner() {
               x: (bounds?.width || 400) / 2, 
               y: (bounds?.height || 400) / 2 
             });
-            const node = addNodeAtPosition(item.type, item.refId, item.label, item.subType, pos);
+            const node = addNodeAtPosition(item.type, item.refId, item.label, item.subType, pos, paletteItemData(item));
             setSelectedNode(node);
             if (item.type === 'source' || item.type === 'sink' || item.type === 'transformation' || item.type === 'validator') {
               setConfigModalOpen(true);
@@ -323,7 +323,10 @@ function EditorInner() {
 
           <SidebarDrawer 
             onDragStart={onDragStart}
-            onAddItem={(type, refId, label, subType, extraData) => {
+            // The drawer passes the item's icon and colour before its extra
+            // data; taking extraData fifth spread the icon component into the
+            // new node's data and dropped a plugin's id.
+            onAddItem={(type, refId, label, subType, _icon, _color, extraData) => {
               const bounds = reactFlowWrapper.current?.getBoundingClientRect();
               const { nodes } = useWorkflowStore.getState();
               let pos;

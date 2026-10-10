@@ -23,21 +23,25 @@ import (
 	"github.com/gsoultan/hermod/internal/config"
 	dashboardhttp "github.com/gsoultan/hermod/internal/dashboard/transport/http"
 	"github.com/gsoultan/hermod/internal/engine/registry"
+	executionshttp "github.com/gsoultan/hermod/internal/executions/transport/http"
 	fileshttp "github.com/gsoultan/hermod/internal/files/transport/http"
 	formshttp "github.com/gsoultan/hermod/internal/forms/transport/http"
 	infrahttp "github.com/gsoultan/hermod/internal/infra/transport/http"
 	logshttp "github.com/gsoultan/hermod/internal/logs/transport/http"
 	marketplacehttp "github.com/gsoultan/hermod/internal/marketplace/transport/http"
+	mcphttp "github.com/gsoultan/hermod/internal/mcpserver/transport/http"
 	"github.com/gsoultan/hermod/internal/ml"
 	mlgrpc "github.com/gsoultan/hermod/internal/ml/transport/grpc"
 	mlhttp "github.com/gsoultan/hermod/internal/ml/transport/http"
 	schemahttp "github.com/gsoultan/hermod/internal/schema/transport/http"
+	selfhealhttp "github.com/gsoultan/hermod/internal/selfheal/transport/http"
 	sinkhttp "github.com/gsoultan/hermod/internal/sink/transport/http"
 	sourcehttp "github.com/gsoultan/hermod/internal/source/transport/http"
 	ssehttp "github.com/gsoultan/hermod/internal/sse/transport/http"
 	"github.com/gsoultan/hermod/internal/storage"
 	webhookshttp "github.com/gsoultan/hermod/internal/webhooks/transport/http"
 	workerhttp "github.com/gsoultan/hermod/internal/worker/transport/http"
+	builderhttp "github.com/gsoultan/hermod/internal/workflow/builder/transport/http"
 	workflowhttp "github.com/gsoultan/hermod/internal/workflow/transport/http"
 	wshttp "github.com/gsoultan/hermod/internal/ws/transport/http"
 	grpcsource "github.com/gsoultan/hermod/pkg/comm/source/grpc"
@@ -146,6 +150,7 @@ func (s *Server) Routes() http.Handler {
 
 	infraH := infrahttp.NewInfraHandler(s.Handler)
 	workflowH := workflowhttp.NewWorkflowHandler(s.Handler)
+	executionsH := executionshttp.NewExecutionsHandler(s.Handler)
 	sourceH := sourcehttp.NewSourceHandler(s.Handler)
 	sinkH := sinkhttp.NewSinkHandler(s.Handler)
 	approvalH := approvalhttp.NewApprovalHandler(s.Handler)
@@ -160,6 +165,9 @@ func (s *Server) Routes() http.Handler {
 	filesH := fileshttp.NewFileHandler(s.Handler)
 	webhooksH := webhookshttp.NewWebhookHandler(s.Handler)
 	workerH := workerhttp.NewWorkerHandler(s.Handler)
+	mcpH := mcphttp.NewMCPHandler(s.Handler)
+	builderH := builderhttp.NewBuilderHandler(s.Handler)
+	proposalH := selfhealhttp.NewProposalHandler(s.Handler)
 	mlH := mlhttp.NewHandler(s.Handler)
 
 	// Health endpoints (unauthenticated; used by Kubernetes and load balancers)
@@ -178,6 +186,7 @@ func (s *Server) Routes() http.Handler {
 	}
 
 	workflowH.RegisterWorkflowRoutes(mux)
+	executionsH.RegisterExecutionRoutes(mux)
 	sourceH.RegisterSourceRoutes(mux)
 	sinkH.RegisterSinkRoutes(mux)
 	approvalH.RegisterApprovalRoutes(mux)
@@ -193,6 +202,9 @@ func (s *Server) Routes() http.Handler {
 	filesH.RegisterFileRoutes(mux)
 	webhooksH.RegisterWebhookRoutes(mux)
 	workerH.RegisterWorkerRoutes(mux)
+	mcpH.RegisterMCPRoutes(mux)
+	builderH.RegisterBuilderRoutes(mux)
+	proposalH.RegisterProposalRoutes(mux)
 	mlH.RegisterRoutes(mux)
 
 	mux.HandleFunc("POST /api/graphql/{path...}", webhooksH.HandleGraphQL)

@@ -733,7 +733,7 @@ var commonQueries = map[string]string{
 	QueryCountApprovals:       "SELECT COUNT(*) FROM approvals",
 	QueryCreateApproval:       "INSERT INTO approvals (id, workflow_id, node_id, message_id, payload, metadata, data, form_definition, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 	QueryGetApproval:          "SELECT id, workflow_id, node_id, message_id, payload, metadata, data, form_definition, form_data, status, created_at, processed_at, processed_by, notes FROM approvals WHERE id = ?",
-	QueryUpdateApprovalStatus: "UPDATE approvals SET status = ?, processed_at = ?, processed_by = ?, notes = ?, form_data = ? WHERE id = ?",
+	QueryUpdateApprovalStatus: "UPDATE approvals SET status = ?, processed_at = ?, processed_by = ?, notes = ?, form_data = ? WHERE id = ? AND (status = 'pending' OR status = '' OR status IS NULL)",
 	// Suspended Messages
 	QueryCreateSuspendedMessage: "INSERT INTO suspended_messages (id, workflow_id, node_id, payload, metadata, data, resume_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
 	QueryListSuspendedMessages:  "SELECT id, workflow_id, node_id, payload, metadata, data, resume_at, created_at FROM suspended_messages WHERE resume_at <= ?",

@@ -150,7 +150,7 @@ const SinkNode = ({ data }: any) => {
   );
 };
 
-const nodeTypes = {
+export const detailNodeTypes = {
   source: SourceNode,
   sink: SinkNode,
   transformation: TransformationNode,
@@ -161,6 +161,8 @@ const nodeTypes = {
   stateful: TransformationNode,
   wait: TransformationNode,
   foreach: TransformationNode,
+  ai_classify: TransformationNode,
+  ai_agent: TransformationNode,
 };
 
 interface DetailFlowCanvasProps {
@@ -211,7 +213,7 @@ export function DetailFlowCanvas({ nodes, edges, onNodesChange, onEdgesChange, s
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
-        nodeTypes={nodeTypes}
+        nodeTypes={detailNodeTypes}
         fitView
       >
         <Background color={isDark ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-gray-3)'} gap={20} />

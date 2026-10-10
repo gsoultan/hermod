@@ -11,6 +11,10 @@ import (
 
 var ErrNotFound = errors.New("not found")
 
+// ErrApprovalDecided is returned when an approval is no longer pending, so a
+// second decision cannot resume its workflow again.
+var ErrApprovalDecided = errors.New("approval was already decided")
+
 type Log struct {
 	ID         string    `json:"id"`
 	Timestamp  time.Time `json:"timestamp"`
@@ -568,7 +572,14 @@ type ApprovalFilter struct {
 	CommonFilter
 	WorkflowID string
 	Status     string
+	// VHosts, when not nil, limits the list to approvals raised by workflows
+	// in these vhosts or in the shared default vhost ("", "default", "all"),
+	// matching Handler.HasVHostAccess. Nil means no limit.
+	VHosts []string
 }
+
+// SharedVHosts are the vhost names every user may access.
+var SharedVHosts = []string{"", "default", "all"}
 
 type SuspendedMessage struct {
 	ID         string            `json:"id"`

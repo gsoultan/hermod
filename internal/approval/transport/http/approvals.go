@@ -1,9 +1,11 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/gsoultan/hermod/internal/api/handlers"
@@ -26,6 +28,9 @@ func (h *ApprovalHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 	if v := r.URL.Query().Get("status"); v != "" {
 		af.Status = v
 	}
+	if role, vhosts := h.GetRoleAndVHosts(r); role != storage.RoleAdministrator && !slices.Contains(vhosts, "*") {
+		af.VHosts = append([]string{}, vhosts...)
+	}
 
 	apps, total, err := h.Storage.ListApprovals(r.Context(), af)
 	if err != nil {
@@ -41,24 +46,53 @@ func (h *ApprovalHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *ApprovalHandler) GetApproval(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	app, err := h.Storage.GetApproval(r.Context(), id)
-	if err != nil {
-		if errors.Is(err, storage.ErrNotFound) {
-			h.JsonError(w, "Approval not found", http.StatusNotFound)
-		} else {
-			h.JsonError(w, "Failed to get approval: "+err.Error(), http.StatusInternalServerError)
-		}
+	app, ok := h.approval(w, r)
+	if !ok {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(app)
 }
 
+// approval reads the approval named in the path, if the caller may see the
+// workflow that raised it, having written the refusal when not. An approval of
+// another vhost answers "not found", so its existence is not disclosed either.
+func (h *ApprovalHandler) approval(w http.ResponseWriter, r *http.Request) (storage.Approval, bool) {
+	app, err := h.Storage.GetApproval(r.Context(), r.PathValue("id"))
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			h.JsonError(w, "Approval not found", http.StatusNotFound)
+		} else {
+			h.JsonError(w, "Failed to get approval: "+err.Error(), http.StatusInternalServerError)
+		}
+		return app, false
+	}
+	role, vhosts := h.GetRoleAndVHosts(r)
+	if role == storage.RoleAdministrator {
+		return app, true
+	}
+	wf, err := h.Storage.GetWorkflow(r.Context(), app.WorkflowID)
+	switch {
+	case err != nil && !errors.Is(err, storage.ErrNotFound):
+		h.JsonError(w, "Failed to get approval: "+err.Error(), http.StatusInternalServerError)
+		return app, false
+	case err != nil || !h.HasVHostAccess(wf.VHost, vhosts):
+		// A workflow that no longer exists has no vhost to check against,
+		// so only an administrator may see what it left behind.
+		h.JsonError(w, "Approval not found", http.StatusNotFound)
+		return app, false
+	}
+	return app, true
+}
+
 type decisionBody struct {
 	Notes    string         `json:"notes"`
 	FormData map[string]any `json:"form_data"`
 }
+
+// approvalResumeTimeout bounds the walk an approval decision starts: the
+// request has ended by then, so nothing else would stop a stuck resume.
+const approvalResumeTimeout = 10 * time.Minute
 
 func (h *ApprovalHandler) ApproveApproval(w http.ResponseWriter, r *http.Request) {
 	h.HandleApprovalDecision(w, r, "approved")
@@ -71,13 +105,16 @@ func (h *ApprovalHandler) RejectApproval(w http.ResponseWriter, r *http.Request)
 func (h *ApprovalHandler) HandleApprovalDecision(w http.ResponseWriter, r *http.Request, status string) {
 	id := r.PathValue("id")
 
-	app, err := h.Storage.GetApproval(r.Context(), id)
-	if err != nil {
-		if errors.Is(err, storage.ErrNotFound) {
-			h.JsonError(w, "Approval not found", http.StatusNotFound)
-		} else {
-			h.JsonError(w, "Failed to get approval: "+err.Error(), http.StatusInternalServerError)
-		}
+	app, ok := h.approval(w, r)
+	if !ok {
+		return
+	}
+
+	// A decision resumes the workflow, so deciding twice would resume it
+	// twice: the message delivered again, and an AI agent's approved write
+	// tool run again. Only a pending approval can be decided.
+	if app.Status != "" && app.Status != "pending" {
+		h.JsonError(w, "Approval was already "+app.Status, http.StatusConflict)
 		return
 	}
 
@@ -91,21 +128,39 @@ func (h *ApprovalHandler) HandleApprovalDecision(w http.ResponseWriter, r *http.
 	}
 
 	if err := h.Storage.UpdateApprovalStatus(r.Context(), id, status, processedBy, body.Notes, body.FormData); err != nil {
+		if errors.Is(err, storage.ErrApprovalDecided) {
+			h.JsonError(w, "Approval was already decided", http.StatusConflict)
+			return
+		}
 		h.JsonError(w, "Failed to update approval: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Resume workflow from this approval node
+	// Resume workflow from this approval node.
+	//
+	// The resume outlives this request: the server ends r.Context() as soon as
+	// the handler returns, and running on it the reload below failed and no
+	// approved message was ever delivered. It keeps the request's values and
+	// gets its own bound instead.
+	resumeCtx, cancelResume := context.WithTimeout(context.WithoutCancel(r.Context()), approvalResumeTimeout)
 	go func() {
+		defer cancelResume()
 		// small delay to ensure transactional visibility on some backends
 		time.Sleep(10 * time.Millisecond)
 		// reload approval to get updated fields if needed
-		if app2, e := h.Storage.GetApproval(r.Context(), id); e == nil {
-			branch := "approved"
-			if status == "rejected" {
-				branch = "rejected"
-			}
-			_ = h.Registry.ResumeApproval(r.Context(), app2, branch)
+		app2, e := h.Storage.GetApproval(resumeCtx, id)
+		if e != nil {
+			h.Registry.GetLogger().Error("Approval decided but its workflow could not be resumed",
+				"approval_id", id, "error", e)
+			return
+		}
+		branch := "approved"
+		if status == "rejected" {
+			branch = "rejected"
+		}
+		if e := h.Registry.ResumeApproval(resumeCtx, app2, branch); e != nil {
+			h.Registry.GetLogger().Error("Resuming the workflow after an approval failed",
+				"approval_id", id, "workflow_id", app2.WorkflowID, "error", e)
 		}
 	}()
 

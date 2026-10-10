@@ -593,7 +593,7 @@ func (r *Runner) runSourceToBuffer(ctx context.Context) {
 		}
 
 		reconnectAttempts = 0
-		r.engine.setSourceStatus("running")
+		r.engine.setSourceStatusOnChange("running")
 		_, _, engStatus, _, _, _, _, _ := r.engine.statusTracker.GetStatus()
 		if engStatus == "reconnecting:source" || engStatus == "connecting" {
 			if engStatus == "reconnecting:source" {
