@@ -117,6 +117,29 @@ record. With a serving key, other applications call the same model at
 See [docs/ml.md](docs/ml.md). Training models in Hermod follows in a later
 release.
 
+### Added — feature engineering nodes
+
+A new *Feature Engineering* palette group prepares records for a model:
+
+- **Scale** — min-max or z-score with statistics fitted at training time, typed
+  per field or pasted as a JSON blob. They are never refitted on live records,
+  so a model is served the scale it was trained on.
+- **Encode** — one-hot over a fixed category list with an "other" bucket,
+  label encoding from a category-to-integer mapping, or a stable FNV-1a hash
+  bucket.
+- **Bucketize** — a number into bins by explicit edges, with labels and a
+  choice for values outside the edges.
+- **Rolling Features** — count, sum, mean, std, min and max per key over the
+  last N records or a time window.
+- **Anomaly Score** — a per-key z-score or IQR score against the key's recent
+  values, with an is-anomaly flag above a threshold.
+
+Rolling Features and Anomaly Score hold at most 10 000 keys per node by
+default, dropping the least recently seen. Their windows are in memory unless
+**Keep windows across restarts** is on, which saves them to the state store as
+Aggregate's persistent mode does. See
+[docs/ml.md](docs/ml.md#feature-engineering-nodes).
+
 ### Added — a vhost keeps its own secrets
 
 There was nowhere in Hermod to save a secret. `secret("NAME")` read the
