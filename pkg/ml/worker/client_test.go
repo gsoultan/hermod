@@ -218,3 +218,61 @@ func TestAVersionCarriesItsTrainingStats(t *testing.T) {
 		t.Errorf("plan = %+v", plan)
 	}
 }
+
+func TestTrainSendsDeepLearningParamsOnlyWhenSet(t *testing.T) {
+	f := &fakeWorker{reply: `{"model":"m","version":"1"}`}
+	c := New(f.server(t).URL, "", nil)
+
+	if _, err := c.Train(t.Context(), "v", "m", TrainSpec{Dataset: "d", Target: "t", Algorithm: "random_forest"}); err != nil {
+		t.Fatalf("Train: %v", err)
+	}
+	if strings.Contains(string(f.body), `"params"`) {
+		t.Errorf("params sent for a spec without them: %s", f.body)
+	}
+
+	spec := TrainSpec{Dataset: "d", Target: "t", Algorithm: "pytorch_mlp", Params: &TrainParams{
+		HiddenLayers: []int{16, 8}, Epochs: 50, BatchSize: 64, LearningRate: 0.01, Patience: 5,
+	}}
+	if _, err := c.Train(t.Context(), "v", "m", spec); err != nil {
+		t.Fatalf("Train: %v", err)
+	}
+	if !strings.Contains(string(f.body), `"params":{"hidden_layers":[16,8],"epochs":50,"batch_size":64,"learning_rate":0.01,"patience":5}`) {
+		t.Errorf("body = %s, want every param", f.body)
+	}
+
+	// Unset fields are left for the worker's defaults.
+	spec.Params = &TrainParams{Epochs: 10}
+	if _, err := c.Train(t.Context(), "v", "m", spec); err != nil {
+		t.Fatalf("Train: %v", err)
+	}
+	if !strings.Contains(string(f.body), `"params":{"epochs":10}`) {
+		t.Errorf("body = %s, want only epochs in params", f.body)
+	}
+}
+
+func TestCapabilitiesSaysWhatTheWorkerCanTrain(t *testing.T) {
+	f := &fakeWorker{reply: `{"tasks":["auto","classification","regression"],
+		"algorithms":["auto","random_forest","gradient_boosting","linear","xgboost"],
+		"unavailable":{"pytorch_mlp":"the torch package is not installed","keras_mlp":"the tensorflow package is not installed"}}`}
+	c := New(f.server(t).URL, "secret", nil)
+
+	caps, err := c.Capabilities(t.Context())
+	if err != nil {
+		t.Fatalf("Capabilities: %v", err)
+	}
+	if f.method != http.MethodGet || f.path != "/v1/capabilities" || f.auth != "Bearer secret" {
+		t.Errorf("called %s %s with %q", f.method, f.path, f.auth)
+	}
+	if len(caps.Algorithms) != 5 || caps.Algorithms[4] != "xgboost" || len(caps.Tasks) != 3 {
+		t.Errorf("capabilities = %+v", caps)
+	}
+	if caps.Unavailable["pytorch_mlp"] != "the torch package is not installed" {
+		t.Errorf("unavailable = %v", caps.Unavailable)
+	}
+
+	// A worker from before capabilities existed answers 404.
+	f.status, f.reply = http.StatusNotFound, `{"error":"Not found."}`
+	if _, err := c.Capabilities(t.Context()); !errors.Is(err, ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound", err)
+	}
+}

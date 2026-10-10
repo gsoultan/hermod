@@ -5,9 +5,11 @@ import {
 import { IconAlertCircle, IconCircleCheck, IconInfoCircle } from '@tabler/icons-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  ALGORITHM_OPTIONS, MODEL_NAME_PATTERN, TASK_OPTIONS, mlModelsKey, modelNameRule, trainModel, useDataset,
-  useVHostDatasets, versionsKey, type GoLive, type TrainAlgorithm, type TrainResult, type TrainTask,
+  MODEL_NAME_PATTERN, TASK_OPTIONS, algorithmOptions, isDeepAlgorithm, mlModelsKey, modelNameRule, trainModel,
+  useDataset, useVHostDatasets, useWorkerStatus, versionsKey, type GoLive, type TrainAlgorithm, type TrainParams,
+  type TrainResult, type TrainTask,
 } from '@/lib/mlModels'
+import { DeepParamsFields, readDeepParams, type DeepParamsText } from './deepParams'
 import { GoLiveField } from './goLive'
 
 /** Shows a metric the way people read it: four significant digits. */
@@ -28,19 +30,24 @@ export function TrainModal({ vhost, modelName, onClose }: { vhost: string; model
   const [algorithm, setAlgorithm] = useState<TrainAlgorithm>('auto')
   const [goLive, setGoLive] = useState<GoLive>({ mode: 'never' })
   const [nameError, setNameError] = useState<string | null>(null)
+  const [deepText, setDeepText] = useState<DeepParamsText>({})
+  const [deepErrors, setDeepErrors] = useState<ReturnType<typeof readDeepParams>['errors']>({})
 
+  const { data: worker } = useWorkerStatus()
   const { data: datasets = [] } = useVHostDatasets(vhost)
   const { data: info } = useDataset(vhost, dataset)
   const columns = (info?.columns ?? []).map((c) => c.name)
+  const deep = isDeepAlgorithm(algorithm)
 
   const train = useMutation({
-    mutationFn: () =>
+    mutationFn: (params: TrainParams | undefined) =>
       trainModel(vhost, name.trim(), {
         dataset: dataset as string,
         target: target as string,
         features: features.length ? features : undefined,
         task,
         algorithm,
+        params: deep ? params : undefined,
         go_live: goLive,
       }),
     onSuccess: (res) => {
@@ -53,8 +60,10 @@ export function TrainModal({ vhost, modelName, onClose }: { vhost: string; model
     event.preventDefault()
     const badName = !MODEL_NAME_PATTERN.test(name.trim())
     setNameError(badName ? `"${name.trim()}" is not a valid name.` : null)
-    if (badName || !dataset || !target) return
-    train.mutate()
+    const { params, errors } = deep ? readDeepParams(deepText) : { params: undefined, errors: {} }
+    setDeepErrors(errors)
+    if (badName || !dataset || !target || Object.keys(errors).length) return
+    train.mutate(params)
   }
 
   return (
@@ -74,9 +83,13 @@ export function TrainModal({ vhost, modelName, onClose }: { vhost: string; model
             disabled={!target} data={columns.filter((c) => c !== target)} value={features} onChange={setFeatures} />
           <Group grow align="flex-start">
             <Select label="Task" data={TASK_OPTIONS} value={task} allowDeselect={false} onChange={(v) => setTask((v ?? 'auto') as TrainTask)} />
-            <Select label="Algorithm" data={ALGORITHM_OPTIONS} value={algorithm} allowDeselect={false}
+            <Select label="Algorithm" data={algorithmOptions(worker)} value={algorithm} allowDeselect={false}
               onChange={(v) => setAlgorithm((v ?? 'auto') as TrainAlgorithm)} />
           </Group>
+          {deep && (
+            <DeepParamsFields value={deepText} errors={deepErrors}
+              onChange={(patch) => { setDeepText((t) => ({ ...t, ...patch })); setDeepErrors({}) }} />
+          )}
           <GoLiveField value={goLive} onChange={setGoLive} />
 
           {train.error && (

@@ -203,6 +203,8 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		s.queries.get(QueryInitVHostSecretsTable),
 		s.queries.get(QueryInitMLModelsTable),
 		s.queries.get(QueryInitMLPredictionLogsTable),
+		s.queries.get(QueryInitAIBudgetsTable),
+		s.queries.get(QueryInitAIUsageTable),
 		s.queries.get(QueryInitWorkersTable),
 		s.queries.get(QueryInitApprovalsTable),
 		s.queries.get(QueryInitSettingsTable),
@@ -1495,9 +1497,9 @@ func (s *sqlStorage) UpdateVHost(ctx context.Context, vhost storage.VHost) error
 	return err
 }
 
-// DeleteVHost removes the vhost and the secrets, models and prediction logs it
-// holds. All are keyed by the vhost's name, so one left behind would be
-// inherited by the next vhost created under that name.
+// DeleteVHost removes the vhost and the secrets, models, prediction logs and
+// AI budget it holds. All are keyed by the vhost's name, so one left behind
+// would be inherited by the next vhost created under that name.
 func (s *sqlStorage) DeleteVHost(ctx context.Context, id string) error {
 	vhost, err := s.GetVHost(ctx, id)
 	if err != nil && !errors.Is(err, storage.ErrNotFound) {
@@ -1511,6 +1513,9 @@ func (s *sqlStorage) DeleteVHost(ctx context.Context, id string) error {
 			return err
 		}
 		if err := s.DeleteMLPredictionLogs(ctx, vhost.Name, ""); err != nil {
+			return err
+		}
+		if err := s.DeleteAIBudgets(ctx, vhost.Name); err != nil {
 			return err
 		}
 	}

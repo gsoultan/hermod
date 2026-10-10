@@ -60,6 +60,25 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- .Values.mlWorker.existingSecret | default (include "hermod.mlWorker.fullname" .) }}
 {{- end }}
 
+{{/*
+The ML worker's image tag: mlWorker.image.tag when set, else the chart's
+appVersion, with "-dl" appended for the deep-learning variant.
+*/}}
+{{- define "hermod.mlWorker.imageTag" -}}
+{{- $image := .Values.mlWorker.image -}}
+{{- $variant := $image.variant | default "" -}}
+{{- if not (has $variant (list "" "dl")) -}}
+{{- fail (printf "mlWorker.image.variant %q must be empty or \"dl\"" $variant) -}}
+{{- end -}}
+{{- if $image.tag -}}
+{{- $image.tag -}}
+{{- else if eq $variant "dl" -}}
+{{- printf "%s-dl" .Chart.AppVersion -}}
+{{- else -}}
+{{- .Chart.AppVersion -}}
+{{- end -}}
+{{- end }}
+
 {{- define "hermod.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
 {{- default (include "hermod.fullname" .) .Values.serviceAccount.name }}
