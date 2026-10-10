@@ -1,0 +1,55 @@
+{
+  "_comment": [
+    "default, nullif, is_null and is_empty, as the engine runs them. Every file",
+    "in this directory is read by pkg/infra/evaluator/function_fixture_test.go;",
+    "each case is a whole expression evaluated against `source`.",
+    "",
+    "default(x, v) is coalesce for one value: v when x is missing or empty text.",
+    "0 and false are values. nullif(a, b) is null when a and b read as the same",
+    "text -- eq's comparison -- and a otherwise. is_null is true only for a",
+    "missing value; is_empty also for text holding nothing but whitespace and for",
+    "an empty list or object."
+  ],
+  "source": {
+    "name": "Ada",
+    "blank": "",
+    "spaces": "  \t ",
+    "zero": 0,
+    "no": false,
+    "list": [],
+    "obj": {},
+    "items": [1],
+    "status": "n/a"
+  },
+  "cases": [
+    { "name": "default: a value is kept", "expr": "default(source.name, 'x')", "want": "Ada" },
+    { "name": "default: a missing value takes the default", "expr": "default(source.missing, 'x')", "want": "x" },
+    { "name": "default: empty text takes the default", "expr": "default(source.blank, 'x')", "want": "x" },
+    { "name": "default: 0 is a value", "expr": "default(source.zero, 5)", "want": 0 },
+    { "name": "default: false is a value", "expr": "default(source.no, true)", "want": false },
+    { "name": "default: without a default a missing value stays missing", "expr": "default(source.missing)", "want": null },
+    { "name": "default: no arguments", "expr": "default()", "want": null },
+
+    { "name": "nullif: equal values are null", "expr": "nullif(source.status, 'n/a')", "want": null },
+    { "name": "nullif: different values keep the first", "expr": "nullif(source.name, 'n/a')", "want": "Ada" },
+    { "name": "nullif: a number equals its text", "expr": "nullif(source.zero, '0')", "want": null },
+    { "name": "nullif: a number equals the same number", "expr": "nullif(source.zero, 0)", "want": null },
+    { "name": "nullif: one argument is null", "expr": "nullif(source.name)", "want": null },
+
+    { "name": "is_null: a missing value", "expr": "is_null(source.missing)", "want": true },
+    { "name": "is_null: empty text is not null", "expr": "is_null(source.blank)", "want": false },
+    { "name": "is_null: 0 is not null", "expr": "is_null(source.zero)", "want": false },
+    { "name": "is_null: no arguments", "expr": "is_null()", "want": null },
+
+    { "name": "is_empty: a missing value", "expr": "is_empty(source.missing)", "want": true },
+    { "name": "is_empty: empty text", "expr": "is_empty(source.blank)", "want": true },
+    { "name": "is_empty: only whitespace", "expr": "is_empty(source.spaces)", "want": true },
+    { "name": "is_empty: an empty list", "expr": "is_empty(source.list)", "want": true },
+    { "name": "is_empty: an empty object", "expr": "is_empty(source.obj)", "want": true },
+    { "name": "is_empty: 0 is not empty", "expr": "is_empty(source.zero)", "want": false },
+    { "name": "is_empty: false is not empty", "expr": "is_empty(source.no)", "want": false },
+    { "name": "is_empty: a list with an item", "expr": "is_empty(source.items)", "want": false },
+    { "name": "is_empty: text", "expr": "is_empty(source.name)", "want": false },
+    { "name": "is_empty: no arguments", "expr": "is_empty()", "want": null }
+  ]
+}

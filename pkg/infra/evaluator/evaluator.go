@@ -267,6 +267,11 @@ func (e *Evaluator) ParseAndEvaluate(msg hermod.Message, expr string) any {
 				if isSecretFunction(funcName) {
 					return secretFunction(messageVHost(msg), evaluatedArgs)
 				}
+				// hmac_sha256 reads its key from the secret manager as
+				// secret() does, so it answers for the same vhost.
+				if strings.EqualFold(funcName, "hmac_sha256") {
+					return hmacSHA256(messageVHost(msg), evaluatedArgs)
+				}
 				return e.CallFunction(funcName, evaluatedArgs)
 			}
 		}
@@ -580,6 +585,132 @@ func (e *Evaluator) CallFunction(name string, args []any) any {
 			}
 			return nil
 		}
+
+	// Null and default. default is coalesce for one value; nullif compares
+	// as eq does.
+	case "default":
+		if len(args) > 1 && isMissing(args[0]) {
+			return args[1]
+		}
+		if len(args) > 0 {
+			return args[0]
+		}
+	case "nullif":
+		if len(args) >= 2 {
+			if stringify(args[0]) == stringify(args[1]) {
+				return nil
+			}
+			return args[0]
+		}
+	case "is_null":
+		if len(args) > 0 {
+			return args[0] == nil
+		}
+	case "is_empty":
+		if len(args) > 0 {
+			return isEmptyValue(args[0])
+		}
+
+	// Text, read with stringify as the text functions above read it.
+	case "len":
+		if len(args) > 0 {
+			return textLength(args[0])
+		}
+	case "starts_with":
+		if len(args) >= 2 {
+			return strings.HasPrefix(stringify(args[0]), stringify(args[1]))
+		}
+	case "ends_with":
+		if len(args) >= 2 {
+			return strings.HasSuffix(stringify(args[0]), stringify(args[1]))
+		}
+	case "pad_left":
+		return pad(args, true)
+	case "pad_right":
+		return pad(args, false)
+	case "regex_extract":
+		return regexExtract(args)
+	case "regex_replace":
+		return regexReplace(args)
+	case "title":
+		if len(args) > 0 {
+			return titleCase(stringify(args[0]))
+		}
+	case "slug":
+		if len(args) > 0 {
+			return slugify(stringify(args[0]))
+		}
+	case "normalize_space":
+		if len(args) > 0 {
+			return strings.Join(strings.Fields(stringify(args[0])), " ")
+		}
+
+	// Numbers. As in add, a value that is not a number reads as 0, except
+	// where that would be a wrong answer rather than a default.
+	case "floor":
+		return unaryNumber(args, math.Floor)
+	case "ceil":
+		return unaryNumber(args, math.Ceil)
+	case "mod":
+		if len(args) >= 2 {
+			v1, _ := ToFloat64(args[0])
+			v2, _ := ToFloat64(args[1])
+			if v2 == 0 {
+				return nil
+			}
+			return finiteNumber(math.Mod(v1, v2))
+		}
+	case "pow":
+		if len(args) >= 2 {
+			v1, _ := ToFloat64(args[0])
+			v2, _ := ToFloat64(args[1])
+			return finiteNumber(math.Pow(v1, v2))
+		}
+	case "min":
+		return extreme(args, true)
+	case "max":
+		return extreme(args, false)
+	case "clamp":
+		return clamp(args)
+	case "format_number":
+		return formatNumber(args)
+
+	// Dates, read as toDate reads them and answered as ISO 8601.
+	case "date_add":
+		return dateAdd(args)
+	case "date_diff":
+		return dateDiff(args)
+	case "date_trunc":
+		return dateTrunc(args)
+	case "to_timezone":
+		return toTimezone(args)
+	case "parse_date":
+		return parseDate(args)
+	case "weekday":
+		return isoWeekday(args)
+	case "epoch_ms":
+		return epochMillis(args)
+
+	// JSON and lists.
+	case "json_get":
+		return jsonGet(args)
+	case "json_parse":
+		return jsonParse(args)
+	case "json_stringify":
+		return jsonStringify(args)
+	case "array_len", "array_join", "array_contains", "first", "last":
+		return listFunction(strings.ToLower(name), args)
+
+	// Encoding.
+	case "base64_encode", "url_encode", "url_decode":
+		return encodeText(strings.ToLower(name), args)
+	case "base64_decode":
+		return base64Decode(args)
+	case "hmac_sha256":
+		// Called here there is no message, so no vhost: the global manager
+		// only, as for secret(). ParseAndEvaluate answers it for the
+		// message's vhost before it would reach this.
+		return hmacSHA256("", args)
 	}
 	return nil
 }
@@ -1876,6 +2007,12 @@ const maxCachedPatterns = 512
 // Evicting one per insert would put an eviction on every call once full;
 // evicting a slice of them amortises it.
 const patternEvictionBatch = maxCachedPatterns / 8
+
+// maxFunctionPatternLen bounds the pattern regex_extract and regex_replace
+// accept. RE2 matches in time linear in the text, so this is not about
+// backtracking: it is the compile, and the cache slot, that a pattern built
+// from message data would otherwise cost at any size.
+const maxFunctionPatternLen = 1024
 
 // compiledPattern holds a compile's outcome, failures included. A pattern that
 // does not compile is cached too: it is the cheapest way to stop a stream of

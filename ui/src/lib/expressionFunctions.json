@@ -34,9 +34,13 @@
     "active": "yes",
     "vip": true,
     "created_at": "2024-03-09 14:30:00",
-    "order_date": "09/03/2024"
+    "order_date": "09/03/2024",
+    "headline": "the ANALYTICAL engine",
+    "address": "  12   Baker \t Street ",
+    "tags": ["new", "sale"],
+    "profile": "{\"address\":{\"city\":\"Jakarta\"},\"phones\":[\"+62 812-555-0199\"]}"
   },
-  "categories": ["Text", "Number", "Date & time", "Convert", "Logic", "IDs & secrets"],
+  "categories": ["Text", "Number", "Date & time", "Convert", "Logic", "JSON & lists", "Encoding", "IDs & secrets"],
   "functions": [
     {
       "name": "lower",
@@ -109,6 +113,106 @@
       "result": "Ada"
     },
     {
+      "name": "len",
+      "category": "Text",
+      "signature": "len(value)",
+      "summary": "How many characters the text has -- characters, not bytes, so é is one. For a list, how many items; for an object, how many keys.",
+      "keywords": ["length", "count", "size", "characters"],
+      "args": ["value"],
+      "example": "len(source.first_name)",
+      "result": 3
+    },
+    {
+      "name": "starts_with",
+      "category": "Text",
+      "signature": "starts_with(text, prefix)",
+      "summary": "true when the text begins with prefix. Upper and lower case are different letters.",
+      "keywords": ["prefix", "begins", "startswith"],
+      "args": ["value", "'prefix'"],
+      "example": "starts_with(source.sku, \"TSHIRT\")",
+      "result": true
+    },
+    {
+      "name": "ends_with",
+      "category": "Text",
+      "signature": "ends_with(text, suffix)",
+      "summary": "true when the text ends with suffix. Upper and lower case are different letters.",
+      "keywords": ["suffix", "endswith"],
+      "args": ["value", "'suffix'"],
+      "example": "ends_with(source.email, \".COM\")",
+      "result": true
+    },
+    {
+      "name": "pad_left",
+      "category": "Text",
+      "signature": "pad_left(text, width, [pad])",
+      "summary": "Widens the text to width characters by adding pad -- a space unless given -- in front. Text already that wide is left whole. width is a whole number up to 10000.",
+      "keywords": ["lpad", "leading zeros", "zero fill", "align"],
+      "args": ["value", "5", "'0'"],
+      "example": "pad_left(source.quantity, 4, \"0\")",
+      "result": "0003"
+    },
+    {
+      "name": "pad_right",
+      "category": "Text",
+      "signature": "pad_right(text, width, [pad])",
+      "summary": "Widens the text to width characters by adding pad -- a space unless given -- after it. Text already that wide is left whole. width is a whole number up to 10000.",
+      "keywords": ["rpad", "fill", "align"],
+      "args": ["value", "5", "' '"],
+      "example": "pad_right(source.first_name, 6, \".\")",
+      "result": "Ada..."
+    },
+    {
+      "name": "regex_extract",
+      "category": "Text",
+      "signature": "regex_extract(text, pattern, [group])",
+      "summary": "The first part of the text the regular expression matches, or one group of it by number or by name. null when nothing matches. Patterns use Go's RE2 syntax, up to 1024 characters.",
+      "keywords": ["regexp", "regular expression", "match", "capture", "pattern"],
+      "args": ["value", "'(\\d+)'", "1"],
+      "example": "regex_extract(source.sku, \"-([A-Z]+)-\", 1)",
+      "result": "RED"
+    },
+    {
+      "name": "regex_replace",
+      "category": "Text",
+      "signature": "regex_replace(text, pattern, with)",
+      "summary": "Replaces every part the regular expression matches. In with, $1 or ${name} stands for a group. null when the pattern is not valid.",
+      "keywords": ["regexp", "regular expression", "substitute", "pattern", "strip"],
+      "args": ["value", "'pattern'", "''"],
+      "example": "regex_replace(source.phone, \"[^0-9]\", \"\")",
+      "result": "628125550199"
+    },
+    {
+      "name": "title",
+      "category": "Text",
+      "signature": "title(text)",
+      "summary": "Every word starting with a capital and the rest in lowercase.",
+      "keywords": ["title case", "capitalize", "proper case", "case"],
+      "args": ["value"],
+      "example": "title(source.headline)",
+      "result": "The Analytical Engine"
+    },
+    {
+      "name": "slug",
+      "category": "Text",
+      "signature": "slug(text)",
+      "summary": "Text made safe for a URL: lowercase letters and digits, accents dropped, everything else one hyphen.",
+      "keywords": ["url", "permalink", "kebab", "handle"],
+      "args": ["value"],
+      "example": "slug(source.headline)",
+      "result": "the-analytical-engine"
+    },
+    {
+      "name": "normalize_space",
+      "category": "Text",
+      "signature": "normalize_space(text)",
+      "summary": "Text with every run of spaces, tabs and line breaks made one space, and none at either end.",
+      "keywords": ["collapse", "whitespace", "squeeze", "clean"],
+      "args": ["value"],
+      "example": "normalize_space(source.address)",
+      "result": "12 Baker Street"
+    },
+    {
       "name": "add",
       "category": "Number",
       "signature": "add(a, b)",
@@ -169,6 +273,86 @@
       "result": 42.5
     },
     {
+      "name": "floor",
+      "category": "Number",
+      "signature": "floor(number)",
+      "summary": "The number rounded down to a whole number.",
+      "keywords": ["round down", "integer"],
+      "args": ["value"],
+      "example": "floor(source.rating)",
+      "result": 4
+    },
+    {
+      "name": "ceil",
+      "category": "Number",
+      "signature": "ceil(number)",
+      "summary": "The number rounded up to a whole number.",
+      "keywords": ["round up", "ceiling"],
+      "args": ["value"],
+      "example": "ceil(source.rating)",
+      "result": 5
+    },
+    {
+      "name": "mod",
+      "category": "Number",
+      "signature": "mod(a, b)",
+      "summary": "The remainder of a divided by b, with the sign of a. null when b is 0.",
+      "keywords": ["modulo", "remainder", "%"],
+      "args": ["value", "2"],
+      "example": "mod(source.total_cents, 100)",
+      "result": 90
+    },
+    {
+      "name": "pow",
+      "category": "Number",
+      "signature": "pow(base, exponent)",
+      "summary": "base raised to the power of exponent. null when there is no finite answer.",
+      "keywords": ["power", "exponent", "square", "root"],
+      "args": ["value", "2"],
+      "example": "pow(source.quantity, 2)",
+      "result": 9
+    },
+    {
+      "name": "min",
+      "category": "Number",
+      "signature": "min(a, b, ...)",
+      "summary": "The smallest of the numbers, including the items of a list. Values that are not numbers are skipped.",
+      "keywords": ["minimum", "smallest", "least", "lowest"],
+      "args": ["value", "other"],
+      "example": "min(source.price, source.tax, source.discount)",
+      "result": 1.25
+    },
+    {
+      "name": "max",
+      "category": "Number",
+      "signature": "max(a, b, ...)",
+      "summary": "The largest of the numbers, including the items of a list. Values that are not numbers are skipped.",
+      "keywords": ["maximum", "largest", "greatest", "highest"],
+      "args": ["value", "other"],
+      "example": "max(source.price, source.tax, source.discount)",
+      "result": 12.5
+    },
+    {
+      "name": "clamp",
+      "category": "Number",
+      "signature": "clamp(number, low, high)",
+      "summary": "The number kept between low and high: below low it is low, above high it is high.",
+      "keywords": ["limit", "bound", "range", "cap"],
+      "args": ["value", "0", "100"],
+      "example": "clamp(source.balance, 0, 100)",
+      "result": 0
+    },
+    {
+      "name": "format_number",
+      "category": "Number",
+      "signature": "format_number(number, decimals, [locale])",
+      "summary": "The number as text with a thousands separator and decimals places, rounded as round() rounds. locale is en (1,234.50), de, id, it or nl (1.234,50) or fr (1 234,50).",
+      "keywords": ["thousands", "separator", "currency", "locale", "decimal"],
+      "args": ["value", "2", "'en'"],
+      "example": "format_number(source.total_cents, 2, \"de\")",
+      "result": "12.990,00"
+    },
+    {
       "name": "now",
       "category": "Date & time",
       "signature": "now()",
@@ -207,6 +391,76 @@
       "args": ["value"],
       "example": "toDate(source.order_date, \"02/01/2006\")",
       "result": "2024-03-09T00:00:00Z"
+    },
+    {
+      "name": "date_add",
+      "category": "Date & time",
+      "signature": "date_add(date, duration)",
+      "summary": "The date moved by a duration: 90m, 1h30m, 7d for days, 2w for weeks, -1d to go back. A day is 24 hours.",
+      "keywords": ["add days", "plus", "shift", "offset", "interval"],
+      "args": ["value", "'7d'"],
+      "example": "date_add(source.created_at, \"7d\")",
+      "result": "2024-03-16T14:30:00Z"
+    },
+    {
+      "name": "date_diff",
+      "category": "Date & time",
+      "signature": "date_diff(a, b, [unit])",
+      "summary": "How many whole units a is after b -- negative when it is before. unit is ms, second, minute, hour, day (the default), week, month or year.",
+      "keywords": ["difference", "between", "age", "elapsed", "datediff"],
+      "args": ["value", "other", "'day'"],
+      "example": "date_diff(source.created_at, \"2024-03-01\", \"day\")",
+      "result": 8
+    },
+    {
+      "name": "date_trunc",
+      "category": "Date & time",
+      "signature": "date_trunc(date, unit)",
+      "summary": "The start of the second, minute, hour, day, week (from Monday), month or year the date falls in.",
+      "keywords": ["truncate", "start of", "bucket", "round date"],
+      "args": ["value", "'day'"],
+      "example": "date_trunc(source.created_at, \"month\")",
+      "result": "2024-03-01T00:00:00Z"
+    },
+    {
+      "name": "to_timezone",
+      "category": "Date & time",
+      "signature": "to_timezone(date, zone)",
+      "summary": "The same moment on another time zone's clock. zone is an IANA name such as Asia/Jakarta or Europe/Berlin.",
+      "keywords": ["time zone", "convert", "tz", "local time", "utc"],
+      "args": ["value", "'Asia/Jakarta'"],
+      "example": "to_timezone(source.created_at, \"Asia/Jakarta\")",
+      "result": "2024-03-09T21:30:00+07:00"
+    },
+    {
+      "name": "parse_date",
+      "category": "Date & time",
+      "signature": "parse_date(text, layout)",
+      "summary": "Reads a date written in a known layout. A layout shows how 2 Jan 2006 15:04:05 would be written: \"02/01/2006\" is day/month/year. null when the text does not fit.",
+      "keywords": ["strptime", "read date", "parse"],
+      "args": ["value", "'02/01/2006'"],
+      "example": "parse_date(source.order_date, \"02/01/2006\")",
+      "result": "2024-03-09T00:00:00Z"
+    },
+    {
+      "name": "weekday",
+      "category": "Date & time",
+      "signature": "weekday(date)",
+      "summary": "The day of the week as a number: Monday is 1, Sunday is 7.",
+      "keywords": ["day of week", "dow", "weekend"],
+      "args": ["value"],
+      "example": "weekday(source.created_at)",
+      "result": 6
+    },
+    {
+      "name": "epoch_ms",
+      "category": "Date & time",
+      "signature": "epoch_ms(date)",
+      "summary": "The date as milliseconds since 1 January 1970 UTC.",
+      "keywords": ["unix", "milliseconds", "epoch", "timestamp"],
+      "args": ["value"],
+      "example": "epoch_ms(source.created_at)",
+      "result": 1709994600000
     },
     {
       "name": "toString",
@@ -339,6 +593,166 @@
       "result": false
     },
     {
+      "name": "default",
+      "category": "Logic",
+      "signature": "default(value, fallback)",
+      "summary": "The value, or fallback when the value is missing or empty text. 0 and false count as values.",
+      "keywords": ["fallback", "ifnull", "nvl", "missing"],
+      "args": ["value", "'default'"],
+      "example": "default(source.nickname, \"friend\")",
+      "result": "friend"
+    },
+    {
+      "name": "nullif",
+      "category": "Logic",
+      "signature": "nullif(value, other)",
+      "summary": "null when the value equals other, compared as eq compares; otherwise the value. Turns a placeholder such as \"n/a\" into a missing value.",
+      "keywords": ["null", "placeholder", "blank out"],
+      "args": ["value", "'n/a'"],
+      "example": "nullif(source.country, \"n/a\")",
+      "result": "id"
+    },
+    {
+      "name": "is_null",
+      "category": "Logic",
+      "signature": "is_null(value)",
+      "summary": "true when the value is missing. Empty text, 0 and false are not missing.",
+      "keywords": ["missing", "null", "isnull", "exists"],
+      "args": ["value"],
+      "example": "is_null(source.middle_name)",
+      "result": true
+    },
+    {
+      "name": "is_empty",
+      "category": "Logic",
+      "signature": "is_empty(value)",
+      "summary": "true when the value is missing, text with nothing but spaces, or an empty list or object.",
+      "keywords": ["blank", "empty", "missing"],
+      "args": ["value"],
+      "example": "is_empty(source.nickname)",
+      "result": true
+    },
+    {
+      "name": "json_get",
+      "category": "JSON & lists",
+      "signature": "json_get(value, path)",
+      "summary": "A value inside an object, a list or JSON text: keys between dots and [n] for an item, counted from 0 or from the end when negative -- address.city, phones[0].",
+      "keywords": ["json path", "extract", "dig", "nested", "pluck"],
+      "args": ["value", "'a.b[0]'"],
+      "example": "json_get(source.profile, \"phones[0]\")",
+      "result": "+62 812-555-0199"
+    },
+    {
+      "name": "json_parse",
+      "category": "JSON & lists",
+      "signature": "json_parse(text)",
+      "summary": "JSON text read into an object, a list, a number or text. null when the text is not JSON.",
+      "keywords": ["decode", "unmarshal", "from json"],
+      "args": ["value"],
+      "example": "json_parse(source.profile)",
+      "result": {"address": {"city": "Jakarta"}, "phones": ["+62 812-555-0199"]}
+    },
+    {
+      "name": "json_stringify",
+      "category": "JSON & lists",
+      "signature": "json_stringify(value)",
+      "summary": "The value written as JSON text, an object's keys in order.",
+      "keywords": ["encode", "marshal", "to json", "serialize"],
+      "args": ["value"],
+      "example": "json_stringify(source.tags)",
+      "result": "[\"new\",\"sale\"]"
+    },
+    {
+      "name": "array_len",
+      "category": "JSON & lists",
+      "signature": "array_len(list)",
+      "summary": "How many items the list has. null when the value is not a list.",
+      "keywords": ["count", "size", "length", "items"],
+      "args": ["value"],
+      "example": "array_len(source.tags)",
+      "result": 2
+    },
+    {
+      "name": "array_join",
+      "category": "JSON & lists",
+      "signature": "array_join(list, [separator])",
+      "summary": "The list's items written as one text with the separator -- a comma unless given -- between them.",
+      "keywords": ["implode", "join", "combine", "list to text"],
+      "args": ["value", "', '"],
+      "example": "array_join(source.tags, \" / \")",
+      "result": "new / sale"
+    },
+    {
+      "name": "array_contains",
+      "category": "JSON & lists",
+      "signature": "array_contains(list, value)",
+      "summary": "true when one of the list's items equals the value, compared as eq compares.",
+      "keywords": ["includes", "in", "has", "member"],
+      "args": ["value", "'item'"],
+      "example": "array_contains(source.tags, \"sale\")",
+      "result": true
+    },
+    {
+      "name": "first",
+      "category": "JSON & lists",
+      "signature": "first(list)",
+      "summary": "The list's first item. null for an empty list.",
+      "keywords": ["head", "earliest"],
+      "args": ["value"],
+      "example": "first(source.tags)",
+      "result": "new"
+    },
+    {
+      "name": "last",
+      "category": "JSON & lists",
+      "signature": "last(list)",
+      "summary": "The list's last item. null for an empty list.",
+      "keywords": ["tail", "latest", "end"],
+      "args": ["value"],
+      "example": "last(source.tags)",
+      "result": "sale"
+    },
+    {
+      "name": "base64_encode",
+      "category": "Encoding",
+      "signature": "base64_encode(text)",
+      "summary": "The text in standard base64.",
+      "keywords": ["base64", "encode", "btoa"],
+      "args": ["value"],
+      "example": "base64_encode(source.first_name)",
+      "result": "QWRh"
+    },
+    {
+      "name": "base64_decode",
+      "category": "Encoding",
+      "signature": "base64_decode(text)",
+      "summary": "Base64 -- standard or URL-safe, padded or not -- read back into text. null when it is not base64 or does not hold text.",
+      "keywords": ["base64", "decode", "atob"],
+      "args": ["value"],
+      "example": "base64_decode(\"QWRh\")",
+      "result": "Ada"
+    },
+    {
+      "name": "url_encode",
+      "category": "Encoding",
+      "signature": "url_encode(text)",
+      "summary": "The text escaped for a URL's query string: a space is +, and &, = and / are escaped.",
+      "keywords": ["urlencode", "escape", "percent encode", "query string"],
+      "args": ["value"],
+      "example": "url_encode(source.full_name)",
+      "result": "Ada+King+Lovelace"
+    },
+    {
+      "name": "url_decode",
+      "category": "Encoding",
+      "signature": "url_decode(text)",
+      "summary": "Text escaped for a URL read back: + is a space and %20 is too. null when an escape is broken.",
+      "keywords": ["urldecode", "unescape", "percent decode"],
+      "args": ["value"],
+      "example": "url_decode(\"Ada+King%20Lovelace\")",
+      "result": "Ada King Lovelace"
+    },
+    {
       "name": "uuid",
       "category": "IDs & secrets",
       "signature": "uuid()",
@@ -366,6 +780,16 @@
       "keywords": ["env", "password", "api key", "credential"],
       "args": ["'NAME'"],
       "example": "secret(\"API_KEY\")",
+      "volatile": true
+    },
+    {
+      "name": "hmac_sha256",
+      "category": "IDs & secrets",
+      "signature": "hmac_sha256(text, secret_name)",
+      "summary": "A signature of the text as lowercase hex, keyed with the secret of that name -- this vhost's, or failing that the server's. The key is only ever named, never written here. null when no secret has the name.",
+      "keywords": ["signature", "sign", "webhook", "hmac", "sha256"],
+      "args": ["value", "'SECRET_NAME'"],
+      "example": "hmac_sha256(source.email, \"WEBHOOK_KEY\")",
       "volatile": true
     }
   ]
