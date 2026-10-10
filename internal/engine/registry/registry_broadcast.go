@@ -312,11 +312,18 @@ func (r *Registry) BroadcastLog(engineID, level, msg, data string) {
 	}
 	r.mu.RUnlock()
 
-	// Run in goroutine to avoid blocking the pipeline during heavy logging,
-	// especially when log storage is slow.
-	go func() {
-		_ = r.CreateLog(context.Background(), l)
-	}()
+	r.mu.RLock()
+	ls := r.logStore()
+	r.mu.RUnlock()
+	if ls == nil {
+		return
+	}
+
+	// Live subscribers get the line now, whatever storage is doing; the
+	// write is queued to a bounded pool (see logWriter) and may be dropped,
+	// but never makes the pipeline wait.
+	r.fanoutLog(l)
+	r.enqueueLog(l)
 }
 
 func (r *Registry) CreateLog(ctx context.Context, l storage.Log) error {
@@ -326,31 +333,42 @@ func (r *Registry) CreateLog(ctx context.Context, l storage.Log) error {
 
 	if ls != nil {
 		err := ls.CreateLog(ctx, l)
+		r.fanoutLog(l)
+		return err
+	}
+	return nil
+}
 
-		r.statusSubsMu.RLock()
-		// Global log subscribers
-		for ch := range r.logSubs {
+// persistLog writes one line to log storage without notifying subscribers.
+func (r *Registry) persistLog(ctx context.Context, l storage.Log) error {
+	r.mu.RLock()
+	ls := r.logStore()
+	r.mu.RUnlock()
+	if ls == nil {
+		return nil
+	}
+	return ls.CreateLog(ctx, l)
+}
+
+// fanoutLog hands a line to the global and per-workflow log subscribers,
+// skipping any that are not keeping up.
+func (r *Registry) fanoutLog(l storage.Log) {
+	r.statusSubsMu.RLock()
+	defer r.statusSubsMu.RUnlock()
+	for ch := range r.logSubs {
+		select {
+		case ch <- l:
+		default:
+		}
+	}
+	if l.WorkflowID != "" {
+		for ch := range r.workflowLogSubs[l.WorkflowID] {
 			select {
 			case ch <- l:
 			default:
 			}
 		}
-		// Per-workflow log subscribers
-		if l.WorkflowID != "" {
-			if subs, ok := r.workflowLogSubs[l.WorkflowID]; ok {
-				for ch := range subs {
-					select {
-					case ch <- l:
-					default:
-					}
-				}
-			}
-		}
-		r.statusSubsMu.RUnlock()
-
-		return err
 	}
-	return nil
 }
 
 func (r *Registry) CreateLogs(ctx context.Context, logs []storage.Log) error {

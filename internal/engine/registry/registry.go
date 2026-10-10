@@ -191,6 +191,11 @@ type Registry struct {
 	hasLiveSubs   atomic.Int32
 	hasStatusSubs atomic.Int32
 
+	// logWriter persists BroadcastLog lines; logWriteTimeout bounds each
+	// write (zero means defaultLogWriteTimeout).
+	logWriter       logWriter
+	logWriteTimeout time.Duration
+
 	ctx    context.Context
 	cancel context.CancelFunc
 }
@@ -363,6 +368,7 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 
 func (r *Registry) Close() {
 	r.cancel()
+	r.stopLogWriters(defaultLogWriteTimeout)
 
 	r.dbPoolMu.Lock()
 	defer r.dbPoolMu.Unlock()
