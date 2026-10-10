@@ -370,7 +370,7 @@ One call takes at most 1000 rows.
 
 ## MCP clients
 
-A model can be offered to Claude, ChatGPT and other MCP clients as a tool on
+A model can be offered to AI assistants and other MCP clients as a tool on
 Hermod's MCP server (`/api/mcp`, see [ai-automation.md](ai-automation.md#mcp-server)).
 It is off for every model until an Editor turns on **Expose to MCP** on the
 Models page (`PUT /api/vhosts/{vhost}/ml/models/{name}/mcp` with
