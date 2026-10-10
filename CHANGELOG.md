@@ -43,6 +43,36 @@ request that does not carry it in the `X-API-Key` header. It used to accept
 every request. Before upgrading, make sure each sender of a keyed webhook sends
 the header, or clear the key on the source.
 
+### Added — 42 more expression functions
+
+Expressions could not pad an id, pull a number out of text, move a date by a
+week or read a key inside a JSON column without a Script node. Every Set
+Fields, Formulas, condition and template expression now also has:
+
+- **Null and default:** `default`, `nullif`, `is_null`, `is_empty`.
+- **Text:** `len`, `starts_with`, `ends_with`, `pad_left`, `pad_right`,
+  `regex_extract`, `regex_replace`, `title`, `slug`, `normalize_space`.
+- **Numbers:** `floor`, `ceil`, `mod`, `pow`, `min`, `max`, `clamp`, and
+  `format_number` with en, de, fr, id, it and nl separators.
+- **Dates:** `date_add` (`7d`, `-1w`, `1h30m`), `date_diff`, `date_trunc`,
+  `to_timezone`, `parse_date`, `weekday`, `epoch_ms`.
+- **JSON and lists:** `json_get` (`address.city`, `phones[0]`), `json_parse`,
+  `json_stringify`, `array_len`, `array_join`, `array_contains`, `first`,
+  `last`. Each also reads a list held as JSON text.
+- **Encoding:** `base64_encode`, `base64_decode`, `url_encode`, `url_decode`,
+  and `hmac_sha256(text, secret_name)`, which signs with a vhost or server
+  secret named by the expression and never with a key written into it.
+
+A call that cannot be answered — a bad pattern, an unknown time zone or unit, a
+pad width over 10000 — is null, as it is for the existing functions. A
+regular expression is at most 1024 bytes. The function picker and the help
+list them under two new categories, JSON & lists and Encoding. See
+[docs/expression-functions.md](docs/expression-functions.md).
+
+Text that looks like a call to one of these names is now evaluated as one: a
+Set Fields value of `Title (draft)` was null and is now `Draft`. Quote a value
+meant as text.
+
 ### Added — AI automation
 
 Workflows can call Claude, ChatGPT, Gemini, DeepSeek, Mistral, Groq, OpenRouter,
