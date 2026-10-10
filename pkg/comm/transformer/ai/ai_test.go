@@ -83,7 +83,7 @@ func TestAITransformer_Transform_JSONMerge(t *testing.T) {
 	}
 }
 
-func TestAIMapperTransformer_Transform(t *testing.T) {
+func TestAIMapper_Transform(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
@@ -92,7 +92,7 @@ func TestAIMapperTransformer_Transform(t *testing.T) {
 	}))
 	defer server.Close()
 
-	tf := &AIMapperTransformer{}
+	tf := &AIMapper{}
 	msg := message.AcquireMessage()
 	msg.SetData("name", "John")
 	msg.SetData("surname", "Doe")

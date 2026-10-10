@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/api'
+import { AgentRunDetails } from '@/components/workflow/AgentTranscript/AgentRunDetails'
 import { 
   Alert, Badge, Box, Button, Group, Modal, Paper, Pagination, Select, Stack, Table, Text, Textarea, TextInput, Title 
 } from '@mantine/core'
@@ -126,7 +127,7 @@ export function ApprovalsPage() {
           <Group justify="space-between" align="flex-end">
             <Stack gap={2} style={{ flex: 1 }}>
               <Title order={2} fw={800}>Approvals</Title>
-              <Text size="sm" c="dimmed">Review and decide on messages paused at Approval nodes.</Text>
+              <Text size="sm" c="dimmed">Review and decide on messages paused at Approval nodes, and on tool calls AI Agent nodes are waiting to make.</Text>
             </Stack>
             <Group wrap="nowrap">
               <Button variant="light" leftSection={<IconRefresh size="1rem" />} onClick={() => refetch()} loading={isFetching}>Refresh</Button>
@@ -185,6 +186,7 @@ export function ApprovalsPage() {
                 <Text size="sm" c="dimmed">Workflow: {details.workflow_id}</Text>
                 <Text size="sm" c="dimmed">Node: {details.node_id}</Text>
               </Group>
+              <AgentRunDetails data={details.data} />
               <Paper withBorder p="sm" radius="md">
                 <Text size="xs" fw={800} c="dimmed" mb={4}>Metadata</Text>
                 <pre style={{ margin: 0, maxHeight: 180, overflow: 'auto' }}>{JSON.stringify(details.metadata || {}, null, 2)}</pre>

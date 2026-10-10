@@ -20,6 +20,7 @@ import (
 	"github.com/gsoultan/hermod/internal/engine/registry"
 	"github.com/gsoultan/hermod/internal/governance"
 	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/internal/workflow/redact"
 	"github.com/gsoultan/hermod/pkg/comm/message"
 	"github.com/gsoultan/hermod/pkg/comm/transformer/security"
 
@@ -990,12 +991,7 @@ func (h *WorkflowHandler) UpdateWorkflow(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Get current version count to determine next version
-	versions, _ := h.Storage.ListWorkflowVersions(r.Context(), id)
-	nextVersion := 1
-	if len(versions) > 0 {
-		nextVersion = versions[0].Version + 1
-	}
+	nextVersion := h.latestVersion(r.Context(), id) + 1
 
 	if err := h.validateWorkflow(r.Context(), wf); err != nil {
 		h.JsonError(w, err.Error(), http.StatusBadRequest)
@@ -1014,26 +1010,7 @@ func (h *WorkflowHandler) UpdateWorkflow(w http.ResponseWriter, r *http.Request)
 		username = user.Username
 	}
 
-	// Extract config excluding nodes and edges
-	wfCopy := wf
-	wfCopy.Nodes = nil
-	wfCopy.Edges = nil
-	configJSON, _ := json.Marshal(wfCopy)
-
-	version := storage.WorkflowVersion{
-		ID:             uuid.New().String(),
-		WorkflowID:     id,
-		Version:        nextVersion,
-		Nodes:          wf.Nodes,
-		Edges:          wf.Edges,
-		TraceRetention: wf.TraceRetention,
-		AuditRetention: wf.AuditRetention,
-		Config:         string(configJSON),
-		CreatedAt:      time.Now(),
-		CreatedBy:      username,
-		Message:        "Auto-saved on update",
-	}
-	_ = h.Storage.CreateWorkflowVersion(r.Context(), version)
+	_ = h.recordVersion(r.Context(), wf, nextVersion, username, "Auto-saved on update")
 
 	h.RecordAuditLog(r, "INFO", "Updated workflow "+wf.Name, "UPDATE", wf.ID, "", "", wf)
 
@@ -1199,8 +1176,9 @@ func (h *WorkflowHandler) TestWorkflow(w http.ResponseWriter, r *http.Request) {
 		// a graph, not for whether it could run (see Registry.SimulateWorkflow).
 		Partial bool `json:"partial"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.JsonError(w, "Failed to decode request body: "+err.Error(), http.StatusBadRequest)
+	r, cancel := handlers.WithPreviewDeadline(r)
+	defer cancel()
+	if !h.DecodeJSONBody(w, r, handlers.PreviewMaxBodyBytes, &req, "Failed to decode request body: ") {
 		return
 	}
 	// The simulation runs as the workflow's vhost, and the workflow is the
@@ -1290,8 +1268,9 @@ func (h *WorkflowHandler) TestTransformation(w http.ResponseWriter, r *http.Requ
 		// previewed node is answered from that vhost's secrets.
 		VHost string `json:"vhost"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.JsonError(w, "Failed to decode request body: "+err.Error(), http.StatusBadRequest)
+	r, cancel := handlers.WithPreviewDeadline(r)
+	defer cancel()
+	if !h.DecodeJSONBody(w, r, handlers.PreviewMaxBodyBytes, &req, "Failed to decode request body: ") {
 		return
 	}
 	if !h.mayPreviewVHost(w, r, req.VHost) {
@@ -1689,7 +1668,9 @@ func stripWorkflowRuntime(wf storage.Workflow) storage.Workflow {
 	wf.TotalProcessed = 0
 	wf.TotalErrors = 0
 	wf.TotalLag = 0
-	wf.Nodes = stripCapturedSamples(wf.Nodes)
+	// A provider key typed into an AI node is a credential, and a bundle is
+	// downloaded, shared and committed. A {{secret("NAME")}} reference stays.
+	wf.Nodes = redact.AIKeys(stripCapturedSamples(wf.Nodes))
 	return wf
 }
 

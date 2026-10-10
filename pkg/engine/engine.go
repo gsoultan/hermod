@@ -80,8 +80,10 @@ type Engine struct {
 	traceSlotsOnce sync.Once
 	inFlightWg     sync.WaitGroup
 
-	// Adaptive Throughput
-	lastPollAdjust time.Time
+	// Adaptive Throughput. lastPollAdjust is the UnixNano of the last
+	// adjustment; it is claimed with a CAS because adaptiveThrottle runs on
+	// every worker concurrently (see adaptiveThrottle).
+	lastPollAdjust atomic.Int64
 	throttleDelay  time.Duration
 
 	// stopMu protects hard-stop sequences
@@ -368,6 +370,16 @@ func (e *Engine) setSourceStatus(status string) {
 	e.notifyStatusChange()
 }
 
+// setSourceStatusOnChange publishes the source status only when it differs
+// from the current one. The read loop marks the source "running" before every
+// read; publishing each time built and broadcast a full StatusUpdate per
+// message. The periodic health check still publishes on its own tick.
+func (e *Engine) setSourceStatusOnChange(status string) {
+	if e.statusTracker.SetSourceStatusIfChanged(status) {
+		e.notifyStatusChange()
+	}
+}
+
 func (e *Engine) setSinkStatus(sinkID string, status string) {
 	e.statusTracker.SetSinkStatus(sinkID, status)
 	e.notifyStatusChange()
@@ -431,6 +443,10 @@ func (e *Engine) GetStatus() telemetry.StatusUpdate {
 	nodeSamples := e.statusTracker.GetNodeSamples()
 	if len(nodeSamples) > 0 {
 		update.NodeSamples = nodeSamples
+	}
+	nodeLatencies := e.statusTracker.GetNodeLatencies()
+	if len(nodeLatencies) > 0 {
+		update.NodeLatencies = nodeLatencies
 	}
 	edgeMetrics := e.statusTracker.GetEdgeMetrics()
 	if len(edgeMetrics) > 0 {

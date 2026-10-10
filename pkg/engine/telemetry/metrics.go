@@ -237,4 +237,26 @@ var (
 		Name: "hermod_engine_dead_letter_errors_total",
 		Help: "The total number of errors when writing to Dead Letter Sink",
 	}, []string{"workflow_id", "sink_id"})
+
+	// AICalls, AITokens and AICallDuration describe the language model calls
+	// AI nodes make, recorded by pkg/engine/telemetry/aimetrics. Labels are
+	// the provider kind, a bounded model id and a fixed outcome class: never a
+	// prompt, a key or anything taken from a message.
+	AICalls = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "hermod_ai_calls_total",
+		Help: "Language model calls made by AI nodes, by provider, model and outcome",
+	}, []string{"provider", "model", "outcome"})
+
+	AITokens = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "hermod_ai_tokens_total",
+		Help: "Tokens consumed by AI node calls, by provider, model and direction (input or output)",
+	}, []string{"provider", "model", "direction"})
+
+	AICallDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name: "hermod_ai_call_duration_seconds",
+		Help: "Latency of AI node calls to a language model, retries included",
+		// Model calls take from a few hundred milliseconds to minutes; the
+		// default buckets stop at 10s.
+		Buckets: []float64{0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 30, 60, 120, 300},
+	}, []string{"provider", "model"})
 )

@@ -1,10 +1,11 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { MarkerType } from '@xyflow/react';
 import { apiFetch } from '@/api';
 import { notifications } from '@mantine/notifications';
 import { useWorkflowStore } from '../store/useWorkflowStore';
 import { persistedSnapshot } from '../store/persistedSnapshot';
+import { clearDraftWorkflow, peekDraftWorkflow } from '@/lib/draftWorkflow';
 
 const API_BASE = '/api';
 
@@ -71,20 +72,39 @@ function toStoreValues(workflow: any): any {
   return newValues;
 }
 
+/** A new workflow before anything is added to it. */
+function blankWorkflow(selectedVHost: string) {
+  return {
+    name: 'New Workflow',
+    vhost: selectedVHost === 'all' ? 'default' : selectedVHost,
+    worker_id: '',
+    nodes: [],
+    edges: [],
+  };
+}
+
 export function useWorkflowInitialization(id: string, selectedVHost: string) {
   const isNew = !id || id === 'new';
   const lastInitializedId = useRef<string | null>(null);
+  // A drafted workflow handed over by the builder (lib/draftWorkflow), taken
+  // once when a new workflow opens. It has its own query key so a cached blank
+  // "new" workflow cannot stand in for it.
+  const [draft] = useState(() => (isNew ? peekDraftWorkflow() : null));
+  const [draftKey] = useState(() => (draft ? `draft-${Date.now()}` : null));
+  useEffect(() => {
+    if (draft) clearDraftWorkflow();
+  }, [draft]);
 
   const { data: workflow, isLoading } = useQuery({
-    queryKey: ['workflow', id || 'new'],
+    queryKey: draftKey ? ['workflow', 'new', draftKey] : ['workflow', id || 'new'],
     queryFn: async () => {
-      if (isNew) return { 
-        name: 'New Workflow', 
-        vhost: selectedVHost === 'all' ? 'default' : selectedVHost, 
-        worker_id: '', 
-        nodes: [], 
-        edges: [] 
-      };
+      if (isNew && draft) {
+        // Opened, never saved and never started: no id, so Save creates it,
+        // and inactive whatever the draft says.
+        const { id: _ignored, ...rest } = draft as any;
+        return { ...rest, active: false, status: '' };
+      }
+      if (isNew) return blankWorkflow(selectedVHost);
       const res = await apiFetch(`${API_BASE}/workflows/${id}`);
       return res.json();
     },
@@ -122,9 +142,15 @@ export function useWorkflowInitialization(id: string, selectedVHost: string) {
     if (lastInitializedId.current !== wId) {
       lastInitializedId.current = wId;
       warnedFor.current = null;
-      useWorkflowStore.setState({ ...values, persistedBaseline: serverSnap });
+      // A draft is not on the server: measured against a blank workflow, the
+      // whole draft counts as unsaved edits.
+      const baseline = draft ? persistedSnapshot(toStoreValues(blankWorkflow(selectedVHost))) : serverSnap;
+      useWorkflowStore.setState({ ...values, persistedBaseline: baseline });
       return;
     }
+    // Nothing on the server can be newer than a draft that was never saved,
+    // and treating a refetch of it as one would mark the draft as saved.
+    if (draft) return;
 
     // A later fetch of the same workflow: a rollback, a save coming back, or
     // an edit made somewhere else. The canvas used to ignore all of them, so
@@ -167,7 +193,7 @@ export function useWorkflowInitialization(id: string, selectedVHost: string) {
       color: 'orange',
       autoClose: false,
     });
-  }, [id, workflow]);
+  }, [id, workflow, draft, selectedVHost]);
 
   return { workflow, isLoading, isNew };
 }

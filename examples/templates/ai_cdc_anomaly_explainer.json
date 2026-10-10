@@ -1,0 +1,94 @@
+{
+  "name": "AI CDC Anomaly Explainer",
+  "description": "PostgreSQL change data capture streams every payment. Payments over 10,000 are sent to AI, which explains in plain language why the change may be unusual, rates its severity and suggests a next step. The explanation is posted to your incident webhook (Slack, Teams, PagerDuty and similar). Set the ANTHROPIC_API_KEY, PAYMENTS_DB_PASSWORD and ANOMALY_WEBHOOK_URL secrets in your vhost before starting.",
+  "icon": "IconTimeline",
+  "color": "orange",
+  "data": {
+    "workflow": {
+      "id": "ai-cdc-anomaly-explainer",
+      "name": "AI CDC Anomaly Explainer",
+      "nodes": [
+        {
+          "id": "src_payments",
+          "type": "source",
+          "ref_id": "ai-anomaly-payments-cdc",
+          "config": { "label": "Payments CDC" },
+          "x": 80,
+          "y": 220
+        },
+        {
+          "id": "large_payment",
+          "type": "condition",
+          "config": {
+            "label": "Amount Over 10,000?",
+            "conditions": [{ "field": "amount", "operator": ">", "value": "10000" }]
+          },
+          "x": 340,
+          "y": 220
+        },
+        {
+          "id": "explain",
+          "type": "transformation",
+          "config": {
+            "label": "Explain the Change",
+            "transType": "ai_prompt",
+            "provider": "anthropic",
+            "model": "claude-opus-5-5",
+            "apiKey": "{{secret(\"ANTHROPIC_API_KEY\")}}",
+            "system": "You are a payments risk analyst. Be specific and brief. Only use facts present in the change.",
+            "prompt": "A {{.operation}} on {{.table}} changed a payment of {{.amount}}. Explain why this change may be anomalous, rate the severity, and suggest one next step. Answer with JSON: {\"severity\": \"low|medium|high\", \"explanation\": \"...\", \"suggested_action\": \"...\"}.",
+            "includeData": true,
+            "maskPII": true,
+            "outputMode": "json",
+            "targetField": "anomaly",
+            "maxTokens": "600",
+            "retry": { "maxAttempts": 3, "backoff": "2s", "maxBackoff": "30s" }
+          },
+          "x": 600,
+          "y": 220
+        },
+        {
+          "id": "notify",
+          "type": "sink",
+          "ref_id": "ai-anomaly-incident-webhook",
+          "config": { "label": "Incident Webhook" },
+          "x": 860,
+          "y": 220
+        }
+      ],
+      "edges": [
+        { "id": "e1", "source_id": "src_payments", "target_id": "large_payment" },
+        { "id": "e2", "source_id": "large_payment", "target_id": "explain", "source_handle": "true" },
+        { "id": "e3", "source_id": "explain", "target_id": "notify" }
+      ]
+    },
+    "sources": [
+      {
+        "id": "ai-anomaly-payments-cdc",
+        "name": "Payments Database (CDC)",
+        "type": "postgres",
+        "active": true,
+        "config": {
+          "host": "localhost",
+          "port": "5432",
+          "user": "hermod",
+          "password": "secret:PAYMENTS_DB_PASSWORD",
+          "dbname": "payments",
+          "tables": "public.payments",
+          "use_cdc": "true",
+          "slot_name": "hermod_ai_anomaly",
+          "publication_name": "hermod_ai_anomaly"
+        }
+      }
+    ],
+    "sinks": [
+      {
+        "id": "ai-anomaly-incident-webhook",
+        "name": "Incident Webhook",
+        "type": "http",
+        "active": true,
+        "config": { "url": "secret:ANOMALY_WEBHOOK_URL" }
+      }
+    ]
+  }
+}

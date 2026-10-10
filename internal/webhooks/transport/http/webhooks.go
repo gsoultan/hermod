@@ -183,6 +183,16 @@ func (h *WebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	// workflow has finished with the message. The waiter is registered before
 	// the dispatch, or a fast workflow could finish first and answer nobody.
 	wait, timeout := reply.ModeOf(config)
+	conversation, ok := conversationID(r, wait)
+	if !ok {
+		message.ReleaseMessage(msg)
+		h.JsonError(w, "Invalid "+reply.HeaderConversationID+": use 1 to 128 letters, digits, '.', '_', ':' or '-'", http.StatusBadRequest)
+		return
+	}
+	if conversation != "" {
+		msg.SetMetadata(reply.MetaConversationID, conversation)
+		w.Header().Set(reply.HeaderConversationID, conversation)
+	}
 	var pending *reply.Pending
 	if wait {
 		p, err := reply.Expect(msg)
@@ -213,15 +223,31 @@ func (h *WebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		// The wait ran out, or the caller went away. The message is still the
 		// workflow's and may yet be delivered, so this is not a failure: a
 		// caller that retries a failure sends the record twice.
-		writeOutcome(w, http.StatusAccepted, syncResponse{ID: id, Status: "pending"})
+		writeOutcome(w, http.StatusAccepted, syncResponse{ID: id, Status: "pending", ConversationID: conversation})
 		return
 	}
 	writeOutcome(w, outcomeStatus(outcome.Status), syncResponse{
-		ID:     id,
-		Status: string(outcome.Status),
-		Error:  outcome.Error,
-		Record: outcome.Record,
+		ID:             id,
+		Status:         string(outcome.Status),
+		Error:          outcome.Error,
+		Record:         outcome.Record,
+		ConversationID: conversation,
 	})
+}
+
+// conversationID is the conversation the request belongs to: the one the
+// caller names, or, for a caller that waits for its answer and named none, a
+// new one it is told about. ok is false when the named id is not valid.
+func conversationID(r *http.Request, wait bool) (id string, ok bool) {
+	id = r.Header.Get(reply.HeaderConversationID)
+	switch {
+	case id != "":
+		return id, reply.ValidConversationID(id)
+	case wait:
+		return reply.NewConversationID(), true
+	default:
+		return "", true
+	}
 }
 
 // syncResponse is what a synchronous webhook answers with.
@@ -231,6 +257,9 @@ type syncResponse struct {
 	Error  string `json:"error,omitempty"`
 	// Record is the message as the workflow left it.
 	Record json.RawMessage `json:"record,omitempty"`
+	// ConversationID is the chat this message belongs to, to send back as
+	// X-Conversation-Id with the next message.
+	ConversationID string `json:"conversation_id,omitempty"`
 }
 
 // outcomeStatus is the HTTP status for what the workflow did. A message that

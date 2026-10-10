@@ -74,6 +74,17 @@ func (s *mongoStorage) ListApprovals(ctx context.Context, filter storage.Approva
 	if filter.Status != "" {
 		q["status"] = filter.Status
 	}
+	if filter.VHosts != nil {
+		ids, err := s.workflowIDsInVHosts(ctx, filter.VHosts)
+		if err != nil {
+			return nil, 0, err
+		}
+		if filter.WorkflowID != "" {
+			q["workflow_id"] = bson.M{"$eq": filter.WorkflowID, "$in": ids}
+		} else {
+			q["workflow_id"] = bson.M{"$in": ids}
+		}
+	}
 	total64, err := coll.CountDocuments(ctx, q)
 	if err != nil {
 		return nil, 0, err
@@ -115,6 +126,28 @@ func (s *mongoStorage) GetApproval(ctx context.Context, id string) (storage.Appr
 	return a, err
 }
 
+// workflowIDsInVHosts lists the workflows in these vhosts or in the shared
+// default vhost, which every user may access.
+func (s *mongoStorage) workflowIDsInVHosts(ctx context.Context, vhosts []string) (bson.A, error) {
+	names := bson.A{}
+	for _, v := range append(append([]string{}, storage.SharedVHosts...), vhosts...) {
+		names = append(names, v)
+	}
+	filter := bson.M{"$or": bson.A{
+		bson.M{"vhost": bson.M{"$in": names}},
+		bson.M{"vhost": bson.M{"$exists": false}},
+		bson.M{"vhost": nil},
+	}}
+	var ids bson.A
+	if err := s.db.Collection("workflows").Distinct(ctx, "_id", filter).Decode(&ids); err != nil {
+		return nil, err
+	}
+	if ids == nil {
+		ids = bson.A{}
+	}
+	return ids, nil
+}
+
 func (s *mongoStorage) UpdateApprovalStatus(ctx context.Context, id string, status string, processedBy string, notes string, formData map[string]any) error {
 	upd := bson.M{
 		"$set": bson.M{
@@ -125,12 +158,18 @@ func (s *mongoStorage) UpdateApprovalStatus(ctx context.Context, id string, stat
 			"form_data":    formData,
 		},
 	}
-	res, err := s.db.Collection("approvals").UpdateOne(ctx, bson.M{"id": id}, upd)
+	// Only a pending approval matches, so of two decisions that arrive
+	// together exactly one wins and resumes the workflow.
+	filter := bson.M{"id": id, "status": bson.M{"$in": bson.A{"pending", "", nil}}}
+	res, err := s.db.Collection("approvals").UpdateOne(ctx, filter, upd)
 	if err != nil {
 		return err
 	}
 	if res.MatchedCount == 0 {
-		return storage.ErrNotFound
+		if _, err := s.GetApproval(ctx, id); err != nil {
+			return err
+		}
+		return storage.ErrApprovalDecided
 	}
 	return nil
 }

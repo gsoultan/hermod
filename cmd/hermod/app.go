@@ -10,7 +10,9 @@ import (
 	"github.com/gsoultan/hermod/internal/engine/registry"
 	"github.com/gsoultan/hermod/internal/observability"
 	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/pkg/comm/transformer/genai"
 	engineConfig "github.com/gsoultan/hermod/pkg/engine/config"
+	"github.com/gsoultan/hermod/pkg/engine/telemetry/aimetrics"
 	"github.com/gsoultan/hermod/pkg/infra/state"
 	"github.com/gsoultan/hermod/pkg/security/secrets"
 )
@@ -18,6 +20,10 @@ import (
 func setupRegistry(store, logStore storage.Storage, logger hermod.Logger, o *Options) (*registry.Registry, *config.Config) {
 	reg := registry.NewRegistry(store, logStore)
 	reg.SetLogger(logger)
+
+	// Every model call an AI node makes is counted in the hermod_ai_*
+	// metrics. The observer sees provider, model, usage and outcome only.
+	genai.SetObserver(aimetrics.Observe)
 
 	cfg, err := config.LoadConfig(o.configPath)
 	if err != nil {

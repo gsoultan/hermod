@@ -1,0 +1,145 @@
+{
+  "name": "AI Support Triage: Classify, Draft, Approve, Send",
+  "description": "A support email arrives on a webhook. AI sorts real customer requests from spam, extracts the customer, order, category and urgency, and drafts a reply. A person approves each draft before it is emailed back. Unclear emails go to a person first. Set the ANTHROPIC_API_KEY and SMTP_PASSWORD secrets in your vhost before starting.",
+  "icon": "IconSend",
+  "color": "violet",
+  "data": {
+    "workflow": {
+      "id": "ai-support-triage",
+      "name": "AI Support Triage",
+      "nodes": [
+        {
+          "id": "src_email",
+          "type": "source",
+          "ref_id": "ai-support-inbound",
+          "config": { "label": "Support Email In" },
+          "x": 80,
+          "y": 220
+        },
+        {
+          "id": "classify",
+          "type": "ai_classify",
+          "config": {
+            "label": "Customer or Spam?",
+            "provider": "anthropic",
+            "model": "claude-opus-5-5",
+            "apiKey": "{{secret(\"ANTHROPIC_API_KEY\")}}",
+            "labels": [
+              { "label": "support", "description": "A customer asking for help, reporting a problem, or asking about an order, invoice, refund or their account." },
+              { "label": "spam", "description": "Marketing, newsletters, automated notifications, and anything not written by a customer. Spam has no outgoing connection, so it is dropped." }
+            ],
+            "instructions": "Classify the email by who wrote it and what they want.",
+            "threshold": "0.6",
+            "inputFields": ["from", "subject", "body"]
+          },
+          "x": 340,
+          "y": 220
+        },
+        {
+          "id": "review_unsure",
+          "type": "approval",
+          "config": { "label": "Is This a Customer?" },
+          "x": 340,
+          "y": 420
+        },
+        {
+          "id": "extract",
+          "type": "transformation",
+          "config": {
+            "label": "Extract Ticket Details",
+            "transType": "ai_extract",
+            "provider": "anthropic",
+            "model": "claude-opus-5-5",
+            "apiKey": "{{secret(\"ANTHROPIC_API_KEY\")}}",
+            "instructions": "Read the support email and fill in the ticket.",
+            "inputFields": ["from", "subject", "body"],
+            "targetField": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "customer_name": { "type": ["string", "null"] },
+                "order_id": { "type": ["string", "null"] },
+                "category": { "type": "string", "enum": ["billing", "refund", "bug", "how_to", "account", "other"] },
+                "urgency": { "type": "string", "enum": ["low", "normal", "high"] },
+                "summary": { "type": "string" }
+              },
+              "required": ["customer_name", "order_id", "category", "urgency", "summary"]
+            }
+          },
+          "x": 600,
+          "y": 220
+        },
+        {
+          "id": "draft",
+          "type": "transformation",
+          "config": {
+            "label": "Draft Reply",
+            "transType": "ai_prompt",
+            "provider": "anthropic",
+            "model": "claude-opus-5-5",
+            "apiKey": "{{secret(\"ANTHROPIC_API_KEY\")}}",
+            "system": "You are a friendly, concise customer support agent. Never promise refunds, credits or dates; say a colleague will confirm them. Sign off as \"The Support Team\".",
+            "prompt": "Write a reply to this customer email. Address the customer by name when it is known.\n\nCategory: {{.category}} (urgency: {{.urgency}})\nSummary: {{.summary}}\nOrder: {{.order_id}}\n\nFrom: {{.from}}\nSubject: {{.subject}}\n\n{{.body}}",
+            "targetField": "draft_reply",
+            "maxTokens": "800",
+            "retry": { "maxAttempts": 3, "backoff": "2s", "maxBackoff": "30s" }
+          },
+          "x": 860,
+          "y": 220
+        },
+        {
+          "id": "approve",
+          "type": "approval",
+          "config": { "label": "Approve Reply" },
+          "x": 1120,
+          "y": 220
+        },
+        {
+          "id": "send",
+          "type": "sink",
+          "ref_id": "ai-support-smtp",
+          "config": { "label": "Email Reply" },
+          "x": 1380,
+          "y": 220
+        }
+      ],
+      "edges": [
+        { "id": "e1", "source_id": "src_email", "target_id": "classify" },
+        { "id": "e2", "source_id": "classify", "target_id": "extract", "source_handle": "support" },
+        { "id": "e3", "source_id": "classify", "target_id": "review_unsure", "source_handle": "unsure" },
+        { "id": "e4", "source_id": "review_unsure", "target_id": "extract", "source_handle": "approved" },
+        { "id": "e5", "source_id": "extract", "target_id": "draft" },
+        { "id": "e6", "source_id": "draft", "target_id": "approve" },
+        { "id": "e7", "source_id": "approve", "target_id": "send", "source_handle": "approved" }
+      ]
+    },
+    "sources": [
+      {
+        "id": "ai-support-inbound",
+        "name": "Support Email Webhook",
+        "type": "webhook",
+        "active": true,
+        "config": { "path": "/api/webhooks/support-email" }
+      }
+    ],
+    "sinks": [
+      {
+        "id": "ai-support-smtp",
+        "name": "Support Reply Mailer",
+        "type": "smtp",
+        "active": true,
+        "config": {
+          "host": "smtp.example.com",
+          "port": "587",
+          "username": "support@example.com",
+          "password": "secret:SMTP_PASSWORD",
+          "from": "support@example.com",
+          "to": "{{.from}}",
+          "subject": "Re: {{.subject}}",
+          "template_source": "inline",
+          "template": "{{.draft_reply}}"
+        }
+      }
+    ]
+  }
+}

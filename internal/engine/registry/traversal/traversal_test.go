@@ -18,7 +18,9 @@ import (
 type mockRegistry struct {
 	LogSvc            hermod.Logger
 	RunWorkflowNodeFn func(workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error)
-	Logs              []string
+	// OnNodeContext, when set, sees the context each node is run with.
+	OnNodeContext func(ctx context.Context)
+	Logs          []string
 
 	// Nodes on parallel branches log from their own goroutines — two that fail
 	// together both report it.
@@ -42,7 +44,10 @@ func (m *mockRegistry) chargedBreakers() []string {
 	return append([]string(nil), m.BreakerFailures...)
 }
 
-func (m *mockRegistry) RunWorkflowNode(workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
+func (m *mockRegistry) RunWorkflowNodeContext(ctx context.Context, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
+	if m.OnNodeContext != nil {
+		m.OnNodeContext(ctx)
+	}
 	if m.RunWorkflowNodeFn != nil {
 		return m.RunWorkflowNodeFn(workflowID, node, msg)
 	}
@@ -54,8 +59,8 @@ func (m *mockRegistry) RunWorkflowNode(workflowID string, node *storage.Workflow
 	msg.Retain()
 	return []hermod.Message{msg}, "", nil
 }
-func (m *mockRegistry) IsDebuggerAttached(workflowID string) bool                             { return false }
-func (m *mockRegistry) PauseForDebugger(workflowID string, nodeID string, msg hermod.Message) {}
+func (m *mockRegistry) IsDebuggerAttached(workflowID string) bool                               { return false }
+func (m *mockRegistry) PauseForDebuggerContext(context.Context, string, string, hermod.Message) {}
 func (m *mockRegistry) BroadcastLog(workflowID, level, msg, details string) {
 	m.logsMu.Lock()
 	defer m.logsMu.Unlock()

@@ -43,10 +43,16 @@ type allocBudget struct {
 // stopped formatting column names and values per message, which was harness
 // noise inflating every figure, and the per-message tracing spans stopped
 // building attributes for a span nobody records.
+//
+// Re-measured 2026-10-10 on linux/amd64, go1.27.0 (the old figures reproduced
+// there as 60.5/72.4/120.4): 48.5/60.4/108.4. The read loop stopped publishing
+// a full status update per message (setSourceStatusOnChange), which was ~12
+// allocations a message and grew with the number of nodes once per-node
+// telemetry populated the maps it copies.
 var workflowAllocBudgets = []allocBudget{
-	{cols: 8, perMessage: 61},
-	{cols: 32, perMessage: 73},
-	{cols: 128, perMessage: 121},
+	{cols: 8, perMessage: 49},
+	{cols: 32, perMessage: 61},
+	{cols: 128, perMessage: 109},
 }
 
 func TestWorkflowAllocationBudget(t *testing.T) {

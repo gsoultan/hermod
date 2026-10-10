@@ -89,15 +89,27 @@ func TestAggregateEngineTelemetry_CountsOnlyOpenCircuitBreakers(t *testing.T) {
 	}
 }
 
-// The lag fallback that GetDashboardStats already relied on, pinned so it
-// survives the refactor.
-func TestAggregateEngineTelemetry_ReadsLagFromNodeMetrics(t *testing.T) {
+// Lag is the engine's own reading (StatusUpdate.Lag), which the background
+// health check takes from the source's LagReporter. It used to be read from
+// NodeMetrics["source_lag"] / ["lag"], which nothing ever wrote, so the
+// dashboard and the stored workflow stats showed a lag of 0 for every
+// workflow. NodeMetrics is keyed by node ID, so a node that happens to be
+// called "lag" must not be mistaken for a lag reading either.
+func TestAggregateEngineTelemetry_ReadsLagFromTheEngineStatus(t *testing.T) {
 	got := aggregateEngineTelemetry([]telemetry.StatusUpdate{
-		{NodeMetrics: map[string]uint64{"source_lag": 7}},
-		{NodeMetrics: map[string]uint64{"lag": 3}},
+		{Lag: 7},
+		{Lag: 3, NodeMetrics: map[string]uint64{"lag": 999, "source_lag": 999}},
 	})
 	if got.Lag != 10 {
 		t.Errorf("Lag = %v, want 10", got.Lag)
+	}
+}
+
+// The status flusher stores the same reading.
+func TestEngineLagIsTheStatusLagNotANodeCounter(t *testing.T) {
+	u := telemetry.StatusUpdate{Lag: 42, NodeMetrics: map[string]uint64{"source_lag": 5, "lag": 6}}
+	if got := engineLag(u); got != 42 {
+		t.Errorf("engineLag = %d, want 42", got)
 	}
 }
 

@@ -103,11 +103,7 @@ func aggregateEngineTelemetry(updates []telemetry.StatusUpdate) engineTelemetry 
 	for _, u := range updates {
 		agg.Throughput += u.Throughput
 
-		if lag, ok := u.NodeMetrics["source_lag"]; ok {
-			agg.Lag += lag
-		} else if lag, ok := u.NodeMetrics["lag"]; ok {
-			agg.Lag += lag
-		}
+		agg.Lag += engineLag(u)
 
 		// An engine reporting no latency is idle, not instantaneous. Counting
 		// its zero would halve the figure for every quiet workflow somebody
@@ -324,4 +320,15 @@ func (r *Registry) GetDashboardHistory(ctx context.Context, vhost string, since 
 		return nil, nil
 	}
 	return store.GetDashboardHistory(ctx, vhost, since, limit)
+}
+
+// engineLag is a workflow's source lag as its engine reports it.
+//
+// The engine's background health check reads it from the source's
+// LagReporter into StatusUpdate.Lag. It was previously looked up in
+// NodeMetrics["source_lag"] / ["lag"], which nothing writes — so the dashboard
+// and the stored workflow stats read 0 for every workflow — and which is keyed
+// by node ID, so a node named "lag" would have been read as one.
+func engineLag(u telemetry.StatusUpdate) uint64 {
+	return u.Lag
 }

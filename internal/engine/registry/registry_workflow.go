@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/engine/registry/interfaces"
 	"github.com/gsoultan/hermod/internal/engine/registry/traversal"
 	"github.com/gsoultan/hermod/internal/factory"
 	"github.com/gsoultan/hermod/internal/storage"
@@ -588,6 +589,11 @@ func (r *Registry) setupWorkflowRouter(
 	}
 	inDegreeByEntry := traversal.ReachableInDegreeByEntry(adj, entryIDs)
 
+	// Per-node and per-edge counters, resolved once here so each message pays
+	// only atomic adds for them. Payload samples are taken only while someone
+	// has this workflow's status open.
+	tel := traversal.NewTelemetry(eng, nodeIndex, adj, r.workflowWatcherCount(id))
+
 	eng.SetRouter(func(ctx context.Context, msg hermod.Message) ([]pkgengine.RoutedMessage, error) {
 		// Stamp the workflow id onto every message as it enters the workflow.
 		// Downstream trace recording (doApplyTransformation) and PII discovery
@@ -621,6 +627,7 @@ func (r *Registry) setupWorkflowRouter(
 		}
 
 		t := traversal.Acquire(r, eng, id, nodeMap, adj, nodeIndex, edgeLabels, edgeBreakpoints, effectiveInDegree, sinkNodeToIndex)
+		t.Telemetry = tel
 		msg.Retain()
 		t.CurrentMessages[nodeIndex[sourceNodeID]] = msg
 
@@ -1217,7 +1224,7 @@ func (r *Registry) RebuildWorkflow(ctx context.Context, workflowID string, fromO
 				for _, targetID := range adj[node.ID] {
 					targetNode := nodeMap[targetID]
 					if targetNode != nil {
-						r.runWorkflowNodeFromReplay(workflowID, targetNode, msg, eventStoreNode.ID, r.liveEngine(workflowID), wf, nodeMap, adj, sinks, sinkNodeToIndex)
+						r.runWorkflowNodeFromReplay(ctx, workflowID, targetNode, msg, eventStoreNode.ID, r.liveEngine(workflowID), wf, nodeMap, adj, sinks, sinkNodeToIndex)
 					}
 				}
 			}
@@ -1227,7 +1234,10 @@ func (r *Registry) RebuildWorkflow(ctx context.Context, workflowID string, fromO
 	return nil
 }
 
-func (r *Registry) runWorkflowNodeFromReplay(workflowID string, node *storage.WorkflowNode, msg hermod.Message, skipNodeID string, eng *pkgengine.Engine, wf storage.Workflow, nodeMap map[string]*storage.WorkflowNode, adj map[string][]string, sinks []hermod.Sink, sinkNodeToIndex map[string]int) {
+// runWorkflowNodeFromReplay runs node on a copy of msg and walks on from it.
+// It is the walk behind a resumed approval or wait, an event-store rebuild and
+// a manual run. Every node runs on ctx, so whoever started the walk can stop it.
+func (r *Registry) runWorkflowNodeFromReplay(ctx context.Context, workflowID string, node *storage.WorkflowNode, msg hermod.Message, skipNodeID string, eng *pkgengine.Engine, wf storage.Workflow, nodeMap map[string]*storage.WorkflowNode, adj map[string][]string, sinks []hermod.Sink, sinkNodeToIndex map[string]int) {
 	if node.ID == skipNodeID {
 		return
 	}
@@ -1236,7 +1246,8 @@ func (r *Registry) runWorkflowNodeFromReplay(workflowID string, node *storage.Wo
 	m := msg.Clone()
 	defer m.Release()
 
-	processedMsgs, branch, err := r.RunWorkflowNode(workflowID, node, m)
+	start := time.Now()
+	processedMsgs, branch, err := r.RunWorkflowNodeContext(ctx, workflowID, node, m)
 	defer func() {
 		for _, pm := range processedMsgs {
 			if pm != m {
@@ -1244,29 +1255,46 @@ func (r *Registry) runWorkflowNodeFromReplay(workflowID string, node *storage.Wo
 			}
 		}
 	}()
+	rec := manualRunFrom(ctx)
 
 	if err != nil {
+		rec.record(ctx, node, start, m, processedMsgs, branch, err)
 		r.broadcastLog(workflowID, "error", fmt.Sprintf("Node %s error: %v", r.getNodeName(*node), err))
-		r.replayLost(workflowID, node, eng, m, err)
+		if ctx.Err() != nil {
+			// Cut off by whoever started the walk, not failed by the message:
+			// parking it in the dead-letter sink would report a stop as a fault.
+			return
+		}
+		r.replayLost(ctx, workflowID, node, eng, m, err)
 		return
 	}
 
-	if len(processedMsgs) == 0 {
+	if node.Type == "sink" {
+		writeErr := r.replayWriteAll(ctx, workflowID, node, eng, processedMsgs, sinks, sinkNodeToIndex)
+		rec.record(ctx, node, start, m, processedMsgs, branch, writeErr)
 		return
 	}
+	rec.record(ctx, node, start, m, processedMsgs, branch, nil)
 
 	for _, processedMsg := range processedMsgs {
-		if node.Type == "sink" {
-			r.replayWriteToSink(workflowID, node, eng, processedMsg, sinks, sinkNodeToIndex)
-			continue
-		}
-
 		for _, targetID := range replayTargets(wf, adj, node.ID, branch) {
 			if targetNode := nodeMap[targetID]; targetNode != nil {
-				r.runWorkflowNodeFromReplay(workflowID, targetNode, processedMsg, skipNodeID, eng, wf, nodeMap, adj, sinks, sinkNodeToIndex)
+				r.runWorkflowNodeFromReplay(ctx, workflowID, targetNode, processedMsg, skipNodeID, eng, wf, nodeMap, adj, sinks, sinkNodeToIndex)
 			}
 		}
 	}
+}
+
+// replayWriteAll writes every message a sink node passed on, and returns the
+// last write error.
+func (r *Registry) replayWriteAll(ctx context.Context, workflowID string, node *storage.WorkflowNode, eng *pkgengine.Engine, msgs []hermod.Message, sinks []hermod.Sink, sinkNodeToIndex map[string]int) error {
+	var last error
+	for _, m := range msgs {
+		if err := r.replayWriteToSink(ctx, workflowID, node, eng, m, sinks, sinkNodeToIndex); err != nil {
+			last = err
+		}
+	}
+	return last
 }
 
 // replayWriteToSink delivers a resumed message to its sink node.
@@ -1276,16 +1304,20 @@ func (r *Registry) runWorkflowNodeFromReplay(workflowID string, node *storage.Wo
 // is the message gone, with nothing logged. A wait node exists to hold a message
 // until a destination is ready, which makes this the moment that destination is
 // most likely still down.
-func (r *Registry) replayWriteToSink(workflowID string, node *storage.WorkflowNode, eng *pkgengine.Engine, msg hermod.Message, sinks []hermod.Sink, sinkNodeToIndex map[string]int) {
+func (r *Registry) replayWriteToSink(ctx context.Context, workflowID string, node *storage.WorkflowNode, eng *pkgengine.Engine, msg hermod.Message, sinks []hermod.Sink, sinkNodeToIndex map[string]int) error {
 	idx, ok := sinkNodeToIndex[node.ID]
 	if !ok || idx >= len(sinks) {
-		return
+		return nil
 	}
-	if err := sinks[idx].Write(context.Background(), msg); err != nil {
+	err := sinks[idx].Write(ctx, msg)
+	if err != nil {
 		r.broadcastLog(workflowID, "error", fmt.Sprintf(
 			"Node %s could not write a resumed message: %v", r.getNodeName(*node), err))
-		r.replayLost(workflowID, node, eng, msg, err)
+		if ctx.Err() == nil {
+			r.replayLost(ctx, workflowID, node, eng, msg, err)
+		}
 	}
+	return err
 }
 
 // replayTargets returns the nodes a replayed message flows to from nodeID,
@@ -1317,8 +1349,8 @@ func replayTargets(wf storage.Workflow, adj map[string][]string, nodeID, branch 
 // place it can survive. Where there is no engine (the approval and event-store
 // paths build their own sinks and can run with the workflow stopped) there is no
 // dead-letter sink either, and the loss is at least stated rather than silent.
-func (r *Registry) replayLost(workflowID string, node *storage.WorkflowNode, eng *pkgengine.Engine, msg hermod.Message, cause error) {
-	if eng != nil && eng.DeadLetterOrphanedMessage(context.Background(), node.ID, msg, cause) {
+func (r *Registry) replayLost(ctx context.Context, workflowID string, node *storage.WorkflowNode, eng *pkgengine.Engine, msg hermod.Message, cause error) {
+	if eng != nil && eng.DeadLetterOrphanedMessage(ctx, node.ID, msg, cause) {
 		return
 	}
 	r.broadcastLog(workflowID, "error", fmt.Sprintf(
@@ -1331,10 +1363,10 @@ func (r *Registry) replayLost(workflowID string, node *storage.WorkflowNode, eng
 }
 
 // resumeFromNode continues traversal starting after startNodeID, forcing a specific branch label if provided.
-func (r *Registry) resumeFromNode(workflowID, startNodeID string, msg hermod.Message, eng *pkgengine.Engine, wf storage.Workflow, nodeMap map[string]*storage.WorkflowNode, adj map[string][]string, sinks []hermod.Sink, sinkNodeToIndex map[string]int, branch string) {
+func (r *Registry) resumeFromNode(ctx context.Context, workflowID, startNodeID string, msg hermod.Message, eng *pkgengine.Engine, wf storage.Workflow, nodeMap map[string]*storage.WorkflowNode, adj map[string][]string, sinks []hermod.Sink, sinkNodeToIndex map[string]int, branch string) {
 	for _, targetID := range replayTargets(wf, adj, startNodeID, branch) {
 		if tn := nodeMap[targetID]; tn != nil {
-			r.runWorkflowNodeFromReplay(workflowID, tn, msg, startNodeID, eng, wf, nodeMap, adj, sinks, sinkNodeToIndex)
+			r.runWorkflowNodeFromReplay(ctx, workflowID, tn, msg, startNodeID, eng, wf, nodeMap, adj, sinks, sinkNodeToIndex)
 		}
 	}
 }
@@ -1349,40 +1381,10 @@ func (r *Registry) ResumeApproval(ctx context.Context, app storage.Approval, bra
 		return err
 	}
 
-	// Build adjacency and node map
-	nodeMap := make(map[string]*storage.WorkflowNode)
-	adj := make(map[string][]string)
-	for i := range wf.Nodes {
-		nodeMap[wf.Nodes[i].ID] = &wf.Nodes[i]
-	}
-	for _, e := range wf.Edges {
-		adj[e.SourceID] = append(adj[e.SourceID], e.TargetID)
-	}
-
-	// Build sinks and index mapping
-	var sinks []hermod.Sink
-	sinkNodeToIndex := make(map[string]int)
-	for i := range wf.Nodes {
-		n := wf.Nodes[i]
-		if n.Type == "sink" {
-			dbSnk, e := r.GetSinkConfig(ctx, n.RefID)
-			if e != nil {
-				for _, s := range sinks {
-					_ = s.Close()
-				}
-				return fmt.Errorf("failed to get sink %s: %w", n.RefID, e)
-			}
-			snkCfg := factory.SinkConfig{ID: dbSnk.ID, Type: dbSnk.Type, VHost: dbSnk.VHost, Config: dbSnk.Config}
-			s, e := r.createSinkInternal(ctx, snkCfg)
-			if e != nil {
-				for _, s2 := range sinks {
-					_ = s2.Close()
-				}
-				return e
-			}
-			sinkNodeToIndex[n.ID] = len(sinks)
-			sinks = append(sinks, s)
-		}
+	nodeMap, adj := workflowGraph(wf)
+	sinks, sinkNodeToIndex, err := r.buildWalkSinks(ctx, wf)
+	if err != nil {
+		return err
 	}
 	defer func() {
 		for _, s := range sinks {
@@ -1408,12 +1410,106 @@ func (r *Registry) ResumeApproval(ctx context.Context, app storage.Approval, bra
 		}
 	}
 
-	// Continue traversal from the approval node with forced branch
-	r.resumeFromNode(app.WorkflowID, app.NodeID, m, r.liveEngine(app.WorkflowID), wf, nodeMap, adj, sinks, sinkNodeToIndex, branch)
+	r.resumeApprovalAt(ctx, app, branch, m, r.liveEngine(app.WorkflowID), wf, nodeMap, adj, sinks, sinkNodeToIndex)
 	// See resumeSuspendedMessage: honour the refcount rather than forcing the
 	// message back into the pool under a possible second owner.
 	m.Release()
-	return nil
+	// A walk the caller cut short did not finish the approved work; saying
+	// nil would claim it had.
+	return ctx.Err()
+}
+
+// workflowGraph indexes a workflow's nodes by id and its edges by source.
+func workflowGraph(wf storage.Workflow) (map[string]*storage.WorkflowNode, map[string][]string) {
+	nodeMap := make(map[string]*storage.WorkflowNode, len(wf.Nodes))
+	adj := make(map[string][]string)
+	for i := range wf.Nodes {
+		nodeMap[wf.Nodes[i].ID] = &wf.Nodes[i]
+	}
+	for _, e := range wf.Edges {
+		adj[e.SourceID] = append(adj[e.SourceID], e.TargetID)
+	}
+	return nodeMap, adj
+}
+
+// buildWalkSinks opens one sink per sink node, for a walk that runs outside
+// the workflow's engine (a resumed approval, a manual run). The caller closes
+// them. A sink that cannot be opened fails the whole walk before any node
+// runs, rather than part-way through it.
+func (r *Registry) buildWalkSinks(ctx context.Context, wf storage.Workflow) ([]hermod.Sink, map[string]int, error) {
+	var sinks []hermod.Sink
+	sinkNodeToIndex := make(map[string]int)
+	closeAll := func() {
+		for _, s := range sinks {
+			_ = s.Close()
+		}
+	}
+	for i := range wf.Nodes {
+		n := wf.Nodes[i]
+		if n.Type != "sink" {
+			continue
+		}
+		dbSnk, err := r.GetSinkConfig(ctx, n.RefID)
+		if err != nil {
+			closeAll()
+			return nil, nil, fmt.Errorf("failed to get sink %s: %w", n.RefID, err)
+		}
+		s, err := r.createSinkInternal(ctx, factory.SinkConfig{ID: dbSnk.ID, Type: dbSnk.Type, VHost: dbSnk.VHost, Config: dbSnk.Config})
+		if err != nil {
+			closeAll()
+			return nil, nil, err
+		}
+		sinkNodeToIndex[n.ID] = len(sinks)
+		sinks = append(sinks, s)
+	}
+	return sinks, sinkNodeToIndex, nil
+}
+
+// resumeApprovalAt continues a workflow from the node that asked for app.
+//
+// An approval node has finished once it asks, so the message continues on the
+// edges for the decision. A node that asked part-way through its own work (an
+// interfaces.ApprovalResumer, such as ai_agent before a write tool) is handed
+// the approval and the decision instead, and what it returns is routed on its
+// own branch.
+func (r *Registry) resumeApprovalAt(ctx context.Context, app storage.Approval, branch string, m hermod.Message, eng *pkgengine.Engine, wf storage.Workflow, nodeMap map[string]*storage.WorkflowNode, adj map[string][]string, sinks []hermod.Sink, sinkNodeToIndex map[string]int) {
+	node := nodeMap[app.NodeID]
+	var resumer interfaces.ApprovalResumer
+	if node != nil {
+		if ex, ok := interfaces.GetNodeExecutor(node.Type); ok {
+			resumer, _ = ex.(interfaces.ApprovalResumer)
+		}
+	}
+	if resumer == nil {
+		// Continue traversal from the approval node with forced branch
+		r.resumeFromNode(ctx, app.WorkflowID, app.NodeID, m, eng, wf, nodeMap, adj, sinks, sinkNodeToIndex, branch)
+		return
+	}
+
+	// The approval endpoint resumes after it has answered, when its request
+	// context is already cancelled; the resumed node's own work (model calls,
+	// tool calls) has to outlive that, bounded by the node's own timeout.
+	rctx := context.WithValue(context.WithoutCancel(ctx), hermod.RegistryKey, r)
+	out, nodeBranch, err := resumer.ResumeApproval(rctx, r, app.WorkflowID, node, m, app, branch)
+	defer func() {
+		for _, pm := range out {
+			if pm != m {
+				pm.Release()
+			}
+		}
+	}()
+	if err != nil {
+		r.broadcastLog(app.WorkflowID, "error", fmt.Sprintf("Node %s error on resume: %v", r.getNodeName(*node), err))
+		r.replayLost(ctx, app.WorkflowID, node, eng, m, err)
+		return
+	}
+	for _, pm := range out {
+		for _, targetID := range replayTargets(wf, adj, node.ID, nodeBranch) {
+			if tn := nodeMap[targetID]; tn != nil {
+				r.runWorkflowNodeFromReplay(ctx, app.WorkflowID, tn, pm, node.ID, eng, wf, nodeMap, adj, sinks, sinkNodeToIndex)
+			}
+		}
+	}
 }
 
 // --- Test Workflow ---

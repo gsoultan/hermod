@@ -2,6 +2,8 @@ package transformer
 
 import (
 	"context"
+	"maps"
+	"slices"
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/security/pii"
@@ -57,4 +59,16 @@ func Register(name string, t Transformer) {
 // Get retrieves a transformer from the default registry.
 func Get(name string) (Transformer, bool) {
 	return defaultRegistry.Get(name)
+}
+
+// Names lists the registered transformer names, sorted.
+func (r *Registry) Names() []string {
+	return slices.Sorted(maps.Keys(r.transformers))
+}
+
+// Names lists the transformers in the default registry, sorted. Registration
+// happens in init functions, so the list is complete once the packages that
+// register (blank-imported by the binary) have been initialised.
+func Names() []string {
+	return defaultRegistry.Names()
 }

@@ -2,6 +2,8 @@ package interfaces
 
 import (
 	"context"
+	"maps"
+	"slices"
 	"sync"
 	"time"
 
@@ -68,6 +70,24 @@ type NodeExecutor interface {
 	Execute(ctx context.Context, nctx NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error)
 }
 
+// ApprovalResumer is implemented by a node executor that suspends a message on
+// an approval of its own, rather than through an approval node, and has to
+// pick up where it stopped when a person decides.
+//
+// An approval node's work is done once it has asked, so its message resumes on
+// the node after it. A node that asked part-way through its work (an agent
+// waiting to run a write tool) resumes inside itself instead: the registry
+// hands it back the approval record it created and the decision, and routes
+// whatever it returns from there.
+//
+// decision is the reviewer's verdict as the approval endpoint recorded it
+// ("approved" or "rejected"). It never comes from the message, so message
+// data cannot approve anything.
+type ApprovalResumer interface {
+	NodeExecutor
+	ResumeApproval(ctx context.Context, nctx NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message, app storage.Approval, decision string) ([]hermod.Message, string, error)
+}
+
 var (
 	executorsMu sync.RWMutex
 	executors   = make(map[string]NodeExecutor)
@@ -78,6 +98,13 @@ func RegisterNodeExecutor(nodeType string, executor NodeExecutor) {
 	executorsMu.Lock()
 	defer executorsMu.Unlock()
 	executors[nodeType] = executor
+}
+
+// NodeExecutorTypes lists the node types that have an executor, sorted.
+func NodeExecutorTypes() []string {
+	executorsMu.RLock()
+	defer executorsMu.RUnlock()
+	return slices.Sorted(maps.Keys(executors))
 }
 
 // GetNodeExecutor retrieves a node executor for a given node type.

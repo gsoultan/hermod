@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,7 +31,24 @@ func (r *Registry) SubscribeWorkflowStatus(workflowID string) chan telemetry.Sta
 	ch := make(chan telemetry.StatusUpdate, 100)
 	r.workflowStatusSubs[workflowID][ch] = true
 	r.hasStatusSubs.Add(1)
+	r.workflowWatcherCount(workflowID).Add(1)
 	return ch
+}
+
+// workflowWatcherCount returns the live count of status subscribers for one
+// workflow, creating it on first use. See Registry.workflowWatchers.
+func (r *Registry) workflowWatcherCount(workflowID string) *atomic.Int32 {
+	if v, ok := r.workflowWatchers.Load(workflowID); ok {
+		if c, ok := v.(*atomic.Int32); ok {
+			return c
+		}
+	}
+	fresh := new(atomic.Int32)
+	v, _ := r.workflowWatchers.LoadOrStore(workflowID, fresh)
+	if c, ok := v.(*atomic.Int32); ok {
+		return c
+	}
+	return fresh
 }
 
 func (r *Registry) UnsubscribeStatus(ch chan telemetry.StatusUpdate) {
@@ -44,6 +62,7 @@ func (r *Registry) UnsubscribeStatus(ch chan telemetry.StatusUpdate) {
 		if subs[ch] {
 			delete(subs, ch)
 			r.hasStatusSubs.Add(-1)
+			r.workflowWatcherCount(wfID).Add(-1)
 			if len(subs) == 0 {
 				delete(r.workflowStatusSubs, wfID)
 			}
@@ -312,11 +331,18 @@ func (r *Registry) BroadcastLog(engineID, level, msg, data string) {
 	}
 	r.mu.RUnlock()
 
-	// Run in goroutine to avoid blocking the pipeline during heavy logging,
-	// especially when log storage is slow.
-	go func() {
-		_ = r.CreateLog(context.Background(), l)
-	}()
+	r.mu.RLock()
+	ls := r.logStore()
+	r.mu.RUnlock()
+	if ls == nil {
+		return
+	}
+
+	// Live subscribers get the line now, whatever storage is doing; the
+	// write is queued to a bounded pool (see logWriter) and may be dropped,
+	// but never makes the pipeline wait.
+	r.fanoutLog(l)
+	r.enqueueLog(l)
 }
 
 func (r *Registry) CreateLog(ctx context.Context, l storage.Log) error {
@@ -326,31 +352,42 @@ func (r *Registry) CreateLog(ctx context.Context, l storage.Log) error {
 
 	if ls != nil {
 		err := ls.CreateLog(ctx, l)
+		r.fanoutLog(l)
+		return err
+	}
+	return nil
+}
 
-		r.statusSubsMu.RLock()
-		// Global log subscribers
-		for ch := range r.logSubs {
+// persistLog writes one line to log storage without notifying subscribers.
+func (r *Registry) persistLog(ctx context.Context, l storage.Log) error {
+	r.mu.RLock()
+	ls := r.logStore()
+	r.mu.RUnlock()
+	if ls == nil {
+		return nil
+	}
+	return ls.CreateLog(ctx, l)
+}
+
+// fanoutLog hands a line to the global and per-workflow log subscribers,
+// skipping any that are not keeping up.
+func (r *Registry) fanoutLog(l storage.Log) {
+	r.statusSubsMu.RLock()
+	defer r.statusSubsMu.RUnlock()
+	for ch := range r.logSubs {
+		select {
+		case ch <- l:
+		default:
+		}
+	}
+	if l.WorkflowID != "" {
+		for ch := range r.workflowLogSubs[l.WorkflowID] {
 			select {
 			case ch <- l:
 			default:
 			}
 		}
-		// Per-workflow log subscribers
-		if l.WorkflowID != "" {
-			if subs, ok := r.workflowLogSubs[l.WorkflowID]; ok {
-				for ch := range subs {
-					select {
-					case ch <- l:
-					default:
-					}
-				}
-			}
-		}
-		r.statusSubsMu.RUnlock()
-
-		return err
 	}
-	return nil
 }
 
 func (r *Registry) CreateLogs(ctx context.Context, logs []storage.Log) error {
@@ -477,7 +514,18 @@ func (r *Registry) IsDebuggerAttached(workflowID string) bool {
 	return len(r.debuggerSubs[workflowID]) > 0
 }
 
+// PauseForDebugger is PauseForDebuggerContext on context.Background().
 func (r *Registry) PauseForDebugger(workflowID, nodeID string, msg hermod.Message) {
+	r.PauseForDebuggerContext(context.Background(), workflowID, nodeID, msg)
+}
+
+// debuggerPauseLimit is the longest a breakpoint holds a message.
+const debuggerPauseLimit = 5 * time.Minute
+
+// PauseForDebuggerContext holds a message at a breakpoint until the debugger
+// answers, debuggerPauseLimit passes, or ctx ends. The last is what lets a
+// workflow stopped while paused stop now rather than after the limit.
+func (r *Registry) PauseForDebuggerContext(ctx context.Context, workflowID, nodeID string, msg hermod.Message) {
 	if msg == nil {
 		return
 	}
@@ -504,6 +552,9 @@ func (r *Registry) PauseForDebugger(workflowID, nodeID string, msg hermod.Messag
 		r.debugChansMu.Unlock()
 	}()
 
+	timer := time.NewTimer(debuggerPauseLimit)
+	defer timer.Stop()
+
 	select {
 	case action := <-ch:
 		r.broadcastDebuggerEvent(DebuggerEvent{
@@ -512,8 +563,10 @@ func (r *Registry) PauseForDebugger(workflowID, nodeID string, msg hermod.Messag
 			MsgID:      msg.ID(),
 			State:      action,
 		})
-	case <-time.After(5 * time.Minute):
+	case <-timer.C:
 		// Timeout
+	case <-ctx.Done():
+		// The workflow is stopping.
 	}
 }
 

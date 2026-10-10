@@ -5,14 +5,16 @@ import {
 } from '@mantine/core';
 import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { lazy, Suspense } from 'react'
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
+import { useSessionStore } from '@/auth/session';
+import { stashDraftWorkflow } from '@/lib/draftWorkflow';
 import type { Workflow, Worker, Workspace } from '@/types';
 import { apiFetch } from '@/api';
 import { downloadWorkflowExport } from '@/utils/workflowExport';
 import { notifications } from '@mantine/notifications';
 import { useDisclosure, useDebouncedValue } from '@mantine/hooks';
 import { useVHost } from '@/context/VHostContext';
-import { IconActivity, IconChevronDown, IconCopy, IconDownload, IconEdit, IconFolder, IconGitBranch, IconHierarchy, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconTrash } from '@tabler/icons-react';
+import { IconActivity, IconChevronDown, IconCopy, IconDownload, IconEdit, IconFolder, IconGitBranch, IconHierarchy, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconSparkles, IconTrash } from '@tabler/icons-react';
 import { useConfirm } from '@/components/common/ConfirmProvider';
 const API_BASE = '/api';
 
@@ -21,6 +23,9 @@ const TemplatesModal = lazy(() => import('./WorkflowsPage_TemplatesModal'))
 // Loading that with the workflow list would pay for it on every visit.
 const ImportWizard = lazy(() =>
   import('@/components/workflow/Import/ImportWizard').then((m) => ({ default: m.ImportWizard })),
+)
+const DescribeAutomationModal = lazy(() =>
+  import('./builder/DescribeAutomationModal').then((m) => ({ default: m.DescribeAutomationModal })),
 )
 
 export default function WorkflowsPage() {
@@ -37,6 +42,12 @@ export default function WorkflowsPage() {
   const [selectedIDs, setSelectedIDs] = useState<string[]>([]);
   const [importOpened, { open: openImport, close: closeImport }] = useDisclosure(false);
   const [templatesOpened, { open: openTemplates, close: closeTemplates }] = useDisclosure(false);
+  const [describeOpened, { open: openDescribe, close: closeDescribe }] = useDisclosure(false);
+  const navigate = useNavigate();
+  // Drafting spends model credit and is meant to be saved, so the server
+  // admits Editors and Administrators only.
+  const role = useSessionStore((s) => s.user?.role);
+  const canEdit = role === 'Administrator' || role === 'Editor';
   const [moveOpened, { open: openMoveModal, close: closeMoveModal }] = useDisclosure(false);
   // null is a real choice here — "No workspace" is how a workflow leaves one —
   // so it cannot share the empty string with "nothing picked yet".
@@ -342,6 +353,11 @@ export default function WorkflowsPage() {
                 </Menu.Dropdown>
               </Menu>
             )}
+            {canEdit && (
+              <Button variant="light" color="grape" onClick={openDescribe} leftSection={<IconSparkles size="1rem" />}>
+                Describe an automation
+              </Button>
+            )}
             <Button variant="light" color="indigo" onClick={openTemplates} leftSection={<IconHierarchy size="1rem" />}>
               Sample Library
             </Button>
@@ -394,6 +410,24 @@ export default function WorkflowsPage() {
             </Group>
           </Stack>
         </Modal>
+
+        {describeOpened && (
+          <Suspense fallback={null}>
+            <DescribeAutomationModal
+              opened
+              onClose={closeDescribe}
+              defaultVHost={importTargetVHost}
+              availableVHosts={availableVHosts.length > 0 ? availableVHosts : ['default']}
+              onOpenInEditor={(workflow) => {
+                // Opened, not saved: the editor takes the draft as a new,
+                // stopped workflow and saving it is the person's call.
+                stashDraftWorkflow(workflow);
+                closeDescribe();
+                navigate({ to: '/workflows/new' });
+              }}
+            />
+          </Suspense>
+        )}
 
         <Modal opened={templatesOpened} onClose={closeTemplates} title="Workflow Sample Library" size="xl">
           <Suspense fallback={<Text size="sm">Loading templates…</Text>}>
