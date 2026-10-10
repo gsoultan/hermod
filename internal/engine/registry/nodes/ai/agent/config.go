@@ -27,18 +27,20 @@ const (
 
 // Tool kinds. A read kind is a lookup transformer run with the tool's fixed
 // config; "sink" writes to a sink node of the same workflow; "mcp" calls one
-// named tool of a remote MCP server.
+// named tool of a remote MCP server; "ml_predict" is the read kind that runs
+// one model of the workflow's vhost, the one its config names.
 const (
-	kindSink = "sink"
-	kindMCP  = "mcp"
+	kindSink      = "sink"
+	kindMCP       = "mcp"
+	kindMLPredict = "ml_predict"
 )
 
 // ReadKinds are the transformers a read tool may wrap. Each only fetches.
-var ReadKinds = map[string]bool{"db_lookup": true, "api_lookup": true, "ai_retrieve": true}
+var ReadKinds = map[string]bool{"db_lookup": true, "api_lookup": true, "ai_retrieve": true, kindMLPredict: true}
 
 // ToolKinds lists every tool kind the node accepts.
 func ToolKinds() []string {
-	return []string{"db_lookup", "api_lookup", "ai_retrieve", kindSink, kindMCP}
+	return []string{"db_lookup", "api_lookup", "ai_retrieve", kindMLPredict, kindSink, kindMCP}
 }
 
 // toolName is what every provider accepts as a function name.
@@ -218,6 +220,11 @@ func parseTool(m map[string]any) (tool, error) {
 	case ReadKinds[t.Kind]:
 		t.Config, _ = m["config"].(map[string]any)
 		t.Write = m["write"] == true
+		if t.Kind == kindMLPredict {
+			if err := t.checkModel(m["parameters"]); err != nil {
+				return t, err
+			}
+		}
 	case t.Kind == kindMCP:
 		if err := t.parseMCP(m); err != nil {
 			return t, err
@@ -256,6 +263,18 @@ func (t *tool) parseParams(raw any) error {
 		}
 		seen[p.Name] = true
 		t.Params = append(t.Params, p)
+	}
+	return nil
+}
+
+// checkModel refuses an ml_predict tool that names no model or declares no
+// features: with none, the model would be sent an empty record.
+func (t *tool) checkModel(params any) error {
+	if strings.TrimSpace(core.GetConfigString(t.Config, "model")) == "" {
+		return fmt.Errorf("ml_predict tool %q needs the model it calls (config.model)", t.Name)
+	}
+	if list, _ := params.([]any); len(list) == 0 {
+		return fmt.Errorf("ml_predict tool %q needs the model's features as its parameters", t.Name)
 	}
 	return nil
 }

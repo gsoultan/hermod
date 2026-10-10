@@ -43,6 +43,19 @@ request that does not carry it in the `X-API-Key` header. It used to accept
 every request. Before upgrading, make sure each sender of a keyed webhook sends
 the header, or clear the key on the source.
 
+### Added — models as MCP tools, and ML quotas per vhost
+
+A model can be offered to MCP clients: turn on **Expose to MCP** on the Models
+page and it is the `predict_<model>` tool on Hermod's MCP server, for callers
+who may use its vhost, its arguments the model's features. An `ai_agent` node
+calls a model with the new `ml_predict` tool kind. Each vhost can now be held
+to ML quotas — datasets, rows and bytes per dataset, models, concurrent
+trainings and predictions per second — set by an Administrator per vhost or as
+server defaults with `HERMOD_ML_MAX_*`. Nothing is limited unless a quota is
+set. A refusal is a 429 or 403 over REST and `RESOURCE_EXHAUSTED` over gRPC,
+and is counted in `hermod_ml_quota_refusals_total`. See
+[docs/ml.md](docs/ml.md#quotas).
+
 ### Added — train models in Hermod
 
 Hermod trains models now, through **hermod-ml**, a worker that runs beside it

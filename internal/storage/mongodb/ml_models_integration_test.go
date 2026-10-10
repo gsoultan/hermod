@@ -54,3 +54,46 @@ func TestMongoMLModels(t *testing.T) {
 		t.Errorf("second delete: %v", err)
 	}
 }
+
+// The MCP flag, the feature types and the quotas, as the SQL store keeps them
+// (internal/storage/sql/ml_models_test.go, ml_quotas_test.go).
+func TestMongoMLModelMCPFlagAndQuotas(t *testing.T) {
+	s, _ := newTraceMongo(t)
+	ctx := t.Context()
+	st := s.(storage.MLModelStore)
+	m := storage.MLModel{
+		VHost: "tenant-a", Name: "churn", Backend: inference.BackendOIP, URL: "http://ml:8080",
+		RemoteModel: "churn", Features: []string{"age"}, FeatureTypes: map[string]string{"age": "number"}, MCPExposed: true,
+	}
+	if err := st.PutMLModel(ctx, m); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.GetMLModel(ctx, "tenant-a", "churn")
+	if err != nil || !got.MCPExposed || got.FeatureTypes["age"] != "number" {
+		t.Errorf("round trip: %+v (%v)", got, err)
+	}
+
+	qs, ok := s.(storage.MLQuotaStore)
+	if !ok {
+		t.Fatal("the MongoDB store does not implement storage.MLQuotaStore")
+	}
+	if _, err := qs.GetMLQuotas(ctx, "tenant-a"); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("no quotas yet: %v", err)
+	}
+	if err := qs.PutMLQuotas(ctx, storage.MLQuotas{VHost: "tenant-a", MaxModels: new(int64(2)), UpdatedBy: "root"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := qs.PutMLQuotas(ctx, storage.MLQuotas{VHost: "tenant-a", MaxDatasets: new(int64(5))}); err != nil {
+		t.Fatal(err)
+	}
+	q, err := qs.GetMLQuotas(ctx, "tenant-a")
+	if err != nil || q.MaxModels != nil || q.MaxDatasets == nil || *q.MaxDatasets != 5 {
+		t.Errorf("quotas after replacing: %+v (%v)", q, err)
+	}
+	if err := qs.DeleteMLQuotas(ctx, "tenant-a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := qs.GetMLQuotas(ctx, "tenant-a"); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("after delete: %v", err)
+	}
+}

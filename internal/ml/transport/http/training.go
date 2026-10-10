@@ -83,13 +83,8 @@ func (h *Handler) UploadDataset(w http.ResponseWriter, r *http.Request) {
 		h.JsonError(w, "a dataset file is CSV (format=csv) or Excel .xlsx (format=xlsx)", http.StatusBadRequest)
 		return
 	}
-	wk, err := h.service().Worker()
-	if err != nil {
-		h.fail(w, err)
-		return
-	}
 	name := r.PathValue("name")
-	info, err := wk.UploadFile(r.Context(), vhost, name, format, http.MaxBytesReader(w, r.Body, maxDatasetFile))
+	info, err := h.service().UploadDataset(r.Context(), vhost, name, format, http.MaxBytesReader(w, r.Body, maxDatasetFile))
 	if err != nil {
 		var tooBig *http.MaxBytesError
 		if errors.As(err, &tooBig) {

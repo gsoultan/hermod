@@ -208,4 +208,20 @@ describe('agent tools', () => {
     expect(goDurationMs('10')).toBeNaN()
     expect(goDurationMs('')).toBeNaN()
   })
+
+  // config.go checkModel: an ml_predict tool names the vhost's model and
+  // declares its features as parameters, or every call sends an empty record.
+  it('needs an ml_predict tool to name its model and declare its features', () => {
+    expect(issues({ ...base, tools: [{ name: 'score', kind: 'ml_predict', config: {}, parameters: [] }] })).toEqual([
+      'error [0]: ML tool "score" needs the model it calls (config.model).',
+      'error [0]: ML tool "score" needs the model\'s features as its parameters.',
+    ])
+    expect(
+      issues({
+        ...base,
+        tools: [{ name: 'score', kind: 'ml_predict', config: { model: 'churn' }, parameters: [{ name: 'age', type: 'number' }] }],
+      }),
+    ).toEqual([])
+    expect(isWriteTool({ name: 'score', kind: 'ml_predict' })).toBe(false)
+  })
 })

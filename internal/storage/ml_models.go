@@ -31,7 +31,14 @@ type MLModel struct {
 
 	InputName string   `json:"input_name,omitempty"`
 	Features  []string `json:"features,omitempty"`
-	TimeoutMs int      `json:"timeout_ms,omitempty"`
+	// FeatureTypes is feature -> number, string or bool, where it is known:
+	// for a model Hermod trained, from the dataset it was trained on.
+	FeatureTypes map[string]string `json:"feature_types,omitempty"`
+	TimeoutMs    int               `json:"timeout_ms,omitempty"`
+
+	// MCPExposed offers the model as a predict_<name> tool on Hermod's MCP
+	// server to callers who may use its vhost. Off unless someone turns it on.
+	MCPExposed bool `json:"mcp_exposed"`
 
 	// ServingKeyHash is the SHA-256 of the key an application presents to call
 	// the model through the serving endpoints. Empty means serving is off. The
@@ -56,6 +63,10 @@ const MaxMLModelNameLen = 64
 
 // maxMLModelFeatures bounds the feature list a model may declare.
 const maxMLModelFeatures = 4096
+
+// maxMLFeatureTypeLen bounds one feature's type, which the worker reports as
+// number, string or bool.
+const maxMLFeatureTypeLen = 64
 
 // ErrMLModelsUnsupported is returned when the configured backend cannot store
 // models.
@@ -109,6 +120,14 @@ func ValidateMLModel(m MLModel) error {
 	}
 	if len(m.Features) > maxMLModelFeatures {
 		return fmt.Errorf("a model may declare at most %d features", maxMLModelFeatures)
+	}
+	if len(m.FeatureTypes) > maxMLModelFeatures {
+		return fmt.Errorf("a model may type at most %d features", maxMLModelFeatures)
+	}
+	for f, t := range m.FeatureTypes {
+		if len(t) > maxMLFeatureTypeLen {
+			return fmt.Errorf("feature %q has a type longer than %d characters", f, maxMLFeatureTypeLen)
+		}
 	}
 	if m.Backend == MLBackendWorker {
 		return validateWorkerModel(m)

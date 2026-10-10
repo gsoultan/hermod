@@ -28,6 +28,7 @@ const (
 	QueryInitVHostsTable             = "InitVHostsTable"
 	QueryInitVHostSecretsTable       = "InitVHostSecretsTable"
 	QueryInitMLModelsTable           = "InitMLModelsTable"
+	QueryInitMLQuotasTable           = "InitMLQuotasTable"
 	QueryInitWorkersTable            = "InitWorkersTable"
 	QueryInitLogsTable               = "InitLogsTable"
 	QueryInitWorkflowsTable          = "InitWorkflowsTable"
@@ -102,6 +103,11 @@ const (
 	QuerySetMLModelServingKey  = "SetMLModelServingKey"
 	QueryDeleteMLModel         = "DeleteMLModel"
 	QueryDeleteMLModelsOfVHost = "DeleteMLModelsOfVHost"
+
+	QueryGetMLQuotas    = "GetMLQuotas"
+	QueryInsertMLQuotas = "InsertMLQuotas"
+	QueryUpdateMLQuotas = "UpdateMLQuotas"
+	QueryDeleteMLQuotas = "DeleteMLQuotas"
 
 	// Workflows
 	QueryListWorkflows        = "ListWorkflows"
@@ -299,6 +305,14 @@ var commonQueries = map[string]string{
 			serving_key_hash TEXT,
 			updated_by TEXT,
 			created_at TIMESTAMP,
+			updated_at TIMESTAMP
+		)`,
+	// One row per vhost that has quotas set; spec is the quotas as JSON, so a
+	// new quota is not a schema change.
+	QueryInitMLQuotasTable: `CREATE TABLE IF NOT EXISTS ml_quotas (
+			vhost TEXT PRIMARY KEY,
+			spec TEXT,
+			updated_by TEXT,
 			updated_at TIMESTAMP
 		)`,
 	QueryInitWorkersTable: `CREATE TABLE IF NOT EXISTS workers (
@@ -614,7 +628,12 @@ var commonQueries = map[string]string{
 	QuerySetMLModelServingKey:  "UPDATE ml_models SET serving_key_hash = ? WHERE id = ?",
 	QueryDeleteMLModel:         "DELETE FROM ml_models WHERE id = ?",
 	QueryDeleteMLModelsOfVHost: "DELETE FROM ml_models WHERE vhost = ?",
-	QueryGetVHost:              "SELECT id, name, description, created_at FROM vhosts WHERE id = ?",
+
+	QueryGetMLQuotas:    "SELECT spec, updated_by, updated_at FROM ml_quotas WHERE vhost = ?",
+	QueryInsertMLQuotas: "INSERT INTO ml_quotas (vhost, spec, updated_by, updated_at) VALUES (?, ?, ?, ?)",
+	QueryUpdateMLQuotas: "UPDATE ml_quotas SET spec = ?, updated_by = ?, updated_at = ? WHERE vhost = ?",
+	QueryDeleteMLQuotas: "DELETE FROM ml_quotas WHERE vhost = ?",
+	QueryGetVHost:       "SELECT id, name, description, created_at FROM vhosts WHERE id = ?",
 
 	QueryListWorkflows:        "SELECT id, name, vhost, active, status, worker_id, owner_id, lease_until, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request, total_processed, total_errors, total_lag, created_at FROM workflows",
 	QueryCountWorkflows:       "SELECT COUNT(*) FROM workflows",

@@ -26,6 +26,12 @@ var (
 		Help:    "How long a model server took to answer one prediction call.",
 		Buckets: []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 30},
 	}, []string{"vhost", "model"})
+
+	// quotaRefusals counts what a vhost's ML quotas turned away, by quota.
+	quotaRefusals = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "hermod_ml_quota_refusals_total",
+		Help: "Requests refused because a vhost was at one of its ML quotas, by quota.",
+	}, []string{"vhost", "quota"})
 )
 
 func observe(vhost, model string, rows int, took time.Duration, err error) {

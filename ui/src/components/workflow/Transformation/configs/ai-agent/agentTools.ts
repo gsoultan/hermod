@@ -9,7 +9,9 @@ import { isPlaintextKey } from '../ai/aiProviders'
 import { isMissing, type NodeIssue } from '../ai-retrieve/retrieveIssues'
 
 /** Read kinds wrap a lookup transformer with fixed config (config.go ReadKinds). */
-export const READ_KINDS = ['db_lookup', 'api_lookup', 'ai_retrieve'] as const
+export const READ_KINDS = ['db_lookup', 'api_lookup', 'ai_retrieve', 'ml_predict'] as const
+/** Runs one of the vhost's models on the tool's arguments (config.go kindMLPredict). */
+export const ML_PREDICT_KIND = 'ml_predict'
 export const SINK_KIND = 'sink'
 /** One named tool of a remote MCP server (config.go kindMCP). */
 export const MCP_KIND = 'mcp'
@@ -18,6 +20,7 @@ export const TOOL_KINDS = [
   { value: 'db_lookup', label: 'Database lookup (db_lookup)' },
   { value: 'api_lookup', label: 'API call (api_lookup)' },
   { value: 'ai_retrieve', label: 'Vector search (ai_retrieve)' },
+  { value: ML_PREDICT_KIND, label: 'Run a model (ml_predict)' },
   { value: SINK_KIND, label: 'Write to a sink node' },
   { value: MCP_KIND, label: 'Remote MCP server tool (mcp)' },
 ]
@@ -244,6 +247,13 @@ function toolIssues(t: unknown, i: number, seen: Set<string>, sinks: Set<string>
     out.push(...mcpIssues(tool, name, i))
   } else if (!isReadKind(kind)) {
     err(`Tool "${name}" needs a kind: a lookup, an API call, a vector search, a sink or an MCP tool.`, 'kind')
+  } else if (kind === ML_PREDICT_KIND) {
+    // config.go checkModel
+    const model = tool.config && typeof tool.config === 'object' ? tool.config.model : undefined
+    if (typeof model !== 'string' || model.trim() === '') err(`ML tool "${name}" needs the model it calls (config.model).`, 'config')
+    if (!Array.isArray(tool.parameters) || tool.parameters.length === 0) {
+      err(`ML tool "${name}" needs the model's features as its parameters.`, 'parameters')
+    }
   }
 
   const params = Array.isArray(tool.parameters) ? tool.parameters : []

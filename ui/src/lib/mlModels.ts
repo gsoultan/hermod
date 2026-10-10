@@ -22,7 +22,11 @@ export interface MLModel {
   token_secret?: string
   input_name?: string
   features?: string[]
+  /** feature -> number, string or bool, where known (a model trained here). */
+  feature_types?: Record<string, string>
   timeout_ms?: number
+  /** Offered to MCP clients as a predict_<name> tool; set with setMCPExposure. */
+  mcp_exposed?: boolean
   /** Whether a serving key exists; the key itself is never returned. */
   serving: boolean
   updated_by?: string
@@ -30,7 +34,10 @@ export interface MLModel {
 }
 
 /** What a client may set on a model; name and vhost come from the URL. */
-export type MLModelInput = Omit<MLModel, 'name' | 'vhost' | 'serving' | 'updated_by' | 'updated_at'>
+export type MLModelInput = Omit<
+  MLModel,
+  'name' | 'vhost' | 'serving' | 'updated_by' | 'updated_at' | 'mcp_exposed' | 'feature_types'
+>
 
 /** The rule storage.ValidMLModelName applies. */
 export const MODEL_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
@@ -87,6 +94,57 @@ export async function rotateServingKey(vhost: string, name: string): Promise<str
   const res = await apiFetch(`${modelUrl(vhost, name)}/serving-key`, { method: 'POST', silent: true })
   const body = await res.json()
   return body?.key as string
+}
+
+/** Offers the model to MCP clients as a predict tool, or stops. */
+export async function setMCPExposure(vhost: string, name: string, exposed: boolean): Promise<MLModel> {
+  const res = await apiFetch(`${modelUrl(vhost, name)}/mcp`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ exposed }),
+    silent: true,
+  })
+  return (await res.json()) as MLModel
+}
+
+/** The ML quotas, by their API names (internal/storage MLQuotas). */
+export const QUOTA_KEYS = [
+  'max_datasets',
+  'max_dataset_rows',
+  'max_dataset_bytes',
+  'max_models',
+  'max_concurrent_trainings',
+  'max_predictions_per_second',
+] as const
+export type QuotaKey = (typeof QUOTA_KEYS)[number]
+
+/** A vhost's own quotas: null falls back to the server default, 0 is no limit. */
+export type MLQuotaSettings = Record<QuotaKey, number | null>
+
+export interface MLQuotasView {
+  quotas: MLQuotaSettings & { updated_by?: string }
+  defaults: MLQuotaSettings
+  /** The limits in force; 0 is no limit. */
+  effective: Record<QuotaKey, number>
+}
+
+export const mlQuotasKey = (vhost: string) => ['ml-quotas', vhost] as const
+const quotasUrl = (vhost: string) => `/api/vhosts/${encodeURIComponent(vhost)}/ml/quotas`
+
+export async function getQuotas(vhost: string, signal?: AbortSignal): Promise<MLQuotasView> {
+  const res = await apiFetch(quotasUrl(vhost), { signal, silent: true })
+  return (await res.json()) as MLQuotasView
+}
+
+/** Replaces the vhost's quotas. Administrators only. */
+export async function putQuotas(vhost: string, quotas: MLQuotaSettings): Promise<MLQuotasView> {
+  const res = await apiFetch(quotasUrl(vhost), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(quotas),
+    silent: true,
+  })
+  return (await res.json()) as MLQuotasView
 }
 
 export async function disableServing(vhost: string, name: string): Promise<void> {

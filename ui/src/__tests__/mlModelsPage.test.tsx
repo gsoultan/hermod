@@ -16,12 +16,37 @@ import { ModelsPage } from '@/pages/ml/ModelsPage'
  * it, tests it with one row, and makes the serving key an application uses.
  */
 
-type Model = { name: string; backend: string; url: string; serving: boolean; remote_model?: string }
+type Model = { name: string; backend: string; url: string; serving: boolean; remote_model?: string; mcp_exposed?: boolean }
 
-function modelsApi(initial: Model[]) {
+const noQuotas = {
+  max_datasets: null, max_dataset_rows: null, max_dataset_bytes: null,
+  max_models: null, max_concurrent_trainings: null, max_predictions_per_second: null,
+}
+
+function modelsApi(initial: Model[], quotas: Record<string, unknown> = { ...noQuotas, max_models: 5 }) {
   const state = structuredClone(initial)
   const writes: Array<{ method: string; path: string; body?: any }> = []
+  let own: Record<string, unknown> = { vhost: 'tenant-a', ...quotas }
+  const effective = () => {
+    const defaults: Record<string, number> = { max_predictions_per_second: 50 }
+    return Object.fromEntries(Object.keys(noQuotas).map((k) => [k, (own[k] as number | null) ?? defaults[k] ?? 0]))
+  }
+  const quotaBody = () => ({ quotas: own, defaults: { ...noQuotas, max_predictions_per_second: 50 }, effective: effective() })
   server.use(
+    http.get('/api/vhosts/:vhost/ml/quotas', () => HttpResponse.json(quotaBody())),
+    http.put('/api/vhosts/:vhost/ml/quotas', async ({ params, request }) => {
+      const body = (await request.json()) as any
+      writes.push({ method: 'QUOTAS', path: `${params.vhost}`, body })
+      own = { vhost: params.vhost, ...body }
+      return HttpResponse.json(quotaBody())
+    }),
+    http.put('/api/vhosts/:vhost/ml/models/:name/mcp', async ({ params, request }) => {
+      const body = (await request.json()) as any
+      writes.push({ method: 'MCP', path: `${params.vhost}/${params.name}`, body })
+      const m = state.find((s) => s.name === params.name)!
+      m.mcp_exposed = body.exposed
+      return HttpResponse.json(m)
+    }),
     http.get('/api/vhosts/:vhost/ml/models', () => HttpResponse.json({ data: state, total: state.length })),
     http.put('/api/vhosts/:vhost/ml/models/:name', async ({ params, request }) => {
       const body = (await request.json()) as any
@@ -61,8 +86,8 @@ function SelectVHost({ vhost }: { vhost: string }) {
   return null
 }
 
-function renderPage() {
-  signInAs('Editor')
+function renderPage(role = 'Editor') {
+  signInAs(role)
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   render(
     <MantineProvider>
@@ -125,5 +150,48 @@ describe('Models page', () => {
     await user.click(within(dialog).getByRole('button', { name: /make a key/i }))
     expect(await within(dialog).findByText('hml_new-serving-key')).toBeInTheDocument()
     expect(within(dialog).getByText(/\/api\/ml\/serve\/tenant-a\/fraud/)).toBeInTheDocument()
+  })
+
+  it('exposes a model to MCP clients as a predict tool', async () => {
+    const writes = modelsApi([{ name: 'fraud', backend: 'mlflow', url: 'http://ml', serving: false }])
+    renderPage()
+    const user = userEvent.setup()
+
+    const toggle = await screen.findByRole('switch', { name: 'Expose fraud to MCP' })
+    expect(toggle).not.toBeChecked()
+    await user.click(toggle)
+
+    await waitFor(() => expect(writes.find((w) => w.method === 'MCP')).toBeTruthy())
+    expect(writes.find((w) => w.method === 'MCP')).toEqual({ method: 'MCP', path: 'tenant-a/fraud', body: { exposed: true } })
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Expose fraud to MCP' })).toBeChecked())
+  })
+
+  it('shows the vhost its ML quotas without letting a non-administrator change them', async () => {
+    modelsApi([])
+    renderPage('Viewer')
+
+    const quotas = await screen.findByRole('region', { name: 'ML quotas' })
+    expect(await within(quotas).findByText('5')).toBeInTheDocument()
+    expect(within(quotas).getByText('50 per second')).toBeInTheDocument()
+    expect(within(quotas).getAllByText('No limit').length).toBeGreaterThan(0)
+    expect(within(quotas).queryByRole('button', { name: /save quotas/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('switch', { name: /expose .* to MCP/i })).not.toBeInTheDocument()
+  })
+
+  it('lets an administrator set the quotas, leaving a blank one to the server default', async () => {
+    const writes = modelsApi([])
+    renderPage('Administrator')
+    const user = userEvent.setup()
+
+    const quotas = await screen.findByRole('region', { name: 'ML quotas' })
+    const models = await within(quotas).findByRole('textbox', { name: 'Models' })
+    await waitFor(() => expect(models).toHaveValue('5'))
+    await user.clear(models)
+    await user.type(models, '10')
+    await user.type(within(quotas).getByRole('textbox', { name: 'Concurrent trainings' }), '2')
+    await user.click(within(quotas).getByRole('button', { name: /save quotas/i }))
+
+    await waitFor(() => expect(writes.find((w) => w.method === 'QUOTAS')).toBeTruthy())
+    expect(writes.find((w) => w.method === 'QUOTAS')!.body).toEqual({ ...noQuotas, max_models: 10, max_concurrent_trainings: 2 })
   })
 })

@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"google.golang.org/grpc"
@@ -25,7 +26,18 @@ import (
 type store struct {
 	storage.Storage
 	models map[string]storage.MLModel
+	quotas map[string]storage.MLQuotas
 }
+
+func (s *store) GetMLQuotas(_ context.Context, vhost string) (storage.MLQuotas, error) {
+	q, ok := s.quotas[vhost]
+	if !ok {
+		return storage.MLQuotas{}, storage.ErrNotFound
+	}
+	return q, nil
+}
+func (s *store) PutMLQuotas(context.Context, storage.MLQuotas) error { return nil }
+func (s *store) DeleteMLQuotas(context.Context, string) error        { return nil }
 
 func (s *store) ListMLModels(context.Context, string) ([]storage.MLModel, error) { return nil, nil }
 func (s *store) GetMLModel(_ context.Context, vhost, name string) (storage.MLModel, error) {
@@ -49,6 +61,14 @@ func (s *store) DeleteMLModels(context.Context, string) error        { return ni
 // a model "double" in vhost "a" whose serving key is returned too.
 func dial(t *testing.T) (proto.InferenceServiceClient, string) {
 	t.Helper()
+	c, key, _ := dialService(t)
+	return c, key
+}
+
+// dialService is dial, also returning the service. Vhost "grpc-q" holds a
+// model "double" too, and may predict one row a second.
+func dialService(t *testing.T) (proto.InferenceServiceClient, string, *ml.Service) {
+	t.Helper()
 	modelSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Records []map[string]float64 `json:"dataframe_records"`
@@ -63,9 +83,10 @@ func dial(t *testing.T) (proto.InferenceServiceClient, string) {
 	t.Cleanup(modelSrv.Close)
 
 	st := &store{models: map[string]storage.MLModel{
-		"a/double": {VHost: "a", Name: "double", Backend: inference.BackendMLflow, URL: modelSrv.URL},
-		"a/off":    {VHost: "a", Name: "off", Backend: inference.BackendMLflow, URL: modelSrv.URL},
-	}}
+		"a/double":      {VHost: "a", Name: "double", Backend: inference.BackendMLflow, URL: modelSrv.URL},
+		"a/off":         {VHost: "a", Name: "off", Backend: inference.BackendMLflow, URL: modelSrv.URL},
+		"grpc-q/double": {VHost: "grpc-q", Name: "double", Backend: inference.BackendMLflow, URL: modelSrv.URL},
+	}, quotas: map[string]storage.MLQuotas{"grpc-q": {VHost: "grpc-q", MaxPredictionsPerSecond: new(1.0)}}}
 	svc := ml.NewService(func() any { return st }, nil, nil)
 	key, err := svc.RotateServingKey(context.Background(), "a", "double")
 	if err != nil {
@@ -85,7 +106,7 @@ func dial(t *testing.T) (proto.InferenceServiceClient, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
-	return proto.NewInferenceServiceClient(conn), key
+	return proto.NewInferenceServiceClient(conn), key, svc
 }
 
 func rows(t *testing.T, xs ...float64) []*structpb.Struct {
@@ -150,5 +171,21 @@ func TestPredictRefusesNoRowsAndTooMany(t *testing.T) {
 	many := make([]float64, ml.MaxRowsPerCall+1)
 	if _, err := c.Predict(withKey(key), &proto.PredictRequest{Vhost: "a", Model: "double", Instances: rows(t, many...)}); status.Code(err) != codes.InvalidArgument {
 		t.Errorf("too many rows: err = %v, want InvalidArgument", err)
+	}
+}
+
+func TestAPredictionOverTheVHostsRateIsResourceExhausted(t *testing.T) {
+	c, _, svc := dialService(t)
+	key, err := svc.RotateServingKey(context.Background(), "grpc-q", "double")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := &proto.PredictRequest{Vhost: "grpc-q", Model: "double", Instances: rows(t, 1)}
+	if _, err := c.Predict(withKey(key), req); err != nil {
+		t.Fatalf("the first prediction: %v", err)
+	}
+	_, err = c.Predict(withKey(key), req)
+	if status.Code(err) != codes.ResourceExhausted || !strings.Contains(status.Convert(err).Message(), "max_predictions_per_second") {
+		t.Fatalf("over the rate: err = %v, want ResourceExhausted naming the quota", err)
 	}
 }

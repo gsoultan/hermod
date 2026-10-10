@@ -340,3 +340,54 @@ func TestAgent_MCPServerURLFromRowDataIsRefused(t *testing.T) {
 		t.Fatal("a server URL chosen by row data was used")
 	}
 }
+
+// An ml_predict tool calls one model of the workflow's vhost: the node names
+// the model, the model fills only the features declared as parameters, and
+// the prediction comes back as the tool result.
+func TestAgent_MLPredictToolCallsTheNamedModel(t *testing.T) {
+	p := &scriptedProvider{turns: []func(llm.ChatRequest) llm.ChatResponse{
+		call("c1", "score_order", `{"amount": 912.5, "model": "payroll"}`),
+		say("High risk."),
+	}}
+	nctx := newFakeNodeContext()
+	nctx.lookupResult = map[string]any{"score": 0.93}
+	node := agentNode(map[string]any{"tools": []any{map[string]any{
+		"name": "score_order", "kind": "ml_predict", "description": "Fraud score of an order.",
+		"config":     map[string]any{"model": "fraud"},
+		"parameters": []any{map[string]any{"name": "amount", "type": "number", "required": true}},
+	}}})
+
+	if _, _, err := newNode(p).Execute(t.Context(), nctx, "wf", node, inputMessage(t, nil)); err != nil {
+		t.Fatal(err)
+	}
+	calls := nctx.lookupCalls()
+	if len(calls) != 1 || calls[0].transType != "ml_predict" || calls[0].config["model"] != "fraud" {
+		t.Fatalf("lookups = %+v", calls)
+	}
+	if calls[0].config["outputField"] != toolResultField {
+		t.Errorf("the prediction is not written where the tool reads it: %+v", calls[0].config)
+	}
+	if calls[0].data["amount"] != 912.5 || calls[0].data["model"] != nil {
+		t.Errorf("the model was sent %v; want only the declared feature", calls[0].data)
+	}
+	res := lastToolResults(p)
+	if len(res) != 1 || res[0].IsError || !strings.Contains(res[0].Content, "0.93") {
+		t.Fatalf("tool results = %+v", res)
+	}
+	if len(nctx.store.list()) != 0 {
+		t.Error("a prediction waited for approval; it changes nothing")
+	}
+}
+
+func TestAgent_MLPredictToolNeedsAModelAndItsFeatures(t *testing.T) {
+	for name, tool := range map[string]map[string]any{
+		"no model":    {"name": "s", "kind": "ml_predict", "parameters": []any{map[string]any{"name": "a", "type": "number"}}},
+		"no features": {"name": "s", "kind": "ml_predict", "config": map[string]any{"model": "fraud"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parseConfig(map[string]any{"goal": "g", "tools": []any{tool}}); err == nil {
+				t.Fatal("want a config error")
+			}
+		})
+	}
+}

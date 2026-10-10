@@ -64,6 +64,7 @@ Tool kinds:
 | Kind | Does | Approval |
 |---|---|---|
 | `db_lookup`, `api_lookup`, `ai_retrieve` | Runs that lookup with the node's fixed `config`; the model fills only the declared `parameters`. | Only when marked `write: true`. |
+| `ml_predict` | Runs the vhost's model named in `config.model` on the declared `parameters`, which must be the model's features. See [ml.md](ml.md#mcp-clients). | Only when marked `write: true`. |
 | `sink` | Writes to a sink node (`nodeId`) of the same workflow. | Always, unless `requireApproval: false`. |
 | `mcp` | Calls one named `tool` of a remote MCP server (`server.url`, `server.headers`). | Unless the tool sets `write: false` **and** the server marks it read-only, or `requireApproval: false`. |
 
@@ -107,6 +108,7 @@ authenticate like any API caller. Only workflows tagged `mcp` are exposed, and o
 | `list_workflows` | The exposed workflows and whether each can be run and replies with a result. |
 | `get_workflow_status` | Status, processed and error counts, lag. |
 | `run_workflow` (Editor) | Runs the workflow with `input`. A webhook source in sync reply mode returns the workflow's reply. |
+| `predict_<model>` | One prediction from a model an Editor exposed to MCP, with the model's features as arguments. Read-only. See [ml.md](ml.md#mcp-clients). |
 
 ## Describe an automation
 

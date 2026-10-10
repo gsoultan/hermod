@@ -83,6 +83,8 @@ type TrainResult struct {
 // Train trains a new version of a vhost's model on the worker and registers
 // the model, if it is new. Whether the version goes live is up to rule; a
 // version kept off stays on the worker, and Promote can put it live later.
+// The training takes one of the vhost's training slots, and a new model
+// counts against its model quota.
 func (s *Service) Train(ctx context.Context, vhost, name string, spec worker.TrainSpec, rule GoLive, by string) (TrainResult, error) {
 	w, err := s.Worker()
 	if err != nil {
@@ -99,14 +101,31 @@ func (s *Service) Train(ctx context.Context, vhost, name string, spec worker.Tra
 		return TrainResult{}, err
 	}
 	m, err := ms.GetMLModel(ctx, vhost, name)
+	isNew := errors.Is(err, storage.ErrNotFound)
 	switch {
-	case errors.Is(err, storage.ErrNotFound):
+	case isNew:
 		m = storage.MLModel{VHost: vhost, Name: name, Backend: storage.MLBackendWorker}
 	case err != nil:
 		return TrainResult{}, err
 	case m.Backend != storage.MLBackendWorker:
 		return TrainResult{}, fmt.Errorf("vhost %q already has a model %q served elsewhere; train under another name", vhost, name)
 	}
+	q, err := s.Quotas(ctx, vhost)
+	if err != nil {
+		return TrainResult{}, err
+	}
+	if isNew {
+		// Refused before the worker spends minutes on it; checked again at
+		// registration, when another model may have taken the last place.
+		if err := s.checkNewModel(ctx, vhost, name, q.MaxModels); err != nil {
+			return TrainResult{}, err
+		}
+	}
+	done, err := startTraining(vhost, q.MaxConcurrentTrainings)
+	if err != nil {
+		return TrainResult{}, err
+	}
+	defer done()
 
 	v, err := w.Train(ctx, vhost, name, spec)
 	if err != nil {
@@ -115,17 +134,22 @@ func (s *Service) Train(ctx context.Context, vhost, name string, spec worker.Tra
 	live, reason := rule.decide(v)
 	if live {
 		m.RemoteVersion = v.Version
-		m.Features = v.Features
+		m.Features, m.FeatureTypes = v.Features, v.FeatureTypes
 	} else if m.RemoteVersion == "" {
 		// Nothing is live yet, so the features the next promotion will serve
 		// are the ones to show.
-		m.Features = v.Features
+		m.Features, m.FeatureTypes = v.Features, v.FeatureTypes
 	}
 	if m.Description == "" {
 		m.Description = fmt.Sprintf("Predicts %s from dataset %s", v.Target, v.Dataset)
 	}
 	m.UpdatedBy = by
-	if err := ms.PutMLModel(ctx, m); err != nil {
+	if isNew {
+		err = s.PutModel(ctx, m)
+	} else {
+		err = ms.PutMLModel(ctx, m)
+	}
+	if err != nil {
 		return TrainResult{}, fmt.Errorf("version %s of %q was trained but not registered: %w", v.Version, name, err)
 	}
 	return TrainResult{Model: m, Version: v, Live: live, Reason: reason}, nil
@@ -170,7 +194,7 @@ func (s *Service) Promote(ctx context.Context, vhost, name, version, by string) 
 	if err != nil {
 		return err
 	}
-	m.RemoteVersion, m.Features, m.UpdatedBy = version, vs[i].Features, by
+	m.RemoteVersion, m.Features, m.FeatureTypes, m.UpdatedBy = version, vs[i].Features, vs[i].FeatureTypes, by
 	return ms.PutMLModel(ctx, m)
 }
 
