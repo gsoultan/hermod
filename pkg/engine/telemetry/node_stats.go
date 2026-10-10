@@ -1,6 +1,7 @@
 package telemetry
 
 import (
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -24,24 +25,43 @@ type NodeStats struct {
 // NodeStats returns the handle for nodeID, creating it on first use. Every
 // call for the same node returns the same handle.
 func (s *StatusTracker) NodeStats(nodeID string) *NodeStats {
-	if v, ok := s.nodeStats.Load(nodeID); ok {
-		return v.(*NodeStats)
+	if n, ok := loadTyped[NodeStats](&s.nodeStats, nodeID); ok {
+		return n
 	}
-	n := &NodeStats{
+	return loadOrStoreTyped(&s.nodeStats, nodeID, &NodeStats{
 		processed: s.getOrCreateAtomic(&s.nodeMetrics, nodeID),
 		errors:    s.getOrCreateAtomic(&s.nodeErrorMetrics, nodeID),
 		latency:   s.getOrCreateLatency(nodeID),
-	}
-	v, _ := s.nodeStats.LoadOrStore(nodeID, n)
-	return v.(*NodeStats)
+	})
 }
 
 func (s *StatusTracker) getOrCreateLatency(nodeID string) *atomic.Int64 {
-	if v, ok := s.nodeLatency.Load(nodeID); ok {
-		return v.(*atomic.Int64)
+	if v, ok := loadTyped[atomic.Int64](&s.nodeLatency, nodeID); ok {
+		return v
 	}
-	v, _ := s.nodeLatency.LoadOrStore(nodeID, new(atomic.Int64))
-	return v.(*atomic.Int64)
+	return loadOrStoreTyped(&s.nodeLatency, nodeID, new(atomic.Int64))
+}
+
+// loadTyped loads key from m as a *T.
+func loadTyped[T any](m *sync.Map, key string) (*T, bool) {
+	v, ok := m.Load(key)
+	if !ok {
+		return nil, false
+	}
+	t, ok := v.(*T)
+	return t, ok
+}
+
+// loadOrStoreTyped stores fresh under key unless a value is already there, and
+// returns whichever value the map holds. Only this package writes these maps,
+// so a value of another type cannot be present; if it ever were, fresh is
+// returned rather than panicking.
+func loadOrStoreTyped[T any](m *sync.Map, key string, fresh *T) *T {
+	v, _ := m.LoadOrStore(key, fresh)
+	if t, ok := v.(*T); ok {
+		return t
+	}
+	return fresh
 }
 
 // Count records one message through the node without a duration — for a node
@@ -96,8 +116,12 @@ func (s *StatusTracker) EdgeCounter(sourceNodeID, targetNodeID string) *atomic.U
 func (s *StatusTracker) GetNodeLatencies() map[string]time.Duration {
 	res := make(map[string]time.Duration)
 	s.nodeLatency.Range(func(key, value any) bool {
-		if ns := value.(*atomic.Int64).Load(); ns > 0 {
-			res[key.(string)] = time.Duration(ns)
+		id, okKey := key.(string)
+		v, okVal := value.(*atomic.Int64)
+		if okKey && okVal {
+			if ns := v.Load(); ns > 0 {
+				res[id] = time.Duration(ns)
+			}
 		}
 		return true
 	})
