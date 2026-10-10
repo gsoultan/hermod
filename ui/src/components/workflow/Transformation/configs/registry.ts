@@ -44,6 +44,15 @@ import { BucketizeConfig } from './features/BucketizeConfig'
 import { RollingConfig } from './features/RollingConfig'
 import { AnomalyScoreConfig } from './features/AnomalyScoreConfig'
 
+// structure, parsing and reference data
+import { FlattenConfig } from './structure/FlattenConfig'
+import { ExplodeConfig } from './structure/ExplodeConfig'
+import { ParseFieldConfig } from './structure/ParseFieldConfig'
+import { TemplateRenderConfig } from './structure/TemplateRenderConfig'
+import { FieldDiffConfig } from './structure/FieldDiffConfig'
+import { ReferenceLookupConfig } from './structure/ReferenceLookupConfig'
+import { GeoConfig } from './structure/GeoConfig'
+
 // logic
 import { ConditionConfig } from './logic/ConditionConfig'
 import { SwitchConfig } from './logic/SwitchConfig'
@@ -170,6 +179,16 @@ export const TRANSFORM_CONFIGS: Record<string, ConfigComponent> = {
   rolling: RollingConfig,
   anomaly_score: AnomalyScoreConfig,
 
+  // structure & parsing (pkg/comm/transformer/structure)
+  flatten: FlattenConfig,
+  unflatten: FlattenConfig,
+  parse_field: ParseFieldConfig,
+  template_render: TemplateRenderConfig,
+  field_diff: FieldDiffConfig,
+  // reference data and geometry
+  reference_lookup: ReferenceLookupConfig,
+  geo: GeoConfig,
+
   // logic & flow
   condition: ConditionConfig,
   switch: SwitchConfig,
@@ -220,6 +239,7 @@ export const NODE_TYPE_CONFIGS: Record<string, ConfigComponent> = {
   validator: ValidatorConfig,
   ai_classify: AIClassifyConfig,
   ai_agent: AIAgentConfig,
+  explode: ExplodeConfig,
 }
 
 /**

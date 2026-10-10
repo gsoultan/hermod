@@ -11,8 +11,10 @@ import (
 	"github.com/gsoultan/hermod/internal/observability"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/comm/transformer/genai"
+	"github.com/gsoultan/hermod/pkg/comm/transformer/lookup"
 	engineConfig "github.com/gsoultan/hermod/pkg/engine/config"
 	"github.com/gsoultan/hermod/pkg/engine/telemetry/aimetrics"
+	"github.com/gsoultan/hermod/pkg/infra/filestorage"
 	"github.com/gsoultan/hermod/pkg/infra/state"
 	"github.com/gsoultan/hermod/pkg/security/secrets"
 )
@@ -30,6 +32,12 @@ func setupRegistry(store, logStore storage.Storage, logger hermod.Logger, o *Opt
 		cfg = &config.Config{}
 		log.Printf("Warning: Using default config because config.yaml could not be loaded: %v", err)
 	}
+
+	// reference_lookup reads files only from where uploads are stored, plus
+	// the directories in HERMOD_REFERENCE_DIRS. With s3 storage there is no
+	// local upload directory, and only those directories remain.
+	uploadDir, _ := filestorage.LocalDir(cfg.FileStorage)
+	lookup.ConfigureReferenceRoots(uploadDir)
 
 	if cfg != nil {
 		initRegistryComponents(reg, cfg)

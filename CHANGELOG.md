@@ -85,6 +85,24 @@ version can be put live later. The **Train Model** node does the same from a
 workflow. A trained model is called like any other: the Predict node, REST and
 gRPC. See [docs/ml.md](docs/ml.md).
 
+### Added — structure, parsing and reference-data nodes
+
+Eight nodes for reshaping and enriching records without a script. Under
+**Structure & Parsing**: **Flatten** and **Unflatten** (nested objects to
+`a_b_c` keys and back, with a separator, a depth limit and a choice for
+arrays), **Explode** (one record per array element, the other fields kept, at
+most `maxItems`), **Parse Field** (JSON, CSV, XML or key=value text into
+structure; XML document types are refused, so entities never expand),
+**Template** (Go text/template over the record into a field, with a strict mode
+and an output cap) and **Field Diff (CDC)** (only the columns a change event
+changed, with old and new values). Under **Advanced Transformations**:
+**Reference Lookup** (a CSV, TSV or Excel file held in memory and re-read when
+it changes, merged by key; it reads only from the upload directory and the
+directories listed in the new `HERMOD_REFERENCE_DIRS`, with `../` and symlinks
+resolved before the check) and **Geo** (haversine
+distance in km, mi or m, and point in a GeoJSON polygon; no geocoding). See
+[docs/structural-nodes.md](docs/structural-nodes.md).
+
 ### Added — collect datasets and retrain models
 
 The **Collect Dataset** sink appends each record a workflow sends it to a

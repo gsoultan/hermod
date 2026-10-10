@@ -20,12 +20,24 @@ func NewStorage(ctx context.Context, cfg config.FileStorageConfig) (Storage, err
 			cfg.S3.UseSSL,
 		)
 	case "local", "":
-		dir := cfg.LocalDir
-		if dir == "" {
-			dir = "uploads"
-		}
+		dir, _ := LocalDir(cfg)
 		return NewLocalStorage(dir)
 	default:
 		return nil, fmt.Errorf("unknown storage type: %s", cfg.Type)
 	}
+}
+
+// LocalDir is the directory local storage writes uploads to, and false when
+// cfg stores them elsewhere (s3). NewStorage creates its storage here, and
+// reference_lookup is bounded to it, so both read the same setting the same
+// way.
+func LocalDir(cfg config.FileStorageConfig) (string, bool) {
+	switch cfg.Type {
+	case "local", "":
+		if cfg.LocalDir != "" {
+			return cfg.LocalDir, true
+		}
+		return "uploads", true
+	}
+	return "", false
 }

@@ -6,7 +6,7 @@ import { BaseNode, PlusHandle, TargetHandle } from './BaseNode';
 import { branchHandleId } from './branchHandleId';
 import { useState, memo } from 'react';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
-import { IconAlertTriangle, IconArrowsSplit, IconBinary, IconChartHistogram, IconChecklist, IconClock, IconCloud, IconCode, IconCopy, IconDatabase, IconDatabaseSearch, IconEye, IconFilter, IconGitBranch, IconGitMerge, IconList, IconLock, IconLockOpen, IconMail, IconNote, IconPlaylist, IconScale, IconSearch, IconShieldLock, IconSparkles, IconTerminal2, IconTextScan2, IconTimeline, IconTrash, IconVariable, IconVector } from '@tabler/icons-react';
+import { IconAlertTriangle, IconArrowsMaximize, IconArrowsSplit, IconBinary, IconBraces, IconChartHistogram, IconChecklist, IconClock, IconCloud, IconCode, IconCopy, IconDatabase, IconDatabaseSearch, IconEye, IconFileSearch, IconFilter, IconGitBranch, IconGitCompare, IconGitMerge, IconLayoutList, IconList, IconLock, IconLockOpen, IconMail, IconMapPin, IconNote, IconPlaylist, IconScale, IconSearch, IconShieldLock, IconSparkles, IconStack2, IconTemplate, IconTerminal2, IconTextScan2, IconTimeline, IconTrash, IconVariable, IconVector } from '@tabler/icons-react';
 const ValidatorNodeImpl = ({ id, data, selected }: any) => {
   return (
     <BaseNode id={id} type="Validator" color="orange" icon={IconChecklist} data={data} selected={selected}>
@@ -45,6 +45,13 @@ const TransformationNodeImpl = ({ id, data, selected }: any) => {
       case 'ai_extract': return IconTextScan2;
       case 'ai_embed': return IconVector;
       case 'ai_retrieve': return IconDatabaseSearch;
+      case 'flatten': return IconLayoutList;
+      case 'unflatten': return IconStack2;
+      case 'parse_field': return IconBraces;
+      case 'template_render': return IconTemplate;
+      case 'field_diff': return IconGitCompare;
+      case 'reference_lookup': return IconFileSearch;
+      case 'geo': return IconMapPin;
       case 'scale': return IconScale;
       case 'encode': return IconBinary;
       case 'bucketize': return IconChartHistogram;
@@ -84,6 +91,13 @@ const TransformationNodeImpl = ({ id, data, selected }: any) => {
       case 'ai_extract': return 'AI Extract';
       case 'ai_embed': return 'AI Embed';
       case 'ai_retrieve': return 'AI Retrieve';
+      case 'flatten': return 'Flatten';
+      case 'unflatten': return 'Unflatten';
+      case 'parse_field': return 'Parse Field';
+      case 'template_render': return 'Template';
+      case 'field_diff': return 'Field Diff';
+      case 'reference_lookup': return 'Reference Lookup';
+      case 'geo': return 'Geo';
       case 'scale': return 'Scale';
       case 'encode': return 'Encode';
       case 'bucketize': return 'Bucketize';
@@ -218,6 +232,15 @@ const ForeachNodeImpl = ({ id, data, selected }: any) => {
   );
 };
 
+const ExplodeNodeImpl = ({ id, data, selected }: any) => {
+  return (
+    <BaseNode id={id} type="Explode" color="cyan" icon={IconArrowsMaximize} data={data} selected={selected}>
+      <TargetHandle position={Position.Left} color="cyan" />
+      <PlusHandle type="source" position={Position.Right} nodeId={id} color="cyan" />
+    </BaseNode>
+  );
+};
+
 const LogNodeImpl = ({ id, data, selected }: any) => {
   return (
     <BaseNode id={id} type="Log" color="gray" icon={IconTerminal2} data={data} selected={selected}>
@@ -318,6 +341,7 @@ export const MergeNode = memo(MergeNodeImpl);
 export const StatefulNode = memo(StatefulNodeImpl);
 export const WaitNode = memo(WaitNodeImpl);
 export const ForeachNode = memo(ForeachNodeImpl);
+export const ExplodeNode = memo(ExplodeNodeImpl);
 export const LogNode = memo(LogNodeImpl);
 export const CollectNode = memo(CollectNodeImpl);
 export const DeduplicateNode = memo(DeduplicateNodeImpl);
@@ -330,6 +354,7 @@ MergeNode.displayName = 'MergeNode';
 StatefulNode.displayName = 'StatefulNode';
 WaitNode.displayName = 'WaitNode';
 ForeachNode.displayName = 'ForeachNode';
+ExplodeNode.displayName = 'ExplodeNode';
 LogNode.displayName = 'LogNode';
 CollectNode.displayName = 'CollectNode';
 DeduplicateNode.displayName = 'DeduplicateNode';

@@ -428,6 +428,12 @@ You can download the latest binaries and packages (`.deb`, `.rpm`, `.apk`) from 
    - `HERMOD_WORKER_ID` → `--worker-id`
    - `HERMOD_TOTAL_WORKERS` → `--total-workers`
 
+   #### Reference Lookup Files
+
+   | Variable | Default | What it does |
+   | :--- | :--- | :--- |
+   | `HERMOD_REFERENCE_DIRS` | none | Comma-separated absolute directories the Reference Lookup node may read files from, besides the upload directory (`file_storage.local_dir`, default `uploads`). Any other path, including a `../` walk or a symlink out of these directories, is refused. See [docs/structural-nodes.md](docs/structural-nodes.md#reference-lookup). |
+
    #### Stall Detection & Recovery Tuning
 
    These control when a workflow is declared wedged and rebuilt. The defaults suit most

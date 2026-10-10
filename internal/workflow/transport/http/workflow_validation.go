@@ -73,7 +73,7 @@ func nodeConfigIssues(wf storage.Workflow) (issues []ValidationIssue, hasSource,
 					NodeID:         n.ID,
 				})
 			}
-		case "foreach", "fanout":
+		case "foreach", "fanout", "explode":
 			ap, _ := n.Config["arrayPath"].(string)
 			if strings.TrimSpace(ap) == "" {
 				issues = append(issues, ValidationIssue{
