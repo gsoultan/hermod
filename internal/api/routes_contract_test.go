@@ -63,6 +63,7 @@ var routeDirs = []string{
 	"internal/source/transport/http",
 	"internal/sse/transport/http",
 	"internal/webhooks/transport/http",
+	"internal/workflow/builder/transport/http",
 	"internal/workflow/transport/http",
 	"internal/worker/transport/http",
 	"internal/ws/transport/http",

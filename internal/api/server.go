@@ -36,6 +36,7 @@ import (
 	"github.com/gsoultan/hermod/internal/storage"
 	webhookshttp "github.com/gsoultan/hermod/internal/webhooks/transport/http"
 	workerhttp "github.com/gsoultan/hermod/internal/worker/transport/http"
+	builderhttp "github.com/gsoultan/hermod/internal/workflow/builder/transport/http"
 	workflowhttp "github.com/gsoultan/hermod/internal/workflow/transport/http"
 	wshttp "github.com/gsoultan/hermod/internal/ws/transport/http"
 	grpcsource "github.com/gsoultan/hermod/pkg/comm/source/grpc"
@@ -158,6 +159,7 @@ func (s *Server) Routes() http.Handler {
 	webhooksH := webhookshttp.NewWebhookHandler(s.Handler)
 	workerH := workerhttp.NewWorkerHandler(s.Handler)
 	mcpH := mcphttp.NewMCPHandler(s.Handler)
+	builderH := builderhttp.NewBuilderHandler(s.Handler)
 
 	// Health endpoints (unauthenticated; used by Kubernetes and load balancers)
 	mux.HandleFunc("GET /healthz", infraH.HandleLiveness)
@@ -191,6 +193,7 @@ func (s *Server) Routes() http.Handler {
 	webhooksH.RegisterWebhookRoutes(mux)
 	workerH.RegisterWorkerRoutes(mux)
 	mcpH.RegisterMCPRoutes(mux)
+	builderH.RegisterBuilderRoutes(mux)
 
 	mux.HandleFunc("POST /api/graphql/{path...}", webhooksH.HandleGraphQL)
 

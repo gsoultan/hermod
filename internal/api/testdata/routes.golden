@@ -95,6 +95,7 @@ PATCH /api/workflows/{id}/status
 POST /api/ai/analyze-error
 POST /api/ai/analyze-schema
 POST /api/ai/analyze-workflow/{id}
+POST /api/ai/build-workflow
 POST /api/ai/copilot
 POST /api/ai/generate-workflow
 POST /api/ai/suggest-mapping

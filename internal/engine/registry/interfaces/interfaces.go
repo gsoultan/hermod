@@ -2,6 +2,8 @@ package interfaces
 
 import (
 	"context"
+	"maps"
+	"slices"
 	"sync"
 	"time"
 
@@ -96,6 +98,13 @@ func RegisterNodeExecutor(nodeType string, executor NodeExecutor) {
 	executorsMu.Lock()
 	defer executorsMu.Unlock()
 	executors[nodeType] = executor
+}
+
+// NodeExecutorTypes lists the node types that have an executor, sorted.
+func NodeExecutorTypes() []string {
+	executorsMu.RLock()
+	defer executorsMu.RUnlock()
+	return slices.Sorted(maps.Keys(executors))
 }
 
 // GetNodeExecutor retrieves a node executor for a given node type.
