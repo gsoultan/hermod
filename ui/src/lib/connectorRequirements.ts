@@ -244,6 +244,7 @@ const SINK_REQUIREMENTS: Record<string, RequiredField[]> = {
       when: (c) => c.action === 'broadcast_signal',
     },
   ],
+  ml_dataset: [{ key: 'dataset', label: 'Dataset', example: 'customers' }],
   snowflake: [{ key: 'connection_string', label: 'Connection String', example: 'user:pass@account/db/schema?warehouse=wh' }],
   // fcm.New refuses a sink with no credentials rather than falling through to
   // the machine's ambient Google credentials, which is how a developer laptop

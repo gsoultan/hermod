@@ -85,6 +85,17 @@ version can be put live later. The **Train Model** node does the same from a
 workflow. A trained model is called like any other: the Predict node, REST and
 gRPC. See [docs/ml.md](docs/ml.md).
 
+### Added — collect datasets and retrain models
+
+The **Collect Dataset** sink appends each record a workflow sends it to a
+dataset of the workflow's vhost on hermod-ml, mapped and masked as configured,
+in batches, up to a row cap. A model trained in Hermod can now **retrain
+automatically**: on a cron schedule, once its dataset has grown by a number of
+rows, or both, with the go-live rule deciding whether the new version serves.
+Each retraining runs once across Hermod servers and never beside another
+training of the same model; the Models page shows how the last one went. See
+[docs/ml.md](docs/ml.md).
+
 ### Added — AI automation
 
 Workflows can call Claude, ChatGPT, Gemini, DeepSeek, Mistral, Groq, OpenRouter,

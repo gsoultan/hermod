@@ -178,6 +178,7 @@ export function SinkWizard({
                 {SelectedConfig && (
                   <SelectedConfig 
                     type={sink.type}
+                    vhost={sink.vhost}
                     config={sink.config} 
                     updateConfig={updateConfig} 
                     handleSinkChange={handleSinkChange}

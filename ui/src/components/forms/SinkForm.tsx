@@ -42,6 +42,7 @@ const SocialSinkConfig = lazy(() => import('../workflow/Sink/SocialSinkConfig').
 const PanmailSinkConfig = lazy(() => import('../workflow/Sink/PanmailSinkConfig').then(m => ({ default: m.PanmailSinkConfig })));
 const MetisSinkConfig = lazy(() => import('../workflow/Sink/MetisSinkConfig').then(m => ({ default: m.MetisSinkConfig })));
 const FcmSinkConfig = lazy(() => import('../workflow/Sink/FcmSinkConfig').then(m => ({ default: m.FcmSinkConfig })));
+const MLDatasetSinkConfig = lazy(() => import('../workflow/Sink/MLDatasetSinkConfig').then(m => ({ default: m.MLDatasetSinkConfig })));
 
 export const SINK_TYPES = [
   { value: 'postgres', label: 'PostgreSQL' , group: 'Databases' },
@@ -63,6 +64,7 @@ export const SINK_TYPES = [
   { value: 'pgvector', label: 'Pgvector' , group: 'Databases' },
   { value: 'pinecone', label: 'Pinecone' , group: 'Databases' },
   { value: 'milvus', label: 'Milvus' , group: 'Databases' },
+  { value: 'ml_dataset', label: 'Collect Dataset (ML)' , group: 'Files & Storage' },
   { value: 'kafka', label: 'Kafka' , group: 'Messaging & Streams' },
   { value: 'mqtt', label: 'MQTT' , group: 'Messaging & Streams' },
   { value: 'nats', label: 'NATS' , group: 'Messaging & Streams' },
@@ -125,6 +127,7 @@ export const configComponents: Record<string, any> = {
   pinecone: PineconeSinkConfig,
   milvus: MilvusSinkConfig,
   pgvector: PgvectorSinkConfig,
+  ml_dataset: MLDatasetSinkConfig,
   failover: FailoverSinkConfig,
   txgroup: TxGroupSinkConfig,
   sap: SapSinkConfig,

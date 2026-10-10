@@ -19,22 +19,26 @@ const mlModelsCollection = "ml_models"
 // mlModelDoc is the stored form. _id is vhost + "/" + name, as for
 // vhost_secrets: a model name cannot hold a slash.
 type mlModelDoc struct {
-	ID             string    `bson:"_id"`
-	VHost          string    `bson:"vhost"`
-	Name           string    `bson:"name"`
-	Description    string    `bson:"description,omitempty"`
-	Backend        string    `bson:"backend"`
-	URL            string    `bson:"url"`
-	RemoteModel    string    `bson:"remote_model,omitempty"`
-	RemoteVersion  string    `bson:"remote_version,omitempty"`
-	TokenSecret    string    `bson:"token_secret,omitempty"`
-	InputName      string    `bson:"input_name,omitempty"`
-	Features       []string  `bson:"features,omitempty"`
-	TimeoutMs      int       `bson:"timeout_ms,omitempty"`
-	ServingKeyHash string    `bson:"serving_key_hash,omitempty"`
-	UpdatedBy      string    `bson:"updated_by"`
-	CreatedAt      time.Time `bson:"created_at"`
-	UpdatedAt      time.Time `bson:"updated_at"`
+	ID             string   `bson:"_id"`
+	VHost          string   `bson:"vhost"`
+	Name           string   `bson:"name"`
+	Description    string   `bson:"description,omitempty"`
+	Backend        string   `bson:"backend"`
+	URL            string   `bson:"url"`
+	RemoteModel    string   `bson:"remote_model,omitempty"`
+	RemoteVersion  string   `bson:"remote_version,omitempty"`
+	TokenSecret    string   `bson:"token_secret,omitempty"`
+	InputName      string   `bson:"input_name,omitempty"`
+	Features       []string `bson:"features,omitempty"`
+	TimeoutMs      int      `bson:"timeout_ms,omitempty"`
+	ServingKeyHash string   `bson:"serving_key_hash,omitempty"`
+	UpdatedBy      string   `bson:"updated_by"`
+	// PutMLModel sets none of these, so saving a definition leaves them as
+	// they are.
+	Retrain       *storage.MLRetrainPolicy `bson:"retrain,omitempty"`
+	RetrainStatus *storage.MLRetrainStatus `bson:"retrain_status,omitempty"`
+	CreatedAt     time.Time                `bson:"created_at"`
+	UpdatedAt     time.Time                `bson:"updated_at"`
 }
 
 func mlModelID(vhost, name string) string {
@@ -47,6 +51,7 @@ func (d mlModelDoc) model() storage.MLModel {
 		Backend: inference.Backend(d.Backend), URL: d.URL, RemoteModel: d.RemoteModel, RemoteVersion: d.RemoteVersion,
 		TokenSecret: d.TokenSecret, InputName: d.InputName, Features: d.Features, TimeoutMs: d.TimeoutMs,
 		ServingKeyHash: d.ServingKeyHash, Serving: d.ServingKeyHash != "",
+		Retrain: d.Retrain, RetrainStatus: d.RetrainStatus,
 		UpdatedBy: d.UpdatedBy, CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
 	}
 }

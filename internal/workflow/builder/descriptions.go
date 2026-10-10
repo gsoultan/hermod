@@ -11,7 +11,9 @@ var descriptions = map[string]string{
 		`config_json which kind is needed, e.g. {"sourceType":"webhook"}.`,
 	"sink": "Destination a record is written to (database, queue, API, notification...). Set ref_id to " +
 		"the id of one of the available sinks listed below, or leave it empty and say in config_json " +
-		`which kind is needed, e.g. {"sinkType":"slack"}.`,
+		`which kind is needed, e.g. {"sinkType":"slack"}. {"sinkType":"ml_dataset"} is Collect Dataset: it appends ` +
+		`each record as a row to a dataset of the workflow's vhost on the ML worker, for Train Model or a retrain ` +
+		`policy to learn from; its sink config is {"dataset","column_mappings","mask_fields","mask_type","max_rows"}.`,
 
 	// Node executors.
 	"ai_agent": `Language-model agent that pursues a goal with a bounded loop over the tools it is given. config: ` +

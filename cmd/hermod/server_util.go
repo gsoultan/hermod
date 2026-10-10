@@ -16,6 +16,7 @@ import (
 	"github.com/gsoultan/hermod/internal/config"
 	"github.com/gsoultan/hermod/internal/engine/registry"
 	"github.com/gsoultan/hermod/internal/engine/worker"
+	"github.com/gsoultan/hermod/internal/ml"
 	"github.com/gsoultan/hermod/internal/storage"
 )
 
@@ -55,6 +56,11 @@ func startAPI(ctx context.Context, o *Options, reg *registry.Registry, store, lo
 
 	stopAutoscaler := startAutoscaler(o, store, configured, userSetup)
 	defer stopAutoscaler()
+
+	// Retrain policies on trained models. Every API replica runs one; a model
+	// is claimed in storage before it is trained, so each retraining happens
+	// once across them.
+	go ml.NewRetrainer(reg.MLService, logger).Run(ctx)
 
 	// Go's http.Server has no timeouts by default, and this one had none set.
 	// A connection that opens and then dribbles its request headers one byte at

@@ -40,6 +40,12 @@ type MLModel struct {
 	// Serving reports whether a serving key is set; it is what the API shows.
 	Serving bool `json:"serving"`
 
+	// Retrain is when a trained model trains again by itself, nil for never.
+	// RetrainStatus is what its last training did. PutMLModel changes
+	// neither; MLRetrainStore does.
+	Retrain       *MLRetrainPolicy `json:"retrain,omitempty"`
+	RetrainStatus *MLRetrainStatus `json:"retrain_status,omitempty"`
+
 	UpdatedBy string    `json:"updated_by,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

@@ -24,6 +24,10 @@ type fakeWorker struct {
 	calls    []string
 	auth     string
 	deleted  []string
+	// rows is how many rows each dataset holds ("vhost/dataset"), and busy
+	// answers every training with 429.
+	rows map[string]int
+	busy bool
 }
 
 func (f *fakeWorker) server(t *testing.T) *httptest.Server {
@@ -36,6 +40,17 @@ func (f *fakeWorker) server(t *testing.T) *httptest.Server {
 		f.auth = r.Header.Get("Authorization")
 		parts := strings.Split(strings.Trim(path, "/"), "/")
 		switch {
+		case r.Method == http.MethodGet && len(parts) == 4 && parts[1] == "datasets":
+			n, ok := f.rows[parts[2]+"/"+parts[3]]
+			if !ok {
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = io.WriteString(w, `{"error":"no such dataset"}`)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(worker.DatasetInfo{Name: parts[3], Rows: n})
+		case r.Method == http.MethodPost && len(parts) == 5 && parts[0] == "v1" && parts[4] == "train" && f.busy:
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = io.WriteString(w, `{"error":"Training is busy"}`)
 		case r.Method == http.MethodPost && len(parts) == 5 && parts[0] == "v1" && parts[4] == "train":
 			var spec worker.TrainSpec
 			_ = json.NewDecoder(r.Body).Decode(&spec)
@@ -88,7 +103,7 @@ func itoa(n int) string {
 
 func workerService(t *testing.T, store *memStore, score float64) (*Service, *fakeWorker) {
 	t.Helper()
-	f := &fakeWorker{score: score, versions: map[string][]worker.Version{}}
+	f := &fakeWorker{score: score, versions: map[string][]worker.Version{}, rows: map[string]int{}}
 	srv := f.server(t)
 	svc := NewService(func() any { return store }, nil, nil).WithWorker(worker.New(srv.URL, "worker-token", nil))
 	return svc, f

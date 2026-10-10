@@ -277,6 +277,16 @@ func parseSinkEngineConfig(cfg factory.SinkConfig) config.SinkConfig {
 			psc.BatchTimeout = d
 		}
 	}
+	// The Collect Dataset sink writes one file on the ML worker per append, so
+	// a batch of one would leave a dataset of one-row files.
+	if cfg.Type == "ml_dataset" {
+		if psc.BatchSize == 0 {
+			psc.BatchSize = mlDatasetBatchSize
+		}
+		if psc.BatchTimeout == 0 {
+			psc.BatchTimeout = mlDatasetBatchTimeout
+		}
+	}
 	if val, ok := cfg.Config["batch_bytes"]; ok && val != "" {
 		if n, err := strconv.Atoi(val); err == nil {
 			psc.BatchBytes = n
