@@ -6,7 +6,8 @@ import {
   IconTable, IconBroadcast, IconRefresh, IconLetterCase, IconPercentage, IconTableExport, IconNumbers,
   IconDatabaseExport, IconNote, IconTag, IconBrandDiscord, IconBrandSlack, IconBrandTwitter, 
   IconBrandFacebook, IconBrandInstagram, IconBrandLinkedin, IconBrandTiktok, IconExternalLink, IconLock, IconLockOpen, IconSitemap,
-  IconSparkles, IconTextScan2, IconTags, IconFileDescription, IconLanguage, IconVector, IconDatabaseSearch, IconRobot, IconBrain
+  IconSparkles, IconTextScan2, IconTags, IconFileDescription, IconLanguage, IconVector, IconDatabaseSearch, IconRobot, IconBrain,
+  IconScale, IconBinary, IconChartHistogram, IconTimeline, IconAlertTriangle
 } from '@tabler/icons-react';
 
 export const NODE_CATEGORIES = [
@@ -82,6 +83,17 @@ export const NODE_CATEGORIES = [
     group: 'transformations',
     items: [
       { type: 'transformation', refId: 'new', label: 'Predict', subType: 'ml_predict', icon: IconBrain, color: 'grape', description: 'Score each record with a registered model' },
+    ]
+  },
+  {
+    title: 'Feature Engineering',
+    group: 'transformations',
+    items: [
+      { type: 'transformation', refId: 'new', label: 'Scale', subType: 'scale', icon: IconScale, color: 'grape', description: 'Min-max or z-score with fitted statistics' },
+      { type: 'transformation', refId: 'new', label: 'Encode', subType: 'encode', icon: IconBinary, color: 'grape', description: 'One-hot, label or hash-bucket a category' },
+      { type: 'transformation', refId: 'new', label: 'Bucketize', subType: 'bucketize', icon: IconChartHistogram, color: 'grape', description: 'Put a number into labelled bins' },
+      { type: 'transformation', refId: 'new', label: 'Rolling Features', subType: 'rolling', icon: IconTimeline, color: 'grape', description: 'Per-key count, sum, mean, std, min, max over recent records' },
+      { type: 'transformation', refId: 'new', label: 'Anomaly Score', subType: 'anomaly_score', icon: IconAlertTriangle, color: 'grape', description: 'Flag values far from their key\'s recent history' },
     ]
   },
   {
