@@ -195,6 +195,13 @@ type Registry struct {
 	// write (zero means defaultLogWriteTimeout).
 	logWriter       logWriter
 	logWriteTimeout time.Duration
+	// workflowWatchers counts, per workflow ID, the clients subscribed to that
+	// workflow's status — the editor and the detail page. The router reads it
+	// once per message to decide whether to take payload samples, so it is an
+	// *atomic.Int32 per workflow rather than a lookup under statusSubsMu.
+	// Entries are never removed: one small counter per workflow ID ever
+	// watched, and a router holding a pointer must keep seeing updates.
+	workflowWatchers sync.Map // string -> *atomic.Int32
 
 	ctx    context.Context
 	cancel context.CancelFunc

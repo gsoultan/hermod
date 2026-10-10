@@ -588,6 +588,11 @@ func (r *Registry) setupWorkflowRouter(
 	}
 	inDegreeByEntry := traversal.ReachableInDegreeByEntry(adj, entryIDs)
 
+	// Per-node and per-edge counters, resolved once here so each message pays
+	// only atomic adds for them. Payload samples are taken only while someone
+	// has this workflow's status open.
+	tel := traversal.NewTelemetry(eng, nodeIndex, adj, r.workflowWatcherCount(id))
+
 	eng.SetRouter(func(ctx context.Context, msg hermod.Message) ([]pkgengine.RoutedMessage, error) {
 		// Stamp the workflow id onto every message as it enters the workflow.
 		// Downstream trace recording (doApplyTransformation) and PII discovery
@@ -621,6 +626,7 @@ func (r *Registry) setupWorkflowRouter(
 		}
 
 		t := traversal.Acquire(r, eng, id, nodeMap, adj, nodeIndex, edgeLabels, edgeBreakpoints, effectiveInDegree, sinkNodeToIndex)
+		t.Telemetry = tel
 		msg.Retain()
 		t.CurrentMessages[nodeIndex[sourceNodeID]] = msg
 

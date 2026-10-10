@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,7 +31,24 @@ func (r *Registry) SubscribeWorkflowStatus(workflowID string) chan telemetry.Sta
 	ch := make(chan telemetry.StatusUpdate, 100)
 	r.workflowStatusSubs[workflowID][ch] = true
 	r.hasStatusSubs.Add(1)
+	r.workflowWatcherCount(workflowID).Add(1)
 	return ch
+}
+
+// workflowWatcherCount returns the live count of status subscribers for one
+// workflow, creating it on first use. See Registry.workflowWatchers.
+func (r *Registry) workflowWatcherCount(workflowID string) *atomic.Int32 {
+	if v, ok := r.workflowWatchers.Load(workflowID); ok {
+		if c, ok := v.(*atomic.Int32); ok {
+			return c
+		}
+	}
+	fresh := new(atomic.Int32)
+	v, _ := r.workflowWatchers.LoadOrStore(workflowID, fresh)
+	if c, ok := v.(*atomic.Int32); ok {
+		return c
+	}
+	return fresh
 }
 
 func (r *Registry) UnsubscribeStatus(ch chan telemetry.StatusUpdate) {
@@ -44,6 +62,7 @@ func (r *Registry) UnsubscribeStatus(ch chan telemetry.StatusUpdate) {
 		if subs[ch] {
 			delete(subs, ch)
 			r.hasStatusSubs.Add(-1)
+			r.workflowWatcherCount(wfID).Add(-1)
 			if len(subs) == 0 {
 				delete(r.workflowStatusSubs, wfID)
 			}

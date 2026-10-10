@@ -85,6 +85,11 @@ type WorkflowTraversal struct {
 	// to acknowledge either. Together these tell them apart; see MetaFiltered.
 	Filtered    atomic.Bool
 	Unaccounted atomic.Bool
+
+	// Telemetry receives per-node and per-edge counts for a live workflow. It
+	// is built once per workflow (NewTelemetry) and shared by every traversal
+	// of it; nil records nothing, which is what a simulation wants.
+	Telemetry *Telemetry
 }
 
 var TraversalPool = sync.Pool{
@@ -161,6 +166,7 @@ func Release(t *WorkflowTraversal) {
 	t.MsgMu.Unlock()
 	t.Registry = nil
 	t.Eng = nil
+	t.Telemetry = nil
 	TraversalPool.Put(t)
 }
 
@@ -256,7 +262,7 @@ func (t *WorkflowTraversal) processNode(ctx context.Context, currID string) {
 	}
 	defer currMsg.Release()
 
-	msgs, branch, err := t.runNode(ctx, currNode, currMsg)
+	msgs, branch, err := t.runNode(ctx, idx, currNode, currMsg)
 
 	// Deferred, not trailing. This function recovers from panics in everything
 	// below — which is deliberate, so one bad node cannot take the worker with
@@ -364,8 +370,10 @@ func (t *WorkflowTraversal) processNode(ctx context.Context, currID string) {
 	t.handleResults(ctx, currNode, msgs, branch, err)
 }
 
-func (t *WorkflowTraversal) runNode(ctx context.Context, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
+func (t *WorkflowTraversal) runNode(ctx context.Context, idx int, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
 	if node.Type == "source" {
+		t.Telemetry.count(idx)
+		t.Telemetry.sample(idx, node.ID, msg, time.Time{})
 		// Every message in the returned slice is owned by the caller, which
 		// releases each one after handleResults — the same contract
 		// Registry.RunWorkflowNode implements by retaining when it passes the
@@ -395,6 +403,13 @@ func (t *WorkflowTraversal) runNode(ctx context.Context, node *storage.WorkflowN
 	// dropping a field it had not yet produced. One instant for every fan-out
 	// sibling: they did all finish together.
 	done := time.Now()
+
+	// Per-node count, errors and run time. The debugger pause above is
+	// outside the measured span, so a breakpoint does not read as a slow node.
+	t.Telemetry.observe(idx, done.Sub(start), err != nil)
+	if err == nil && len(msgs) > 0 {
+		t.Telemetry.sample(idx, node.ID, msgs[0], done)
+	}
 
 	if len(msgs) > 0 {
 		for _, m := range msgs {
@@ -466,10 +481,15 @@ func (t *WorkflowTraversal) handleResults(ctx context.Context, node *storage.Wor
 	// brought it went unwritten. The editor's simulation counts such an edge as
 	// walked (simulation.forward); this is the same rule.
 	targets := t.Adj[node.ID]
+	nodeIdx := -1
+	if t.Telemetry != nil {
+		nodeIdx = t.NodeIndex[node.ID]
+	}
 	took := false
-	for _, targetID := range targets {
+	for pos, targetID := range targets {
 		if len(msgs) > 0 && TakesEdge(branch, t.EdgeLabels[node.ID+":"+targetID]) {
 			took = true
+			t.Telemetry.edge(nodeIdx, pos, len(msgs))
 			for _, msg := range msgs {
 				// Clone the message if it's going to multiple targets to avoid data races
 				// when nodes modify the message concurrently.
@@ -545,6 +565,7 @@ func (t *WorkflowTraversal) forkFanout(ctx context.Context, node *storage.Workfl
 func (t *WorkflowTraversal) walkFrom(ctx context.Context, node *storage.WorkflowNode, msg hermod.Message, branch string) {
 	child := Acquire(t.Registry, t.Eng, t.WorkflowID, t.NodeMap, t.Adj, t.NodeIndex,
 		t.EdgeLabels, t.EdgeBreakpoints, t.InDegree, t.SinkNodeToIndex)
+	child.Telemetry = t.Telemetry
 
 	child.handleResults(ctx, node, []hermod.Message{msg}, branch, nil)
 	child.Wg.Wait()
