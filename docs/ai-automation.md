@@ -41,9 +41,9 @@ The editor's AI palette also has Summarize and Translate, which are `ai_prompt` 
 
 ### Conversation memory
 
-For a chat endpoint, use a webhook source in sync reply mode. Send `X-Conversation-Id` (1–128 characters of
-`A-Z a-z 0-9 . _ : -`); Hermod issues one when it is absent and echoes it back. Set `memory` on an
-`ai_prompt` node:
+For a chat endpoint, use a [chat source](#chat-trigger), or a webhook source in sync reply mode. A webhook
+caller sends `X-Conversation-Id` (1–128 characters of `A-Z a-z 0-9 . _ : -`); Hermod issues one when it is
+absent and echoes it back. Set `memory` on an `ai_prompt` node:
 
 ```json
 {"memory": {"conversationField": "conversation_id", "maxTurns": 10, "ttl": "24h"}}
@@ -51,6 +51,69 @@ For a chat endpoint, use a webhook source in sync reply mode. Send `X-Conversati
 
 Turns are kept in the engine's state store, so memory needs `StateStore` configured. Each turn is capped at
 4 KiB and a conversation at 64 KiB.
+
+## Chat trigger
+
+A `chat` source receives one message of a conversation and answers with the workflow's reply. Put an
+`ai_prompt` node with `memory` after it and the chat remembers what was said (the source sets
+`conversation_id`, which is where memory looks by default). The source answers with the record field named by
+`reply_field`, by default `ai_output`, which is where `ai_prompt` writes its answer.
+
+Each source has its own path, `/api/chat/<name>`, and a `platform`:
+
+| Platform | Receives | Authenticated by | Answers |
+|---|---|---|---|
+| `web` (default) | `POST /api/chat/<name>` with `{"conversation_id", "message", "user", "metadata"}` | `api_key`, sent as `X-API-Key`; or the public `widget_key`, sent as `?widget_key=` from an origin in `allowed_origins` | In the response |
+| `slack` | Events API deliveries (`message`, `app_mention`) | `slack_signing_secret` (`X-Slack-Signature`, five-minute replay window) | `chat.postMessage` with `slack_bot_token`, in the thread the message was in |
+| `telegram` | Bot API webhook updates (text messages) | `telegram_secret_token` (`X-Telegram-Bot-Api-Secret-Token`) | A `sendMessage` call in the webhook response; no bot token needed |
+
+A chat source with no credential for its platform answers nobody. Any credential can be a `secret:NAME`
+reference, read from the source's vhost secrets; a reference to a secret that does not exist counts as no
+credential.
+
+A web request is answered:
+
+| Status | Body | When |
+|---|---|---|
+| 200 | `{"id", "status", "conversation_id", "reply"}` | The workflow finished: `delivered`, `completed` (no sink) or `filtered`. |
+| 202 | `{"id", "status": "pending", "conversation_id"}` | `response_timeout` (default 30s, at most 5m) ran out. The message is still the workflow's; do not resend it. |
+| 502 | `{"id", "status", "conversation_id", "error"}` | The workflow failed. The cause is in the run history, not in the answer. |
+| 400, 401, 403, 404, 413, 429, 503 | `{"error"}` | A bad request, a wrong or missing credential, an origin not allowed, no such chat, a body over 16 KiB, the rate limit, or the workflow not running. |
+
+`conversation_id` is optional; without one a new conversation starts and its id comes back to send next time.
+`message` is at most 4 KiB, the size memory keeps of a turn. `rate_limit` (default 120) is messages per caller
+IP per hour on the web platform. There is no poll endpoint for a `pending` answer, as for a sync webhook.
+
+### The web widget
+
+```html
+<script src="https://hermod.example.com/api/chat/widget.js" async
+        data-endpoint="https://hermod.example.com/api/chat/support"
+        data-widget-key="PUBLIC_WIDGET_KEY"
+        data-title="Support"></script>
+```
+
+The widget key is public: anyone can read it from the page, so it is accepted only with an `Origin` in the
+source's `allowed_origins` (exact `scheme://host[:port]`, comma-separated; `*` is not accepted), and the answer
+carries `Access-Control-Allow-Origin` for that origin only. It is not a Hermod credential and cannot call
+anything else. A script outside a browser can send any `Origin`, so the origin list keeps the key from working
+on other sites, and `rate_limit` and the model's own limits are what bound its cost. The script has no dependencies, uses no `eval`, inline styles or `innerHTML`, and posts a simple
+`text/plain` request without cookies, so the embedding page needs only `script-src` and `connect-src` for the
+Hermod host. The conversation lasts as long as the browser tab.
+
+### Slack
+
+Create a Slack app with the `chat:write` scope, set Event Subscriptions' Request URL to the source's URL and
+subscribe to `message.im` (and `app_mention` for channels). Slack expects an answer within three seconds, so
+the source acknowledges at once and posts the reply when the workflow has it. Slack's retries are acknowledged
+and ignored, the bot's own messages and edits are ignored, and a message's conversation is
+`slack:<team>:<channel>[:<thread>]`.
+
+### Telegram
+
+Register the source as the bot's webhook with a secret token:
+`https://api.telegram.org/bot<token>/setWebhook?url=<source URL>&secret_token=<telegram_secret_token>`. A
+conversation is `telegram:<chat id>`. An answer that is not ready within `response_timeout` is not sent.
 
 ## The agent
 
@@ -94,8 +157,9 @@ AI calls are counted in `hermod_ai_calls_total`, `hermod_ai_tokens_total` and
 
 ## Templates
 
-`examples/templates/` has three AI starters: support triage (classify, extract, draft a reply, approval,
-send), invoice extraction, and a CDC anomaly explainer. Each reads its key from `{{secret("ANTHROPIC_API_KEY")}}`.
+`examples/templates/` has four AI starters: support triage (classify, extract, draft a reply, approval,
+send), invoice extraction, a CDC anomaly explainer, and a chat assistant (chat source, AI Prompt with memory,
+reply). Each reads its key from `{{secret("ANTHROPIC_API_KEY")}}`.
 
 ## MCP server
 

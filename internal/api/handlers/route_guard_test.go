@@ -60,6 +60,7 @@ var unguardedMutatingRoutes = map[string]string{
 	"POST /api/webhooks/{path...}":      "public ingestion endpoint; authenticated by its own token",
 	"POST /api/forms/{path...}":         "public form submission",
 	"POST /api/ml/serve/{vhost}/{name}": "public model serving; authenticated by the model's own serving key",
+	"POST /api/chat/{path...}":          "public chat endpoint; authenticated by the source's API key, widget key and origin, or Slack/Telegram signature",
 
 	// self-service: the handler checks caller identity, not role
 	"PUT /api/me":                      "a user editing their own profile",

@@ -53,6 +53,7 @@ export const SOURCE_TYPES = [
   { value: 'dynamics365', label: 'Dynamics 365' , group: 'Enterprise' },
   { value: 'mainframe', label: 'Mainframe' , group: 'Enterprise' },
   { value: 'webhook', label: 'Webhook' , group: 'APIs & Triggers' },
+  { value: 'chat', label: 'Chat (web widget, Slack, Telegram)' , group: 'APIs & Triggers' },
   { value: 'metis', label: 'Metis (BPMN Workflow)' , group: 'APIs & Triggers' },
   { value: 'metis_task', label: 'Metis External Task (BPMN step)' , group: 'APIs & Triggers' },
   { value: 'form', label: 'Form Submission' , group: 'APIs & Triggers' },

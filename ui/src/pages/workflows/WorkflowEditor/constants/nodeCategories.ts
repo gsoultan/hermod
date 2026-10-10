@@ -188,6 +188,7 @@ export const NODE_CATEGORIES = [
     items: [
       { type: 'source', refId: 'new', label: 'Webhook', subType: 'webhook', icon: IconWorld, color: 'cyan', description: 'Receive HTTP POST events' },
       { type: 'source', refId: 'new', label: 'Form Submission', subType: 'form', icon: IconWorld, color: 'cyan', description: 'Accept form submissions via HTTP' },
+      { type: 'source', refId: 'new', label: 'Chat', subType: 'chat', icon: IconMessage, color: 'cyan', description: 'Answer chat messages from a web widget, Slack or Telegram' },
       { type: 'source', refId: 'new', label: 'Cron / Schedule', subType: 'cron', icon: IconSettingsAutomation, color: 'cyan', description: 'Emit on a schedule' },
       { type: 'source', refId: 'new', label: 'CSV / File', subType: 'file', icon: IconFileSpreadsheet, color: 'cyan', description: 'Read rows from CSV/TSV and files' },
       { type: 'source', refId: 'new', label: 'Excel (.xlsx)', subType: 'excel', icon: IconFileSpreadsheet, color: 'cyan', description: 'Stream rows from Excel workbooks' },

@@ -43,6 +43,20 @@ request that does not carry it in the `X-API-Key` header. It used to accept
 every request. Before upgrading, make sure each sender of a keyed webhook sends
 the header, or clear the key on the source.
 
+### Added — chat trigger
+
+A **Chat** source receives one message of a conversation and answers with the
+workflow's reply, so a chatbot is a chat source followed by an AI Prompt node
+with memory. Messages come from a web page (`POST /api/chat/{path}` with
+`{conversation_id, message, user, metadata}`, or the embeddable widget served at
+`/api/chat/widget.js`), from a Slack app (Events API, signature checked, answer
+posted in the thread) or from a Telegram bot (webhook secret checked, answer
+returned in the webhook response). A server authenticates with the source's API
+key; the widget uses a public widget key that is accepted only from the
+source's allowed origins. A chat source with no credential answers nobody.
+Credentials may be `secret:NAME` references. New template: AI Chat Assistant.
+See [docs/ai-automation.md](docs/ai-automation.md#chat-trigger).
+
 ### Added — 42 more expression functions
 
 Expressions could not pad an id, pull a number out of text, move a date by a

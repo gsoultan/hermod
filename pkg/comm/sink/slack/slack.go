@@ -93,11 +93,37 @@ func (s *SlackSink) sendWebhook(ctx context.Context, text string) error {
 }
 
 func (s *SlackSink) sendBotMessage(ctx context.Context, text string) error {
+	return s.postMessage(ctx, s.channelID, "", text)
+}
+
+// PostReply posts text to a channel other than the sink's, in the thread
+// threadTS when it is not empty. A chat source answers the conversation it was
+// asked in with it, through the bot token the sink is built with.
+func (s *SlackSink) PostReply(ctx context.Context, channel, threadTS, text string) error {
+	if s.token == "" {
+		return errors.New("slack reply needs a bot token")
+	}
+	return s.postMessage(ctx, channel, threadTS, text)
+}
+
+// SetBaseURL overrides the Web API root this sink talks to. An empty string
+// leaves the default in place.
+func (s *SlackSink) SetBaseURL(u string) {
+	if u != "" {
+		s.baseURL = u
+	}
+}
+
+func (s *SlackSink) postMessage(ctx context.Context, channel, threadTS, text string) error {
 	apiURL := s.baseURL + "/chat.postMessage"
-	body, _ := json.Marshal(map[string]string{
-		"channel": s.channelID,
+	fields := map[string]string{
+		"channel": channel,
 		"text":    text,
-	})
+	}
+	if threadTS != "" {
+		fields["thread_ts"] = threadTS
+	}
+	body, _ := json.Marshal(fields)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewBuffer(body))
 	if err != nil {

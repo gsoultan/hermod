@@ -250,6 +250,10 @@ func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 			path == "/api/config/status" || path == "/api/version" ||
 			strings.HasPrefix(path, "/api/webhooks/") ||
 			strings.HasPrefix(path, "/api/forms/") ||
+			// A chat source's API key, widget key, Slack signing secret or
+			// Telegram secret token is this endpoint's credential, checked by
+			// the handler (internal/chat/transport/http).
+			strings.HasPrefix(path, "/api/chat/") ||
 			// A model's serving key is this endpoint's credential, checked by
 			// the handler (internal/ml/transport/http Serve).
 			strings.HasPrefix(path, "/api/ml/serve/") ||

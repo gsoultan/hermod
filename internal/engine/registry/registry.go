@@ -1066,6 +1066,13 @@ func (r *Registry) resolveSecrets(ctx context.Context, vhost string, config map[
 	return resolved
 }
 
+// ResolveSecrets is resolveSecrets for a transport that checks a source's
+// credentials itself, outside a running workflow (a chat source's endpoint).
+// The config passed in is not modified.
+func (r *Registry) ResolveSecrets(ctx context.Context, vhost string, config map[string]string) map[string]string {
+	return r.resolveSecrets(ctx, vhost, config)
+}
+
 // requireNonCDCDelegate rejects a batch_sql source whose `source_id` names a
 // CDC source. A batch_sql source holds no connection of its own -- it borrows
 // the delegate's (see GetOrOpenDB) -- and what it runs over that connection is
