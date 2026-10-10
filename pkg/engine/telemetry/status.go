@@ -22,6 +22,8 @@ type StatusTracker struct {
 	nodeErrorMetrics sync.Map // string -> *atomic.Uint64
 	nodeSamples      sync.Map // string -> any
 	edgeMetrics      sync.Map // string -> *atomic.Uint64
+	nodeLatency      sync.Map // string -> *atomic.Int64 (moving average, ns)
+	nodeStats        sync.Map // string -> *NodeStats
 
 	latencyAvg atomic.Int64 // Duration in ns
 

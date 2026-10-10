@@ -434,6 +434,10 @@ func (e *Engine) GetStatus() telemetry.StatusUpdate {
 	if len(nodeSamples) > 0 {
 		update.NodeSamples = nodeSamples
 	}
+	nodeLatencies := e.statusTracker.GetNodeLatencies()
+	if len(nodeLatencies) > 0 {
+		update.NodeLatencies = nodeLatencies
+	}
 	edgeMetrics := e.statusTracker.GetEdgeMetrics()
 	if len(edgeMetrics) > 0 {
 		update.EdgeMetrics = edgeMetrics

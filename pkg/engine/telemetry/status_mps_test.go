@@ -16,7 +16,7 @@ func newFakeClock() *fakeClock {
 	return c
 }
 
-func (c *fakeClock) Now() time.Time           { return time.Unix(0, c.nanos.Load()) }
+func (c *fakeClock) Now() time.Time          { return time.Unix(0, c.nanos.Load()) }
 func (c *fakeClock) Advance(d time.Duration) { c.nanos.Add(int64(d)) }
 
 // GetMPS used to reset the counter it read (Swap(0)). The status is read from

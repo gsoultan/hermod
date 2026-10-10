@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/engine/telemetry"
 )
 
 // WillTrace reports whether a step recorded for this message would be kept.
@@ -191,6 +192,18 @@ func (e *Engine) UpdateNodeErrorMetric(nodeID string, count uint64) {
 // full-payload JSON round-trip on every message.
 func (e *Engine) UpdateNodeSample(nodeID string, data map[string]any) {
 	e.statusTracker.UpdateNodeSample(nodeID, data)
+}
+
+// NodeStats returns the live counters for a workflow node. Resolve it once and
+// keep it: updating it is lock- and allocation-free.
+func (e *Engine) NodeStats(nodeID string) *telemetry.NodeStats {
+	return e.statusTracker.NodeStats(nodeID)
+}
+
+// EdgeCounter returns the message counter for the edge source -> target.
+// Resolve it once and keep it: adding to it builds no key.
+func (e *Engine) EdgeCounter(sourceNodeID, targetNodeID string) *atomic.Uint64 {
+	return e.statusTracker.EdgeCounter(sourceNodeID, targetNodeID)
 }
 
 func (e *Engine) UpdateEdgeMetric(sourceNodeID string, targetNodeID string, count uint64) {
