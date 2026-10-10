@@ -32,6 +32,7 @@ import { AIPromptConfig } from './ai/AIPromptConfig'
 import { AIExtractConfig } from './ai/AIExtractConfig'
 import { AIEmbedConfig } from './ai/AIEmbedConfig'
 import { AIClassifyConfig } from './ai/AIClassifyConfig'
+import { AIRetrieveConfig } from './ai-retrieve/AIRetrieveConfig'
 
 // logic
 import { ConditionConfig } from './logic/ConditionConfig'
@@ -148,6 +149,7 @@ export const TRANSFORM_CONFIGS: Record<string, ConfigComponent> = {
   ai_prompt: AIPromptConfig,
   ai_extract: AIExtractConfig,
   ai_embed: AIEmbedConfig,
+  ai_retrieve: AIRetrieveConfig,
 
   // logic & flow
   condition: ConditionConfig,

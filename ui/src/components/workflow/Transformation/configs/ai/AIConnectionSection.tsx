@@ -19,6 +19,8 @@ export interface AISectionProps {
 interface AIConnectionSectionProps extends AISectionProps {
   /** Embedding calls take no token limit or temperature. */
   embedding?: boolean
+  /** What the node's `timeout` bounds, when it is not one call (ai_agent: the whole run). */
+  timeoutHint?: { placeholder: string; description: string; error?: string }
 }
 
 const GO_DURATION = /^(\d+(\.\d+)?(ns|us|µs|ms|s|m|h))+$/
@@ -37,14 +39,14 @@ const baseUrlPlaceholder = (provider: string | undefined) =>
  * Keys are the camelCase ones genai.connection and genai.callOptions read; the
  * fallback connection uses the same keys prefixed with `fallback`.
  */
-export function AIConnectionSection({ config, nodeId, updateNodeConfig, embedding = false }: AIConnectionSectionProps) {
+export function AIConnectionSection({ config, nodeId, updateNodeConfig, embedding = false, timeoutHint }: AIConnectionSectionProps) {
   const set = (patch: Record<string, unknown>) => updateNodeConfig(nodeId, patch)
   const provider: string | undefined = config.provider || undefined
   const fallback: string | undefined = config.fallbackProvider || undefined
   const timeout = str(config.timeout).trim()
   const timeoutError = timeout && !GO_DURATION.test(timeout)
     ? 'The timeout needs a unit, like 60s or 2m.'
-    : undefined
+    : timeoutHint?.error
 
   return (
     <Stack gap="md">
@@ -114,11 +116,11 @@ export function AIConnectionSection({ config, nodeId, updateNodeConfig, embeddin
               <Group grow align="flex-start" gap="sm">
                 <TextInput
                   label="Timeout"
-                  placeholder="60s"
+                  placeholder={timeoutHint?.placeholder ?? '60s'}
                   value={str(config.timeout)}
                   onChange={(e) => set({ timeout: e.currentTarget.value })}
                   error={timeoutError}
-                  description="How long one call may take, e.g. 60s or 2m."
+                  description={timeoutHint?.description ?? 'How long one call may take, e.g. 60s or 2m.'}
                 />
                 <NumberInput
                   label="Max concurrent calls"

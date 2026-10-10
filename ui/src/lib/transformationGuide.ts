@@ -246,6 +246,11 @@ const GUIDES: Record<string, TransformationGuide> = {
     what: 'Turns a field of each record into a vector for semantic search.',
     firstStep: 'Choose a provider that embeds, then the field to embed.',
   },
+  ai_retrieve: {
+    title: 'AI retrieve',
+    what: 'Finds the documents closest to a query in a vector store and adds them, with their scores, to each record.',
+    firstStep: 'Choose the provider that embedded the documents, then the store and the query.',
+  },
   ai_classify: {
     title: 'AI classify',
     what: 'Asks an AI model to label each record and sends it down that label’s branch, or down unsure.',

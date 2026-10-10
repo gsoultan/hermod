@@ -6,12 +6,16 @@ import { SECRET_NAME_PATTERN, secretNameRule } from '@/lib/vhostSecrets'
 import { isPlaintextKey, requiresApiKey, secretNameFromKey, secretToken } from './aiProviders'
 
 interface AIKeyFieldProps {
-  /** The config key holding the key: `apiKey` or `fallbackApiKey`. */
-  configKey: 'apiKey' | 'fallbackApiKey'
+  /** The config key holding the key: `apiKey`, `fallbackApiKey`, or ai_retrieve's `storeApiKey`. */
+  configKey: 'apiKey' | 'fallbackApiKey' | 'storeApiKey'
   label: string
   provider: string | undefined
   value: unknown
   onChange: (patch: Record<string, string>) => void
+  /** Overrides whether the key is required, for a key that is not a provider's. */
+  required?: boolean
+  /** Example secret name for the placeholder. */
+  example?: string
 }
 
 /**
@@ -23,7 +27,8 @@ interface AIKeyFieldProps {
  * arrived in an imported workflow — is called out and can be cleared, the
  * same thing workflow validation warns about.
  */
-export function AIKeyField({ configKey, label, provider, value, onChange }: AIKeyFieldProps) {
+export function AIKeyField({ configKey, label, provider, value, onChange, required, example = 'OPENAI_API_KEY' }: AIKeyFieldProps) {
+  const isRequired = required ?? requiresApiKey(provider)
   const secretNames = useContext(SecretNamesContext)
   const name = secretNameFromKey(value)
   const plaintext = isPlaintextKey(value)
@@ -58,12 +63,12 @@ export function AIKeyField({ configKey, label, provider, value, onChange }: AIKe
       )}
       <Autocomplete
         label={label}
-        placeholder={secretNames.length ? 'Pick or type a secret name' : 'e.g. OPENAI_API_KEY'}
+        placeholder={secretNames.length ? 'Pick or type a secret name' : `e.g. ${example}`}
         leftSection={<IconKey size="1rem" />}
         data={secretNames}
         value={name}
         onChange={(v) => onChange({ [configKey]: secretToken(v) })}
-        required={requiresApiKey(provider)}
+        required={isRequired}
         error={invalid ? `A secret name uses ${secretNameRule.charAt(0).toLowerCase()}${secretNameRule.slice(1)}` : undefined}
         description={
           <>
@@ -72,7 +77,7 @@ export function AIKeyField({ configKey, label, provider, value, onChange }: AIKe
               Secrets
             </Anchor>{' '}
             page for this workflow&apos;s vhost. The node stores <Code>{'{{secret("NAME")}}'}</Code>, never the key.
-            {!requiresApiKey(provider) && ' Optional for this provider.'}
+            {!isRequired && ' Optional for this provider.'}
           </>
         }
       />
