@@ -6,7 +6,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     HERMOD_ML_DATA_DIR=/var/lib/hermod-ml \
-    HERMOD_ML_ADDR=0.0.0.0:8090
+    HERMOD_ML_ADDR=0.0.0.0:8090 \
+    KERAS_HOME=/tmp/.keras
 
 WORKDIR /app
 
@@ -15,8 +16,17 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --only-binary=:all: -r requirements.txt
+# HERMOD_ML_EXTRAS=dl also installs PyTorch and TensorFlow (CPU-only) for the
+# pytorch_mlp and keras_mlp algorithms: the "-dl" image. The default image
+# stays slim and reports those algorithms as unavailable.
+ARG HERMOD_ML_EXTRAS=""
+
+COPY requirements.txt requirements-dl.txt ./
+RUN case "$HERMOD_ML_EXTRAS" in \
+        "") pip install --only-binary=:all: -r requirements.txt ;; \
+        dl) pip install --only-binary=:all: -r requirements.txt -r requirements-dl.txt ;; \
+        *) echo "HERMOD_ML_EXTRAS must be empty or dl, not '$HERMOD_ML_EXTRAS'" >&2; exit 1 ;; \
+    esac
 
 COPY hermod_ml ./hermod_ml
 

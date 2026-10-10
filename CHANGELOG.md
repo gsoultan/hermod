@@ -56,6 +56,19 @@ set. A refusal is a 429 or 403 over REST and `RESOURCE_EXHAUSTED` over gRPC,
 and is counted in `hermod_ml_quota_refusals_total`. See
 [docs/ml.md](docs/ml.md#quotas).
 
+### Added — neural networks with PyTorch and Keras
+
+Two more training algorithms, `pytorch_mlp` and `keras_mlp`: a multilayer
+perceptron for classification and regression, on the same inputs as the other
+algorithms and exported to the same ONNX contract, so a model can be retrained
+with a network without changing what calls it. Layer sizes, epochs, batch size,
+learning rate and early-stopping patience can be set under **Advanced** in the
+Train dialog and on the Train Model node. They need the new
+`hermod-ml:<version>-dl` image (CPU-only PyTorch and TensorFlow, linux/amd64;
+Helm: `mlWorker.image.variant=dl`); the default image stays slim, and Hermod
+offers only the algorithms the running worker can train. See
+[docs/ml.md](docs/ml.md#image-variants).
+
 ### Added — chat trigger
 
 A **Chat** source receives one message of a conversation and answers with the
@@ -162,6 +175,23 @@ decision answers 409), and approvals are listed, read and decided only within
 the caller's vhosts. Exported workflows have plaintext AI keys replaced with
 `[REDACTED]`. The AI Enrichment and AI Mapper nodes leave the palette; saved
 workflows that use them keep working.
+
+### Added — AI budgets and a kill switch per vhost
+
+A vhost can limit what its AI nodes and agents spend each month, in tokens and
+in cost worked out from prices it sets, for the whole vhost and for single
+workflows, on the new **AI Budget** page. At 80% of a limit Hermod logs it,
+counts it in `hermod_ai_budget_warnings_total` and sends a notification. At
+100% calls are refused before they reach the provider, with an `AI budget:`
+error that sends the record down the node's error branch. Refusals are counted
+in `hermod_ai_budget_blocked_total`. A kill switch stops every AI call in the
+vhost at once. Usage is kept in storage (SQL or MongoDB), shared by every
+replica and counted per UTC calendar month. A call is checked before it is made
+and counted after, so a month can end slightly over a limit. When the budget
+cannot be read, calls are refused. Changes are audited. The legacy AI Enrichment
+and AI Mapper nodes are not covered. See
+[docs/ai-automation.md](docs/ai-automation.md#budgets-and-the-kill-switch).
+
 ### Added — call machine-learning models from workflows, REST and gRPC
 
 A vhost can register models that a model server runs — any server speaking the

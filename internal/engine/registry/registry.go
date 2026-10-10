@@ -23,6 +23,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/ai"
+	"github.com/gsoultan/hermod/internal/aibudget"
 	"github.com/gsoultan/hermod/internal/discovery/service"
 	"github.com/gsoultan/hermod/internal/engine/registry/interfaces"
 	"github.com/gsoultan/hermod/internal/factory"
@@ -141,6 +142,9 @@ type Registry struct {
 	startTime time.Time
 
 	notificationService *notification.Service
+	// aiBudget is built on first use; see AIBudget.
+	aiBudget     *aibudget.Service
+	aiBudgetOnce sync.Once
 	// workerID names this worker in worker-level alerts; see SetWorkerID.
 	workerID string
 	// workerShutdownAlerted latches the one-per-process shutdown alert.
