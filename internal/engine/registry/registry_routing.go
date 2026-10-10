@@ -428,13 +428,25 @@ func (s *statefulSource) StreamSilenceThreshold() time.Duration {
 
 // --- Workflow Node Execution ---
 
+// RunWorkflowNode runs one node on context.Background(). Nothing can cancel
+// it, so a running workflow uses RunWorkflowNodeContext instead.
 func (r *Registry) RunWorkflowNode(workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
 	return r.runWorkflowNode(context.Background(), workflowID, node, msg)
 }
 
+// RunWorkflowNodeContext runs one node bound to ctx. The traversal passes the
+// workflow's lifetime context, so stopping or draining a workflow cancels a
+// lookup or API call in flight instead of waiting out the node's own timeout.
+func (r *Registry) RunWorkflowNodeContext(ctx context.Context, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return r.runWorkflowNode(ctx, workflowID, node, msg)
+}
+
 // runWorkflowNode is RunWorkflowNode on a root context the caller chooses. A
-// running workflow uses context.Background(); a simulation adds its overlay on
-// the state store to it (see previewStateContext), which is the only difference.
+// running workflow uses its own lifetime context; a simulation adds its overlay
+// on the state store to it (see previewStateContext).
 func (r *Registry) runWorkflowNode(root context.Context, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
 	if msg == nil {
 		return nil, "", nil

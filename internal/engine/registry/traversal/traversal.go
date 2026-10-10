@@ -15,9 +15,13 @@ import (
 )
 
 type Registry interface {
-	RunWorkflowNode(workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error)
+	// RunWorkflowNodeContext runs a node bound to ctx, the workflow's lifetime
+	// context, so stopping the workflow cancels the node's in-flight calls.
+	RunWorkflowNodeContext(ctx context.Context, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error)
 	IsDebuggerAttached(workflowID string) bool
-	PauseForDebugger(workflowID string, nodeID string, msg hermod.Message)
+	// PauseForDebuggerContext returns when ctx ends as well as when the
+	// debugger answers.
+	PauseForDebuggerContext(ctx context.Context, workflowID string, nodeID string, msg hermod.Message)
 	BroadcastLog(workflowID, level, message, details string)
 	Logger() hermod.Logger
 	// RecordCircuitBreakerFailure counts a downstream failure against a breaker.
@@ -276,13 +280,22 @@ func (t *WorkflowTraversal) processNode(ctx context.Context, currID string) {
 	//
 	// The message is dead-lettered here, while it is still alive: the deferred
 	// release above frees it as soon as this function returns.
+	// A node that failed because the workflow's context ended was cut off by
+	// a stop or drain, not by anything wrong with the message or the node's
+	// target. It is neither dead-lettered nor counted against a breaker: it
+	// stays unaccounted, so the engine leaves it unacknowledged and the source
+	// redelivers it on the next run.
+	stopping := err != nil && ctx.Err() != nil
+
 	if err != nil {
-		t.countAgainstBreakers(currID)
+		if !stopping {
+			t.countAgainstBreakers(currID)
+		}
 		// A failure is never a deliberate drop, whatever else the walk did.
 		t.Unaccounted.Store(true)
 	}
 
-	if err != nil && t.Eng != nil {
+	if err != nil && t.Eng != nil && !stopping {
 		switch {
 		case t.Eng.DeadLetterNodeFailure(ctx, currNode.ID, currMsg, err):
 			t.DeadLettered.Store(true)
@@ -368,11 +381,11 @@ func (t *WorkflowTraversal) runNode(ctx context.Context, node *storage.WorkflowN
 	}
 
 	if t.Registry.IsDebuggerAttached(t.WorkflowID) {
-		t.Registry.PauseForDebugger(t.WorkflowID, node.ID, msg)
+		t.Registry.PauseForDebuggerContext(ctx, t.WorkflowID, node.ID, msg)
 	}
 
 	start := time.Now()
-	msgs, branch, err := t.Registry.RunWorkflowNode(t.WorkflowID, node, msg)
+	msgs, branch, err := t.Registry.RunWorkflowNodeContext(ctx, t.WorkflowID, node, msg)
 
 	// Stamped when the node finished, not when it started. The step's payload is
 	// the node's output, and a `pipeline` node's own steps record under their

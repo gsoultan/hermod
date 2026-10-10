@@ -495,7 +495,18 @@ func (r *Registry) IsDebuggerAttached(workflowID string) bool {
 	return len(r.debuggerSubs[workflowID]) > 0
 }
 
+// PauseForDebugger is PauseForDebuggerContext on context.Background().
 func (r *Registry) PauseForDebugger(workflowID, nodeID string, msg hermod.Message) {
+	r.PauseForDebuggerContext(context.Background(), workflowID, nodeID, msg)
+}
+
+// debuggerPauseLimit is the longest a breakpoint holds a message.
+const debuggerPauseLimit = 5 * time.Minute
+
+// PauseForDebuggerContext holds a message at a breakpoint until the debugger
+// answers, debuggerPauseLimit passes, or ctx ends. The last is what lets a
+// workflow stopped while paused stop now rather than after the limit.
+func (r *Registry) PauseForDebuggerContext(ctx context.Context, workflowID, nodeID string, msg hermod.Message) {
 	if msg == nil {
 		return
 	}
@@ -522,6 +533,9 @@ func (r *Registry) PauseForDebugger(workflowID, nodeID string, msg hermod.Messag
 		r.debugChansMu.Unlock()
 	}()
 
+	timer := time.NewTimer(debuggerPauseLimit)
+	defer timer.Stop()
+
 	select {
 	case action := <-ch:
 		r.broadcastDebuggerEvent(DebuggerEvent{
@@ -530,8 +544,10 @@ func (r *Registry) PauseForDebugger(workflowID, nodeID string, msg hermod.Messag
 			MsgID:      msg.ID(),
 			State:      action,
 		})
-	case <-time.After(5 * time.Minute):
+	case <-timer.C:
 		// Timeout
+	case <-ctx.Done():
+		// The workflow is stopping.
 	}
 }
 
