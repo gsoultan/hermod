@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 
 	"github.com/gsoultan/hermod/internal/mcpserver"
@@ -12,7 +13,8 @@ import (
 
 const instructions = "Hermod runs data and automation workflows. list_workflows shows the workflows " +
 	"you may use; run_workflow sends one an input record and, for workflows that reply, " +
-	"returns what the workflow produced. Only workflows their owner tagged \"mcp\" are offered."
+	"returns what the workflow produced. Only workflows their owner tagged \"mcp\" are offered. " +
+	"Each predict_<model> tool runs a machine-learning model its vhost exposed on one record and returns the prediction."
 
 type listInput struct{}
 
@@ -32,7 +34,7 @@ type runInput struct {
 // newServer builds the MCP server that answers one request, bound to the
 // user that request authenticated as.
 func (m *MCPHandler) newServer(r *http.Request, user *storage.User) *mcp.Server {
-	svc := &mcpserver.Service{Store: m.Storage, Wake: m.WakeUpWorkflow}
+	svc := &mcpserver.Service{Store: m.Storage, Wake: m.WakeUpWorkflow, Models: models{svc: m.mlService(), user: user.Username}}
 	caller := mcpserver.Caller{
 		Name:   user.Username,
 		CanRun: user.Role == storage.RoleAdministrator || user.Role == storage.RoleEditor,
@@ -80,5 +82,11 @@ func (m *MCPHandler) newServer(r *http.Request, user *storage.User) *mcp.Server 
 		return nil, res, err
 	})
 
+	m.addModelTools(r, srv, svc, caller, user)
 	return srv
+}
+
+func jsonText(v any) (string, error) {
+	b, err := json.Marshal(v)
+	return string(b), err
 }

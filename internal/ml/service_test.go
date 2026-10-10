@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -19,12 +20,13 @@ type memStore struct {
 	storage.Storage
 	mu     sync.Mutex
 	models map[string]storage.MLModel
+	quotas map[string]storage.MLQuotas
 	// claims holds each model's training claim (retrain_test.go).
 	claims map[string]memClaim
 }
 
 func newMemStore(models ...storage.MLModel) *memStore {
-	s := &memStore{models: map[string]storage.MLModel{}, claims: map[string]memClaim{}}
+	s := &memStore{models: map[string]storage.MLModel{}, quotas: map[string]storage.MLQuotas{}, claims: map[string]memClaim{}}
 	for _, m := range models {
 		s.models[m.VHost+"/"+m.Name] = m
 	}
@@ -32,7 +34,16 @@ func newMemStore(models ...storage.MLModel) *memStore {
 }
 
 func (s *memStore) ListMLModels(_ context.Context, vhost string) ([]storage.MLModel, error) {
-	return nil, nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []storage.MLModel
+	for _, m := range s.models {
+		if m.VHost == vhost {
+			out = append(out, m)
+		}
+	}
+	slices.SortFunc(out, func(a, b storage.MLModel) int { return strings.Compare(a.Name, b.Name) })
+	return out, nil
 }
 func (s *memStore) GetMLModel(_ context.Context, vhost, name string) (storage.MLModel, error) {
 	s.mu.Lock()
@@ -74,6 +85,31 @@ func (s *memStore) DeleteMLModel(_ context.Context, vhost, name string) error {
 	return nil
 }
 func (s *memStore) DeleteMLModels(_ context.Context, vhost string) error { return nil }
+
+func (s *memStore) GetMLQuotas(_ context.Context, vhost string) (storage.MLQuotas, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	q, ok := s.quotas[vhost]
+	if !ok {
+		return storage.MLQuotas{}, storage.ErrNotFound
+	}
+	return q, nil
+}
+func (s *memStore) PutMLQuotas(_ context.Context, q storage.MLQuotas) error {
+	if err := storage.ValidateMLQuotas(q); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.quotas[q.VHost] = q
+	return nil
+}
+func (s *memStore) DeleteMLQuotas(_ context.Context, vhost string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.quotas, vhost)
+	return nil
+}
 
 // secretsOf answers secrets from a map keyed "vhost/name".
 type secretsOf map[string]string

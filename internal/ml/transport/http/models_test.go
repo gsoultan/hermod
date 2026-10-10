@@ -23,6 +23,7 @@ import (
 type modelAPIStore struct {
 	storage.Storage
 	models map[string]storage.MLModel
+	quotas map[string]storage.MLQuotas
 	audits []storage.AuditLog
 	// claimedBy holds the one training claim (retrain_test.go).
 	claimedBy string

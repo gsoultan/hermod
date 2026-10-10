@@ -51,6 +51,9 @@ type Service struct {
 	// Wake starts a parked workflow whose source has no listener, and reports
 	// whether it started one. Optional.
 	Wake func(ctx context.Context, resourceType, path string) bool
+	// Models is the model registry the predict_<model> tools call. Optional:
+	// without it there are no model tools.
+	Models ModelSource
 }
 
 // WorkflowSummary is one entry of list_workflows.

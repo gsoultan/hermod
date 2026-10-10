@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -83,5 +84,23 @@ func TestAnExternalModelStillNeedsItsServer(t *testing.T) {
 	m := MLModel{VHost: "v", Name: "fraud", Backend: inference.BackendOIP, RemoteModel: "fraud"}
 	if err := ValidateMLModel(m); err == nil {
 		t.Error("an external model without a URL was accepted")
+	}
+}
+
+func TestFeatureTypesAreBounded(t *testing.T) {
+	m := MLModel{VHost: "v", Name: "churn", Backend: MLBackendWorker, FeatureTypes: map[string]string{"age": "number"}}
+	if err := ValidateMLModel(m); err != nil {
+		t.Fatalf("a typed feature was refused: %v", err)
+	}
+	m.FeatureTypes = map[string]string{"age": strings.Repeat("t", 65)}
+	if err := ValidateMLModel(m); err == nil {
+		t.Error("an implausibly long feature type was accepted")
+	}
+	m.FeatureTypes = make(map[string]string, maxMLModelFeatures+1)
+	for i := 0; i <= maxMLModelFeatures; i++ {
+		m.FeatureTypes["f"+strconv.Itoa(i)] = "number"
+	}
+	if err := ValidateMLModel(m); err == nil {
+		t.Error("more feature types than a model may declare features were accepted")
 	}
 }

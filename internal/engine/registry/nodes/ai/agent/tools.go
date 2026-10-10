@@ -81,6 +81,12 @@ func (r *run) lookup(ctx context.Context, t tool, args map[string]any) (string, 
 		cfg = map[string]any{}
 	}
 	cfg["targetField"] = toolResultField
+	if t.Kind == kindMLPredict {
+		// ml_predict names its output outputField; inputs is left unset, so
+		// the model is sent the call's arguments, which are its features.
+		cfg["outputField"] = toolResultField
+		delete(cfg, "inputs")
+	}
 	out, err := r.nctx.ApplyTransformation(ctx, m, t.Kind, cfg)
 	if err != nil {
 		return "", err
