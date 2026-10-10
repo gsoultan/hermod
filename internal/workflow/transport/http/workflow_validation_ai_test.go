@@ -157,6 +157,7 @@ func TestAINodeIssues_RetrieveNeedsItsStore(t *testing.T) {
 		}
 	}
 }
+
 // An imported export has its keys replaced. Validation says what happened and
 // what to do, rather than calling the placeholder a stored key.
 func TestAINodeIssues_RedactedKeyFromAnExportAsksForTheKey(t *testing.T) {
@@ -166,5 +167,20 @@ func TestAINodeIssues_RedactedKeyFromAnExportAsksForTheKey(t *testing.T) {
 	if len(issues) != 1 || issues[0].Severity != "warning" ||
 		!strings.Contains(issues[0].Message, "removed when the workflow was exported") {
 		t.Fatalf("issues = %+v", issues)
+	}
+}
+
+func TestAINodeIssues_MemoryConfig(t *testing.T) {
+	ok := aiIssues(storage.WorkflowNode{ID: "m", Type: "transformation", Config: map[string]any{
+		"transType": "ai_prompt", "provider": "ollama", "prompt": "x", "memory": map[string]any{"maxTurns": 5.0, "ttl": "1h"},
+	}})
+	if len(ok) != 0 {
+		t.Fatalf("valid memory: %+v", ok)
+	}
+	bad := aiIssues(storage.WorkflowNode{ID: "m", Type: "transformation", Config: map[string]any{
+		"transType": "ai_prompt", "provider": "ollama", "prompt": "x", "memory": map[string]any{"maxTurns": 500.0},
+	}})
+	if len(bad) != 1 || bad[0].Severity != "error" || !strings.Contains(bad[0].Message, "maxTurns") {
+		t.Fatalf("invalid memory: %+v", bad)
 	}
 }

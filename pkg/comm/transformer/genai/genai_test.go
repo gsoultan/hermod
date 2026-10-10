@@ -10,8 +10,11 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/comm/reply"
 	"github.com/gsoultan/hermod/pkg/comm/transformer"
+	"github.com/gsoultan/hermod/pkg/infra/state"
 	"github.com/gsoultan/hermod/pkg/llm"
 )
 
@@ -248,5 +251,65 @@ func TestProvidersAreCachedPerConnection(t *testing.T) {
 	c, _, _ := ProviderFor(map[string]any{"provider": "ollama", "model": "other"}, nil)
 	if a == c {
 		t.Error("different connections must not share a provider")
+	}
+}
+
+// With memory on, ai_prompt sends the conversation's earlier exchanges ahead
+// of the new message and remembers the new exchange; another conversation
+// starts fresh.
+func TestPrompt_ConversationMemory(t *testing.T) {
+	f := newFakeLLM(t, "Hi Ada.", "Your name is Ada.", "I don't know your name.")
+	store := state.NewMemoryStore()
+	ctx := context.WithValue(context.WithValue(t.Context(), hermod.StateStoreKey, store), hermod.NodeIDKey, "chat")
+	cfg := f.config(map[string]any{"prompt": "{{.text}}", "memory": map[string]any{"maxTurns": float64(5)}})
+	tr, _ := transformer.Get("ai_prompt")
+
+	say := func(conv, text string) {
+		t.Helper()
+		msg := message.AcquireMessage()
+		defer message.ReleaseMessage(msg)
+		msg.SetData("text", text)
+		msg.SetMetadata(reply.MetaConversationID, conv)
+		if _, err := tr.Transform(ctx, msg, cfg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	say("c-1", "I am Ada")
+	say("c-1", "What is my name?")
+	say("c-2", "What is my name?")
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	roles := func(i int) []string {
+		var out []string
+		for _, m := range f.bodies[i]["messages"].([]any) {
+			mm := m.(map[string]any)
+			if mm["role"] == "system" {
+				continue
+			}
+			out = append(out, mm["role"].(string)+":"+mm["content"].(string))
+		}
+		return out
+	}
+	if got := strings.Join(roles(1), "|"); got != "user:I am Ada|assistant:Hi Ada.|user:What is my name?" {
+		t.Fatalf("second call sent %q", got)
+	}
+	if got := strings.Join(roles(2), "|"); got != "user:What is my name?" {
+		t.Fatalf("another conversation sent %q", got)
+	}
+}
+
+func TestPrompt_MemoryNeedsAStateStore(t *testing.T) {
+	f := newFakeLLM(t, "x")
+	msg := message.AcquireMessage()
+	defer message.ReleaseMessage(msg)
+	msg.SetMetadata(reply.MetaConversationID, "c-1")
+	tr, _ := transformer.Get("ai_prompt")
+	_, err := tr.Transform(t.Context(), msg, f.config(map[string]any{"prompt": "hi", "memory": map[string]any{}}))
+	if err == nil || !strings.Contains(err.Error(), "state store") {
+		t.Fatalf("err = %v", err)
+	}
+	if f.calls() != 0 {
+		t.Error("the model was called with a memory that could not be loaded")
 	}
 }

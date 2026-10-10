@@ -7,6 +7,7 @@ import (
 
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/internal/workflow/redact"
+	"github.com/gsoultan/hermod/pkg/comm/transformer/genai/memory"
 )
 
 // aiNodeTypes are the nodes that call a language model, with the setting
@@ -57,6 +58,9 @@ func aiNodeIssues(wf storage.Workflow) (issues []ValidationIssue) {
 			issues = append(issues, agentNodeIssues(wf, n)...)
 		case "ai_retrieve":
 			issues = append(issues, retrieveNodeIssues(n)...)
+		}
+		if issue, bad := memoryIssue(n, nodeType); bad {
+			issues = append(issues, issue)
 		}
 		key := str("apiKey")
 		switch {
@@ -177,6 +181,23 @@ func retrieveNodeIssues(n storage.WorkflowNode) (issues []ValidationIssue) {
 		issues = append(issues, needs("a query or a query field"))
 	}
 	return issues
+}
+
+// memoryIssue reports an ai_prompt node's conversation memory settings that
+// do not parse: every message would fail at the node.
+func memoryIssue(n storage.WorkflowNode, nodeType string) (ValidationIssue, bool) {
+	if nodeType != "ai_prompt" {
+		return ValidationIssue{}, false
+	}
+	if _, _, err := memory.Parse(n.Config[memory.ConfigKey]); err != nil {
+		return ValidationIssue{
+			Severity:       "error",
+			Message:        fmt.Sprintf("AI node '%s' has invalid conversation memory settings: %v.", n.ID, err),
+			Recommendation: `Use {"conversationField": "conversation_id", "maxTurns": 10, "ttl": "24h"}, or turn memory off.`,
+			NodeID:         n.ID,
+		}, true
+	}
+	return ValidationIssue{}, false
 }
 
 // isMissing reports a setting that is absent or blank text. A list or an

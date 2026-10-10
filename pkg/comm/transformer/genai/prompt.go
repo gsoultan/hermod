@@ -10,6 +10,7 @@ import (
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/transformer"
 	"github.com/gsoultan/hermod/pkg/comm/transformer/core"
+	"github.com/gsoultan/hermod/pkg/comm/transformer/genai/memory"
 	"github.com/gsoultan/hermod/pkg/infra/evaluator"
 	"github.com/gsoultan/hermod/pkg/llm"
 )
@@ -26,8 +27,10 @@ const DefaultPromptField = "ai_output"
 //
 // Config: prompt (required; {{.field}} tokens read the message), system,
 // includeData (append the selected input as JSON), inputFields, maskFields,
-// maskPII, outputMode ("text" or "json"), targetField, usageField, and the
-// connection keys read by ProviderFor.
+// maskPII, outputMode ("text" or "json"), targetField, usageField, memory
+// (see package memory: earlier exchanges of the message's conversation are
+// sent ahead of it, and the new exchange is remembered), and the connection
+// keys read by ProviderFor.
 type PromptTransformer struct{}
 
 // Transform implements transformer.Transformer.
@@ -49,12 +52,21 @@ func (t *PromptTransformer) Transform(ctx context.Context, msg hermod.Message, c
 		system = strings.TrimSpace(system + "\n\nAnswer with a single JSON object and nothing else.")
 	}
 
+	conv, history, err := recall(ctx, msg, config)
+	if err != nil {
+		return nil, fmt.Errorf("ai_prompt: %w", err)
+	}
 	resp, err := chat(ctx, config, msg, llm.ChatRequest{
 		System:   system,
-		Messages: []llm.Message{{Role: llm.RoleUser, Text: user}},
+		Messages: append(history, llm.Message{Role: llm.RoleUser, Text: user}),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("ai_prompt: %w", err)
+	}
+	if conv != nil {
+		if err := conv.Append(ctx, user, strings.TrimSpace(resp.Text)); err != nil {
+			return nil, fmt.Errorf("ai_prompt: %w", err)
+		}
 	}
 	target := core.GetConfigString(config, "targetField")
 	if !jsonOut {
@@ -71,6 +83,28 @@ func (t *PromptTransformer) Transform(ctx context.Context, msg hermod.Message, c
 	}
 	writeUsage(msg, config, resp)
 	return msg, nil
+}
+
+// recall loads the node's conversation memory, when it has one: the
+// conversation to extend once the model answers, and its earlier turns.
+func recall(ctx context.Context, msg hermod.Message, config map[string]any) (*memory.Conversation, []llm.Message, error) {
+	cfg, on, err := memory.Parse(config[memory.ConfigKey])
+	if err != nil || !on {
+		return nil, nil, err
+	}
+	conv, err := memory.Open(ctx, msg, cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	turns, err := conv.History(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	history := make([]llm.Message, 0, len(turns)+1)
+	for _, t := range turns {
+		history = append(history, llm.Message{Role: llm.Role(t.Role), Text: t.Text})
+	}
+	return conv, history, nil
 }
 
 // parseJSONObject reads a model's JSON answer, tolerating a Markdown fence
