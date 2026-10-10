@@ -136,8 +136,9 @@ func agentNodeIssues(wf storage.Workflow, n storage.WorkflowNode) (issues []Vali
 		if kind == "mcp" {
 			issues = append(issues, mcpToolIssues(n.ID, name, t)...)
 		}
-		// An mcp tool writes whenever its server does not mark it read-only,
-		// which is only known at run time, so its opt-out is called out too.
+		// An mcp tool writes unless the workflow says write: false and its
+		// server marks it read-only, which is only known at run time, so its
+		// opt-out is called out too.
 		write := kind == "sink" || kind == "mcp" || t["write"] == true
 		if write && t["requireApproval"] == false {
 			issues = append(issues, ValidationIssue{

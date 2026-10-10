@@ -304,3 +304,7 @@ func lastToolResults(p *scriptedProvider) []llm.ToolResult {
 	}
 	return nil
 }
+
+// readOnly is an mcp tool the workflow's author declares read-only, which
+// together with the server's read-only annotation lets it run unapproved.
+var readOnly = map[string]any{"write": false}

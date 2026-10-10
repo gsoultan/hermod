@@ -256,7 +256,7 @@ func TestAgent_MCPReadOnlyToolRunsAtOnceWithTheRemoteSchema(t *testing.T) {
 		call("r1", "lookup_x", `{"id":"7"}`),
 		say("x is 42."),
 	}}
-	node := mcpAgentNode(f.tool("lookup_x", "read_x", nil))
+	node := mcpAgentNode(f.tool("lookup_x", "read_x", readOnly))
 	nctx := newFakeNodeContext()
 	out, branch, err := mcpNode(p).Execute(t.Context(), nctx, "wf", node, inputMessage(t, nil))
 	if err != nil {
@@ -285,8 +285,8 @@ func TestAgent_MCPDeclaredParametersReplaceTheRemoteSchema(t *testing.T) {
 		say("ok"),
 	}}
 	node := mcpAgentNode(f.tool("read_x", "read_x", map[string]any{
-		"description": "Look up x.",
-		"parameters":  []any{map[string]any{"name": "id", "type": "string", "required": true, "description": "x id"}},
+		"description": "Look up x.", "write": false,
+		"parameters": []any{map[string]any{"name": "id", "type": "string", "required": true, "description": "x id"}},
 	}))
 	if _, _, err := mcpNode(p).Execute(t.Context(), newFakeNodeContext(), "wf", node, inputMessage(t, nil)); err != nil {
 		t.Fatal(err)

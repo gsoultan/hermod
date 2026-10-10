@@ -86,6 +86,9 @@ type tool struct {
 	// mcptool.BindArgs, when the node declares no parameters for the tool.
 	Schema       map[string]any
 	remoteSchema bool
+	// declaredReadOnly is an mcp tool the workflow marks write: false; only
+	// then can the server's read-only annotation spare it an approval.
+	declaredReadOnly bool
 }
 
 type config struct {
@@ -271,17 +274,20 @@ func (t *tool) parseMCP(m map[string]any) error {
 		return fmt.Errorf("mcp tool %q needs the name of the remote tool it calls (tool)", t.Name)
 	}
 	t.Write = m["write"] == true
+	t.declaredReadOnly = m["write"] == false
 	t.remoteSchema = m["parameters"] == nil
 	return nil
 }
 
-// useRemote applies what the server says about an mcp tool. A tool the
-// server does not mark read-only is a write tool, held for approval unless
-// the node opted out. The node's own description, when it has one, wins
-// over the server's.
+// useRemote applies what the server says about an mcp tool. The server
+// writes its own annotations, so its read-only mark alone cannot skip an
+// approval: a tool is read-only only when the workflow's author said so
+// (write: false) and the server agrees. Any other tool is a write tool, held
+// for approval unless the node opted out. The node's own description, when
+// it has one, wins over the server's.
 func (t *tool) useRemote(ep mcptool.Endpoint, r mcptool.Remote) {
 	t.endpoint = ep
-	if !r.ReadOnly {
+	if !t.declaredReadOnly || !r.ReadOnly {
 		t.Write = true
 	}
 	t.RequireApproval = t.Write && !t.approvalOptOut

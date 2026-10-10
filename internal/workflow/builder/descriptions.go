@@ -20,7 +20,8 @@ var descriptions = map[string]string{
 		`"server":{"url":"https://...","headers":{"Authorization":"Bearer {{secret(\"NAME\")}}"}},"tool":"<remote tool, for kind mcp>",` +
 		`"write","requireApproval","parameters":[{"name","type","description","required"}]}]}. A kind mcp tool calls ` +
 		`that one tool of a remote MCP server (parameters default to its input schema). Sink tools, tools marked write, ` +
-		`and mcp tools the server does not mark read-only pause for human approval unless requireApproval is false. ` +
+		`and mcp tools pause for human approval unless requireApproval is false; an mcp tool runs unapproved only when ` +
+		`it sets "write": false and its server also marks it read-only. ` +
 		`Writes the answer to targetField (default "ai_agent_answer").`,
 	"ai_classify": `Language-model classifier and router. config: {"provider","model","apiKey":"{{secret(\"NAME\")}}",` +
 		`"labels":"billing,bug,refund","instructions","threshold","targetField"}. Each label is an outgoing ` +

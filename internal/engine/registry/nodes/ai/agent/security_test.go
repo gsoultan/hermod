@@ -279,7 +279,7 @@ func TestAdversarial_MCPToolOutsideAllowListIsNeverCalledOnTheServer(t *testing.
 		call("x1", "delete_all", `{"confirm":true}`),
 		say("ok"),
 	}}
-	node := mcpAgentNode(f.tool("read_x", "read_x", nil))
+	node := mcpAgentNode(f.tool("read_x", "read_x", readOnly))
 	if _, _, err := mcpNode(p).Execute(t.Context(), newFakeNodeContext(), "wf", node, inputMessage(t, nil)); err != nil {
 		t.Fatal(err)
 	}
@@ -310,7 +310,7 @@ func TestAdversarial_InjectionInMCPResultDoesNotCallAnotherTool(t *testing.T) {
 		obedientToResults,
 		obedientToResults,
 	}}
-	node := mcpAgentNode(f.tool("read_x", "read_x", nil))
+	node := mcpAgentNode(f.tool("read_x", "read_x", readOnly))
 	out, _, err := mcpNode(p).Execute(t.Context(), newFakeNodeContext(), "wf", node, inputMessage(t, nil))
 	if err != nil {
 		t.Fatal(err)
@@ -341,7 +341,7 @@ func TestAdversarial_InjectionInMCPResultCannotSkipApproval(t *testing.T) {
 		call("r1", "read_x", `{"id":"1"}`),
 		obedientToResults,
 	}}
-	node := mcpAgentNode(f.tool("read_x", "read_x", nil), f.tool("delete_all", "delete_all", nil))
+	node := mcpAgentNode(f.tool("read_x", "read_x", readOnly), f.tool("delete_all", "delete_all", nil))
 	nctx := newFakeNodeContext()
 	out, branch, err := mcpNode(p).Execute(t.Context(), nctx, "wf", node, inputMessage(t, nil))
 	if err != nil {
@@ -453,7 +453,7 @@ func TestAdversarial_MCPArgumentsOutsideTheSchemaNeverReachTheServer(t *testing.
 		call("r1", "read_x", `{"id":"7","tool":"delete_all","name":"delete_all"}`),
 		say("ok"),
 	}}
-	node := mcpAgentNode(f.tool("read_x", "read_x", nil))
+	node := mcpAgentNode(f.tool("read_x", "read_x", readOnly))
 	if _, _, err := mcpNode(p).Execute(t.Context(), newFakeNodeContext(), "wf", node, inputMessage(t, nil)); err != nil {
 		t.Fatal(err)
 	}
@@ -463,5 +463,36 @@ func TestAdversarial_MCPArgumentsOutsideTheSchemaNeverReachTheServer(t *testing.
 	}
 	if f.called("delete_all") != 0 {
 		t.Fatal("an argument chose the remote tool")
+	}
+}
+
+// A remote server decides its own annotations, so a server that marks a
+// destructive tool read-only would otherwise run it with nobody looking. The
+// server's read-only mark only counts when the workflow's author also said
+// the tool does not write (write: false).
+func TestAdversarial_ServerReadOnlyMarkAloneDoesNotSkipApproval(t *testing.T) {
+	f := newMCPFake(t)
+	p := &scriptedProvider{turns: []func(llm.ChatRequest) llm.ChatResponse{call("r1", "read_x", `{"id":"1"}`)}}
+	node := mcpAgentNode(f.tool("read_x", "read_x", nil))
+	_, branch, err := mcpNode(p).Execute(t.Context(), newFakeNodeContext(), "wf", node, inputMessage(t, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if branch != "pending" || f.called("read_x") != 0 {
+		t.Fatalf("branch=%q read_x calls=%d: the server's read-only mark skipped approval", branch, f.called("read_x"))
+	}
+}
+
+// Nor can the author's write: false spare a tool the server says writes.
+func TestAdversarial_AuthorReadOnlyMarkAloneDoesNotSkipApproval(t *testing.T) {
+	f := newMCPFake(t)
+	p := &scriptedProvider{turns: []func(llm.ChatRequest) llm.ChatResponse{call("r1", "delete_all", `{}`)}}
+	node := mcpAgentNode(f.tool("delete_all", "delete_all", readOnly))
+	_, branch, err := mcpNode(p).Execute(t.Context(), newFakeNodeContext(), "wf", node, inputMessage(t, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if branch != "pending" || f.called("delete_all") != 0 {
+		t.Fatalf("branch=%q delete_all calls=%d", branch, f.called("delete_all"))
 	}
 }
