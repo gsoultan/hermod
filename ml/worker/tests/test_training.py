@@ -178,6 +178,29 @@ def test_versions_of_unknown_model_is_404(client):
     assert "error" in resp.json()
 
 
+def test_model_file_is_the_stored_onnx_graph(churn, tmp_path):
+    # Hermod fetches it to score a model in-process.
+    train(churn, "m", dataset="orders", target="churned", features=["x1", "city"])
+    train(churn, "m", dataset="orders", target="churned", features=["x1"])
+    resp = churn.get("/v1/models/acme/m/versions/1/model.onnx")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/octet-stream"
+    assert resp.content == (tmp_path / "data/models/acme/m/1/model.onnx").read_bytes()
+    assert [i.name for i in onnx.load_from_string(resp.content).graph.input] == ["x1", "city"]
+
+
+@pytest.mark.parametrize("version", ["3", "0", "x", "..", "1.0"])
+def test_model_file_of_unknown_version_is_404(churn, version):
+    train(churn, "m", dataset="orders", target="churned", features=["x1"])
+    resp = churn.get(f"/v1/models/acme/m/versions/{version}/model.onnx")
+    assert resp.status_code in (400, 404)
+    assert "error" in resp.json()
+
+
+def test_model_file_of_unknown_model_is_404(client):
+    assert client.get("/v1/models/acme/nothing/versions/1/model.onnx").status_code == 404
+
+
 def test_delete_model_removes_all_versions(churn, tmp_path):
     train(churn, "m", dataset="orders", target="churned", features=["x1"])
     train(churn, "m", dataset="orders", target="churned", features=["x1"])

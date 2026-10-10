@@ -52,6 +52,11 @@ type MLModel struct {
 	Retrain       *MLRetrainPolicy `json:"retrain,omitempty"`
 	RetrainStatus *MLRetrainStatus `json:"retrain_status,omitempty"`
 
+	// Scoring is where a trained model's predictions are computed:
+	// MLScoringWorker (also the meaning of empty) or MLScoringInProcess.
+	// PutMLModel does not change it; MLScoringStore does.
+	Scoring string `json:"scoring,omitempty"`
+
 	UpdatedBy string    `json:"updated_by,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -62,6 +67,24 @@ type MLModel struct {
 // features are its inputs, one tensor each; and RemoteVersion is the version
 // that is live, empty until one is put live.
 const MLBackendWorker inference.Backend = "hermod-ml"
+
+// Where a trained model is scored. In-process scoring evaluates the live
+// version's ONNX graph inside Hermod (pkg/ml/onnxscore) when every operator
+// in it is supported, and falls back to the worker when not.
+const (
+	MLScoringWorker    = "worker"
+	MLScoringInProcess = "in_process"
+)
+
+// ValidateMLScoring reports whether s is a scoring mode; empty is the
+// default, the worker.
+func ValidateMLScoring(s string) error {
+	switch s {
+	case "", MLScoringWorker, MLScoringInProcess:
+		return nil
+	}
+	return fmt.Errorf("scoring is %q or %q, not %q", MLScoringWorker, MLScoringInProcess, s)
+}
 
 // MaxMLModelNameLen bounds a model name, which appears in URLs and metrics.
 const MaxMLModelNameLen = 64
@@ -175,6 +198,15 @@ type MLModelStore interface {
 	DeleteMLModel(ctx context.Context, vhost, name string) error
 	// DeleteMLModels removes every model the vhost holds.
 	DeleteMLModels(ctx context.Context, vhost string) error
+}
+
+// MLScoringStore is implemented by a storage backend that keeps a trained
+// model's scoring mode with it. Like MLRetrainStore, callers find it with a
+// type assertion.
+type MLScoringStore interface {
+	// SetMLModelScoring stores where the model is scored. It returns
+	// ErrNotFound for no such model.
+	SetMLModelScoring(ctx context.Context, vhost, name, scoring string) error
 }
 
 // Defaults and bounds of a model's monitoring.

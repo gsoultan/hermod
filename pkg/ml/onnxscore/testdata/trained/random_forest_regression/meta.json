@@ -1,0 +1,36 @@
+{
+  "algorithm": "random_forest",
+  "created_at": "2026-01-01T00:00:00Z",
+  "dataset": "regression",
+  "feature_types": {
+    "city": "string",
+    "flag": "number",
+    "x1": "number",
+    "x2": "number"
+  },
+  "features": [
+    "x1",
+    "x2",
+    "city",
+    "flag"
+  ],
+  "fill": {
+    "flag": 0.0,
+    "x1": 0.03999999910593033,
+    "x2": 5.0
+  },
+  "metrics": {
+    "mae": 2.739219999999999,
+    "r2": 0.8673899626578585,
+    "rmse": 2.9596993216034604,
+    "score": 0.8673899626578585
+  },
+  "model": "random_forest_regression",
+  "rows": {
+    "test": 8,
+    "train": 32
+  },
+  "target": "y",
+  "task": "regression",
+  "version": "1"
+}

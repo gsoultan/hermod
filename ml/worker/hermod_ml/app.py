@@ -187,6 +187,16 @@ def create_app(settings: Settings) -> FastAPI:
         validate_name(name, "model")
         return {"versions": await run_in_threadpool(models.versions, vhost, name)}
 
+    @api.get("/v1/models/{vhost}/{name}/versions/{version}/model.onnx")
+    async def model_file(vhost: str, name: str, version: str) -> Response:
+        # The graph a version serves, for Hermod to score small models
+        # in-process. resolve() refuses a version the model does not have.
+        validate_name(vhost, "vhost")
+        validate_name(name, "model")
+        resolved = await run_in_threadpool(models.resolve, vhost, name, version)
+        body = await run_in_threadpool(models.onnx_path(vhost, name, resolved).read_bytes)
+        return Response(content=body, media_type="application/octet-stream")
+
     @api.delete("/v1/models/{vhost}/{name}", status_code=204)
     async def delete_model(vhost: str, name: str) -> Response:
         validate_name(vhost, "vhost")

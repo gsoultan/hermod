@@ -30,8 +30,16 @@ import (
 // is computed from the DDL itself, so changing the schema fails this test and
 // forces the question to be asked out loud.
 //
-// Last moved by: adding the ml_prediction_logs table, the sampled and masked
-// predictions a model logs when its monitoring turns logging on.
+// Last moved by: adding scoring to ml_models, whether a trained model is
+// scored by the ML worker or in-process. currentSchemaVersion was left alone
+// deliberately, for the reason the retrain note below gives: the column is
+// nullable, and the previous release names its ml_models columns in both
+// directions, so it neither reads nor clears it. A rollback keeps every model
+// callable and scores them all on the worker, which is what the column's NULL
+// means anyway, until the newer binary returns with the setting intact.
+//
+// The note before that: adding the ml_prediction_logs table, the sampled and
+// masked predictions a model logs when its monitoring turns logging on.
 // currentSchemaVersion was left alone deliberately: it is a standalone table no
 // earlier code path reads or writes, and the setting that fills it lives in
 // ml_models' JSON spec, which the previous release decodes into a struct
@@ -157,7 +165,7 @@ import (
 // unpopulated — a gap in a chart that fills itself in when the newer binary
 // returns — so bumping the version would buy nothing and cost a refused
 // start-up during exactly the rollback it was supposed to make safe.
-const knownSchemaFingerprint = "6bce64b0a0957aac059b787d4c065055797f64b2cf0e2e83be757af535d3daed"
+const knownSchemaFingerprint = "8e39faa153a4f68e8051b094d48fcae48be8e06b61cffc5b5e7e614e63095c7f"
 
 func TestSchemaVersionIsReconsideredWhenTheSchemaChanges(t *testing.T) {
 	if got := SchemaFingerprint(); got != knownSchemaFingerprint {

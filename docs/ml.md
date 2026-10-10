@@ -208,6 +208,65 @@ Over the API: `PUT /api/vhosts/{vhost}/ml/models/{name}/retrain` with
 sets it, `DELETE` on the same path clears it. The model's `retrain` and
 `retrain_status` fields show both.
 
+### In-process scoring
+
+By default every prediction of a model trained in Hermod is an HTTP call to
+the worker. **Scoring** on the Models page can set a trained model to
+**in-process** instead: Hermod fetches the live version's ONNX graph from the
+worker once and scores it itself, in pure Go (`pkg/ml/onnxscore`), with no
+round trip.
+
+It covers what the worker trains — linear, random forest, gradient boosting
+and XGBoost models, for classification and regression. The graph may use only
+these operators:
+
+| Domain | Operators |
+|---|---|
+| `ai.onnx.ml` (opset 1–3) | `LinearClassifier`, `LinearRegressor`, `TreeEnsembleClassifier`, `TreeEnsembleRegressor`, `Scaler`, `Normalizer`, `OneHotEncoder`, `FeatureVectorizer` |
+| `ai.onnx` (opset 1–23) | `Concat`, `Gather`, `Reshape`, `Cast`, `Identity`, `Softmax`, `ArgMax` |
+
+The worker's exports use `Concat`, `Gather`, `Reshape` and `OneHotEncoder` to
+lay out the features; `linear` adds `Scaler` and `LinearClassifier` (then
+`Normalizer` for more than two classes) or `LinearRegressor`; the tree models
+use `TreeEnsembleClassifier` or `TreeEnsembleRegressor`.
+
+Nothing is guessed. A graph with any other operator, attribute or tensor
+layout is refused when it loads, and the model keeps being scored by the
+worker; so is a call whose rows hold a value the worker would read in a way
+the scorer does not reproduce exactly (a feature missing from every row, or a
+number given as text it would not parse the same). The status says which
+version is scored in-process and its operators, or why it falls back. A new
+live version is loaded on the next call. An in-process prediction is logged
+and counted for drift exactly as one the worker scores (see
+[Monitoring](#monitoring)). Each version's results match
+onnxruntime to within 1e-5: the parity fixtures in
+`pkg/ml/onnxscore/testdata` are produced by onnxruntime and regenerated with
+`python -I pkg/ml/onnxscore/testdata/gen_fixtures.py` in the worker's
+environment.
+
+Measured with `go test -bench WorkerVsInProcess ./pkg/ml/onnxscore/` (a
+worker on the same machine, reached over loopback, scoring the same version
+both ways; 4-core Xeon at 2.1 GHz):
+
+| Model | 1 row: worker | 1 row: in-process | 100 rows: worker | 100 rows: in-process |
+|---|---|---|---|---|
+| linear, binary | 1.85 ms | 5.6 µs | 2.47 ms | 82 µs |
+| random forest, binary | 1.68 ms | 6.3 µs | 3.90 ms | 392 µs |
+| gradient boosting, 3 classes | 2.36 ms | 12.3 µs | 4.59 ms | 685 µs |
+| XGBoost, regression | 1.71 ms | 8.1 µs | 3.22 ms | 577 µs |
+
+A worker over a real network adds its round trip to the worker column. Set
+`HERMOD_ML_BENCH_WORKER_URL` (and `HERMOD_ML_BENCH_WORKER_TOKEN`) to run it;
+`-bench InProcess` alone needs no worker.
+
+Over the API: `GET /api/vhosts/{vhost}/ml/models/{name}/scoring` returns
+`{"scoring","in_process","version","ops","reason"}`, and `PUT` on the same
+path with `{"scoring":"worker"}` or `{"scoring":"in_process"}` (Editor) sets
+it and answers with the new status. The model's `scoring` field holds the
+setting. Only a model trained in Hermod can be scored in-process. The graph is
+read from the worker's
+`GET /v1/models/{vhost}/{name}/versions/{version}/model.onnx`.
+
 ## Register a model served elsewhere
 
 Open **Models** in the sidebar (Editor or Admin) and add a model:
@@ -457,7 +516,10 @@ Hermod registers one yet.
 
 - `hermod_ml_predictions_total{vhost,model,outcome}`
 - `hermod_ml_prediction_rows_total{vhost,model}`
-- `hermod_ml_prediction_duration_seconds{vhost,model}`
+- `hermod_ml_prediction_duration_seconds{vhost,model}`, with buckets from
+  100 µs for in-process scoring
+- `hermod_ml_in_process_scoring_total{vhost,model,path}`: calls to a model set
+  to score in-process, `path` `in_process` or `fallback` (sent to the worker)
 - `hermod_ml_feature_drift{vhost,model,feature}`
 - `hermod_ml_prediction_logs_written_total{vhost,model}`
 - `hermod_ml_prediction_logs_dropped_total{vhost,model,reason}`

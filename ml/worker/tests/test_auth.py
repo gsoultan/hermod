@@ -17,6 +17,7 @@ def test_health_is_open_without_token(make_client, path):
         ("DELETE", "/v1/datasets/acme/orders"),
         ("POST", "/v1/models/acme/m/train"),
         ("GET", "/v1/models/acme/m/versions"),
+        ("GET", "/v1/models/acme/m/versions/1/model.onnx"),
         ("DELETE", "/v1/models/acme/m"),
         ("GET", "/vhosts/acme/v2/models/m"),
         ("GET", "/vhosts/acme/v2/models/m/versions/1"),

@@ -154,6 +154,22 @@ Each retraining runs once across Hermod servers and never beside another
 training of the same model; the Models page shows how the last one went. See
 [docs/ml.md](docs/ml.md).
 
+### Added — score trained models in-process
+
+A model trained in Hermod can now be scored inside Hermod instead of on the ML
+worker: set **Scoring** to in-process on the Models page, or
+`PUT /api/vhosts/{vhost}/ml/models/{name}/scoring` with
+`{"scoring":"in_process"}`. Hermod reads the live version's ONNX graph from the
+worker and evaluates it in pure Go — linear, random forest, gradient boosting
+and XGBoost models, matching onnxruntime to within 1e-5. On one machine a
+one-row prediction took 6–12 µs in-process against 1.7–2.4 ms on the worker
+over loopback, and 100 rows 82–685 µs against 2.5–4.6 ms. A graph with an
+operator the scorer does not support, or rows it cannot score exactly, goes to
+the worker as before; the status says why, and
+`hermod_ml_in_process_scoring_total` counts both paths. The default stays the
+worker. The worker gains `GET /v1/models/{vhost}/{name}/versions/{version}/model.onnx`,
+so upgrade it with Hermod. See [docs/ml.md](docs/ml.md#in-process-scoring).
+
 ### Added — AI automation
 
 Workflows can call Claude, ChatGPT, Gemini, DeepSeek, Mistral, Groq, OpenRouter,

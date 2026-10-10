@@ -122,6 +122,15 @@ func (s *Service) Predict(ctx context.Context, vhost, name string, rows []infere
 	if err != nil {
 		return nil, err
 	}
+	if m.Backend == storage.MLBackendWorker && m.Scoring == storage.MLScoringInProcess && len(rows) > 0 {
+		start := time.Now()
+		if out, ok := s.predictInProcess(ctx, m, rows); ok {
+			took := time.Since(start)
+			observe(vhost, name, len(rows), took, nil)
+			s.observed(ctx, m, rows, out, start, took)
+			return out, nil
+		}
+	}
 	target, err := s.target(ctx, m)
 	if err != nil {
 		return nil, err
@@ -134,11 +143,17 @@ func (s *Service) Predict(ctx context.Context, vhost, name string, rows []infere
 	if err != nil {
 		return nil, fmt.Errorf("model %q: %w", name, err)
 	}
+	s.observed(ctx, m, rows, out, start, took)
+	return out, nil
+}
+
+// observed tells the monitor of a prediction, wherever it was scored, for
+// the prediction log and drift.
+func (s *Service) observed(ctx context.Context, m storage.MLModel, rows, out []inference.Row, start time.Time, took time.Duration) {
 	c := callerOf(ctx)
 	s.monitor.Observe(monitor.Observation{
 		Model: m, CallerKind: c.kind, CallerID: c.id, Inputs: rows, Outputs: out, Latency: took, At: start,
 	})
-	return out, nil
 }
 
 // target is where the model is called. A model trained by Hermod is on the

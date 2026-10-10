@@ -40,6 +40,9 @@ const (
 	DefaultTrainTimeout = 30 * time.Minute
 	callTimeout         = 2 * time.Minute
 	maxReplyBytes       = 16 << 20
+	// maxModelFileBytes bounds a model file. A tabular model small enough to
+	// score in-process is far below it; a larger one is left to the worker.
+	maxModelFileBytes = 64 << 20
 )
 
 // names the worker accepts in a path; the worker checks the same rule.
@@ -170,6 +173,8 @@ type Version struct {
 	// feature. A version trained before the worker recorded them has none.
 	FeatureStats map[string]FeatureStats `json:"feature_stats,omitempty"`
 	CreatedAt    time.Time               `json:"created_at"`
+	// Fill is what a null numeric feature becomes: its training median.
+	Fill map[string]float64 `json:"fill,omitempty"`
 }
 
 // The kinds of FeatureStats.
@@ -315,6 +320,19 @@ func (c *Client) Versions(ctx context.Context, vhost, model string) ([]Version, 
 	return out.Versions, err
 }
 
+// ModelFile returns the ONNX graph a version of a model serves, for scoring
+// it in-process.
+func (c *Client) ModelFile(ctx context.Context, vhost, model, version string) ([]byte, error) {
+	p, err := modelPath(vhost, model)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkName("version", version); err != nil {
+		return nil, err
+	}
+	return c.do(ctx, http.MethodGet, p+"/versions/"+version+"/model.onnx", "", nil, callTimeout, maxModelFileBytes)
+}
+
 // DeleteModel removes every version of a model.
 func (c *Client) DeleteModel(ctx context.Context, vhost, model string) error {
 	p, err := modelPath(vhost, model)
@@ -347,12 +365,27 @@ func modelPath(vhost, model string) (string, error) {
 // call sends one request and decodes the JSON reply into out, when out is
 // not nil. A worker error keeps the worker's own message.
 func (c *Client) call(ctx context.Context, method, path, contentType string, body io.Reader, out any, timeout time.Duration) error {
+	raw, err := c.do(ctx, method, path, contentType, body, timeout, maxReplyBytes)
+	if err != nil {
+		return err
+	}
+	if out == nil || len(raw) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(raw, out); err != nil {
+		return fmt.Errorf("the ML worker's reply is not the expected JSON: %w", err)
+	}
+	return nil
+}
+
+// do sends one request and returns the reply's body, at most limit bytes.
+func (c *Client) do(ctx context.Context, method, path, contentType string, body io.Reader, timeout time.Duration, limit int64) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, method, c.URL+path, body)
 	if err != nil {
-		return httpclient.RedactURLError(err)
+		return nil, httpclient.RedactURLError(err)
 	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
@@ -362,27 +395,21 @@ func (c *Client) call(ctx context.Context, method, path, contentType string, bod
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("calling the ML worker: %w", httpclient.RedactURLError(err))
+		return nil, fmt.Errorf("calling the ML worker: %w", httpclient.RedactURLError(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxReplyBytes+1))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
-		return fmt.Errorf("reading the ML worker's reply: %w", err)
+		return nil, fmt.Errorf("reading the ML worker's reply: %w", err)
 	}
-	if len(raw) > maxReplyBytes {
-		return fmt.Errorf("the ML worker's reply is larger than %d bytes", maxReplyBytes)
+	if int64(len(raw)) > limit {
+		return nil, fmt.Errorf("the ML worker's reply is larger than %d bytes", limit)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return workerError(resp.StatusCode, raw)
+		return nil, workerError(resp.StatusCode, raw)
 	}
-	if out == nil || len(raw) == 0 {
-		return nil
-	}
-	if err := json.Unmarshal(raw, out); err != nil {
-		return fmt.Errorf("the ML worker's reply is not the expected JSON: %w", err)
-	}
-	return nil
+	return raw, nil
 }
 
 func workerError(status int, raw []byte) error {

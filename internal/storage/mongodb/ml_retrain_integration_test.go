@@ -66,3 +66,34 @@ func TestMongoMLRetrain(t *testing.T) {
 		t.Errorf("a cleared policy is still listed: %+v", list)
 	}
 }
+
+// The SQL store's scoring contract (internal/storage/sql/ml_scoring_test.go).
+func TestMongoMLScoring(t *testing.T) {
+	s, _ := newTraceMongo(t)
+	st := s.(storage.MLModelStore)
+	ss, ok := s.(storage.MLScoringStore)
+	if !ok {
+		t.Fatal("the MongoDB store does not implement storage.MLScoringStore")
+	}
+	ctx := t.Context()
+	m := storage.MLModel{VHost: "tenant-a", Name: "churn", Backend: storage.MLBackendWorker, RemoteVersion: "1"}
+	if err := st.PutMLModel(ctx, m); err != nil {
+		t.Fatal(err)
+	}
+	if err := ss.SetMLModelScoring(ctx, "tenant-a", "churn", storage.MLScoringInProcess); err != nil {
+		t.Fatalf("SetMLModelScoring: %v", err)
+	}
+	m.RemoteVersion = "2"
+	if err := st.PutMLModel(ctx, m); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := st.GetMLModel(ctx, "tenant-a", "churn"); got.Scoring != storage.MLScoringInProcess {
+		t.Errorf("an edit lost the scoring mode: %+v", got)
+	}
+	if err := ss.SetMLModelScoring(ctx, "tenant-a", "nope", storage.MLScoringWorker); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("a model that does not exist: %v", err)
+	}
+	if err := ss.SetMLModelScoring(ctx, "tenant-a", "churn", "gpu"); err == nil {
+		t.Error("an unknown scoring mode was stored")
+	}
+}
