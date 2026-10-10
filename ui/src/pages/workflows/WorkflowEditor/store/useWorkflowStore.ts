@@ -28,6 +28,11 @@ export interface WorkflowState {
   dlqInspectorSink: any | null;
   testInput: string;
   testResults: any[] | null;
+  /**
+   * persistedSnapshot of the version last loaded from or saved to the server.
+   * The canvas has unsaved edits exactly when it no longer matches this.
+   */
+  persistedBaseline: string | null;
   selectedNode: Node | null;
   quickAddSource: { nodeId: string; handleId: string | null } | null;
   
@@ -155,6 +160,7 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   dlqInspectorSink: null,
   testInput: '{\n  "payload": "test"\n}',
   testResults: null,
+  persistedBaseline: null,
   selectedNode: null,
   quickAddSource: null,
   traceInspectorOpened: false,
@@ -282,14 +288,21 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   setThroughputRequest: (throughputRequest) => set({ throughputRequest }),
 
   updateNodeConfig: (nodeId, config, replace = false) => set((state) => {
-    const nextNodes = state.nodes.map((node) => 
-      node.id === nodeId ? { ...node, data: replace ? config : { ...node.data, ...config } } : node
-    );
-    
-    // Deep equality check to prevent infinite loops (Junie stabilization)
-    if (JSON.stringify(nextNodes) === JSON.stringify(state.nodes)) {
+    const current = state.nodes.find((node) => node.id === nodeId);
+    if (!current) return state;
+    const nextData = replace ? config : { ...current.data, ...config };
+
+    // Deep equality check to prevent infinite loops (Junie stabilization).
+    // Only this node's data can have changed, so only it is compared: this
+    // runs on every keystroke, and serialising the whole graph meant every
+    // sample row saved on every node, twice.
+    if (JSON.stringify(nextData) === JSON.stringify(current.data)) {
       return state;
     }
+
+    const nextNodes = state.nodes.map((node) =>
+      node.id === nodeId ? { ...node, data: nextData } : node
+    );
 
     const nextSelectedNode = state.selectedNode?.id === nodeId 
       ? { ...state.selectedNode, data: replace ? config : { ...state.selectedNode.data, ...config } }
