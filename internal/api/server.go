@@ -20,6 +20,7 @@ import (
 	"github.com/gsoultan/hermod/internal/api/handlers"
 	approvalhttp "github.com/gsoultan/hermod/internal/approval/transport/http"
 	authhttp "github.com/gsoultan/hermod/internal/auth/transport/http"
+	chathttp "github.com/gsoultan/hermod/internal/chat/transport/http"
 	"github.com/gsoultan/hermod/internal/config"
 	dashboardhttp "github.com/gsoultan/hermod/internal/dashboard/transport/http"
 	"github.com/gsoultan/hermod/internal/engine/registry"
@@ -164,6 +165,7 @@ func (s *Server) Routes() http.Handler {
 	formsH := formshttp.NewFormHandler(s.Handler)
 	filesH := fileshttp.NewFileHandler(s.Handler)
 	webhooksH := webhookshttp.NewWebhookHandler(s.Handler)
+	chatH := chathttp.NewChatHandler(s.Handler)
 	workerH := workerhttp.NewWorkerHandler(s.Handler)
 	mcpH := mcphttp.NewMCPHandler(s.Handler)
 	builderH := builderhttp.NewBuilderHandler(s.Handler)
@@ -201,6 +203,7 @@ func (s *Server) Routes() http.Handler {
 	formsH.RegisterFormRoutes(mux)
 	filesH.RegisterFileRoutes(mux)
 	webhooksH.RegisterWebhookRoutes(mux)
+	chatH.RegisterChatRoutes(mux)
 	workerH.RegisterWorkerRoutes(mux)
 	mcpH.RegisterMCPRoutes(mux)
 	builderH.RegisterBuilderRoutes(mux)
