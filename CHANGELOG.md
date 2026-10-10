@@ -43,6 +43,36 @@ request that does not carry it in the `X-API-Key` header. It used to accept
 every request. Before upgrading, make sure each sender of a keyed webhook sends
 the header, or clear the key on the source.
 
+### Added — 42 more expression functions
+
+Expressions could not pad an id, pull a number out of text, move a date by a
+week or read a key inside a JSON column without a Script node. Every Set
+Fields, Formulas, condition and template expression now also has:
+
+- **Null and default:** `default`, `nullif`, `is_null`, `is_empty`.
+- **Text:** `len`, `starts_with`, `ends_with`, `pad_left`, `pad_right`,
+  `regex_extract`, `regex_replace`, `title`, `slug`, `normalize_space`.
+- **Numbers:** `floor`, `ceil`, `mod`, `pow`, `min`, `max`, `clamp`, and
+  `format_number` with en, de, fr, id, it and nl separators.
+- **Dates:** `date_add` (`7d`, `-1w`, `1h30m`), `date_diff`, `date_trunc`,
+  `to_timezone`, `parse_date`, `weekday`, `epoch_ms`.
+- **JSON and lists:** `json_get` (`address.city`, `phones[0]`), `json_parse`,
+  `json_stringify`, `array_len`, `array_join`, `array_contains`, `first`,
+  `last`. Each also reads a list held as JSON text.
+- **Encoding:** `base64_encode`, `base64_decode`, `url_encode`, `url_decode`,
+  and `hmac_sha256(text, secret_name)`, which signs with a vhost or server
+  secret named by the expression and never with a key written into it.
+
+A call that cannot be answered — a bad pattern, an unknown time zone or unit, a
+pad width over 10000 — is null, as it is for the existing functions. A
+regular expression is at most 1024 bytes. The function picker and the help
+list them under two new categories, JSON & lists and Encoding. See
+[docs/expression-functions.md](docs/expression-functions.md).
+
+Text that looks like a call to one of these names is now evaluated as one: a
+Set Fields value of `Title (draft)` was null and is now `Draft`. Quote a value
+meant as text.
+
 ### Added — train models in Hermod
 
 Hermod trains models now, through **hermod-ml**, a worker that runs beside it
@@ -72,6 +102,17 @@ directories listed in the new `HERMOD_REFERENCE_DIRS`, with `../` and symlinks
 resolved before the check) and **Geo** (haversine
 distance in km, mi or m, and point in a GeoJSON polygon; no geocoding). See
 [docs/structural-nodes.md](docs/structural-nodes.md).
+
+### Added — collect datasets and retrain models
+
+The **Collect Dataset** sink appends each record a workflow sends it to a
+dataset of the workflow's vhost on hermod-ml, mapped and masked as configured,
+in batches, up to a row cap. A model trained in Hermod can now **retrain
+automatically**: on a cron schedule, once its dataset has grown by a number of
+rows, or both, with the go-live rule deciding whether the new version serves.
+Each retraining runs once across Hermod servers and never beside another
+training of the same model; the Models page shows how the last one went. See
+[docs/ml.md](docs/ml.md).
 
 ### Added — AI automation
 
@@ -104,6 +145,29 @@ record. With a serving key, other applications call the same model at
 `POST /api/ml/serve/{vhost}/{name}` or `hermod.ml.v1.InferenceService/Predict`.
 See [docs/ml.md](docs/ml.md). Training models in Hermod follows in a later
 release.
+
+### Added — feature engineering nodes
+
+A new *Feature Engineering* palette group prepares records for a model:
+
+- **Scale** — min-max or z-score with statistics fitted at training time, typed
+  per field or pasted as a JSON blob. They are never refitted on live records,
+  so a model is served the scale it was trained on.
+- **Encode** — one-hot over a fixed category list with an "other" bucket,
+  label encoding from a category-to-integer mapping, or a stable FNV-1a hash
+  bucket.
+- **Bucketize** — a number into bins by explicit edges, with labels and a
+  choice for values outside the edges.
+- **Rolling Features** — count, sum, mean, std, min and max per key over the
+  last N records or a time window.
+- **Anomaly Score** — a per-key z-score or IQR score against the key's recent
+  values, with an is-anomaly flag above a threshold.
+
+Rolling Features and Anomaly Score hold at most 10 000 keys per node by
+default, dropping the least recently seen. Their windows are in memory unless
+**Keep windows across restarts** is on, which saves them to the state store as
+Aggregate's persistent mode does. See
+[docs/ml.md](docs/ml.md#feature-engineering-nodes).
 
 ### Added — a vhost keeps its own secrets
 

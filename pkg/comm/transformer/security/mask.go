@@ -64,19 +64,7 @@ func (t *MaskTransformer) Transform(ctx context.Context, msg hermod.Message, con
 	}
 	fieldVal := fmt.Sprintf("%v", val)
 
-	var masked string
-	switch maskType {
-	case "email":
-		masked = t.maskEmail(fieldVal)
-	case "partial":
-		masked = t.maskPartial(fieldVal)
-	case "pii":
-		masked = t.maskPII(fieldVal)
-	default:
-		masked = "****"
-	}
-
-	msg.SetData(field, masked)
+	msg.SetData(field, MaskValue(fieldVal, maskType))
 	return msg, nil
 }
 
@@ -84,18 +72,7 @@ func (t *MaskTransformer) scanAndMask(data map[string]any, maskType string) {
 	for k, v := range data {
 		switch val := v.(type) {
 		case string:
-			var masked string
-			switch maskType {
-			case "email":
-				masked = t.maskEmail(val)
-			case "partial":
-				masked = t.maskPartial(val)
-			case "pii":
-				masked = t.maskPII(val)
-			default:
-				masked = "****"
-			}
-			data[k] = masked
+			data[k] = MaskValue(val, maskType)
 		case map[string]any:
 			t.scanAndMask(val, maskType)
 		case []any:
@@ -103,25 +80,30 @@ func (t *MaskTransformer) scanAndMask(data map[string]any, maskType string) {
 				if m, ok := item.(map[string]any); ok {
 					t.scanAndMask(m, maskType)
 				} else if s, ok := item.(string); ok {
-					var masked string
-					switch maskType {
-					case "email":
-						masked = t.maskEmail(s)
-					case "partial":
-						masked = t.maskPartial(s)
-					case "pii":
-						masked = t.maskPII(s)
-					default:
-						masked = "****"
-					}
-					val[i] = masked
+					val[i] = MaskValue(s, maskType)
 				}
 			}
 		}
 	}
 }
 
-func (t *MaskTransformer) maskEmail(s string) string {
+// MaskValue masks s the way the mask node does: maskType "email" keeps the
+// first letter and the domain, "partial" two characters at each end, "pii"
+// masks what the PII engine finds, and anything else gives "****".
+func MaskValue(s, maskType string) string {
+	switch maskType {
+	case "email":
+		return maskEmail(s)
+	case "partial":
+		return maskPartial(s)
+	case "pii":
+		return transformer.PIIEngine().Mask(s)
+	default:
+		return "****"
+	}
+}
+
+func maskEmail(s string) string {
 	parts := strings.Split(s, "@")
 	if len(parts) == 2 {
 		if len(parts[0]) > 1 {
@@ -132,13 +114,9 @@ func (t *MaskTransformer) maskEmail(s string) string {
 	return "****"
 }
 
-func (t *MaskTransformer) maskPartial(s string) string {
+func maskPartial(s string) string {
 	if len(s) > 4 {
 		return s[:2] + "****" + s[len(s)-2:]
 	}
 	return "****"
-}
-
-func (t *MaskTransformer) maskPII(s string) string {
-	return transformer.PIIEngine().Mask(s)
 }

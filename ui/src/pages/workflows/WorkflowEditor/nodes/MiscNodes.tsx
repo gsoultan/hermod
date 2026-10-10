@@ -6,7 +6,7 @@ import { BaseNode, PlusHandle, TargetHandle } from './BaseNode';
 import { branchHandleId } from './branchHandleId';
 import { useState, memo } from 'react';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
-import { IconArrowsMaximize, IconArrowsSplit, IconBraces, IconChecklist, IconClock, IconCloud, IconCode, IconCopy, IconDatabase, IconDatabaseSearch, IconEye, IconFileSearch, IconFilter, IconGitBranch, IconGitCompare, IconGitMerge, IconLayoutList, IconList, IconLock, IconLockOpen, IconMail, IconMapPin, IconNote, IconPlaylist, IconSearch, IconShieldLock, IconSparkles, IconStack2, IconTemplate, IconTerminal2, IconTextScan2, IconTrash, IconVariable, IconVector } from '@tabler/icons-react';
+import { IconAlertTriangle, IconArrowsMaximize, IconArrowsSplit, IconBinary, IconBraces, IconChartHistogram, IconChecklist, IconClock, IconCloud, IconCode, IconCopy, IconDatabase, IconDatabaseSearch, IconEye, IconFileSearch, IconFilter, IconGitBranch, IconGitCompare, IconGitMerge, IconLayoutList, IconList, IconLock, IconLockOpen, IconMail, IconMapPin, IconNote, IconPlaylist, IconScale, IconSearch, IconShieldLock, IconSparkles, IconStack2, IconTemplate, IconTerminal2, IconTextScan2, IconTimeline, IconTrash, IconVariable, IconVector } from '@tabler/icons-react';
 const ValidatorNodeImpl = ({ id, data, selected }: any) => {
   return (
     <BaseNode id={id} type="Validator" color="orange" icon={IconChecklist} data={data} selected={selected}>
@@ -52,6 +52,11 @@ const TransformationNodeImpl = ({ id, data, selected }: any) => {
       case 'field_diff': return IconGitCompare;
       case 'reference_lookup': return IconFileSearch;
       case 'geo': return IconMapPin;
+      case 'scale': return IconScale;
+      case 'encode': return IconBinary;
+      case 'bucketize': return IconChartHistogram;
+      case 'rolling': return IconTimeline;
+      case 'anomaly_score': return IconAlertTriangle;
       default: return IconFilter;
     }
   };
@@ -93,6 +98,11 @@ const TransformationNodeImpl = ({ id, data, selected }: any) => {
       case 'field_diff': return 'Field Diff';
       case 'reference_lookup': return 'Reference Lookup';
       case 'geo': return 'Geo';
+      case 'scale': return 'Scale';
+      case 'encode': return 'Encode';
+      case 'bucketize': return 'Bucketize';
+      case 'rolling': return 'Rolling Features';
+      case 'anomaly_score': return 'Anomaly Score';
       default: return 'Transformation';
     }
   };
