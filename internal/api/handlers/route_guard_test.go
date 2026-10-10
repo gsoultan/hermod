@@ -59,6 +59,7 @@ var unguardedMutatingRoutes = map[string]string{
 	"POST /api/config/database":         "first-run wizard; guarded by IsFirstRun instead",
 	"POST /api/webhooks/{path...}":      "public ingestion endpoint; authenticated by its own token",
 	"POST /api/forms/{path...}":         "public form submission",
+	"POST /api/ml/serve/{vhost}/{name}": "public model serving; authenticated by the model's own serving key",
 
 	// self-service: the handler checks caller identity, not role
 	"PUT /api/me":                      "a user editing their own profile",

@@ -30,7 +30,17 @@ import (
 // is computed from the DDL itself, so changing the schema fails this test and
 // forces the question to be asked out loud.
 //
-// Last moved by: adding the vhost_secrets table, the secrets a vhost holds for
+// Last moved by: adding the ml_models table, the models a vhost can call from
+// the Predict node and the serving endpoints. currentSchemaVersion was left
+// alone deliberately, for the reasons the vhost_secrets note below gives: it is
+// a standalone table no earlier code path reads or writes, and a rollback costs
+// the feature, not a misread of live data. One difference: the previous
+// release's DeleteVHost does not remove a vhost's models, so a vhost deleted
+// during a rollback leaves them for a later vhost of the same name. They name
+// only a server address and a secret name, never a secret's value, and the
+// secret they name was deleted with the vhost.
+//
+// The note before that: adding the vhost_secrets table, the secrets a vhost holds for
 // its own workflows. currentSchemaVersion was left alone deliberately.
 //
 // It is a standalone table: no earlier code path reads or writes it, nothing
@@ -116,7 +126,7 @@ import (
 // unpopulated — a gap in a chart that fills itself in when the newer binary
 // returns — so bumping the version would buy nothing and cost a refused
 // start-up during exactly the rollback it was supposed to make safe.
-const knownSchemaFingerprint = "3a13d2d0f406f59fe99fc25891b6678a04e4e1bc89a9f0237a98df080752091e"
+const knownSchemaFingerprint = "901e04e4650fe340a4d10a649eb34b365e1045604ab40ceb5d8c234245d9c6e1"
 
 func TestSchemaVersionIsReconsideredWhenTheSchemaChanges(t *testing.T) {
 	if got := SchemaFingerprint(); got != knownSchemaFingerprint {
