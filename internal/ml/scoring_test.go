@@ -249,3 +249,49 @@ func TestSetScoringOnlyForATrainedModel(t *testing.T) {
 		t.Errorf("stored scoring = %q", m.Scoring)
 	}
 }
+
+// An in-process prediction is a prediction like any other: it is logged with
+// its caller and version, and counted for drift against the version's
+// training stats, exactly as one the worker scored would be.
+func TestAnInProcessPredictionIsLoggedAndCountedForDrift(t *testing.T) {
+	resetScorers()
+	w, client := newScoringWorker(t, "trained/random_forest_binary")
+	var meta map[string]any
+	if err := json.Unmarshal(w.meta, &meta); err != nil {
+		t.Fatal(err)
+	}
+	meta["feature_stats"] = map[string]worker.FeatureStats{"x1": {Kind: worker.StatsNumeric, Count: 100,
+		Edges: []float64{0}, Fractions: []float64{0.5, 0.5}}}
+	w.meta, _ = json.Marshal(meta)
+	m := trainedChurn(storage.MLScoringInProcess)
+	m.Monitoring = storage.MLMonitoring{LogSampleRate: 1}
+	st := newMemStore(m)
+	logs := &predLogs{}
+	svc := NewService(func() any { return st }, nil, nil).WithWorker(client).WithLogStore(func() any { return logs })
+	startMonitor(t, svc, logs)
+	rows, _ := workerCases(t, "trained/random_forest_binary")
+
+	if _, err := svc.Predict(WithCaller(t.Context(), storage.MLCallerREST, ""), "v", "churn", rows); err != nil {
+		t.Fatalf("Predict: %v", err)
+	}
+	if n := w.infers.Load(); n != 0 {
+		t.Fatalf("the worker was asked to infer %d times; the test needs an in-process prediction", n)
+	}
+	waitFor(t, "the predictions to be logged", func() bool { return logs.count() == len(rows) })
+	logged, err := svc.PredictionLogs(t.Context(), "v", "churn", 1)
+	if err != nil || len(logged) != 1 {
+		t.Fatalf("PredictionLogs = %+v, %v", logged, err)
+	}
+	if l := logged[0]; l.CallerKind != storage.MLCallerREST || l.Version != "1" || l.Outputs["label"] == nil {
+		t.Errorf("logged %+v", l)
+	}
+
+	var drift DriftStatus
+	waitFor(t, "a drift report", func() bool {
+		drift, _ = svc.Drift(t.Context(), "v", "churn")
+		return drift.Report != nil
+	})
+	if r := drift.Report; r.Version != "1" || r.Rows != int64(len(rows)) {
+		t.Errorf("drift report = %+v, want version 1 over %d rows", r, len(rows))
+	}
+}

@@ -231,6 +231,32 @@ func TestVersionCarriesWhatScoringNeeds(t *testing.T) {
 	}
 }
 
+// A version carries the statistics of the rows it was trained on, which is
+// what Hermod measures drift against.
+func TestAVersionCarriesItsTrainingStats(t *testing.T) {
+	f := &fakeWorker{reply: `{"versions":[{"model":"churn","version":"2","features":["age","plan"],"metrics":{},
+		"feature_stats":{
+			"age":{"kind":"numeric","count":80,"null_fraction":0.05,"mean":41.5,"std":9.2,"min":18,"max":90,
+				"edges":[30,40,50],"fractions":[0.2,0.3,0.3,0.2]},
+			"plan":{"kind":"categorical","count":80,"null_fraction":0,"top":[{"value":"pro","fraction":0.6},{"value":"free","fraction":0.3}],
+				"other_fraction":0.1}}}]}`}
+	c := New(f.server(t).URL, "", nil)
+
+	vs, err := c.Versions(t.Context(), "v", "churn")
+	if err != nil || len(vs) != 1 {
+		t.Fatalf("Versions = %+v, %v", vs, err)
+	}
+	age, plan := vs[0].FeatureStats["age"], vs[0].FeatureStats["plan"]
+	if age.Kind != StatsNumeric || age.NullFraction != 0.05 || len(age.Edges) != 3 || len(age.Fractions) != 4 ||
+		age.Mean == nil || *age.Mean != 41.5 || age.Std == nil || *age.Std != 9.2 {
+		t.Errorf("age = %+v", age)
+	}
+	if plan.Kind != StatsCategorical || len(plan.Top) != 2 || plan.Top[0].Value != "pro" || plan.Top[0].Fraction != 0.6 ||
+		plan.OtherFraction != 0.1 {
+		t.Errorf("plan = %+v", plan)
+	}
+}
+
 func TestTrainSendsDeepLearningParamsOnlyWhenSet(t *testing.T) {
 	f := &fakeWorker{reply: `{"model":"m","version":"1"}`}
 	c := New(f.server(t).URL, "", nil)

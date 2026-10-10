@@ -236,7 +236,9 @@ worker; so is a call whose rows hold a value the worker would read in a way
 the scorer does not reproduce exactly (a feature missing from every row, or a
 number given as text it would not parse the same). The status says which
 version is scored in-process and its operators, or why it falls back. A new
-live version is loaded on the next call. Each version's results match
+live version is loaded on the next call. An in-process prediction is logged
+and counted for drift exactly as one the worker scores (see
+[Monitoring](#monitoring)). Each version's results match
 onnxruntime to within 1e-5: the parity fixtures in
 `pkg/ml/onnxscore/testdata` are produced by onnxruntime and regenerated with
 `python -I pkg/ml/onnxscore/testdata/gen_fixtures.py` in the worker's
@@ -425,6 +427,91 @@ hermod.ml.v1.InferenceService/Predict
 
 One call takes at most 1000 rows.
 
+## Monitoring
+
+**Monitoring** on a model's row on the Models page shows its prediction log,
+its drift report and, for an Editor, the setting behind both. The setting is
+kept with the model (`monitoring` in its JSON); saving the model's address
+leaves it as it was.
+
+```bash
+curl -X PUT https://hermod.example.com/api/vhosts/default/ml/models/fraud/monitoring \
+  -H "Authorization: Bearer …" \
+  -d '{"log_sample_rate": 0.1, "log_mask_fields": ["email", "customer.phone"],
+       "log_mask_type": "all", "log_retention": "30d",
+       "drift_warn": 0.1, "drift_alert": 0.25}'
+```
+
+### Prediction log
+
+Off until `log_sample_rate` is above 0: it is the share of predicted rows
+kept, from 0 to 1 (`0.1` keeps one in ten). Each kept row holds the vhost,
+model, version, time, the row's inputs and outputs, how long the call took,
+and who called: `workflow` (with the workflow's id, from a Predict node),
+`rest` (the serving endpoint), `grpc`, or `ui` (Test on the Models page).
+
+`log_mask_fields` lists the input or output fields masked before the row is
+written, as dotted paths (`customer.phone`); `*` masks every text value. A
+path to an object masks every text value inside it. `log_mask_type` is the
+Mask node's: `all` (`****`, the default), `partial`, `email` or `pii`. The
+unmasked values are never written.
+
+Rows go to the log store, in the `ml_prediction_logs` table (SQL) or
+collection (MongoDB), and are kept for `log_retention` (`7d` by default, from
+`1h` to `365d`); the hourly retention sweep that purges message traces purges
+them too. Deleting a model, or its vhost, deletes its rows.
+
+Logging never slows or fails a prediction. The predict path hands the row to
+a bounded queue without waiting; masking and writing happen on a background
+goroutine, in batches. When the queue is full the row is dropped and counted
+in `hermod_ml_monitor_dropped_total{reason="queue_full"}`; a failed write
+counts in `hermod_ml_prediction_logs_dropped_total`.
+
+`GET /api/vhosts/{vhost}/ml/models/{name}/predictions?limit=100` lists the
+newest rows first, at most 500. Any role on the vhost may read them.
+
+### Drift
+
+When hermod-ml trains a version it keeps statistics of each feature over the
+training split, returned with the version as `feature_stats`: for a number,
+its mean, standard deviation, range, and the share of rows in each of ten
+quantile bins; for a category, the share of its 20 most frequent values and of
+all the others; for both, the share missing.
+
+Hermod counts the live inputs of the version that is live into the same bins,
+over **every** prediction (not only the logged sample), and every
+`HERMOD_ML_DRIFT_WINDOW` (default `5m`) judges the window once it holds at
+least `HERMOD_ML_DRIFT_MIN_ROWS` rows (default 100); a smaller window keeps
+counting. Each feature gets a population stability index,
+`Σ (live − training) · ln(live / training)` over its bins, and a status:
+`warn` from `drift_warn` (default 0.1), `alert` from `drift_alert` (default
+0.25). As a rule of thumb, below 0.1 is noise and above 0.25 is a population
+the model was not trained on.
+
+- `GET /api/vhosts/{vhost}/ml/models/{name}/drift` returns the latest report,
+  or `report: null` with the reason (not trained in Hermod, no version live,
+  no window judged yet).
+- `hermod_ml_feature_drift{vhost,model,feature}` is each feature's PSI from
+  the latest window.
+- A window that reaches `alert` sends one notification through the
+  notification channels, naming the features that
+  drifted. The next window sends another only if it is still drifting.
+
+Drift is measured for models trained in Hermod; a model served elsewhere has
+no training statistics, so it gets the prediction log only.
+
+The counts live in memory, per Hermod process, and each process judges the
+predictions it made. In the default deployment the API and the workflow
+engine are one process, and that is all the traffic there is. With several
+processes, each exports its own `hermod_ml_feature_drift` series (told apart
+by the scrape's `instance` label) and alerts on its own share, and the drift
+API answers for the process that serves the request. A restart starts a new
+window.
+
+For code that acts on drift, such as retraining, `monitor.Monitor.OnDrift`
+registers a function called with every judged window's report. Nothing in
+Hermod registers one yet.
+
 ## Metrics
 
 - `hermod_ml_predictions_total{vhost,model,outcome}`
@@ -433,3 +520,7 @@ One call takes at most 1000 rows.
   100 µs for in-process scoring
 - `hermod_ml_in_process_scoring_total{vhost,model,path}`: calls to a model set
   to score in-process, `path` `in_process` or `fallback` (sent to the worker)
+- `hermod_ml_feature_drift{vhost,model,feature}`
+- `hermod_ml_prediction_logs_written_total{vhost,model}`
+- `hermod_ml_prediction_logs_dropped_total{vhost,model,reason}`
+- `hermod_ml_monitor_dropped_total{vhost,model,reason}`

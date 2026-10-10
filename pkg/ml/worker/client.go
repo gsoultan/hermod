@@ -169,9 +169,47 @@ type Version struct {
 		Train int `json:"train"`
 		Test  int `json:"test"`
 	} `json:"rows"`
-	CreatedAt time.Time `json:"created_at"`
+	// FeatureStats describe the rows the version was trained on, per
+	// feature. A version trained before the worker recorded them has none.
+	FeatureStats map[string]FeatureStats `json:"feature_stats,omitempty"`
+	CreatedAt    time.Time               `json:"created_at"`
 	// Fill is what a null numeric feature becomes: its training median.
 	Fill map[string]float64 `json:"fill,omitempty"`
+}
+
+// The kinds of FeatureStats.
+const (
+	StatsNumeric     = "numeric"
+	StatsCategorical = "categorical"
+)
+
+// FeatureStats is one feature of a training split, as the worker measured it
+// (ml/worker/hermod_ml/stats.py, which documents the binning).
+type FeatureStats struct {
+	Kind string `json:"kind"`
+	// Count is the rows measured; NullFraction the share with no usable value.
+	Count        int     `json:"count"`
+	NullFraction float64 `json:"null_fraction"`
+
+	// Numeric: summary values, absent when every value was missing, and the
+	// decile bins. Bin i holds Edges[i-1] < v <= Edges[i]; Fractions has one
+	// more entry than Edges, each bin's share of the non-missing values.
+	Mean      *float64  `json:"mean,omitempty"`
+	Std       *float64  `json:"std,omitempty"`
+	Min       *float64  `json:"min,omitempty"`
+	Max       *float64  `json:"max,omitempty"`
+	Edges     []float64 `json:"edges,omitempty"`
+	Fractions []float64 `json:"fractions,omitempty"`
+
+	// Categorical: the most frequent values, and the share of all the others.
+	Top           []CategoryShare `json:"top,omitempty"`
+	OtherFraction float64         `json:"other_fraction,omitempty"`
+}
+
+// CategoryShare is one value of a categorical feature and its share.
+type CategoryShare struct {
+	Value    string  `json:"value"`
+	Fraction float64 `json:"fraction"`
 }
 
 // Ready reports whether the worker answers its readiness check.

@@ -3,7 +3,7 @@ import {
   ActionIcon, Alert, Badge, Box, Button, Group, Loader, Paper, Select, Stack, Table, Text, Title, Tooltip,
 } from '@mantine/core'
 import {
-  IconAlertCircle, IconBrain, IconCpu, IconHistory, IconInfoCircle, IconKey, IconPencil, IconPlayerPlay, IconPlus, IconRepeat, IconSchool, IconTrash,
+  IconActivityHeartbeat, IconAlertCircle, IconBrain, IconCpu, IconHistory, IconInfoCircle, IconKey, IconPencil, IconPlayerPlay, IconPlus, IconRepeat, IconSchool, IconTrash,
 } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useVHost } from '@/context/VHostContext'
@@ -13,6 +13,7 @@ import { deleteModel, isModelVHost, isTrainedModel, listModels, mlModelsKey, use
 import { DatasetsPanel } from './DatasetsPanel'
 import { ModelFormModal } from './ModelFormModal'
 import { ModelTestModal } from './ModelTestModal'
+import { MonitoringModal } from './MonitoringModal'
 import { RetrainModal } from './RetrainModal'
 import { RetrainStatusLine } from './retrainStatus'
 import { ScoringModal } from './ScoringModal'
@@ -34,6 +35,7 @@ type Dialog =
   | { kind: 'key'; model: MLModel }
   | { kind: 'train'; modelName?: string }
   | { kind: 'versions'; model: MLModel }
+  | { kind: 'monitoring'; model: MLModel }
   | { kind: 'retrain'; model: MLModel }
   | { kind: 'scoring'; model: MLModel }
 
@@ -99,6 +101,11 @@ export function ModelsPage() {
           <Tooltip label="Serving key">
             <ActionIcon variant="light" color="teal" radius="md" aria-label={`Serving key for ${m.name}`} onClick={() => setDialog({ kind: 'key', model: m })}>
               <IconKey size="1.1rem" />
+            </ActionIcon>
+          </Tooltip>
+          <Tooltip label="Monitoring">
+            <ActionIcon variant="light" color="orange" radius="md" aria-label={`Monitoring of ${m.name}`} onClick={() => setDialog({ kind: 'monitoring', model: m })}>
+              <IconActivityHeartbeat size="1.1rem" />
             </ActionIcon>
           </Tooltip>
           {isTrainedModel(m) ? (
@@ -236,6 +243,7 @@ export function ModelsPage() {
       {vhost && dialog?.kind === 'versions' && <VersionsModal vhost={vhost} model={dialog.model} onClose={() => setDialog(undefined)} />}
       {vhost && dialog?.kind === 'form' && <ModelFormModal vhost={vhost} model={dialog.model} onClose={() => setDialog(undefined)} />}
       {vhost && dialog?.kind === 'test' && <ModelTestModal vhost={vhost} model={dialog.model} onClose={() => setDialog(undefined)} />}
+      {vhost && dialog?.kind === 'monitoring' && <MonitoringModal vhost={vhost} model={dialog.model} onClose={() => setDialog(undefined)} />}
       {vhost && dialog?.kind === 'key' && <ServingKeyModal vhost={vhost} model={dialog.model} onClose={() => setDialog(undefined)} />}
     </Box>
   )

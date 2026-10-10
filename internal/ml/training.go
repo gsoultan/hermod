@@ -211,11 +211,12 @@ func (s *Service) DeleteModel(ctx context.Context, vhost, name string) error {
 		return err
 	}
 	scorers.forget(vhost, name)
+	logsErr := s.forgetModel(ctx, vhost, name)
 	if m.Backend != storage.MLBackendWorker || s.worker == nil {
-		return nil
+		return logsErr
 	}
 	if err := s.worker.DeleteModel(ctx, vhost, name); err != nil && !errors.Is(err, worker.ErrNotFound) {
 		return fmt.Errorf("model %q was removed, but its files on the ML worker were not: %w", name, err)
 	}
-	return nil
+	return logsErr
 }
