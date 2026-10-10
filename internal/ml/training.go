@@ -1,0 +1,203 @@
+package ml
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"slices"
+
+	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/pkg/ml/worker"
+)
+
+// How a newly trained version is put live.
+const (
+	// GoLiveAlways puts every new version live.
+	GoLiveAlways = "always"
+	// GoLiveNever keeps every new version off; an Editor promotes one.
+	GoLiveNever = "never"
+	// GoLiveIf puts a version live when one of its metrics is within bounds.
+	GoLiveIf = "if"
+)
+
+// GoLive says whether a newly trained version is put live. The zero value
+// keeps it off, the safe choice for a caller that says nothing.
+type GoLive struct {
+	Mode string `json:"mode"`
+	// Metric is the metric GoLiveIf checks; empty means "score", which is
+	// accuracy for a classifier and R² for a regression.
+	Metric string   `json:"metric,omitempty"`
+	Min    *float64 `json:"min,omitempty"`
+	Max    *float64 `json:"max,omitempty"`
+}
+
+// Validate reports what is wrong with the rule.
+func (g GoLive) Validate() error {
+	switch g.Mode {
+	case "", GoLiveAlways, GoLiveNever:
+		return nil
+	case GoLiveIf:
+		if g.Min == nil && g.Max == nil {
+			return errors.New(`a "go live if" rule needs a minimum, a maximum, or both`)
+		}
+		return nil
+	}
+	return fmt.Errorf("go live is %q, %q or %q, not %q", GoLiveAlways, GoLiveNever, GoLiveIf, g.Mode)
+}
+
+// decide says whether v goes live, and why, in words a person reads.
+func (g GoLive) decide(v worker.Version) (bool, string) {
+	switch g.Mode {
+	case GoLiveAlways:
+		return true, "every new version goes live"
+	case GoLiveIf:
+	default:
+		return false, "new versions wait to be put live by hand"
+	}
+	metric := g.Metric
+	if metric == "" {
+		metric = "score"
+	}
+	got, ok := v.Metrics[metric]
+	if !ok {
+		return false, fmt.Sprintf("the model reports no %q metric", metric)
+	}
+	if g.Min != nil && got < *g.Min {
+		return false, fmt.Sprintf("%s %.4g is below the minimum %.4g", metric, got, *g.Min)
+	}
+	if g.Max != nil && got > *g.Max {
+		return false, fmt.Sprintf("%s %.4g is above the maximum %.4g", metric, got, *g.Max)
+	}
+	return true, fmt.Sprintf("%s %.4g is within bounds", metric, got)
+}
+
+// TrainResult is a finished training: the version made, and whether it is
+// now the one the model serves.
+type TrainResult struct {
+	Model   storage.MLModel `json:"model"`
+	Version worker.Version  `json:"version"`
+	Live    bool            `json:"live"`
+	Reason  string          `json:"reason"`
+}
+
+// Train trains a new version of a vhost's model on the worker and registers
+// the model, if it is new. Whether the version goes live is up to rule; a
+// version kept off stays on the worker, and Promote can put it live later.
+func (s *Service) Train(ctx context.Context, vhost, name string, spec worker.TrainSpec, rule GoLive, by string) (TrainResult, error) {
+	w, err := s.Worker()
+	if err != nil {
+		return TrainResult{}, err
+	}
+	if err := rule.Validate(); err != nil {
+		return TrainResult{}, err
+	}
+	if !storage.ValidMLModelName(name) {
+		return TrainResult{}, fmt.Errorf("model name %q must start with a letter and hold only letters, digits, '_' or '-'", name)
+	}
+	ms, err := s.Models()
+	if err != nil {
+		return TrainResult{}, err
+	}
+	m, err := ms.GetMLModel(ctx, vhost, name)
+	switch {
+	case errors.Is(err, storage.ErrNotFound):
+		m = storage.MLModel{VHost: vhost, Name: name, Backend: storage.MLBackendWorker}
+	case err != nil:
+		return TrainResult{}, err
+	case m.Backend != storage.MLBackendWorker:
+		return TrainResult{}, fmt.Errorf("vhost %q already has a model %q served elsewhere; train under another name", vhost, name)
+	}
+
+	v, err := w.Train(ctx, vhost, name, spec)
+	if err != nil {
+		return TrainResult{}, fmt.Errorf("training %q: %w", name, err)
+	}
+	live, reason := rule.decide(v)
+	if live {
+		m.RemoteVersion = v.Version
+		m.Features = v.Features
+	} else if m.RemoteVersion == "" {
+		// Nothing is live yet, so the features the next promotion will serve
+		// are the ones to show.
+		m.Features = v.Features
+	}
+	if m.Description == "" {
+		m.Description = fmt.Sprintf("Predicts %s from dataset %s", v.Target, v.Dataset)
+	}
+	m.UpdatedBy = by
+	if err := ms.PutMLModel(ctx, m); err != nil {
+		return TrainResult{}, fmt.Errorf("version %s of %q was trained but not registered: %w", v.Version, name, err)
+	}
+	return TrainResult{Model: m, Version: v, Live: live, Reason: reason}, nil
+}
+
+// Versions lists a trained model's versions, newest first.
+func (s *Service) Versions(ctx context.Context, vhost, name string) ([]worker.Version, error) {
+	m, err := s.Model(ctx, vhost, name)
+	if err != nil {
+		return nil, err
+	}
+	if m.Backend != storage.MLBackendWorker {
+		return nil, fmt.Errorf("model %q is served elsewhere; its versions are kept there", name)
+	}
+	w, err := s.Worker()
+	if err != nil {
+		return nil, err
+	}
+	vs, err := w.Versions(ctx, vhost, name)
+	if errors.Is(err, worker.ErrNotFound) {
+		return nil, nil
+	}
+	return vs, err
+}
+
+// Promote puts one of a trained model's versions live: a later one, or an
+// earlier one to roll back.
+func (s *Service) Promote(ctx context.Context, vhost, name, version, by string) error {
+	vs, err := s.Versions(ctx, vhost, name)
+	if err != nil {
+		return err
+	}
+	i := slices.IndexFunc(vs, func(v worker.Version) bool { return v.Version == version })
+	if i < 0 {
+		return fmt.Errorf("%w: %q has no version %q", ErrVersionNotFound, name, version)
+	}
+	m, err := s.Model(ctx, vhost, name)
+	if err != nil {
+		return err
+	}
+	ms, err := s.Models()
+	if err != nil {
+		return err
+	}
+	m.RemoteVersion, m.Features, m.UpdatedBy = version, vs[i].Features, by
+	return ms.PutMLModel(ctx, m)
+}
+
+// DeleteModel removes a model from the registry and, for a model Hermod
+// trained, its versions from the worker. The registry entry goes first, so a
+// worker that cannot be reached leaves files behind, never a model that
+// points at nothing.
+func (s *Service) DeleteModel(ctx context.Context, vhost, name string) error {
+	ms, err := s.Models()
+	if err != nil {
+		return err
+	}
+	m, err := s.Model(ctx, vhost, name)
+	if err != nil {
+		return err
+	}
+	if err := ms.DeleteMLModel(ctx, vhost, name); err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return fmt.Errorf("%w: %q in vhost %q", ErrModelNotFound, name, vhost)
+		}
+		return err
+	}
+	if m.Backend != storage.MLBackendWorker || s.worker == nil {
+		return nil
+	}
+	if err := s.worker.DeleteModel(ctx, vhost, name); err != nil && !errors.Is(err, worker.ErrNotFound) {
+		return fmt.Errorf("model %q was removed, but its files on the ML worker were not: %w", name, err)
+	}
+	return nil
+}
