@@ -75,7 +75,16 @@ func loadReference(spec referenceSpec) (*referenceTable, error) {
 	if e.table != nil && now.Sub(e.checked) < referenceStatEvery {
 		return e.table, nil
 	}
-	info, err := statReference(spec)
+	// Checked whenever the file is, so a link re-pointed outside the allowed
+	// directories is refused from the next check on. The file is then opened
+	// by its resolved path, the one that was checked.
+	resolved, err := allowedReferencePath(spec.path)
+	if err != nil {
+		return nil, err
+	}
+	file := spec
+	file.path = resolved
+	info, err := statReference(file)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +92,7 @@ func loadReference(spec referenceSpec) (*referenceTable, error) {
 	if e.table != nil && info.ModTime().Equal(e.modTime) && info.Size() == e.size {
 		return e.table, nil
 	}
-	table, err := readReference(spec)
+	table, err := readReference(file)
 	if err != nil {
 		return nil, err
 	}

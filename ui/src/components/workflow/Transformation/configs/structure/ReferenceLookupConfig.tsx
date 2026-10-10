@@ -53,7 +53,7 @@ export function ReferenceLookupConfig({ config, updateNodeConfig, nodeId, fieldP
         <TextInput
           label="File path"
           placeholder="/var/hermod/uploads/countries.csv"
-          description="A .csv, .tsv or .xlsx file on the worker"
+          description="A .csv, .tsv or .xlsx file in the upload directory or a directory listed in HERMOD_REFERENCE_DIRS"
           value={config.filePath ?? ''}
           onChange={(e) => set({ filePath: e.currentTarget.value })}
           style={{ flex: 1 }}

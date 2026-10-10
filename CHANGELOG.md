@@ -54,8 +54,10 @@ structure; XML document types are refused, so entities never expand),
 **Template** (Go text/template over the record into a field, with a strict mode
 and an output cap) and **Field Diff (CDC)** (only the columns a change event
 changed, with old and new values). Under **Advanced Transformations**:
-**Reference Lookup** (a CSV, TSV or Excel file uploaded or on the worker, held in
-memory and re-read when it changes, merged by key) and **Geo** (haversine
+**Reference Lookup** (a CSV, TSV or Excel file held in memory and re-read when
+it changes, merged by key; it reads only from the upload directory and the
+directories listed in the new `HERMOD_REFERENCE_DIRS`, with `../` and symlinks
+resolved before the check) and **Geo** (haversine
 distance in km, mi or m, and point in a GeoJSON polygon; no geocoding). See
 [docs/structural-nodes.md](docs/structural-nodes.md).
 

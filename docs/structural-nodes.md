@@ -133,7 +133,24 @@ Adds columns from a reference file to each record, matched on a key.
 Admin; `.csv`, `.tsv` and `.xlsx` are among the accepted types, 10 MiB) and
 fills in the path the server stored it at. With `file_storage.type: local` that
 is a path on the server, which the worker reads when they share a disk; a file
-in S3 storage (an `s3://` path) is not read — give a path the worker can open.
+in S3 storage (an `s3://` path) is not read.
+
+**Where files may be read from.** A workflow is written by any Editor, so the
+node does not read any file the worker can open. It reads only files inside:
+
+- the upload directory: `file_storage.local_dir` in `config.yaml` (relative to
+  that file), or `uploads` in the working directory when none is set — the
+  directory `POST /api/files/upload` writes to. With `file_storage.type: s3`
+  there is none;
+- the directories in **`HERMOD_REFERENCE_DIRS`**, comma-separated absolute
+  paths, for files an operator places on the worker, e.g.
+  `HERMOD_REFERENCE_DIRS=/srv/reference,/mnt/shared/lookup`. A relative entry
+  is ignored.
+
+The path is cleaned and every symlink in it followed before the check, so
+neither `../` nor a link inside an allowed directory reaches a file outside it.
+The check is repeated each time the file is checked for changes. A refused path
+fails the record with "outside the directories reference files are read from".
 
 The file is read once and held in memory, indexed by the key column, shared by
 every node that reads it with the same settings. It is checked for changes at

@@ -21,9 +21,9 @@ func init() {
 //
 // The file is read once and kept, keyed by its key column, and read again
 // when its modification time or size changes (checked at most once a second).
-// It is read from the worker's file system: a path the file upload endpoint
-// returned for local storage, or any file the worker can read. Object-store
-// and HTTP locations are not read.
+// It is read from the worker's file system, and only from inside the upload
+// directory or a directory in HERMOD_REFERENCE_DIRS (see reference_roots.go).
+// Object-store and HTTP locations are not read.
 //
 // Config:
 //   - filePath: the file. Required.

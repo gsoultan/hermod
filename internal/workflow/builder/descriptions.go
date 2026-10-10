@@ -85,7 +85,7 @@ var descriptions = map[string]string{
 	"transformation:parse_field": `Parses a text field into structure. config: {"field","format":"json|csv|xml|kv",` +
 		`"targetField","delimiter","headers","hasHeader","pairDelimiter","kvSeparator"}. csv gives an array of rows.`,
 	"transformation:reference_lookup": `Enriches from a CSV, TSV or Excel file held in memory and re-read when it ` +
-		`changes. config: {"filePath":"<path on the worker>","sheet","keyColumn":"code","keyField":"country_code",` +
+		`changes. config: {"filePath":"<uploaded file path>","sheet","keyColumn":"code","keyField":"country_code",` +
 		`"columns":"name,region","targetField","onMiss":"passthrough|fail|default","defaultValue"}.`,
 	"transformation:template_render": `Renders a Go text/template over the record's fields into a field. config: ` +
 		`{"template":"Hello {{.name}}","targetField":"rendered","strict":false}.`,

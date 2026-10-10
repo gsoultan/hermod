@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -11,14 +12,32 @@ import (
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/message"
 	"github.com/gsoultan/hermod/pkg/comm/transformer"
+	"github.com/gsoultan/hermod/pkg/infra/filestorage"
 	xlsx "github.com/tealeg/xlsx"
 )
 
 const countriesCSV = "code,name,region\nID,Indonesia,Asia\nFR,France,Europe\n"
 
+// allowReferenceDir adds dir to the directories reference_lookup may read,
+// for the rest of the test.
+func allowReferenceDir(t *testing.T, dir string) {
+	t.Helper()
+	old := currentReferenceRoots()
+	SetReferenceRoots(append(slices.Clone(old), dir)...)
+	t.Cleanup(func() { SetReferenceRoots(old...) })
+}
+
+// writeFile writes a reference file in a directory the node may read.
 func writeFile(t *testing.T, name, content string) string {
 	t.Helper()
-	p := filepath.Join(t.TempDir(), name)
+	dir := t.TempDir()
+	allowReferenceDir(t, dir)
+	return writeFileIn(t, dir, name, content)
+}
+
+func writeFileIn(t *testing.T, dir, name, content string) string {
+	t.Helper()
+	p := filepath.Join(dir, name)
 	if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
 		t.Fatalf("writing %s: %v", name, err)
 	}
@@ -94,7 +113,9 @@ func TestReferenceLookupExcel(t *testing.T) {
 			row.AddCell().Value = v
 		}
 	}
-	path := filepath.Join(t.TempDir(), "prices.xlsx")
+	dir := t.TempDir()
+	allowReferenceDir(t, dir)
+	path := filepath.Join(dir, "prices.xlsx")
 	if err := f.Save(path); err != nil {
 		t.Fatal(err)
 	}
@@ -193,5 +214,80 @@ func TestReferenceLookupRefuses(t *testing.T) {
 				t.Fatalf("err = %v, want one mentioning %q", err, tc.wantErr)
 			}
 		})
+	}
+}
+
+// A reference file is read only from the upload storage root and the
+// directories an operator allows. Every way out of them is refused: a plain
+// path elsewhere, a ../ walk, and a symlink pointing out.
+func TestReferenceLookupReadsOnlyAllowedDirectories(t *testing.T) {
+	allowed := t.TempDir()
+	allowReferenceDir(t, allowed)
+	outside := t.TempDir()
+	secret := writeFileIn(t, outside, "secret.csv", countriesCSV)
+
+	// allowed/../<outside's name>/secret.csv, written out rather than joined,
+	// because Join would clean the escape away before the node saw it.
+	rel, err := filepath.Rel(filepath.Dir(allowed), secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dotdot := allowed + string(filepath.Separator) + ".." + string(filepath.Separator) + rel
+
+	link := filepath.Join(allowed, "link.csv")
+	if err := os.Symlink(secret, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	for name, path := range map[string]string{
+		"a path outside":         secret,
+		"a ../ escape":           dotdot,
+		"a symlink pointing out": link,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := runReference(t, refMsg(t, map[string]any{"c": "FR"}),
+				map[string]any{"filePath": path, "format": "csv", "keyColumn": "code", "keyField": "c"})
+			if err == nil || !strings.Contains(err.Error(), "outside") {
+				t.Fatalf("err = %v, want the path refused as outside the allowed directories", err)
+			}
+		})
+	}
+}
+
+// A file saved by the upload endpoint's local storage is read from where the
+// storage put it.
+func TestReferenceLookupReadsAnUploadedFile(t *testing.T) {
+	root := t.TempDir()
+	store, err := filestorage.NewLocalStorage(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := currentReferenceRoots()
+	ConfigureReferenceRoots(root)
+	t.Cleanup(func() { SetReferenceRoots(old...) })
+
+	path, err := store.Save(t.Context(), "countries-1.csv", strings.NewReader(countriesCSV))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := runReference(t, refMsg(t, map[string]any{"c": "ID"}),
+		map[string]any{"filePath": path, "keyColumn": "code", "keyField": "c"})
+	if err != nil {
+		t.Fatalf("reference_lookup: %v", err)
+	}
+	if out.Data()["name"] != "Indonesia" {
+		t.Errorf("name = %v, want Indonesia", out.Data()["name"])
+	}
+}
+
+func TestReferenceRootsFromTheEnvironment(t *testing.T) {
+	a, b := t.TempDir(), t.TempDir()
+	t.Setenv(referenceDirsEnv, a+", relative/dir ,"+b)
+	old := currentReferenceRoots()
+	ConfigureReferenceRoots("")
+	t.Cleanup(func() { SetReferenceRoots(old...) })
+
+	if got := currentReferenceRoots(); len(got) != 2 {
+		t.Fatalf("roots = %v, want the two absolute directories (a relative one is ignored)", got)
 	}
 }
