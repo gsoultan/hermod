@@ -176,10 +176,10 @@ func (c *Client) post(ctx context.Context, t Target, endpoint string, body, out 
 
 // excerpt keeps an error body short enough to log.
 func excerpt(raw []byte) string {
-	const max = 512
+	const limit = 512
 	s := strings.TrimSpace(string(raw))
-	if len(s) > max {
-		s = s[:max] + "…"
+	if len(s) > limit {
+		s = s[:limit] + "…"
 	}
 	return s
 }

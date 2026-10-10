@@ -97,9 +97,8 @@ func (h *Handler) fail(w http.ResponseWriter, err error) {
 	}
 }
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
+func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }
 
@@ -121,7 +120,7 @@ func (h *Handler) ListModels(w http.ResponseWriter, r *http.Request) {
 	if list == nil {
 		list = []storage.MLModel{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": list, "total": len(list)})
+	writeJSON(w, map[string]any{"data": list, "total": len(list)})
 }
 
 func (h *Handler) GetModel(w http.ResponseWriter, r *http.Request) {
@@ -134,7 +133,7 @@ func (h *Handler) GetModel(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, m)
+	writeJSON(w, m)
 }
 
 // modelRequest is what a client may set on a model. VHost, name, the serving
@@ -186,7 +185,7 @@ func (h *Handler) PutModel(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		saved = m
 	}
-	writeJSON(w, http.StatusOK, saved)
+	writeJSON(w, saved)
 }
 
 func (h *Handler) DeleteModel(w http.ResponseWriter, r *http.Request) {
@@ -229,7 +228,7 @@ func (h *Handler) RotateServingKey(w http.ResponseWriter, r *http.Request) {
 	h.RecordAuditLog(r, "INFO", "Made a new serving key for model "+name+" in vhost "+vhost, "update", vhost, "vhost", "",
 		map[string]string{"model": name})
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, map[string]string{"key": key})
+	writeJSON(w, map[string]string{"key": key})
 }
 
 // DisableServing removes the serving key; applications can no longer call the
@@ -295,5 +294,5 @@ func (h *Handler) predict(w http.ResponseWriter, r *http.Request, vhost, name st
 		h.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"model": name, "predictions": preds})
+	writeJSON(w, map[string]any{"model": name, "predictions": preds})
 }

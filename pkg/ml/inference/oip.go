@@ -2,6 +2,7 @@ package inference
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"slices"
@@ -143,7 +144,7 @@ func toFloat(v any) (float64, bool) {
 // gives each row one value; [n, k, ...] gives each row a list of the rest.
 func outputRows(outputs []tensor, n int) ([]Row, error) {
 	if len(outputs) == 0 {
-		return nil, fmt.Errorf("the model server returned no outputs")
+		return nil, errors.New("the model server returned no outputs")
 	}
 	rows := make([]Row, n)
 	for i := range rows {
