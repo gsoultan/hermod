@@ -155,6 +155,60 @@ Any node can retry on its own: `config.retry = {"maxAttempts": 3, "backoff": "1s
 AI calls are counted in `hermod_ai_calls_total`, `hermod_ai_tokens_total` and
 `hermod_ai_call_duration_seconds`, labelled by provider, model and outcome. Prompts and keys are never labels.
 
+## Budgets and the kill switch
+
+Each vhost can limit what its AI nodes and agents spend, on the **AI Budget** page or through the API. A limit
+of 0 (or none) is no limit.
+
+- **Monthly budget** for the whole vhost, in tokens (input plus output), in cost, or both.
+- **Workflow caps**: a monthly token or cost limit for one workflow, inside the vhost's.
+- **Prices** per million input and output tokens, per model. Hermod holds no price list. Model `*` prices every
+  model the list does not name, and a cost limit cannot be saved without it, so no call goes uncounted. The
+  currency is only a label.
+- **Kill switch**: while it is on, every AI call in the vhost is refused. It keeps the limits and the usage.
+
+Months are calendar months in UTC. Usage is stored in the `ai_budgets` and `ai_usage` tables (SQL) or
+collections (MongoDB). Every replica shares it, and it survives a restart. It is added atomically after each
+call that answers.
+
+**Enforcement.** Every model call made through the AI connections is checked against its vhost and workflow:
+AI Prompt, Extract, Embed, Classify, Retrieve and the agent, embeddings included, and also the workflow builder and
+self-healing mapping suggestions, which count against the vhost only. A refused call never reaches
+the provider. It fails with an error that starts with `AI budget:` and names the limit (`ai_disabled`,
+`vhost_tokens`, `vhost_cost`, `workflow_tokens`, `workflow_cost` or `budget_unavailable`), and the record takes
+the node's error branch.
+
+- **Fails closed.** If the budget cannot be read, calls in that vhost are refused (`budget_unavailable`) rather
+  than let through.
+- **Can overshoot.** A call is checked before it is made and counted after it answers. The call that crosses a
+  limit is let through and only the next one is refused, so a month can end slightly over, by about one call
+  per concurrently running node.
+- **Takes up to 5 seconds to reach every replica.** Each replica reads a budget at most every 5 seconds. A
+  change applies at once on the replica that saved it and within 5 seconds on the others; the kill switch
+  included.
+- **Remote workers** ask the control plane before each call and report usage afterwards
+  (`POST /api/worker/ai/check` and `/api/worker/ai/usage`, worker tokens only). A worker that cannot reach it
+  refuses the call.
+
+Not covered: the legacy AI Enrichment and AI Mapper nodes and the `OPENAI_API_KEY`-based optimizer, which call
+their provider directly rather than through an AI connection.
+
+**Alerts.** When a scope (the vhost, or one capped workflow) passes 80% of a token or cost limit, Hermod logs
+it, counts it in `hermod_ai_budget_warnings_total{vhost,scope,kind}`, and sends a WARN notification through the
+notification channels. The alert is sent once per scope, limit kind and month across all replicas. A refused
+call is counted in `hermod_ai_budget_blocked_total{vhost,limit}` and in `hermod_ai_calls_total` with outcome
+`budget_exceeded`. When a limit is reached, an ERROR notification is sent at most once a minute per replica;
+none is sent for the kill switch, which someone turned on deliberately.
+
+| Endpoint | Role | Purpose |
+|---|---|---|
+| `GET /api/vhosts/{vhost}/ai/budget` | Viewer | The budget, this month's usage of the vhost and of each workflow. |
+| `PUT /api/vhosts/{vhost}/ai/budget` | Editor | Replaces the budget: `disabled`, `monthly_tokens`, `monthly_cost`, `currency`, `prices`, `workflows`. |
+| `PUT /api/vhosts/{vhost}/ai/kill-switch` | Editor | `{"disabled": true}` stops every AI call in the vhost; `false` lets them through again. The limits are kept. |
+
+The caller must have access to the vhost. Both changes are written to the audit log. Deleting a vhost deletes
+its budget and usage.
+
 ## Templates
 
 `examples/templates/` has four AI starters: support triage (classify, extract, draft a reply, approval,

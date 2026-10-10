@@ -3,6 +3,8 @@ package llm
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -168,9 +170,10 @@ func TestObserverSeesEveryCall(t *testing.T) {
 }
 
 type countingBudget struct {
-	mu    sync.Mutex
-	spent Usage
-	limit int64
+	mu      sync.Mutex
+	spent   Usage
+	limit   int64
+	records []CallRecord
 }
 
 func (b *countingBudget) Allow(context.Context) error {
@@ -182,9 +185,10 @@ func (b *countingBudget) Allow(context.Context) error {
 	return nil
 }
 
-func (b *countingBudget) Record(_ context.Context, u Usage) {
+func (b *countingBudget) Record(_ context.Context, rec CallRecord) {
 	b.mu.Lock()
-	b.spent = b.spent.Add(u)
+	b.spent = b.spent.Add(rec.Usage)
+	b.records = append(b.records, rec)
 	b.mu.Unlock()
 }
 
@@ -209,5 +213,81 @@ func TestEmbedPassesThroughDecorators(t *testing.T) {
 	f := &fakeProvider{name: "fake"}
 	if _, err := Chain(f, WithRetry(fastRetry())).(Embedder).Embed(t.Context(), EmbedRequest{}); !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// A budget that prices usage has to know which model answered: a fallback
+// can serve a call with a different model from the one asked for.
+func TestBudget_RecordsWhoAnswered(t *testing.T) {
+	f := &fakeProvider{name: "fake", reply: func(int) (ChatResponse, error) {
+		r := okResp
+		r.Model = "served-model"
+		return r, nil
+	}}
+	b := &countingBudget{limit: 100}
+	if _, err := Chain(f, WithBudget(b)).Chat(t.Context(), ChatRequest{Model: "asked-model"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(b.records) != 1 {
+		t.Fatalf("records = %d, want 1", len(b.records))
+	}
+	got := b.records[0]
+	if got.Provider != "fake" || got.Model != "served-model" || got.Usage != okResp.Usage {
+		t.Fatalf("record = %+v", got)
+	}
+}
+
+type fakeEmbedder struct {
+	fakeProvider
+	embeds atomic.Int32
+}
+
+func (f *fakeEmbedder) Embed(context.Context, EmbedRequest) (EmbedResponse, error) {
+	f.embeds.Add(1)
+	return EmbedResponse{Vectors: [][]float32{{1}}, Usage: Usage{InputTokens: 4}, Model: "embed-model"}, nil
+}
+
+// Embeddings are paid for like chat, so a budget gates them too.
+func TestBudget_GatesEmbed(t *testing.T) {
+	f := &fakeEmbedder{fakeProvider: fakeProvider{name: "fake"}}
+	b := &countingBudget{limit: 6}
+	e := Chain(f, WithBudget(b)).(Embedder)
+	for i := range 2 {
+		if _, err := e.Embed(t.Context(), EmbedRequest{Inputs: []string{"x"}}); err != nil {
+			t.Fatalf("embed %d: %v", i, err)
+		}
+	}
+	if _, err := e.Embed(t.Context(), EmbedRequest{Inputs: []string{"x"}}); !errors.Is(err, ErrBudgetExceeded) {
+		t.Fatalf("err = %v, want ErrBudgetExceeded", err)
+	}
+	if n := f.embeds.Load(); n != 2 {
+		t.Fatalf("embeds = %d, want 2", n)
+	}
+	if got := b.records[0]; got.Model != "embed-model" || got.Usage.InputTokens != 4 {
+		t.Fatalf("record = %+v", got)
+	}
+}
+
+func TestScopeRoundTrip(t *testing.T) {
+	if got := ScopeFrom(t.Context()); got != (Scope{}) {
+		t.Fatalf("empty context scope = %+v", got)
+	}
+	ctx := WithScope(t.Context(), Scope{VHost: "tenant-a", WorkflowID: "wf-1"})
+	if got := ScopeFrom(ctx); got.VHost != "tenant-a" || got.WorkflowID != "wf-1" {
+		t.Fatalf("scope = %+v", got)
+	}
+}
+
+func TestBudgetErrorIsBudgetExceeded(t *testing.T) {
+	err := fmt.Errorf("node: %w", &BudgetError{Limit: LimitVHostTokens, VHost: "tenant-a", Used: 120, Max: 100})
+	if !errors.Is(err, ErrBudgetExceeded) {
+		t.Fatalf("errors.Is(%v, ErrBudgetExceeded) = false", err)
+	}
+	var be *BudgetError
+	if !errors.As(err, &be) || be.Limit != LimitVHostTokens {
+		t.Fatalf("errors.As = %v, %+v", err, be)
+	}
+	if !strings.Contains(err.Error(), "tenant-a") {
+		t.Fatalf("message %q does not name the vhost", err)
 	}
 }

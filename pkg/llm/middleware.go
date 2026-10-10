@@ -193,23 +193,64 @@ type Budget interface {
 	// Allow returns an error (normally wrapping ErrBudgetExceeded) when no
 	// more calls may be made.
 	Allow(ctx context.Context) error
-	// Record adds a finished call's usage.
-	Record(ctx context.Context, u Usage)
+	// Record adds a finished call's usage. The record names the provider and
+	// the model that answered, so a budget can price what it is told.
+	Record(ctx context.Context, rec CallRecord)
 }
 
 // WithBudget refuses calls once b says the budget is spent, and records the
-// usage of every call that ran.
+// usage of every call that ran. Embeddings are gated and recorded the same
+// way: they are paid for too.
+//
+// The check comes before the call and the usage is only known after it, so a
+// call that starts under the limit can finish over it: a budget is overshot by
+// at most the calls already in flight when it ran out.
 func WithBudget(b Budget) Middleware {
 	return func(p Provider) Provider {
-		return &chatFunc{inner: p, chat: func(ctx context.Context, req ChatRequest) (ChatResponse, error) {
-			if err := b.Allow(ctx); err != nil {
-				return ChatResponse{}, err
-			}
-			resp, err := p.Chat(ctx, req)
-			if resp.Usage != (Usage{}) {
-				b.Record(ctx, resp.Usage)
-			}
-			return resp, err
-		}}
+		return &budgeted{inner: p, budget: b}
 	}
+}
+
+type budgeted struct {
+	inner  Provider
+	budget Budget
+}
+
+func (b *budgeted) Name() string { return b.inner.Name() }
+
+func (b *budgeted) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error) {
+	if err := b.budget.Allow(ctx); err != nil {
+		return ChatResponse{}, err
+	}
+	resp, err := b.inner.Chat(ctx, req)
+	if resp.Usage != (Usage{}) {
+		rec := CallRecord{Provider: b.inner.Name(), Model: req.Model, Usage: resp.Usage, StopReason: resp.StopReason, Err: err}
+		if resp.Provider != "" {
+			rec.Provider = resp.Provider
+		}
+		if resp.Model != "" {
+			rec.Model = resp.Model
+		}
+		b.budget.Record(ctx, rec)
+	}
+	return resp, err
+}
+
+func (b *budgeted) Embed(ctx context.Context, req EmbedRequest) (EmbedResponse, error) {
+	e, ok := b.inner.(Embedder)
+	if !ok {
+		return EmbedResponse{}, ErrUnsupported
+	}
+	if err := b.budget.Allow(ctx); err != nil {
+		return EmbedResponse{}, err
+	}
+	resp, err := e.Embed(ctx, req)
+	if resp.Usage != (Usage{}) {
+		rec := CallRecord{Provider: b.inner.Name(), Model: req.Model, Usage: resp.Usage, Err: err}
+		if resp.Model != "" {
+			rec.Model = resp.Model
+		}
+		b.budget.Record(ctx, rec)
+	}
+	return resp, err
 }

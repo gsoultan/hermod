@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -338,5 +339,37 @@ func TestAgent_MCPServerURLFromRowDataIsRefused(t *testing.T) {
 	msg := inputMessage(t, map[string]any{"server": "https://evil.example/mcp"})
 	if _, _, err := mcpNode(p).Execute(t.Context(), newFakeNodeContext(), "wf", node, msg); err == nil {
 		t.Fatal("a server URL chosen by row data was used")
+	}
+}
+
+// scopeProvider remembers the scope each call was made in.
+type scopeProvider struct {
+	*scriptedProvider
+	scopes []llm.Scope
+}
+
+func (p *scopeProvider) Chat(ctx context.Context, req llm.ChatRequest) (llm.ChatResponse, error) {
+	p.scopes = append(p.scopes, llm.ScopeFrom(ctx))
+	return p.scriptedProvider.Chat(ctx, req)
+}
+
+// Every model turn the agent takes is made in its workflow's scope, so the
+// workflow's AI spending cap counts it.
+func TestAgent_CallsAreMadeInTheWorkflowScope(t *testing.T) {
+	p := &scopeProvider{scriptedProvider: &scriptedProvider{turns: []func(llm.ChatRequest) llm.ChatResponse{
+		call("c1", "find_customer", `{"email":"ada@example.com"}`),
+		say("done"),
+	}}}
+	msg := inputMessage(t, nil)
+	if _, _, err := newNode(p).Execute(t.Context(), newFakeNodeContext(), "wf-budget", agentNode(nil), msg); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.scopes) != 2 {
+		t.Fatalf("calls = %d, want 2", len(p.scopes))
+	}
+	for i, s := range p.scopes {
+		if s.WorkflowID != "wf-budget" {
+			t.Fatalf("call %d scope = %+v, want workflow wf-budget", i, s)
+		}
 	}
 }

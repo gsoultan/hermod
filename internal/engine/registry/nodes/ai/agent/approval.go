@@ -13,6 +13,7 @@ import (
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/engine/registry/interfaces"
 	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/pkg/comm/transformer/genai"
 	"github.com/gsoultan/hermod/pkg/llm"
 )
 
@@ -96,7 +97,7 @@ func (n *Node) ResumeApproval(ctx context.Context, nctx interfaces.NodeContext, 
 	if err != nil {
 		return []hermod.Message{msg}, "", fmt.Errorf("ai_agent %s: %w", node.ID, err)
 	}
-	ctx, cancel := context.WithTimeout(ctx, r.cfg.timeout)
+	ctx, cancel := context.WithTimeout(genai.WithWorkflow(ctx, workflowID), r.cfg.timeout)
 	defer cancel()
 	if err := r.prepare(ctx); err != nil {
 		return r.fail(err)

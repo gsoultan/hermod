@@ -3,11 +3,13 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/engine/registry/interfaces"
 	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/pkg/comm/transformer/genai"
 )
 
 func init() {
@@ -20,6 +22,12 @@ type TransformationNode struct{}
 // Execute runs the configured transformation or pipeline.
 func (n *TransformationNode) Execute(ctx context.Context, nctx interfaces.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
 	transType, _ := node.Config["transType"].(string)
+	// AI steps run in their workflow's scope, which the per-workflow AI
+	// spending caps are checked against. Only they read it, and the context
+	// value is an allocation per message, so other steps go without.
+	if transType == "pipeline" || transType == "parallel_pipeline" || strings.HasPrefix(transType, "ai_") {
+		ctx = genai.WithWorkflow(ctx, workflowID)
+	}
 	if transType == "pipeline" {
 		return n.runPipeline(ctx, nctx, node, msg)
 	}

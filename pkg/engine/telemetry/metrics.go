@@ -259,4 +259,17 @@ var (
 		// default buckets stop at 10s.
 		Buckets: []float64{0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 30, 60, 120, 300},
 	}, []string{"provider", "model"})
+
+	// AIBudgetBlocked and AIBudgetWarnings describe the vhost AI budgets
+	// (internal/aibudget). vhost is a bounded vhost name; limit, scope and kind
+	// are fixed sets. A workflow id is never a label: the alert names it.
+	AIBudgetBlocked = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "hermod_ai_budget_blocked_total",
+		Help: "Language model calls refused by a vhost's AI budget, by vhost and the limit that refused them",
+	}, []string{"vhost", "limit"})
+
+	AIBudgetWarnings = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "hermod_ai_budget_warnings_total",
+		Help: "AI budgets that reached 80% of a monthly limit, by vhost, scope (vhost or workflow) and kind (tokens or cost)",
+	}, []string{"vhost", "scope", "kind"})
 )
