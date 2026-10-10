@@ -56,6 +56,7 @@ type Service struct {
 	secrets secrets.ScopedManager
 	client  *inference.Client
 	worker  *worker.Client
+	pools   Pools
 
 	// monitor is told of every prediction, for the prediction log and drift;
 	// logs is the store the prediction log is read from. Both are optional.
@@ -74,7 +75,7 @@ func NewService(store func() any, sec secrets.ScopedManager, client *inference.C
 	if client == nil {
 		client = inference.NewClient(nil)
 	}
-	return &Service{store: store, secrets: sec, client: client, worker: envWorker()}
+	return &Service{store: store, secrets: sec, client: client, worker: envWorker(), pools: envPools()}
 }
 
 // WithWorker replaces the ML worker the environment names; nil means none.

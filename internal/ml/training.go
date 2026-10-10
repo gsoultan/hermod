@@ -122,7 +122,7 @@ func (s *Service) train(ctx context.Context, vhost, name string, spec worker.Tra
 	// that cannot be read leaves the count where it was.
 	rows, rowsErr := w.Dataset(ctx, vhost, spec.Dataset)
 
-	v, err := w.Train(ctx, vhost, name, spec)
+	v, err := s.trainVersion(ctx, w, vhost, name, spec)
 	if err != nil {
 		return TrainResult{}, fmt.Errorf("training %q: %w", name, err)
 	}

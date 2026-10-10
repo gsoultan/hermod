@@ -19,6 +19,7 @@ DELETE /api/vhosts/{vhost}/ml/datasets/{name}
 DELETE /api/vhosts/{vhost}/ml/models/{name}
 DELETE /api/vhosts/{vhost}/ml/models/{name}/retrain
 DELETE /api/vhosts/{vhost}/ml/models/{name}/serving-key
+DELETE /api/vhosts/{vhost}/ml/scripts/{name}
 DELETE /api/vhosts/{vhost}/secrets/{name}
 DELETE /api/workers/{id}
 DELETE /api/workflows/{id}
@@ -73,6 +74,8 @@ GET /api/vhosts/{vhost}/ml/models/{name}
 GET /api/vhosts/{vhost}/ml/models/{name}/drift
 GET /api/vhosts/{vhost}/ml/models/{name}/predictions
 GET /api/vhosts/{vhost}/ml/models/{name}/versions
+GET /api/vhosts/{vhost}/ml/scripts
+GET /api/vhosts/{vhost}/ml/scripts/{name}
 GET /api/vhosts/{vhost}/secrets
 GET /api/webhooks/requests
 GET /api/webhooks/{path...}
@@ -225,6 +228,7 @@ PUT /api/vhosts/{vhost}/ml/datasets/{name}/file
 PUT /api/vhosts/{vhost}/ml/models/{name}
 PUT /api/vhosts/{vhost}/ml/models/{name}/monitoring
 PUT /api/vhosts/{vhost}/ml/models/{name}/retrain
+PUT /api/vhosts/{vhost}/ml/scripts/{name}
 PUT /api/vhosts/{vhost}/secrets/{name}
 PUT /api/workers/{id}
 PUT /api/workflows/{id}

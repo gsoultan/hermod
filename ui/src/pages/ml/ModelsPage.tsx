@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
 import {
-  ActionIcon, Alert, Badge, Box, Button, Group, Loader, Paper, Select, Stack, Table, Text, Title, Tooltip,
+  ActionIcon, Alert, Badge, Box, Button, Group, Loader, Paper, Select, Stack, Table, Tabs, Text, Title, Tooltip,
 } from '@mantine/core'
 import {
-  IconActivityHeartbeat, IconAlertCircle, IconBrain, IconHistory, IconInfoCircle, IconKey, IconPencil, IconPlayerPlay, IconPlus, IconRepeat, IconSchool, IconTrash,
+  IconActivityHeartbeat, IconAlertCircle, IconBrain, IconCode, IconHistory, IconInfoCircle, IconKey, IconPencil, IconPlayerPlay, IconPlus, IconRepeat, IconSchool, IconTrash,
 } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useVHost } from '@/context/VHostContext'
@@ -11,6 +11,7 @@ import { useConfirm } from '@/components/common/ConfirmProvider'
 import { EmptyState } from '@/components/common/EmptyState'
 import { deleteModel, isModelVHost, isTrainedModel, listModels, mlModelsKey, useWorkerStatus, type MLModel } from '@/lib/mlModels'
 import { DatasetsPanel } from './DatasetsPanel'
+import { ScriptsPanel } from './ScriptsPanel'
 import { ModelFormModal } from './ModelFormModal'
 import { ModelTestModal } from './ModelTestModal'
 import { MonitoringModal } from './MonitoringModal'
@@ -55,6 +56,9 @@ export function ModelsPage() {
   const [dialog, setDialog] = useState<Dialog | undefined>(undefined)
   const { data: worker } = useWorkerStatus()
   const canTrain = !!worker?.ready
+  // The Scripts tab exists only where the server has custom scripts on.
+  const showScripts = canTrain && !!worker?.capabilities?.scripts_enabled
+  const [tab, setTab] = useState<string | null>('models')
 
   const { data: models, isLoading, error } = useQuery({
     queryKey: mlModelsKey(vhost ?? ''),
@@ -146,6 +150,40 @@ export function ModelsPage() {
     </Table.Tr>
   ))
 
+  const modelsTable = (
+    <Paper radius="md" withBorder style={{ overflow: 'hidden' }}>
+      {!vhost ? (
+        <EmptyState compact icon={<IconBrain size="1.3rem" />} title="Choose a vhost"
+          description="Models are kept per vhost. Pick one above to see and manage its models." />
+      ) : isLoading ? (
+        <Group justify="center" p="xl"><Loader size="sm" /><Text size="sm" c="dimmed">Loading models…</Text></Group>
+      ) : error ? (
+        <Alert m="md" color="red" icon={<IconAlertCircle size="1rem" />} title={`The models of ${vhost} could not be loaded`}>
+          {(error as Error).message}
+        </Alert>
+      ) : rows.length === 0 ? (
+        <EmptyState compact icon={<IconBrain size="1.3rem" />} title={`No models in ${vhost} yet`}
+          description="Add the address of a model server and the model's name on it. Then score records with a Predict node."
+          action={{ label: 'Add model', onClick: () => setDialog({ kind: 'form' }) }} />
+      ) : (
+        <Table.ScrollContainer minWidth={760}>
+          <Table verticalSpacing="sm" horizontalSpacing="lg">
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Name</Table.Th>
+                <Table.Th>Protocol</Table.Th>
+                <Table.Th>Served from</Table.Th>
+                <Table.Th>Serving</Table.Th>
+                <Table.Th style={{ textAlign: 'right' }}>Actions</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>{rows}</Table.Tbody>
+          </Table>
+        </Table.ScrollContainer>
+      )}
+    </Paper>
+  )
+
   return (
     <Box p="md" className="page-enter">
       <Stack gap="lg">
@@ -195,38 +233,28 @@ export function ModelsPage() {
           </Alert>
         )}
 
-        <Paper radius="md" withBorder style={{ overflow: 'hidden' }}>
-          {!vhost ? (
-            <EmptyState compact icon={<IconBrain size="1.3rem" />} title="Choose a vhost"
-              description="Models are kept per vhost. Pick one above to see and manage its models." />
-          ) : isLoading ? (
-            <Group justify="center" p="xl"><Loader size="sm" /><Text size="sm" c="dimmed">Loading models…</Text></Group>
-          ) : error ? (
-            <Alert m="md" color="red" icon={<IconAlertCircle size="1rem" />} title={`The models of ${vhost} could not be loaded`}>
-              {(error as Error).message}
-            </Alert>
-          ) : rows.length === 0 ? (
-            <EmptyState compact icon={<IconBrain size="1.3rem" />} title={`No models in ${vhost} yet`}
-              description="Add the address of a model server and the model's name on it. Then score records with a Predict node."
-              action={{ label: 'Add model', onClick: () => setDialog({ kind: 'form' }) }} />
-          ) : (
-            <Table.ScrollContainer minWidth={760}>
-              <Table verticalSpacing="sm" horizontalSpacing="lg">
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Name</Table.Th>
-                    <Table.Th>Protocol</Table.Th>
-                    <Table.Th>Served from</Table.Th>
-                    <Table.Th>Serving</Table.Th>
-                    <Table.Th style={{ textAlign: 'right' }}>Actions</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>{rows}</Table.Tbody>
-              </Table>
-            </Table.ScrollContainer>
-          )}
-        </Paper>
-        {vhost && canTrain && <DatasetsPanel vhost={vhost} />}
+        {showScripts && vhost ? (
+          <Tabs value={tab} onChange={setTab} keepMounted={false}>
+            <Tabs.List mb="md">
+              <Tabs.Tab value="models" leftSection={<IconBrain size="1rem" />}>Models</Tabs.Tab>
+              <Tabs.Tab value="scripts" leftSection={<IconCode size="1rem" />}>Scripts</Tabs.Tab>
+            </Tabs.List>
+            <Tabs.Panel value="models">
+              <Stack gap="lg">
+                {modelsTable}
+                <DatasetsPanel vhost={vhost} />
+              </Stack>
+            </Tabs.Panel>
+            <Tabs.Panel value="scripts">
+              <ScriptsPanel vhost={vhost} capabilities={worker?.capabilities} />
+            </Tabs.Panel>
+          </Tabs>
+        ) : (
+          <>
+            {modelsTable}
+            {vhost && canTrain && <DatasetsPanel vhost={vhost} />}
+          </>
+        )}
       </Stack>
 
       {vhost && dialog?.kind === 'train' && <TrainModal vhost={vhost} modelName={dialog.modelName} onClose={() => setDialog(undefined)} />}

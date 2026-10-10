@@ -28,6 +28,7 @@ const (
 	QueryInitVHostsTable             = "InitVHostsTable"
 	QueryInitVHostSecretsTable       = "InitVHostSecretsTable"
 	QueryInitMLModelsTable           = "InitMLModelsTable"
+	QueryInitMLScriptsTable          = "InitMLScriptsTable"
 	QueryInitMLPredictionLogsTable   = "InitMLPredictionLogsTable"
 	QueryInitAIBudgetsTable          = "InitAIBudgetsTable"
 	QueryInitAIUsageTable            = "InitAIUsageTable"
@@ -130,6 +131,12 @@ const (
 	QuerySetMLModelRetrainStatus = "SetMLModelRetrainStatus"
 	QueryClaimMLModelTraining    = "ClaimMLModelTraining"
 	QueryReleaseMLModelTraining  = "ReleaseMLModelTraining"
+	QueryListMLScripts           = "ListMLScripts"
+	QueryListMLScriptVersions    = "ListMLScriptVersions"
+	QueryGetLatestMLScript       = "GetLatestMLScript"
+	QueryInsertMLScript          = "InsertMLScript"
+	QueryDeleteMLScript          = "DeleteMLScript"
+	QueryDeleteMLScriptsOfVHost  = "DeleteMLScriptsOfVHost"
 
 	// Workflows
 	QueryListWorkflows        = "ListWorkflows"
@@ -335,6 +342,19 @@ var commonQueries = map[string]string{
 			retrain_status TEXT,
 			training_owner TEXT,
 			training_until TIMESTAMP
+		)`,
+	// One row per script version. id is vhost + "/" + name + "/" + version,
+	// so two saves racing for the same next version cannot both land.
+	QueryInitMLScriptsTable: `CREATE TABLE IF NOT EXISTS ml_scripts (
+			id TEXT PRIMARY KEY,
+			vhost TEXT,
+			name TEXT,
+			version INTEGER,
+			sha256 TEXT,
+			source TEXT,
+			description TEXT,
+			created_by TEXT,
+			created_at TIMESTAMP
 		)`,
 	// One row per logged prediction. inputs and outputs are JSON; inputs are
 	// masked before they are written. Every read and every purge is "this
@@ -697,6 +717,13 @@ var commonQueries = map[string]string{
 	// it takes an unclaimed or expired claim, or renews the owner's own.
 	QueryClaimMLModelTraining:   "UPDATE ml_models SET training_owner = ?, training_until = ? WHERE id = ? AND (training_owner IS NULL OR training_until IS NULL OR training_until < ? OR training_owner = ?)",
 	QueryReleaseMLModelTraining: "UPDATE ml_models SET training_owner = NULL, training_until = NULL WHERE id = ? AND training_owner = ?",
+
+	QueryListMLScripts:          "SELECT name, version, sha256, description, created_by, created_at FROM ml_scripts WHERE vhost = ? ORDER BY name, version DESC",
+	QueryListMLScriptVersions:   "SELECT version, sha256, description, created_by, created_at FROM ml_scripts WHERE vhost = ? AND name = ? ORDER BY version DESC",
+	QueryGetLatestMLScript:      "SELECT version, sha256, source, description, created_by, created_at FROM ml_scripts WHERE vhost = ? AND name = ? AND version = (SELECT MAX(version) FROM ml_scripts WHERE vhost = ? AND name = ?)",
+	QueryInsertMLScript:         "INSERT INTO ml_scripts (id, vhost, name, version, sha256, source, description, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryDeleteMLScript:         "DELETE FROM ml_scripts WHERE vhost = ? AND name = ?",
+	QueryDeleteMLScriptsOfVHost: "DELETE FROM ml_scripts WHERE vhost = ?",
 
 	QueryGetAIBudget:             "SELECT spec, updated_by, updated_at FROM ai_budgets WHERE vhost = ?",
 	QueryInsertAIBudget:          "INSERT INTO ai_budgets (vhost, spec, updated_by, updated_at) VALUES (?, ?, ?, ?)",

@@ -69,8 +69,8 @@ var descriptions = map[string]string{
 	"transformation:ml_train": `Trains a new version of a model on a dataset held by the vhost's ML worker and writes ` +
 		`the result (version, metrics, whether it went live) onto the record. config: {"model","dataset","target",` +
 		`"features":"a,b,c","task":"auto|classification|regression",` +
-		`"algorithm":"auto|random_forest|gradient_boosting|linear|xgboost|pytorch_mlp|keras_mlp",` +
-		`"hiddenLayers":"64,32","epochs","batchSize","learningRate","patience",` +
+		`"algorithm":"auto|random_forest|gradient_boosting|linear|xgboost|pytorch_mlp|keras_mlp|custom:<script>",` +
+		`"hiddenLayers":"64,32","epochs","batchSize","learningRate","patience","device":"cpu|gpu",` +
 		`"goLive":"never|always|metric","goLiveMetric","goLiveMin","goLiveMax","sourceId","query","maxRows",` +
 		`"outputField":"training"}. A sourceId and read-only query refill the dataset first. pytorch_mlp and ` +
 		`keras_mlp need the worker's -dl image; hiddenLayers..patience tune only them.`,

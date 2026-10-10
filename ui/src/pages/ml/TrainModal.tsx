@@ -5,9 +5,9 @@ import {
 import { IconAlertCircle, IconCircleCheck, IconInfoCircle } from '@tabler/icons-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  MODEL_NAME_PATTERN, TASK_OPTIONS, algorithmOptions, isDeepAlgorithm, mlModelsKey, modelNameRule, trainModel,
-  useDataset, useVHostDatasets, useWorkerStatus, versionsKey, type GoLive, type TrainAlgorithm, type TrainParams,
-  type TrainResult, type TrainTask,
+  DEVICE_OPTIONS, MODEL_NAME_PATTERN, TASK_OPTIONS, algorithmOptions, isCustomAlgorithm, isDeepAlgorithm, mlModelsKey, modelNameRule,
+  trainModel, useDataset, useVHostDatasets, useVHostScripts, useWorkerStatus, versionsKey, type GoLive, type TrainAlgorithm,
+  type TrainDevice, type TrainParams, type TrainResult, type TrainTask,
 } from '@/lib/mlModels'
 import { DeepParamsFields, readDeepParams, type DeepParamsText } from './deepParams'
 import { GoLiveField } from './goLive'
@@ -28,6 +28,7 @@ export function TrainModal({ vhost, modelName, onClose }: { vhost: string; model
   const [features, setFeatures] = useState<string[]>([])
   const [task, setTask] = useState<TrainTask>('auto')
   const [algorithm, setAlgorithm] = useState<TrainAlgorithm>('auto')
+  const [device, setDevice] = useState<TrainDevice>('cpu')
   const [goLive, setGoLive] = useState<GoLive>({ mode: 'never' })
   const [nameError, setNameError] = useState<string | null>(null)
   const [deepText, setDeepText] = useState<DeepParamsText>({})
@@ -37,6 +38,11 @@ export function TrainModal({ vhost, modelName, onClose }: { vhost: string; model
   const { data: datasets = [] } = useVHostDatasets(vhost)
   const { data: info } = useDataset(vhost, dataset)
   const columns = (info?.columns ?? []).map((c) => c.name)
+  const caps = worker?.capabilities
+  const { data: scripts = [] } = useVHostScripts(vhost, !!caps?.custom_scripts)
+  const custom = isCustomAlgorithm(algorithm)
+  // A script trains on its own pool; the device applies to built-in algorithms.
+  const showDevice = !!caps?.gpu && !custom
   const deep = isDeepAlgorithm(algorithm)
 
   const train = useMutation({
@@ -47,6 +53,7 @@ export function TrainModal({ vhost, modelName, onClose }: { vhost: string; model
         features: features.length ? features : undefined,
         task,
         algorithm,
+        device: showDevice && device === 'gpu' ? 'gpu' : undefined,
         params: deep ? params : undefined,
         go_live: goLive,
       }),
@@ -83,9 +90,19 @@ export function TrainModal({ vhost, modelName, onClose }: { vhost: string; model
             disabled={!target} data={columns.filter((c) => c !== target)} value={features} onChange={setFeatures} />
           <Group grow align="flex-start">
             <Select label="Task" data={TASK_OPTIONS} value={task} allowDeselect={false} onChange={(v) => setTask((v ?? 'auto') as TrainTask)} />
-            <Select label="Algorithm" data={algorithmOptions(worker)} value={algorithm} allowDeselect={false}
+            <Select label="Algorithm" data={algorithmOptions(worker, scripts)} value={algorithm} allowDeselect={false}
               onChange={(v) => setAlgorithm((v ?? 'auto') as TrainAlgorithm)} />
+            {showDevice && (
+              <Select label="Device" description="GPU trains on the GPU worker pool." data={DEVICE_OPTIONS} value={device}
+                allowDeselect={false} onChange={(v) => setDevice((v ?? 'cpu') as TrainDevice)} />
+            )}
           </Group>
+          {custom && (
+            <Text size="xs" c="dimmed">
+              The script runs in a sandbox on the custom-script worker pool. Its ONNX export is checked and scored on the held-back rows
+              like any other version.
+            </Text>
+          )}
           {deep && (
             <DeepParamsFields value={deepText} errors={deepErrors}
               onChange={(patch) => { setDeepText((t) => ({ ...t, ...patch })); setDeepErrors({}) }} />
@@ -122,6 +139,7 @@ function TrainOutcome({ result }: { result: TrainResult }) {
         <Group gap="xs">
           <Badge variant="light" tt="none">{v.task}</Badge>
           <Badge variant="light" tt="none">{v.algorithm}</Badge>
+          {v.script && <Badge variant="light" color="grape" tt="none" title={v.script.sha256}>script {v.script.sha256.slice(0, 12)}</Badge>}
           <Badge variant="light" tt="none">{v.rows.train} rows trained, {v.rows.test} held back</Badge>
         </Group>
         <MetricsTable metrics={v.metrics} />

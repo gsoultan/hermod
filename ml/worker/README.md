@@ -37,6 +37,15 @@ pytest -q
 | `HERMOD_ML_MAX_TRAININGS` | `1` | Concurrent training calls; extra calls get 429. |
 | `HERMOD_ML_MODEL_CACHE` | `32` | Loaded ONNX sessions kept in an LRU cache. |
 | `HERMOD_ML_ADDR` | `0.0.0.0:8090` | Listen address. |
+| `HERMOD_ML_CUSTOM_SCRIPTS` | `false` | `true` runs custom training scripts (`/train-custom`) in a sandbox. Needs `HERMOD_ML_TOKEN`; only for a dedicated pool. |
+| `HERMOD_ML_SANDBOX_CPU_SECONDS` | `600` | CPU seconds a script may use. |
+| `HERMOD_ML_SANDBOX_MEMORY_MB` | `2048` | A script's address space; at least 1024. |
+| `HERMOD_ML_SANDBOX_TIMEOUT_SECONDS` | `900` | Wall-clock limit; the script's process group is killed. |
+| `HERMOD_ML_SANDBOX_FILE_MB` | `256` | Largest file a script may write. |
+| `HERMOD_ML_SANDBOX_NPROC` | `512` | Process limit (counts the whole uid). |
+| `HERMOD_ML_SANDBOX_OUTPUT_MB` | `100` | Largest ONNX a script may return; at most `FILE_MB`. |
+| `HERMOD_ML_SANDBOX_LOG_KB` | `64` | Script output kept; at most `FILE_MB`. |
+| `HERMOD_ML_SANDBOX_THREADS` | `1` | BLAS/OpenMP threads for a script. |
 
 ## API
 
@@ -51,6 +60,11 @@ Errors are always `{"error": "<sentence>"}` with 400, 401, 404, 413, 429 or 500.
 | GET | `/v1/datasets/{vhost}/{name}` | Dataset info plus a 20-row sample |
 | DELETE | `/v1/datasets/{vhost}/{name}` | Delete a dataset |
 | POST | `/v1/models/{vhost}/{name}/train` | Train a new version (synchronous) |
+| POST | `/v1/models/{vhost}/{name}/train-custom` | Train with a custom script (`script: {name, sha256, source}`); 403 unless `HERMOD_ML_CUSTOM_SCRIPTS` |
+| GET | `/v1/datasets/{vhost}/{name}/export` | The dataset as Parquet, to copy it to a pool |
+| PUT | `/v1/datasets/{vhost}/{name}/import` | Replace a dataset with Parquet from `export` |
+| GET | `/v1/models/{vhost}/{name}/versions/{v}/export` | A version's metadata and ONNX, to copy it back |
+| POST | `/v1/models/{vhost}/{name}/import?dataset=` | Keep an exported version as this model's next one, checked again |
 | GET | `/v1/models/{vhost}/{name}/versions` | Version metadata, newest first |
 | DELETE | `/v1/models/{vhost}/{name}` | Delete every version |
 | GET | `/v2/health/live`, `/v2/health/ready` | Health (no auth) |

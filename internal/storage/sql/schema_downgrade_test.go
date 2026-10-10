@@ -30,8 +30,17 @@ import (
 // is computed from the DDL itself, so changing the schema fails this test and
 // forces the question to be asked out loud.
 //
-// Last moved by: adding the ml_prediction_logs table, the sampled and masked
-// predictions a model logs when its monitoring turns logging on.
+// Last moved by: adding the ml_scripts table, the custom training scripts a
+// vhost holds, one row per version. currentSchemaVersion was left alone
+// deliberately, for the reasons the ml_models note below gives: it is a
+// standalone table no earlier code path reads or writes, and a rollback costs
+// the feature (custom training), not a misread of live data. As with
+// ml_models, the previous release's DeleteVHost does not remove a vhost's
+// scripts, so a vhost deleted during a rollback leaves them for a later vhost
+// of the same name; they hold code and who saved it, never a secret.
+//
+// The note before that: adding the ml_prediction_logs table, the sampled and
+// masked predictions a model logs when its monitoring turns logging on.
 // currentSchemaVersion was left alone deliberately: it is a standalone table no
 // earlier code path reads or writes, and the setting that fills it lives in
 // ml_models' JSON spec, which the previous release decodes into a struct
@@ -157,7 +166,7 @@ import (
 // unpopulated — a gap in a chart that fills itself in when the newer binary
 // returns — so bumping the version would buy nothing and cost a refused
 // start-up during exactly the rollback it was supposed to make safe.
-const knownSchemaFingerprint = "6bce64b0a0957aac059b787d4c065055797f64b2cf0e2e83be757af535d3daed"
+const knownSchemaFingerprint = "e8d8956d32aee820d5c7db1e512ebe4d78fedc94f5638e8f4b16b27e56fd1811"
 
 func TestSchemaVersionIsReconsideredWhenTheSchemaChanges(t *testing.T) {
 	if got := SchemaFingerprint(); got != knownSchemaFingerprint {

@@ -222,9 +222,99 @@ mlWorker:
     limits:
       memory: 4Gi
   env: {}
+  # To run the worker on GPU nodes, add `nvidia.com/gpu: 1` to
+  # resources.limits and point nodeSelector/tolerations at the GPU nodes;
+  # runtimeClassName names the GPU runtime when the cluster needs one
+  # (for example "nvidia"). GPU training only matters for the -dl image's
+  # networks; scikit-learn and XGBoost train on CPU either way.
+  runtimeClassName: ""
   nodeSelector: {}
   tolerations: []
   affinity: {}
+
+  # A separate worker pool that runs custom training scripts: Python an
+  # Administrator uploads, which is remote code execution by design. Enabling
+  # it also turns custom scripts on in Hermod (HERMOD_ML_CUSTOM_SCRIPTS).
+  # The pool keeps nothing between trainings, has no egress at all (its
+  # NetworkPolicy), takes traffic from Hermod only, and runs every script in
+  # a sandboxed subprocess with the limits below. See docs/ml.md.
+  customPool:
+    enabled: false
+    # Defaults to mlWorker.image.
+    image:
+      repository: ""
+      tag: ""
+    # Its own token; the main worker's opens every vhost's data.
+    token: ""
+    existingSecret: ""
+    existingSecretKey: mlCustomWorkerToken
+    replicas: 1
+    # One training per pod, so a script never shares a pod with another
+    # vhost's dataset. The chart refuses anything else.
+    maxTrainings: 1
+    # A user id no other pod on the node uses: the sandbox's process limit
+    # (nproc) counts every process that user runs on the node.
+    runAsUser: 10002
+    sandbox:
+      cpuSeconds: 600
+      memoryMb: 2048
+      timeoutSeconds: 900
+      fileMb: 256
+      nproc: 512
+      outputMb: 100
+    networkPolicy:
+      # The isolation the docs promise; the chart refuses to turn it off.
+      enabled: true
+      # Egress rules to add (for example an artifact store). Empty denies
+      # every connection out, DNS included.
+      extraEgress: []
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+    # Scratch space for the sandbox and the job's copy of the data.
+    tmpSizeLimit: 2Gi
+    env: {}
+    runtimeClassName: ""
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
+  # A separate worker pool on GPU nodes. Hermod sends a training there when
+  # it asks for device "gpu"; serving stays on the main worker. Use the -dl
+  # image: only its networks use the GPU.
+  gpuPool:
+    enabled: false
+    # Defaults to mlWorker.image.
+    image:
+      repository: ""
+      tag: ""
+    token: ""
+    existingSecret: ""
+    existingSecretKey: mlGpuWorkerToken
+    replicas: 1
+    maxTrainings: 1
+    resources:
+      requests:
+        cpu: "1"
+        memory: 4Gi
+      limits:
+        memory: 16Gi
+        nvidia.com/gpu: 1
+    tmpSizeLimit: 8Gi
+    env: {}
+    # For example "nvidia" where the GPU runtime is not the default.
+    runtimeClassName: ""
+    # For example {"nvidia.com/gpu.present": "true"}.
+    nodeSelector: {}
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+    affinity: {}
 
 podAnnotations: {}
 podLabels: {}

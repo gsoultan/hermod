@@ -29,9 +29,11 @@ type Handler struct {
 	*handlers.Handler
 
 	// worker replaces the ML worker the environment names, and noEnvWorker
-	// drops it; monitor replaces the registry's; tests set them.
+	// drops it; pools replaces the worker pools, and monitor the registry's.
+	// Tests set them.
 	worker      *worker.Client
 	noEnvWorker bool
+	pools       *ml.Pools
 	monitor     *monitor.Monitor
 }
 
@@ -65,6 +67,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/vhosts/{vhost}/ml/models/{name}/versions/{version}/promote", h.EditorOnly(h.PromoteVersion))
 	mux.Handle("PUT /api/vhosts/{vhost}/ml/models/{name}/retrain", h.EditorOnly(h.PutRetrain))
 	mux.Handle("DELETE /api/vhosts/{vhost}/ml/models/{name}/retrain", h.EditorOnly(h.DeleteRetrain))
+	mux.HandleFunc("GET /api/vhosts/{vhost}/ml/scripts", h.ListScripts)
+	mux.Handle("GET /api/vhosts/{vhost}/ml/scripts/{name}", h.EditorOnly(h.GetScript))
+	mux.Handle("PUT /api/vhosts/{vhost}/ml/scripts/{name}", h.AdminOnly(h.PutScript))
+	mux.Handle("DELETE /api/vhosts/{vhost}/ml/scripts/{name}", h.AdminOnly(h.DeleteScript))
 
 	mux.HandleFunc("GET /api/vhosts/{vhost}/ml/models/{name}/predictions", h.ListPredictionLogs)
 	mux.HandleFunc("GET /api/vhosts/{vhost}/ml/models/{name}/drift", h.GetDrift)
@@ -87,6 +93,9 @@ func (h *Handler) service() *ml.Service {
 		svc.WithWorker(h.worker)
 	case h.noEnvWorker:
 		svc.WithWorker(nil)
+	}
+	if h.pools != nil {
+		svc.WithPools(*h.pools)
 	}
 	if h.monitor != nil {
 		svc.WithMonitor(h.monitor)
@@ -122,6 +131,9 @@ func (h *Handler) access(w http.ResponseWriter, r *http.Request, write bool) (st
 // fail maps a service error onto a status. Errors from a model server are
 // passed on as 502 with their text: the caller is debugging that server.
 func (h *Handler) fail(w http.ResponseWriter, err error) {
+	if h.failPools(w, err) {
+		return
+	}
 	switch {
 	case errors.Is(err, ml.ErrModelNotFound):
 		h.JsonError(w, "this vhost has no model by that name", http.StatusNotFound)

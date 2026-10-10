@@ -20,12 +20,13 @@ const maxDatasetFile = 200 << 20
 // A worker that cannot say (one older than its capabilities route) leaves
 // the list out.
 func (h *Handler) WorkerStatus(w http.ResponseWriter, r *http.Request) {
-	wk, err := h.service().Worker()
+	svc := h.service()
+	wk, err := svc.Worker()
 	if err != nil {
-		writeJSON(w, map[string]any{"configured": false, "ready": false})
+		writeJSON(w, map[string]any{"configured": false, "ready": false, "capabilities": svc.Capabilities()})
 		return
 	}
-	status := map[string]any{"configured": true, "ready": true}
+	status := map[string]any{"configured": true, "ready": true, "capabilities": svc.Capabilities()}
 	if err := wk.Ready(r.Context()); err != nil {
 		status["ready"] = false
 		status["error"] = "the ML worker does not answer"
@@ -195,8 +196,12 @@ func (h *Handler) TrainModel(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	h.RecordAuditLog(r, "INFO", "Trained model "+name+" in vhost "+vhost, "update", vhost, "vhost", "",
-		map[string]any{"model": name, "trained_version": res.Version.Version, "live": res.Live, "dataset": req.Dataset})
+	details := map[string]any{"model": name, "trained_version": res.Version.Version, "live": res.Live, "dataset": req.Dataset,
+		"algorithm": res.Version.Algorithm, "device": req.Device}
+	if res.Version.Script != nil {
+		details["script"], details["script_sha256"] = res.Version.Script.Name, res.Version.Script.SHA256
+	}
+	h.RecordAuditLog(r, "INFO", "Trained model "+name+" in vhost "+vhost, "update", vhost, "vhost", "", details)
 	writeJSON(w, res)
 }
 

@@ -38,10 +38,12 @@ type modelTrainer interface {
 //     empty means every column but the target.
 //   - task: auto, classification or regression. algorithm: auto,
 //     random_forest, gradient_boosting, linear, xgboost, pytorch_mlp or
-//     keras_mlp (the last two need the worker's "-dl" image).
+//     keras_mlp (the last two need the worker's "-dl" image), or custom:NAME
+//     for one of the vhost's custom training scripts.
 //   - hiddenLayers ("64, 32"), epochs, batchSize, learningRate, patience:
 //     optional hyperparameters for pytorch_mlp and keras_mlp; unset ones use
 //     the worker's defaults.
+//   - device: cpu (the default) or gpu, which trains on the GPU worker pool.
 //   - goLive: never (the default), always, or if; goLiveMetric (default
 //     "score"), goLiveMin and goLiveMax bound "if".
 //   - sourceId and query: refill the dataset from that database first, with
@@ -96,6 +98,9 @@ func trainRequest(config map[string]any) (map[string]any, error) {
 	}
 	if req["target"] == "" {
 		return nil, errors.New("ml_train: name the target column the model predicts")
+	}
+	if device := core.GetConfigString(config, "device"); device != "" {
+		req["device"] = device
 	}
 	features, err := parseFeatures(config["features"])
 	if err != nil {
