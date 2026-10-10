@@ -95,6 +95,17 @@ spec:
                   name: {{ .Values.metrics.existingTokenSecret | default (include "hermod.fullname" .) }}
                   key: {{ .Values.metrics.existingTokenSecretKey }}
             {{- end }}
+            {{- if .Values.mlWorker.enabled }}
+            - name: HERMOD_ML_WORKER_URL
+              value: {{ printf "http://%s:%v" (include "hermod.mlWorker.fullname" .) .Values.mlWorker.port | quote }}
+            - name: HERMOD_ML_WORKER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hermod.mlWorker.secretName" . }}
+                  key: {{ .Values.mlWorker.existingSecretKey }}
+            - name: HERMOD_ML_TRAIN_TIMEOUT
+              value: {{ .Values.mlWorker.trainTimeout | quote }}
+            {{- end }}
             {{- range $k, $v := .Values.env }}
             - name: {{ $k }}
               value: {{ $v | quote }}

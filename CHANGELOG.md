@@ -73,6 +73,18 @@ Text that looks like a call to one of these names is now evaluated as one: a
 Set Fields value of `Title (draft)` was null and is now `Draft`. Quote a value
 meant as text.
 
+### Added — train models in Hermod
+
+Hermod trains models now, through **hermod-ml**, a worker that runs beside it
+(`HERMOD_ML_WORKER_URL`, `HERMOD_ML_WORKER_TOKEN`; Helm: `mlWorker.enabled`).
+On the **Models** page a vhost keeps datasets, uploaded as CSV or Excel or read
+with a query from one of its database sources, and trains a model on one with
+scikit-learn or XGBoost. Each training is a new version, scored on rows held
+back; it goes live always, never, or when it reaches a minimum score, and any
+version can be put live later. The **Train Model** node does the same from a
+workflow. A trained model is called like any other: the Predict node, REST and
+gRPC. See [docs/ml.md](docs/ml.md).
+
 ### Added — AI automation
 
 Workflows can call Claude, ChatGPT, Gemini, DeepSeek, Mistral, Groq, OpenRouter,
