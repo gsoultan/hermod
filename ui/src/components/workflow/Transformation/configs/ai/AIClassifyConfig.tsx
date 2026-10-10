@@ -23,7 +23,7 @@ interface LabelRow {
 function labelRows(raw: unknown): LabelRow[] {
   if (Array.isArray(raw)) {
     return raw.map((item) =>
-      typeof item === 'string' ? { label: item, description: '' } : { label: str(item?.label), ...item },
+      typeof item === 'string' ? { label: item, description: '' } : { ...item, label: str(item?.label) },
     )
   }
   return classifyLabels(raw)
@@ -101,12 +101,12 @@ export function AIClassifyConfig({ config, nodeId, updateNodeConfig }: AISection
         ))}
       </Stack>
       {repeated.length > 0 && (
-        <Text size="sm" c="yellow.8">
+        <Text size="sm" c="var(--mantine-color-yellow-text)">
           {repeated.map((r) => `“${r}”`).join(', ')} is used more than once; those labels share one branch.
         </Text>
       )}
       {reserved && (
-        <Text size="sm" c="yellow.8">
+        <Text size="sm" c="var(--mantine-color-yellow-text)">
           “{UNSURE_BRANCH}” is already the branch for low-confidence answers; a label with that name shares it.
         </Text>
       )}

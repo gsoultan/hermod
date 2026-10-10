@@ -85,6 +85,7 @@ export function AISchemaBuilder({ replaces, onApply }: AISchemaBuilderProps) {
             />
             <Checkbox
               label="Required"
+              aria-label={`Field ${i + 1} required`}
               checked={row.required}
               onChange={(e) => update(i, { required: e.currentTarget.checked })}
               size="xs"
