@@ -161,6 +161,7 @@ export const detailNodeTypes = {
   stateful: TransformationNode,
   wait: TransformationNode,
   foreach: TransformationNode,
+  explode: TransformationNode,
   ai_classify: TransformationNode,
   ai_agent: TransformationNode,
 };

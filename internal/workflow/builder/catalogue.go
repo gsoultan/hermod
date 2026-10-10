@@ -19,10 +19,12 @@ import (
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/core"
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/genai"
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/genai/retrieve"
+	_ "github.com/gsoultan/hermod/pkg/comm/transformer/geo"
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/logic"
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/lookup"
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/ml"
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/security"
+	_ "github.com/gsoultan/hermod/pkg/comm/transformer/structure"
 )
 
 // Kind is one kind of node a draft may contain.

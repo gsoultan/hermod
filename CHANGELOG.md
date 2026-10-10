@@ -43,6 +43,22 @@ request that does not carry it in the `X-API-Key` header. It used to accept
 every request. Before upgrading, make sure each sender of a keyed webhook sends
 the header, or clear the key on the source.
 
+### Added — structure, parsing and reference-data nodes
+
+Eight nodes for reshaping and enriching records without a script. Under
+**Structure & Parsing**: **Flatten** and **Unflatten** (nested objects to
+`a_b_c` keys and back, with a separator, a depth limit and a choice for
+arrays), **Explode** (one record per array element, the other fields kept, at
+most `maxItems`), **Parse Field** (JSON, CSV, XML or key=value text into
+structure; XML document types are refused, so entities never expand),
+**Template** (Go text/template over the record into a field, with a strict mode
+and an output cap) and **Field Diff (CDC)** (only the columns a change event
+changed, with old and new values). Under **Advanced Transformations**:
+**Reference Lookup** (a CSV, TSV or Excel file uploaded or on the worker, held in
+memory and re-read when it changes, merged by key) and **Geo** (haversine
+distance in km, mi or m, and point in a GeoJSON polygon; no geocoding). See
+[docs/structural-nodes.md](docs/structural-nodes.md).
+
 ### Added — AI automation
 
 Workflows can call Claude, ChatGPT, Gemini, DeepSeek, Mistral, Groq, OpenRouter,

@@ -261,6 +261,41 @@ const GUIDES: Record<string, TransformationGuide> = {
     what: 'Asks an AI model to label each record and sends it down that label’s branch, or down unsure.',
     firstStep: 'Choose the provider and model, then add a label for each branch.',
   },
+  flatten: {
+    title: 'Flatten',
+    what: 'Turns nested objects into one level of joined keys, so customer.address.city becomes customer_address_city.',
+    firstStep: 'Choose the separator; leave Field empty to flatten the whole record.',
+  },
+  unflatten: {
+    title: 'Unflatten',
+    what: 'Rebuilds nested objects from joined keys, the reverse of Flatten.',
+    firstStep: 'Use the separator the record was flattened with.',
+  },
+  parse_field: {
+    title: 'Parse field',
+    what: 'Reads a text field holding JSON, CSV, XML or key=value pairs and replaces it with the structure inside.',
+    firstStep: 'Pick the field and its format.',
+  },
+  template_render: {
+    title: 'Template',
+    what: 'Writes text built from the record’s fields — a message, a subject line, a key — into one field.',
+    firstStep: 'Write the template; {{.name}} inserts the name field.',
+  },
+  field_diff: {
+    title: 'Field diff',
+    what: 'For a change event, lists only the columns that changed, each with its old and new value.',
+    firstStep: 'List the columns to ignore, such as updated_at.',
+  },
+  reference_lookup: {
+    title: 'Reference lookup',
+    what: 'Adds columns from a CSV or Excel file to each record, matched on a key; the file is re-read when it changes.',
+    firstStep: 'Upload the file, then name its key column and the record field to match.',
+  },
+  geo: {
+    title: 'Geo',
+    what: 'Computes the distance between two points on the record, or whether a point lies inside a polygon.',
+    firstStep: 'Choose Distance or Inside polygon, then point at the latitude and longitude fields.',
+  },
   pipeline: {
     title: 'Pipeline',
     what: 'Runs several transformations in order, as one node.',
@@ -291,6 +326,11 @@ const NODE_TYPE_GUIDES: Record<string, TransformationGuide> = {
     title: 'Fan out',
     what: 'Splits the record into one record per item in the list, and everything downstream runs again for each one.',
     firstStep: 'Point Array Path at the list field; each record gets `_item` and `_index`.',
+  },
+  explode: {
+    title: 'Explode',
+    what: 'Splits the record into one record per element of a list, keeping its other fields, and drops the list.',
+    firstStep: 'Point Array Path at the list, then choose whether each element goes into a field or merges into the record.',
   },
   join: {
     title: 'Stateful join',
