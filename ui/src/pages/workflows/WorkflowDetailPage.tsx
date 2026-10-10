@@ -22,7 +22,7 @@ import { normalizeWorkflowStatus } from '@/utils/workflowStatus';
 import { downloadWorkflowExport } from '@/utils/workflowExport';
 import { 
   IconArrowLeft, IconArrowsExchange, IconChartBar, IconChevronRight, IconCircleCheck, IconCircleX, IconClock, IconEye, IconHistory, IconInfoCircle, IconRefresh, IconRotateDot, IconSearch, IconTerminal2, IconTimeline,
-  IconBug, IconBrain, IconActivity, IconListDetails,
+  IconBug, IconBrain, IconActivity, IconListDetails, IconPlayerPlay,
   IconDownload
 } from '@tabler/icons-react';
 import { WorkflowDebugger } from './WorkflowDebugger';
@@ -30,6 +30,7 @@ import { DetailFlowCanvas } from './WorkflowEditor/components/DetailFlowCanvas';
 import { useConfirm } from '@/components/common/ConfirmProvider';
 import { useSessionStore } from '@/auth/session';
 import { ExecutionsPanel } from './executions/ExecutionsPanel';
+import { RunWithInputModal } from './executions/RunWithInputModal';
 const API_BASE = '/api';
 
 export function WorkflowDetailPage() {
@@ -43,6 +44,11 @@ export function WorkflowDetailPage() {
   // the same rule, this only keeps the buttons off a Viewer's screen.
   const role = useSessionStore((s) => s.user?.role);
   const canEdit = role === 'Administrator' || role === 'Editor';
+  const [runInputOpened, setRunInputOpened] = useState(false);
+  const openRun = useCallback((runId: string) => {
+    setSelectedRunID(runId);
+    setActiveTab('executions');
+  }, []);
   // Paging by cursor rather than by offset. The server reads traces newest
   // first, so "the next page" is "older than the last row I saw" — one index
   // seek, whatever page you are on. An offset has to read and discard
@@ -372,8 +378,18 @@ export function WorkflowDetailPage() {
               </Box>
             </Group>
             <Group>
-              <Button 
-                variant="light" 
+              {canEdit && (
+                <Button
+                  variant="light"
+                  color="grape"
+                  leftSection={<IconPlayerPlay size="1rem" />}
+                  onClick={() => setRunInputOpened(true)}
+                >
+                  Run with input
+                </Button>
+              )}
+              <Button
+                variant="light"
                 color={workflow.active ? 'orange' : 'green'}
                 leftSection={workflow.active ? <IconRotateDot size="1rem" /> : <IconCircleCheck size="1rem" />}
                 onClick={() => toggleMutation.mutate()}
@@ -401,6 +417,15 @@ export function WorkflowDetailPage() {
             </Group>
           </Group>
         </Paper>
+
+        {canEdit && runInputOpened && (
+          <RunWithInputModal
+            opened
+            onClose={() => setRunInputOpened(false)}
+            workflow={workflow}
+            onOpenRun={openRun}
+          />
+        )}
 
         <Paper withBorder radius="md" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <Tabs value={activeTab} onChange={setActiveTab} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>

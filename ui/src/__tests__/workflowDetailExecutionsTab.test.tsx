@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MantineProvider } from '@mantine/core'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -68,5 +68,33 @@ describe('Workflow detail: Executions tab', () => {
     await user.click(await screen.findByRole('button', { name: /open run run-1/i }))
     await screen.findByRole('heading', { name: 'Run' })
     expect(screen.queryByRole('button', { name: /^replay/i })).toBeNull()
+  })
+
+  it('runs with input from the header and opens the run in Executions', async () => {
+    signInAs('Editor')
+    useWorkflow()
+    server.use(
+      http.post('/api/workflows/wf-1/run', () =>
+        HttpResponse.json({ workflow_id: 'wf-1', run_id: 'run-1', status: 'completed', steps: [] }),
+      ),
+    )
+    const user = userEvent.setup()
+    renderDetailPage()
+
+    await user.click(await screen.findByRole('button', { name: /run with input/i }))
+    fireEvent.change(await screen.findByRole('textbox', { name: /input message/i }), { target: { value: '{"a": 1}' } })
+    await user.click(screen.getByRole('button', { name: /^run workflow/i }))
+    await user.click(await screen.findByRole('button', { name: /open in executions/i }))
+
+    expect(await screen.findByRole('tab', { name: /executions/i, selected: true })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Run' })).toBeInTheDocument()
+  })
+
+  it('does not offer Run with input to a Viewer', async () => {
+    signInAs('Viewer')
+    useWorkflow()
+    renderDetailPage()
+    await screen.findByText('Orders')
+    expect(screen.queryByRole('button', { name: /run with input/i })).toBeNull()
   })
 })

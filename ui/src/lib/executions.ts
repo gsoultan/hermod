@@ -125,6 +125,17 @@ export function replayExecution(workflowId: string, runId: string): Promise<Repl
   })
 }
 
+/**
+ * Runs the workflow once with message as its source's output: POST
+ * /api/workflows/{id}/run. It is a real run -- sinks write -- and it answers
+ * when the run has finished or is held at an approval.
+ */
+export function runWorkflow(workflowId: string, message: Record<string, unknown>, sourceNodeId?: string): Promise<RunResult> {
+  const body: { message: Record<string, unknown>; source_node_id?: string } = { message }
+  if (sourceNodeId) body.source_node_id = sourceNodeId
+  return requestJson<RunResult>(`${base(workflowId)}/run`, { method: 'POST', body: JSON.stringify(body) })
+}
+
 /** "1.25 s", "40 ms". Zero is a real reading here: a run that took no time. */
 export function formatDuration(ms: number | undefined | null): string {
   if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return '—'
