@@ -51,6 +51,9 @@ func (t *EmbedTransformer) Transform(ctx context.Context, msg hermod.Message, co
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	resp, err := e.Embed(ctx, llm.EmbedRequest{Model: model, Inputs: []string{text}})
+	if !errors.Is(err, llm.ErrUnsupported) {
+		addUsage(msg, resp.Usage)
+	}
 	if err != nil {
 		if errors.Is(err, llm.ErrUnsupported) {
 			return nil, fmt.Errorf("ai_embed: %s cannot produce embeddings", p.Name())

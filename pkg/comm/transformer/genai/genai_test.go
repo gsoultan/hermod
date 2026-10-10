@@ -170,6 +170,28 @@ func TestPrompt_UsageField(t *testing.T) {
 	}
 }
 
+// Every call's usage is added to the message's metadata, whether or not the
+// node names a usageField: the trace step a node records carries the message's
+// metadata, so this is how a run's token totals reach its trace.
+func TestUsageAccumulatesInMetadata(t *testing.T) {
+	f := newFakeLLM(t, "ok")
+	tf, _ := transformer.Get("ai_prompt")
+	msg := message.AcquireMessage()
+	defer message.ReleaseMessage(msg)
+	for range 2 {
+		if _, err := tf.Transform(t.Context(), msg, f.config(map[string]any{"prompt": "x"})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := UsageOf(msg)
+	if got.Calls != 2 || got.InputTokens != 20 || got.OutputTokens != 10 {
+		t.Fatalf("usage = %+v, want 2 calls, 20 in, 10 out", got)
+	}
+	if v, _ := msg.Metadata()[MetaAIInputTokens]; v != "20" {
+		t.Fatalf("metadata %s = %q", MetaAIInputTokens, v)
+	}
+}
+
 func TestPrompt_APIKeyIsResolvedNotFromRowData(t *testing.T) {
 	f := newFakeLLM(t, "ok")
 	_, err := run(t, "ai_prompt", f.config(map[string]any{"prompt": "x", "apiKey": "{{.stolen}}"}), map[string]any{"stolen": "row-chosen-key"})

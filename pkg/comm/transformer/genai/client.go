@@ -163,6 +163,7 @@ func chat(ctx context.Context, config map[string]any, msg hermod.Message, req ll
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	resp, err := p.Chat(ctx, req)
+	addUsage(msg, resp.Usage)
 	if err != nil {
 		return resp, err
 	}
@@ -170,6 +171,45 @@ func chat(ctx context.Context, config map[string]any, msg hermod.Message, req ll
 		return resp, fmt.Errorf("%s declined to answer", resp.Provider)
 	}
 	return resp, nil
+}
+
+// Metadata keys under which a message carries the language model usage of
+// every AI node it has passed through. Each node's trace step records the
+// message's metadata, so a run's token totals are readable from its trace.
+// Counts only: no prompt, answer or key is ever written here.
+const (
+	MetaAICalls        = "_hermod_ai_calls"
+	MetaAIInputTokens  = "_hermod_ai_input_tokens"  //nolint:gosec // a metadata key naming a token count, not a credential
+	MetaAIOutputTokens = "_hermod_ai_output_tokens" //nolint:gosec // a metadata key naming a token count, not a credential
+)
+
+// Usage is the model usage a message has accumulated.
+type Usage struct {
+	Calls        int64 `json:"calls"`
+	InputTokens  int64 `json:"input_tokens"`
+	OutputTokens int64 `json:"output_tokens"`
+}
+
+// UsageOf reads the usage a message has accumulated.
+func UsageOf(msg hermod.Message) Usage {
+	get := func(key string) int64 {
+		v, _ := hermod.MetadataValue(msg, key)
+		n, _ := strconv.ParseInt(v, 10, 64)
+		return n
+	}
+	return Usage{Calls: get(MetaAICalls), InputTokens: get(MetaAIInputTokens), OutputTokens: get(MetaAIOutputTokens)}
+}
+
+// addUsage adds one call to the usage msg carries. A call that failed before
+// the provider answered still counts as a call.
+func addUsage(msg hermod.Message, u llm.Usage) {
+	if msg == nil {
+		return
+	}
+	cur := UsageOf(msg)
+	msg.SetMetadata(MetaAICalls, strconv.FormatInt(cur.Calls+1, 10))
+	msg.SetMetadata(MetaAIInputTokens, strconv.FormatInt(cur.InputTokens+u.InputTokens, 10))
+	msg.SetMetadata(MetaAIOutputTokens, strconv.FormatInt(cur.OutputTokens+u.OutputTokens, 10))
 }
 
 // writeUsage records a call's usage in the field the node names, if any.
