@@ -80,8 +80,10 @@ type Engine struct {
 	traceSlotsOnce sync.Once
 	inFlightWg     sync.WaitGroup
 
-	// Adaptive Throughput
-	lastPollAdjust time.Time
+	// Adaptive Throughput. lastPollAdjust is the UnixNano of the last
+	// adjustment; it is claimed with a CAS because adaptiveThrottle runs on
+	// every worker concurrently (see adaptiveThrottle).
+	lastPollAdjust atomic.Int64
 	throttleDelay  time.Duration
 
 	// stopMu protects hard-stop sequences

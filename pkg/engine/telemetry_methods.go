@@ -204,11 +204,20 @@ func (e *Engine) adaptiveThrottle(ctx context.Context, duration time.Duration) {
 
 	e.statusTracker.UpdateLatency(duration)
 
-	// Adjust polling interval every 5s based on latency and memory
-	if time.Since(e.lastPollAdjust) < 5*time.Second {
+	// Adjust polling interval every 5s based on latency and memory.
+	//
+	// Up to MaxInflight workers run this concurrently, so the window is
+	// claimed with a compare-and-swap: exactly one of the workers that see it
+	// expired performs the adjustment. A plain read-then-write let several
+	// through together, each adding its own throttle step.
+	now := time.Now().UnixNano()
+	last := e.lastPollAdjust.Load()
+	if now-last < int64(5*time.Second) {
 		return
 	}
-	e.lastPollAdjust = time.Now()
+	if !e.lastPollAdjust.CompareAndSwap(last, now) {
+		return
+	}
 
 	// Check memory pressure
 	var mem runtime.MemStats
