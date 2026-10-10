@@ -125,6 +125,80 @@ func TestAINodeIssues_SinkToolMustNameASinkNode(t *testing.T) {
 	}
 }
 
+func agentNodeWith(tools ...map[string]any) storage.WorkflowNode {
+	return storage.WorkflowNode{ID: "a", Type: "ai_agent", Config: map[string]any{
+		"provider": "ollama", "goal": "g", "tools": agentTools(tools...),
+	}}
+}
+
+func TestAINodeIssues_MCPToolIsFine(t *testing.T) {
+	issues := aiIssues(agentNodeWith(map[string]any{
+		"name": "read_x", "kind": "mcp", "tool": "read_x",
+		"server": map[string]any{
+			"url":     `{{secret("MCP_URL")}}`,
+			"headers": map[string]any{"Authorization": `Bearer {{secret("MCP_TOKEN")}}`, "X-Tenant": "acme"},
+		},
+	}))
+	if len(issues) != 0 {
+		t.Fatalf("issues = %+v", issues)
+	}
+}
+
+func TestAINodeIssues_MCPToolNeedsServerURLAndTool(t *testing.T) {
+	cases := map[string]map[string]any{
+		"no server":    {"name": "t", "kind": "mcp", "tool": "read_x"},
+		"no url":       {"name": "t", "kind": "mcp", "tool": "read_x", "server": map[string]any{"headers": map[string]any{}}},
+		"no tool":      {"name": "t", "kind": "mcp", "server": map[string]any{"url": "https://mcp.example/mcp"}},
+		"bad scheme":   {"name": "t", "kind": "mcp", "tool": "x", "server": map[string]any{"url": "file:///etc/passwd"}},
+		"blank tool":   {"name": "t", "kind": "mcp", "tool": "  ", "server": map[string]any{"url": "https://mcp.example/mcp"}},
+		"bad url type": {"name": "t", "kind": "mcp", "tool": "x", "server": map[string]any{"url": 3}},
+	}
+	for name, tool := range cases {
+		t.Run(name, func(t *testing.T) {
+			issues := aiIssues(agentNodeWith(tool))
+			if len(issues) != 1 || issues[0].Severity != "error" || issues[0].NodeID != "a" || !strings.Contains(issues[0].Message, "'t'") {
+				t.Fatalf("issues = %+v", issues)
+			}
+		})
+	}
+}
+
+func TestAINodeIssues_MCPPlaintextCredentialHeadersAreWarned(t *testing.T) {
+	issues := aiIssues(agentNodeWith(map[string]any{
+		"name": "t", "kind": "mcp", "tool": "x",
+		"server": map[string]any{"url": "https://mcp.example/mcp", "headers": map[string]any{
+			"Authorization":  "Bearer abc123secret",
+			"X-Api-Key":      "k-998877",
+			"X-Access-Token": "tok-445566",
+			"X-Tenant":       "acme",
+			"X-Other-Key":    `{{secret("OTHER")}}`,
+		}},
+	}))
+	if len(issues) != 3 {
+		t.Fatalf("want one warning per plaintext credential header, got %+v", issues)
+	}
+	for _, is := range issues {
+		if is.Severity != "warning" || is.NodeID != "a" || !strings.Contains(is.Recommendation, `{{secret(`) {
+			t.Errorf("issue = %+v", is)
+		}
+		for _, leak := range []string{"abc123secret", "k-998877", "tok-445566"} {
+			if strings.Contains(is.Message+is.Recommendation, leak) {
+				t.Errorf("the warning repeats the credential: %+v", is)
+			}
+		}
+	}
+}
+
+func TestAINodeIssues_MCPToolWithoutApprovalIsWarned(t *testing.T) {
+	issues := aiIssues(agentNodeWith(map[string]any{
+		"name": "t", "kind": "mcp", "tool": "x", "requireApproval": false,
+		"server": map[string]any{"url": "https://mcp.example/mcp"},
+	}))
+	if len(issues) != 1 || issues[0].Severity != "warning" || !strings.Contains(issues[0].Message, "'t'") {
+		t.Fatalf("issues = %+v", issues)
+	}
+}
+
 func TestAINodeIssues_RetrieveNeedsItsStore(t *testing.T) {
 	base := func(extra map[string]any) storage.WorkflowNode {
 		cfg := map[string]any{"transType": "ai_retrieve", "provider": "ollama", "query": "{{.q}}"}
