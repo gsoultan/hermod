@@ -61,6 +61,10 @@ type decisionBody struct {
 	FormData map[string]any `json:"form_data"`
 }
 
+// approvalResumeTimeout bounds the walk an approval decision starts: the
+// request has ended by then, so nothing else would stop a stuck resume.
+const approvalResumeTimeout = 10 * time.Minute
+
 func (h *ApprovalHandler) ApproveApproval(w http.ResponseWriter, r *http.Request) {
 	h.HandleApprovalDecision(w, r, "approved")
 }
@@ -108,20 +112,31 @@ func (h *ApprovalHandler) HandleApprovalDecision(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// Resume workflow from this approval node. The request's context ends
-	// when this handler returns, so the resume must not inherit its
-	// cancellation or the reload below can fail and the resume never happen.
-	resumeCtx := context.WithoutCancel(r.Context())
+	// Resume workflow from this approval node.
+	//
+	// The resume outlives this request: the server ends r.Context() as soon as
+	// the handler returns, and running on it the reload below failed and no
+	// approved message was ever delivered. It keeps the request's values and
+	// gets its own bound instead.
+	resumeCtx, cancelResume := context.WithTimeout(context.WithoutCancel(r.Context()), approvalResumeTimeout)
 	go func() {
+		defer cancelResume()
 		// small delay to ensure transactional visibility on some backends
 		time.Sleep(10 * time.Millisecond)
 		// reload approval to get updated fields if needed
-		if app2, e := h.Storage.GetApproval(resumeCtx, id); e == nil {
-			branch := "approved"
-			if status == "rejected" {
-				branch = "rejected"
-			}
-			_ = h.Registry.ResumeApproval(resumeCtx, app2, branch)
+		app2, e := h.Storage.GetApproval(resumeCtx, id)
+		if e != nil {
+			h.Registry.GetLogger().Error("Approval decided but its workflow could not be resumed",
+				"approval_id", id, "error", e)
+			return
+		}
+		branch := "approved"
+		if status == "rejected" {
+			branch = "rejected"
+		}
+		if e := h.Registry.ResumeApproval(resumeCtx, app2, branch); e != nil {
+			h.Registry.GetLogger().Error("Resuming the workflow after an approval failed",
+				"approval_id", id, "workflow_id", app2.WorkflowID, "error", e)
 		}
 	}()
 
