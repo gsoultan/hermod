@@ -13,7 +13,9 @@ var descriptions = map[string]string{
 		`with the record's ai_output field: put an ai_prompt with memory after it to build a chatbot.`,
 	"sink": "Destination a record is written to (database, queue, API, notification...). Set ref_id to " +
 		"the id of one of the available sinks listed below, or leave it empty and say in config_json " +
-		`which kind is needed, e.g. {"sinkType":"slack"}.`,
+		`which kind is needed, e.g. {"sinkType":"slack"}. {"sinkType":"ml_dataset"} is Collect Dataset: it appends ` +
+		`each record as a row to a dataset of the workflow's vhost on the ML worker, for Train Model or a retrain ` +
+		`policy to learn from; its sink config is {"dataset","column_mappings","mask_fields","mask_type","max_rows"}.`,
 
 	// Node executors.
 	"ai_agent": `Language-model agent that pursues a goal with a bounded loop over the tools it is given. config: ` +
@@ -65,6 +67,22 @@ var descriptions = map[string]string{
 		`"features":"a,b,c","task":"auto|classification|regression","algorithm":"auto|random_forest|gradient_boosting|linear|xgboost",` +
 		`"goLive":"never|always|metric","goLiveMetric","goLiveMin","goLiveMax","sourceId","query","maxRows",` +
 		`"outputField":"training"}. A sourceId and read-only query refill the dataset first.`,
+	"transformation:scale": `Rescales numeric fields with statistics fitted beforehand (never refitted). config: ` +
+		`{"method":"minmax|zscore","fields":[{"field":"amount","min":0,"max":500,"targetField":"amount_scaled"}],` +
+		`"stats":{"amount":{"mean":120,"std":40}},"clip":false,"onMissing":"fail|skip"}. A row without numbers ` +
+		`takes them from stats; with no rows every field in stats is scaled.`,
+	"transformation:encode": `Encodes a categorical field. config: {"field","method":"onehot|label|hash"}; onehot: ` +
+		`{"categories":["ID","SG"],"prefix":"country_","otherBucket":true} writes one 0/1 field per category plus ` +
+		`<prefix>other; label: {"mapping":{"S":0,"M":1},"unknownValue":-1,"targetField"}; hash: {"buckets":16,` +
+		`"targetField"} (FNV-1a).`,
+	"transformation:bucketize": `Puts a numeric field into bins. config: {"field","edges":[0,18,65,120],` +
+		`"labels":["child","adult","senior"],"outOfRange":"null|clip|fail","targetField"}. Bins hold their lower edge.`,
+	"transformation:rolling": `Per-key rolling features over the last N events or a time window. config: {"field",` +
+		`"keyBy":"customer_id","windowType":"count|time","size":20,"window":"10m","features":["count","sum","mean",` +
+		`"std","min","max"],"prefix":"amount_","maxKeys":10000,"persistent":false}. Includes the current record.`,
+	"transformation:anomaly_score": `Scores a field against its per-key rolling history and flags outliers. config: ` +
+		`{"field","keyBy","method":"zscore|iqr","threshold":3,"windowType":"count|time","size":50,"window":"1h",` +
+		`"minEvents":10,"scoreField","flagField","persistent":false}. Writes <field>_anomaly_score and <field>_is_anomaly.`,
 	"transformation:ai_prompt": `Generates text or JSON with a language model. config: {"provider","model",` +
 		`"apiKey":"{{secret(\"NAME\")}}","prompt":"Summarise {{text}}","system","outputMode":"text|json","targetField"}.`,
 	"transformation:api_lookup":        "Fetches data from an HTTP API and merges it into the record.",

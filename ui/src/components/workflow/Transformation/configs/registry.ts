@@ -37,6 +37,12 @@ import { AIAgentConfig } from './ai-agent/AIAgentConfig'
 // machine learning
 import { MLPredictConfig } from './ml/MLPredictConfig'
 import { MLTrainConfig } from './ml/MLTrainConfig'
+// feature engineering
+import { ScaleConfig } from './features/ScaleConfig'
+import { EncodeConfig } from './features/EncodeConfig'
+import { BucketizeConfig } from './features/BucketizeConfig'
+import { RollingConfig } from './features/RollingConfig'
+import { AnomalyScoreConfig } from './features/AnomalyScoreConfig'
 
 // logic
 import { ConditionConfig } from './logic/ConditionConfig'
@@ -157,6 +163,12 @@ export const TRANSFORM_CONFIGS: Record<string, ConfigComponent> = {
   // machine learning
   ml_predict: MLPredictConfig,
   ml_train: MLTrainConfig,
+  // feature engineering (pkg/comm/transformer/features)
+  scale: ScaleConfig,
+  encode: EncodeConfig,
+  bucketize: BucketizeConfig,
+  rolling: RollingConfig,
+  anomaly_score: AnomalyScoreConfig,
 
   // logic & flow
   condition: ConditionConfig,
