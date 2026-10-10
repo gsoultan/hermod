@@ -25,13 +25,13 @@ type chatFunc struct {
 	chat  func(context.Context, ChatRequest) (ChatResponse, error)
 }
 
-func (c chatFunc) Name() string { return c.inner.Name() }
+func (c *chatFunc) Name() string { return c.inner.Name() }
 
-func (c chatFunc) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error) {
+func (c *chatFunc) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error) {
 	return c.chat(ctx, req)
 }
 
-func (c chatFunc) Embed(ctx context.Context, req EmbedRequest) (EmbedResponse, error) {
+func (c *chatFunc) Embed(ctx context.Context, req EmbedRequest) (EmbedResponse, error) {
 	if e, ok := c.inner.(Embedder); ok {
 		return e.Embed(ctx, req)
 	}
@@ -54,7 +54,7 @@ var DefaultRetryPolicy = RetryPolicy{MaxAttempts: 3, BaseDelay: 500 * time.Milli
 func WithRetry(policy RetryPolicy) Middleware {
 	attempts := max(policy.MaxAttempts, 1)
 	return func(p Provider) Provider {
-		return chatFunc{inner: p, chat: func(ctx context.Context, req ChatRequest) (ChatResponse, error) {
+		return &chatFunc{inner: p, chat: func(ctx context.Context, req ChatRequest) (ChatResponse, error) {
 			var lastErr error
 			for attempt := range attempts {
 				resp, err := p.Chat(ctx, req)
@@ -108,7 +108,7 @@ func WithConcurrencyLimit(n int) Middleware {
 			return p
 		}
 		slots := make(chan struct{}, n)
-		return chatFunc{inner: p, chat: func(ctx context.Context, req ChatRequest) (ChatResponse, error) {
+		return &chatFunc{inner: p, chat: func(ctx context.Context, req ChatRequest) (ChatResponse, error) {
 			select {
 			case slots <- struct{}{}:
 			case <-ctx.Done():
@@ -127,7 +127,7 @@ func WithConcurrencyLimit(n int) Middleware {
 // too.
 func Fallback(primary Provider, others ...Provider) Provider {
 	chain := append([]Provider{primary}, others...)
-	return chatFunc{inner: primary, chat: func(ctx context.Context, req ChatRequest) (ChatResponse, error) {
+	return &chatFunc{inner: primary, chat: func(ctx context.Context, req ChatRequest) (ChatResponse, error) {
 		var (
 			resp ChatResponse
 			err  error
@@ -165,7 +165,7 @@ type Observer func(context.Context, CallRecord)
 // each attempt; outside, each logical call.
 func WithObserver(obs Observer) Middleware {
 	return func(p Provider) Provider {
-		return chatFunc{inner: p, chat: func(ctx context.Context, req ChatRequest) (ChatResponse, error) {
+		return &chatFunc{inner: p, chat: func(ctx context.Context, req ChatRequest) (ChatResponse, error) {
 			start := time.Now()
 			resp, err := p.Chat(ctx, req)
 			rec := CallRecord{
@@ -201,7 +201,7 @@ type Budget interface {
 // usage of every call that ran.
 func WithBudget(b Budget) Middleware {
 	return func(p Provider) Provider {
-		return chatFunc{inner: p, chat: func(ctx context.Context, req ChatRequest) (ChatResponse, error) {
+		return &chatFunc{inner: p, chat: func(ctx context.Context, req ChatRequest) (ChatResponse, error) {
 			if err := b.Allow(ctx); err != nil {
 				return ChatResponse{}, err
 			}
