@@ -126,4 +126,16 @@ describe('Models page', () => {
     expect(await within(dialog).findByText('hml_new-serving-key')).toBeInTheDocument()
     expect(within(dialog).getByText(/\/api\/ml\/serve\/tenant-a\/fraud/)).toBeInTheDocument()
   })
+
+  it('opens a model\'s monitoring', async () => {
+    modelsApi([{ name: 'fraud', backend: 'mlflow', url: 'http://ml', serving: false }])
+    server.use(http.get('/api/vhosts/:vhost/ml/models/:name/predictions', () => HttpResponse.json({ data: [], total: 0 })))
+    renderPage()
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('button', { name: 'Monitoring of fraud' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('tab', { name: /prediction log/i })).toBeInTheDocument()
+    expect(await within(dialog).findByText(/logging is off/i)).toBeInTheDocument()
+  })
 })

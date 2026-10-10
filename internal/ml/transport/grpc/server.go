@@ -12,6 +12,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/gsoultan/hermod/internal/ml"
+	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/ml/inference"
 	"github.com/gsoultan/hermod/pkg/ml/proto"
 )
@@ -49,7 +50,7 @@ func (s *Server) Predict(ctx context.Context, req *proto.PredictRequest) (*proto
 		rows[i] = in.AsMap()
 	}
 
-	preds, err := svc.Predict(ctx, req.GetVhost(), req.GetModel(), rows)
+	preds, err := svc.Predict(ml.WithCaller(ctx, storage.MLCallerGRPC, ""), req.GetVhost(), req.GetModel(), rows)
 	if err != nil {
 		if errors.Is(err, ml.ErrTooManyRows) {
 			return nil, status.Error(codes.InvalidArgument, err.Error())

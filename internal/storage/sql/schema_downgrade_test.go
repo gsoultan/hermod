@@ -30,7 +30,17 @@ import (
 // is computed from the DDL itself, so changing the schema fails this test and
 // forces the question to be asked out loud.
 //
-// Last moved by: adding the ai_budgets and ai_usage tables, a vhost's AI
+// Last moved by: adding the ml_prediction_logs table, the sampled and masked
+// predictions a model logs when its monitoring turns logging on.
+// currentSchemaVersion was left alone deliberately: it is a standalone table no
+// earlier code path reads or writes, and the setting that fills it lives in
+// ml_models' JSON spec, which the previous release decodes into a struct
+// without it. A rollback stops the logging (and saving a model from the older
+// binary drops the setting, so logging stays off until it is set again); the
+// rows already written are left for the newer binary's retention sweep. That is
+// a lost feature, not a misread of live data.
+//
+// The note before that: adding the ai_budgets and ai_usage tables, a vhost's AI
 // spending limits and what it has spent per month. currentSchemaVersion was
 // left alone, as for ml_models: both are standalone tables no earlier code path
 // reads or writes. What a rollback costs is the feature, and it is worth
@@ -147,7 +157,7 @@ import (
 // unpopulated — a gap in a chart that fills itself in when the newer binary
 // returns — so bumping the version would buy nothing and cost a refused
 // start-up during exactly the rollback it was supposed to make safe.
-const knownSchemaFingerprint = "d2a44c8bc6129bfd17eeece62ad3a17da9cc53588fb4de5e518586648edcc3aa"
+const knownSchemaFingerprint = "6bce64b0a0957aac059b787d4c065055797f64b2cf0e2e83be757af535d3daed"
 
 func TestSchemaVersionIsReconsideredWhenTheSchemaChanges(t *testing.T) {
 	if got := SchemaFingerprint(); got != knownSchemaFingerprint {

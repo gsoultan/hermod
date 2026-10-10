@@ -39,6 +39,12 @@ func (n *TransformationNode) Execute(ctx context.Context, nctx interfaces.NodeCo
 	// or owned by this traversal path. ApplyTransformation will handle its own
 	// internal logic.
 	tctx := context.WithValue(ctx, hermod.NodeIDKey, node.ID)
+	// The Predict node's calls are logged with the workflow that made them.
+	// Only for it: other transformers that read WorkflowIDKey key their state
+	// by it, and setting it for them would move that state.
+	if transType == "ml_predict" {
+		tctx = context.WithValue(tctx, hermod.WorkflowIDKey, workflowID)
+	}
 	res, err := nctx.ApplyTransformation(tctx, msg, transType, node.Config)
 	if err != nil {
 		nctx.BroadcastLiveMessage(workflowID, node.ID, msg, true, err.Error())
