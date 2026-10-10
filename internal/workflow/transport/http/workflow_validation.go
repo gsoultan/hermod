@@ -316,6 +316,7 @@ func (h *WorkflowHandler) ValidateWorkflow(ctx context.Context, wf storage.Workf
 	issues = append(issues, h.cdcQueryTargetIssues(ctx, wf)...)
 	issues = append(issues, edgeIssues(wf)...)
 	issues = append(issues, orphanIssues(wf)...)
+	issues = append(issues, aiNodeIssues(wf)...)
 
 	return issues
 }

@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gsoultan/hermod/pkg/comm/transformer"
+	"github.com/gsoultan/hermod/pkg/infra/evaluator"
 
 	"github.com/gsoultan/hermod"
 )
@@ -55,6 +57,9 @@ func (t *AITransformer) Transform(ctx context.Context, msg hermod.Message, confi
 	provider, _ := config["provider"].(string) // "openai", "ollama"
 	endpoint, _ := config["endpoint"].(string)
 	apiKey, _ := config["apiKey"].(string)
+	// The key decides whose account is billed, so row data must not choose
+	// it: only {{secret("NAME")}} resolves, for the message's vhost.
+	apiKey = strings.TrimSpace(evaluator.ResolveTemplateScoped(apiKey, msg))
 	model, _ := config["model"].(string)
 	prompt, _ := config["prompt"].(string)
 	targetField, _ := config["targetField"].(string)

@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/gsoultan/hermod/pkg/comm/message"
 	"github.com/gsoultan/hermod/pkg/comm/transformer"
+	"github.com/gsoultan/hermod/pkg/infra/evaluator"
 )
 
 // One registered transformer serves every message of every workflow that
@@ -81,5 +83,35 @@ func TestAIMapper_DoesNotMutateNodeConfig(t *testing.T) {
 	}
 	if _, wrote := cfg["prompt"]; wrote {
 		t.Fatal("ai_mapper wrote prompt into the shared node config")
+	}
+}
+
+type staticSecrets map[string]string
+
+func (s staticSecrets) Get(_ context.Context, key string) (string, error) { return s[key], nil }
+
+// The key can be kept in the secret store and referenced as {{secret("NAME")}};
+// it was sent to the provider as that literal text.
+func TestAITransformer_APIKeyResolvesSecretReference(t *testing.T) {
+	evaluator.SetSecretSource(staticSecrets{"OPENAI_KEY": "sk-from-store"})
+	t.Cleanup(func() { evaluator.SetSecretSource(nil) })
+
+	var auth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth = r.Header.Get("Authorization")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{"message": map[string]string{"content": "ok"}}},
+		})
+	}))
+	defer srv.Close()
+
+	msg := message.AcquireMessage()
+	msg.SetData("text", "x")
+	cfg := map[string]any{"provider": "openai", "endpoint": srv.URL, "apiKey": `{{secret("OPENAI_KEY")}}`}
+	if _, err := (&AITransformer{}).Transform(t.Context(), msg, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if auth != "Bearer sk-from-store" {
+		t.Fatalf("Authorization = %q", auth)
 	}
 }
