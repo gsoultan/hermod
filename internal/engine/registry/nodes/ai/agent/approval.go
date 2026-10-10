@@ -41,12 +41,18 @@ func (r *run) suspend(ctx context.Context) ([]hermod.Message, string, error) {
 
 	data := maps.Clone(r.msg.Data())
 	data[stateField] = string(raw)
-	data[PendingCallField] = map[string]any{
+	pending := map[string]any{
 		"tool":        c.Name,
 		"description": t.Description,
 		"call_id":     c.ID,
 		"arguments":   args,
 	}
+	if t.Kind == kindMCP {
+		// The reviewer sees which remote tool would run, not just the
+		// node's name for it.
+		pending["remote_tool"] = t.Remote
+	}
+	data[PendingCallField] = pending
 	app := storage.Approval{
 		ID:         uuid.New().String(),
 		WorkflowID: r.workflowID,
@@ -92,6 +98,9 @@ func (n *Node) ResumeApproval(ctx context.Context, nctx interfaces.NodeContext, 
 	}
 	ctx, cancel := context.WithTimeout(ctx, r.cfg.timeout)
 	defer cancel()
+	if err := r.prepare(ctx); err != nil {
+		return r.fail(err)
+	}
 
 	c := st.Pending.Calls[st.Pending.Next]
 	st.Transcript.add(entry{Step: st.Steps, Kind: "approval_decision", Tool: c.Name, CallID: c.ID, Text: decision})

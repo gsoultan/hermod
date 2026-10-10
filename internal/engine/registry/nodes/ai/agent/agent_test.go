@@ -227,3 +227,116 @@ func TestAgent_RegisteredExecutorTalksToAConfiguredProvider(t *testing.T) {
 		t.Fatalf("answer = %v lookups = %d", out[0].Data()[DefaultTargetField], len(nctx.lookupCalls()))
 	}
 }
+
+func TestAgent_MCPConfigIsChecked(t *testing.T) {
+	cases := map[string]map[string]any{
+		"no server":     {"name": "t", "kind": "mcp", "tool": "read_x"},
+		"no url":        {"name": "t", "kind": "mcp", "tool": "read_x", "server": map[string]any{}},
+		"file scheme":   {"name": "t", "kind": "mcp", "tool": "read_x", "server": map[string]any{"url": "file:///etc/passwd"}},
+		"no tool":       {"name": "t", "kind": "mcp", "server": map[string]any{"url": "https://mcp.example/mcp"}},
+		"bad parameter": {"name": "t", "kind": "mcp", "tool": "x", "server": map[string]any{"url": "https://mcp.example/mcp"}, "parameters": []any{map[string]any{"name": "a b"}}},
+	}
+	for name, tool := range cases {
+		if _, err := parseTools([]any{tool}); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	tools, err := parseTools([]any{map[string]any{
+		"name": "t", "kind": "mcp", "tool": "read_x",
+		"server": map[string]any{"url": `{{secret("MCP_URL")}}`, "headers": map[string]any{"Authorization": `Bearer {{secret("MCP_TOKEN")}}`}},
+	}})
+	if err != nil || tools[0].Remote != "read_x" || tools[0].Server == nil {
+		t.Fatalf("tools=%+v err=%v", tools, err)
+	}
+}
+
+func TestAgent_MCPReadOnlyToolRunsAtOnceWithTheRemoteSchema(t *testing.T) {
+	f := newMCPFake(t)
+	p := &scriptedProvider{turns: []func(llm.ChatRequest) llm.ChatResponse{
+		call("r1", "lookup_x", `{"id":"7"}`),
+		say("x is 42."),
+	}}
+	node := mcpAgentNode(f.tool("lookup_x", "read_x", nil))
+	nctx := newFakeNodeContext()
+	out, branch, err := mcpNode(p).Execute(t.Context(), nctx, "wf", node, inputMessage(t, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if branch != "" || out[0].Data()[DefaultTargetField] != "x is 42." || len(nctx.store.list()) != 0 {
+		t.Fatalf("branch=%q out=%v", branch, out)
+	}
+	if f.called("read_x") != 1 {
+		t.Fatalf("read_x calls = %d", f.called("read_x"))
+	}
+	if res := lastToolResults(p); len(res) != 1 || res[0].IsError || res[0].Content != "x is 42" || res[0].Name != "lookup_x" {
+		t.Fatalf("tool results = %+v", res)
+	}
+	spec := p.requests()[0].Tools[0]
+	props, _ := spec.Schema["properties"].(map[string]any)
+	if spec.Name != "lookup_x" || props["id"] == nil || spec.Description != "Reads x by id." {
+		t.Fatalf("spec = %+v", spec)
+	}
+}
+
+func TestAgent_MCPDeclaredParametersReplaceTheRemoteSchema(t *testing.T) {
+	f := newMCPFake(t)
+	p := &scriptedProvider{turns: []func(llm.ChatRequest) llm.ChatResponse{
+		call("r1", "read_x", `{"id":"7"}`),
+		say("ok"),
+	}}
+	node := mcpAgentNode(f.tool("read_x", "read_x", map[string]any{
+		"description": "Look up x.",
+		"parameters":  []any{map[string]any{"name": "id", "type": "string", "required": true, "description": "x id"}},
+	}))
+	if _, _, err := mcpNode(p).Execute(t.Context(), newFakeNodeContext(), "wf", node, inputMessage(t, nil)); err != nil {
+		t.Fatal(err)
+	}
+	spec := p.requests()[0].Tools[0]
+	props, _ := spec.Schema["properties"].(map[string]any)
+	id, _ := props["id"].(map[string]any)
+	if spec.Description != "Look up x." || id["description"] != "x id" {
+		t.Fatalf("spec = %+v", spec)
+	}
+	if a := f.argsOf("read_x"); len(a) != 1 || a[0]["id"] != "7" {
+		t.Fatalf("server args = %v", a)
+	}
+}
+
+func TestAgent_MCPDestructiveToolWithApprovalOptOutRunsAtOnce(t *testing.T) {
+	f := newMCPFake(t)
+	p := &scriptedProvider{turns: []func(llm.ChatRequest) llm.ChatResponse{
+		call("d1", "delete_all", `{"confirm":true}`),
+		say("Deleted."),
+	}}
+	node := mcpAgentNode(f.tool("delete_all", "delete_all", map[string]any{"requireApproval": false}))
+	nctx := newFakeNodeContext()
+	_, branch, err := mcpNode(p).Execute(t.Context(), nctx, "wf", node, inputMessage(t, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if branch != "" || f.called("delete_all") != 1 || len(nctx.store.list()) != 0 {
+		t.Fatalf("branch=%q calls=%d approvals=%d", branch, f.called("delete_all"), len(nctx.store.list()))
+	}
+}
+
+func TestAgent_MCPUnknownRemoteToolFailsTheNode(t *testing.T) {
+	f := newMCPFake(t)
+	p := &scriptedProvider{turns: []func(llm.ChatRequest) llm.ChatResponse{say("ok")}}
+	node := mcpAgentNode(f.tool("t", "no_such_tool", nil))
+	_, _, err := mcpNode(p).Execute(t.Context(), newFakeNodeContext(), "wf", node, inputMessage(t, nil))
+	if err == nil || !strings.Contains(err.Error(), "no_such_tool") {
+		t.Fatalf("err = %v", err)
+	}
+	if len(p.requests()) != 0 {
+		t.Fatal("the model was called although a tool could not be set up")
+	}
+}
+
+func TestAgent_MCPServerURLFromRowDataIsRefused(t *testing.T) {
+	p := &scriptedProvider{turns: []func(llm.ChatRequest) llm.ChatResponse{say("ok")}}
+	node := mcpAgentNode(map[string]any{"name": "t", "kind": "mcp", "tool": "read_x", "server": map[string]any{"url": "{{server}}"}})
+	msg := inputMessage(t, map[string]any{"server": "https://evil.example/mcp"})
+	if _, _, err := mcpNode(p).Execute(t.Context(), newFakeNodeContext(), "wf", node, msg); err == nil {
+		t.Fatal("a server URL chosen by row data was used")
+	}
+}

@@ -25,16 +25,35 @@ const maxToolResult = 16 << 10
 func (r *run) invoke(ctx context.Context, t tool, c llm.ToolCall, args map[string]any) llm.ToolResult {
 	var content string
 	var err error
-	if t.Kind == kindSink {
+	switch t.Kind {
+	case kindSink:
 		err = r.write(ctx, t, c, args)
 		content = `{"status":"written"}`
-	} else {
+	case kindMCP:
+		return r.callRemote(ctx, t, c, args)
+	default:
 		content, err = r.lookup(ctx, t, args)
 	}
 	if err != nil {
 		return errResult(c, err.Error())
 	}
 	return llm.ToolResult{CallID: c.ID, Name: c.Name, Content: clipTo(content, maxToolResult)}
+}
+
+// callRemote runs an mcp tool: always the one remote tool the node names, on
+// the server it names. What the server returns goes back to the model as a
+// tool result, which the system prompt and the allow-list treat as data: a
+// result that asks for another tool cannot get one that is not allowed, nor
+// skip an approval.
+func (r *run) callRemote(ctx context.Context, t tool, c llm.ToolCall, args map[string]any) llm.ToolResult {
+	res, err := r.mcp.Call(ctx, t.endpoint, t.Remote, args)
+	if err != nil {
+		return errResult(c, err.Error())
+	}
+	if res.IsError {
+		return errResult(c, clipTo(res.Text, maxToolResult))
+	}
+	return llm.ToolResult{CallID: c.ID, Name: c.Name, Content: clipTo(res.Text, maxToolResult)}
 }
 
 // toolMessage is a fresh message holding only the call's arguments. It runs

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gsoultan/hermod/internal/engine/registry/nodes/ai/agent/mcptool"
 	"github.com/gsoultan/hermod/pkg/comm/transformer/core"
 	"github.com/gsoultan/hermod/pkg/llm"
 )
@@ -25,11 +26,20 @@ const (
 )
 
 // Tool kinds. A read kind is a lookup transformer run with the tool's fixed
-// config; "sink" writes to a sink node of the same workflow.
-const kindSink = "sink"
+// config; "sink" writes to a sink node of the same workflow; "mcp" calls one
+// named tool of a remote MCP server.
+const (
+	kindSink = "sink"
+	kindMCP  = "mcp"
+)
 
 // ReadKinds are the transformers a read tool may wrap. Each only fetches.
 var ReadKinds = map[string]bool{"db_lookup": true, "api_lookup": true, "ai_retrieve": true}
+
+// ToolKinds lists every tool kind the node accepts.
+func ToolKinds() []string {
+	return []string{"db_lookup", "api_lookup", "ai_retrieve", kindSink, kindMCP}
+}
 
 // toolName is what every provider accepts as a function name.
 var toolName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
@@ -61,6 +71,21 @@ type tool struct {
 	// RequireApproval holds a write tool's call for a person. It defaults to
 	// true and is only false when the node says so explicitly.
 	RequireApproval bool
+	// approvalOptOut is the node's explicit requireApproval: false. An mcp
+	// tool learns whether it writes only from its server, so its
+	// RequireApproval is settled then, from Write and this.
+	approvalOptOut bool
+
+	// Server is an mcp tool's server and Remote the one tool of it this tool
+	// calls; the model never chooses either. endpoint is Server resolved for
+	// the message being processed.
+	Server   *mcptool.Server
+	Remote   string
+	endpoint mcptool.Endpoint
+	// Schema is the remote tool's sanitized input schema. It is used, with
+	// mcptool.BindArgs, when the node declares no parameters for the tool.
+	Schema       map[string]any
+	remoteSchema bool
 }
 
 type config struct {
@@ -190,17 +215,26 @@ func parseTool(m map[string]any) (tool, error) {
 	case ReadKinds[t.Kind]:
 		t.Config, _ = m["config"].(map[string]any)
 		t.Write = m["write"] == true
+	case t.Kind == kindMCP:
+		if err := t.parseMCP(m); err != nil {
+			return t, err
+		}
 	default:
-		return t, fmt.Errorf("tool %q has kind %q; allowed are sink, db_lookup, api_lookup, ai_retrieve", t.Name, t.Kind)
+		return t, fmt.Errorf("tool %q has kind %q; allowed are %s", t.Name, t.Kind, strings.Join(ToolKinds(), ", "))
 	}
-	t.RequireApproval = t.Write && m["requireApproval"] != false
+	t.approvalOptOut = m["requireApproval"] == false
+	t.RequireApproval = t.Write && !t.approvalOptOut
+	return t, t.parseParams(m["parameters"])
+}
 
-	params, _ := m["parameters"].([]any)
+// parseParams reads the parameters the node declares for a tool.
+func (t *tool) parseParams(raw any) error {
+	params, _ := raw.([]any)
 	seen := map[string]bool{}
 	for _, raw := range params {
 		pm, ok := raw.(map[string]any)
 		if !ok {
-			return t, fmt.Errorf("tool %q has a parameter that is not an object", t.Name)
+			return fmt.Errorf("tool %q has a parameter that is not an object", t.Name)
 		}
 		p := param{
 			Name:        strings.TrimSpace(core.GetConfigString(pm, "name")),
@@ -212,15 +246,51 @@ func parseTool(m map[string]any) (tool, error) {
 			p.Type = "string"
 		}
 		if !toolName.MatchString(p.Name) || seen[p.Name] {
-			return t, fmt.Errorf("tool %q has a missing, invalid or repeated parameter name %q", t.Name, p.Name)
+			return fmt.Errorf("tool %q has a missing, invalid or repeated parameter name %q", t.Name, p.Name)
 		}
 		if !paramTypes[p.Type] {
-			return t, fmt.Errorf("tool %q parameter %q has type %q; allowed are string, number, integer, boolean", t.Name, p.Name, p.Type)
+			return fmt.Errorf("tool %q parameter %q has type %q; allowed are string, number, integer, boolean", t.Name, p.Name, p.Type)
 		}
 		seen[p.Name] = true
 		t.Params = append(t.Params, p)
 	}
-	return t, nil
+	return nil
+}
+
+// parseMCP reads an mcp tool's server and remote tool name. Whether the tool
+// writes is only known once its server describes it (see run.prepare); until
+// then only the node's own write flag counts.
+func (t *tool) parseMCP(m map[string]any) error {
+	srv, err := mcptool.ParseServer(m["server"])
+	if err != nil {
+		return fmt.Errorf("mcp tool %q: %w", t.Name, err)
+	}
+	t.Server = &srv
+	t.Remote = strings.TrimSpace(core.GetConfigString(m, "tool"))
+	if t.Remote == "" {
+		return fmt.Errorf("mcp tool %q needs the name of the remote tool it calls (tool)", t.Name)
+	}
+	t.Write = m["write"] == true
+	t.remoteSchema = m["parameters"] == nil
+	return nil
+}
+
+// useRemote applies what the server says about an mcp tool. A tool the
+// server does not mark read-only is a write tool, held for approval unless
+// the node opted out. The node's own description, when it has one, wins
+// over the server's.
+func (t *tool) useRemote(ep mcptool.Endpoint, r mcptool.Remote) {
+	t.endpoint = ep
+	if !r.ReadOnly {
+		t.Write = true
+	}
+	t.RequireApproval = t.Write && !t.approvalOptOut
+	if t.remoteSchema {
+		t.Schema = r.Schema
+	}
+	if strings.TrimSpace(t.Description) == "" {
+		t.Description = r.Description
+	}
 }
 
 // spec is the tool as the model sees it.
@@ -240,6 +310,9 @@ func (t tool) spec() llm.ToolSpec {
 	desc := t.Description
 	if t.RequireApproval {
 		desc = strings.TrimSpace(desc + " (A person must approve each call before it runs.)")
+	}
+	if t.Schema != nil {
+		return llm.ToolSpec{Name: t.Name, Description: desc, Schema: t.Schema}
 	}
 	return llm.ToolSpec{
 		Name:        t.Name,
@@ -261,6 +334,9 @@ func (t tool) bindArgs(input json.RawMessage) (map[string]any, error) {
 		if err := json.Unmarshal(input, &in); err != nil {
 			return nil, fmt.Errorf("arguments are not a JSON object: %w", err)
 		}
+	}
+	if t.Schema != nil {
+		return mcptool.BindArgs(t.Schema, in)
 	}
 	out := make(map[string]any, len(t.Params))
 	for _, p := range t.Params {
