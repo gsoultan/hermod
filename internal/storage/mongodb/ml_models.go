@@ -2,6 +2,7 @@ package mongodb
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -31,10 +32,36 @@ type mlModelDoc struct {
 	InputName      string    `bson:"input_name,omitempty"`
 	Features       []string  `bson:"features,omitempty"`
 	TimeoutMs      int       `bson:"timeout_ms,omitempty"`
+	Monitoring     mlMonDoc  `bson:"monitoring"`
 	ServingKeyHash string    `bson:"serving_key_hash,omitempty"`
 	UpdatedBy      string    `bson:"updated_by"`
 	CreatedAt      time.Time `bson:"created_at"`
 	UpdatedAt      time.Time `bson:"updated_at"`
+}
+
+// mlMonDoc is storage.MLMonitoring with stored field names of its own, so a
+// renamed Go field never silently drops a stored setting.
+type mlMonDoc struct {
+	LogSampleRate float64  `bson:"log_sample_rate,omitempty"`
+	LogMaskFields []string `bson:"log_mask_fields,omitempty"`
+	LogMaskType   string   `bson:"log_mask_type,omitempty"`
+	LogRetention  string   `bson:"log_retention,omitempty"`
+	DriftWarn     float64  `bson:"drift_warn,omitempty"`
+	DriftAlert    float64  `bson:"drift_alert,omitempty"`
+}
+
+func monDoc(m storage.MLMonitoring) mlMonDoc {
+	return mlMonDoc{
+		LogSampleRate: m.LogSampleRate, LogMaskFields: m.LogMaskFields, LogMaskType: m.LogMaskType,
+		LogRetention: m.LogRetention, DriftWarn: m.DriftWarn, DriftAlert: m.DriftAlert,
+	}
+}
+
+func (d mlMonDoc) monitoring() storage.MLMonitoring {
+	return storage.MLMonitoring{
+		LogSampleRate: d.LogSampleRate, LogMaskFields: d.LogMaskFields, LogMaskType: d.LogMaskType,
+		LogRetention: d.LogRetention, DriftWarn: d.DriftWarn, DriftAlert: d.DriftAlert,
+	}
 }
 
 func mlModelID(vhost, name string) string {
@@ -46,7 +73,7 @@ func (d mlModelDoc) model() storage.MLModel {
 		VHost: d.VHost, Name: d.Name, Description: d.Description,
 		Backend: inference.Backend(d.Backend), URL: d.URL, RemoteModel: d.RemoteModel, RemoteVersion: d.RemoteVersion,
 		TokenSecret: d.TokenSecret, InputName: d.InputName, Features: d.Features, TimeoutMs: d.TimeoutMs,
-		ServingKeyHash: d.ServingKeyHash, Serving: d.ServingKeyHash != "",
+		ServingKeyHash: d.ServingKeyHash, Serving: d.ServingKeyHash != "", Monitoring: d.Monitoring.monitoring(),
 		UpdatedBy: d.UpdatedBy, CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
 	}
 }
@@ -94,7 +121,7 @@ func (s *mongoStorage) PutMLModel(ctx context.Context, m storage.MLModel) error 
 				"description": m.Description, "backend": string(m.Backend), "url": m.URL,
 				"remote_model": m.RemoteModel, "remote_version": m.RemoteVersion, "token_secret": m.TokenSecret,
 				"input_name": m.InputName, "features": m.Features, "timeout_ms": m.TimeoutMs,
-				"updated_by": m.UpdatedBy, "updated_at": now,
+				"monitoring": monDoc(m.Monitoring), "updated_by": m.UpdatedBy, "updated_at": now,
 			},
 			"$setOnInsert": bson.M{"vhost": m.VHost, "name": m.Name, "created_at": now},
 		},
@@ -131,6 +158,108 @@ func (s *mongoStorage) DeleteMLModel(ctx context.Context, vhost, name string) er
 func (s *mongoStorage) DeleteMLModels(ctx context.Context, vhost string) error {
 	if _, err := s.db.Collection(mlModelsCollection).DeleteMany(ctx, bson.M{"vhost": vhost}); err != nil {
 		return fmt.Errorf("deleting the models of vhost %q: %w", vhost, err)
+	}
+	return nil
+}
+
+const mlPredictionLogsCollection = "ml_prediction_logs"
+
+// mlPredictionLogDoc is one logged prediction. Inputs and outputs are JSON
+// text, as in the SQL store, so a row reads back as the same Go values
+// whatever shapes the model was sent.
+type mlPredictionLogDoc struct {
+	VHost      string    `bson:"vhost"`
+	Model      string    `bson:"model"`
+	Version    string    `bson:"version,omitempty"`
+	Timestamp  time.Time `bson:"timestamp"`
+	Inputs     string    `bson:"inputs"`
+	Outputs    string    `bson:"outputs"`
+	LatencyMs  float64   `bson:"latency_ms"`
+	CallerKind string    `bson:"caller_kind"`
+	CallerID   string    `bson:"caller_id,omitempty"`
+}
+
+func (s *mongoStorage) InsertMLPredictionLogs(ctx context.Context, logs []storage.MLPredictionLog) error {
+	if len(logs) == 0 {
+		return nil
+	}
+	docs := make([]any, 0, len(logs))
+	for _, l := range logs {
+		inputs, err := json.Marshal(l.Inputs)
+		if err != nil {
+			return fmt.Errorf("encoding a logged prediction of model %q: %w", l.Model, err)
+		}
+		outputs, err := json.Marshal(l.Outputs)
+		if err != nil {
+			return fmt.Errorf("encoding a logged prediction of model %q: %w", l.Model, err)
+		}
+		docs = append(docs, mlPredictionLogDoc{
+			VHost: l.VHost, Model: l.Model, Version: l.Version, Timestamp: l.Timestamp.UTC(),
+			Inputs: string(inputs), Outputs: string(outputs), LatencyMs: l.LatencyMs,
+			CallerKind: l.CallerKind, CallerID: l.CallerID,
+		})
+	}
+	if _, err := s.db.Collection(mlPredictionLogsCollection).InsertMany(ctx, docs, options.InsertMany().SetOrdered(false)); err != nil {
+		return fmt.Errorf("writing prediction logs: %w", err)
+	}
+	return nil
+}
+
+func (s *mongoStorage) ListMLPredictionLogs(ctx context.Context, vhost, model string, limit int) ([]storage.MLPredictionLog, error) {
+	cur, err := s.db.Collection(mlPredictionLogsCollection).Find(ctx, bson.M{"vhost": vhost, "model": model},
+		options.Find().SetSort(bson.D{{Key: "timestamp", Value: -1}}).SetLimit(int64(storage.MLPredictionLogLimit(limit))))
+	if err != nil {
+		return nil, fmt.Errorf("reading the prediction log of model %q of vhost %q: %w", model, vhost, err)
+	}
+	var docs []mlPredictionLogDoc
+	if err := cur.All(ctx, &docs); err != nil {
+		return nil, fmt.Errorf("reading the prediction log of model %q of vhost %q: %w", model, vhost, err)
+	}
+	out := make([]storage.MLPredictionLog, 0, len(docs))
+	for _, d := range docs {
+		l := storage.MLPredictionLog{
+			VHost: d.VHost, Model: d.Model, Version: d.Version, Timestamp: d.Timestamp,
+			LatencyMs: d.LatencyMs, CallerKind: d.CallerKind, CallerID: d.CallerID,
+		}
+		if err := json.Unmarshal([]byte(d.Inputs), &l.Inputs); err != nil {
+			return nil, fmt.Errorf("a logged prediction is unreadable: %w", err)
+		}
+		if err := json.Unmarshal([]byte(d.Outputs), &l.Outputs); err != nil {
+			return nil, fmt.Errorf("a logged prediction is unreadable: %w", err)
+		}
+		out = append(out, l)
+	}
+	return out, nil
+}
+
+// predictionLogScope is the filter for one model, one vhost (model empty) or
+// every vhost (both empty).
+func predictionLogScope(vhost, model string) bson.M {
+	filter := bson.M{}
+	if vhost != "" {
+		filter["vhost"] = vhost
+		if model != "" {
+			filter["model"] = model
+		}
+	}
+	return filter
+}
+
+func (s *mongoStorage) PurgeMLPredictionLogs(ctx context.Context, vhost, model string, before time.Time) error {
+	filter := predictionLogScope(vhost, model)
+	filter["timestamp"] = bson.M{"$lt": before.UTC()}
+	if _, err := s.db.Collection(mlPredictionLogsCollection).DeleteMany(ctx, filter); err != nil {
+		return fmt.Errorf("purging prediction logs: %w", err)
+	}
+	return nil
+}
+
+func (s *mongoStorage) DeleteMLPredictionLogs(ctx context.Context, vhost, model string) error {
+	if vhost == "" {
+		return errors.New("deleting prediction logs needs a vhost")
+	}
+	if _, err := s.db.Collection(mlPredictionLogsCollection).DeleteMany(ctx, predictionLogScope(vhost, model)); err != nil {
+		return fmt.Errorf("deleting the prediction logs of vhost %q: %w", vhost, err)
 	}
 	return nil
 }

@@ -11,7 +11,7 @@ from tests.helpers import classification_rows, load, regression_rows, train
 
 META_KEYS = {
     "model", "version", "task", "algorithm", "dataset", "target", "features",
-    "feature_types", "fill", "metrics", "rows", "created_at",
+    "feature_types", "fill", "feature_stats", "metrics", "rows", "created_at",
 }
 
 

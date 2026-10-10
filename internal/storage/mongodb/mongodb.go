@@ -218,7 +218,7 @@ func (s *mongoStorage) Ping(ctx context.Context) error {
 
 func (s *mongoStorage) Init(ctx context.Context) error {
 	// Create indexes
-	collections := []string{"sources", "sinks", "users", "vhosts", "workflows", "workers", "logs", "settings", "audit_logs", "webhook_requests", "schemas", "message_traces", "workflow_versions"}
+	collections := []string{"sources", "sinks", "users", "vhosts", "workflows", "workers", "logs", "settings", "audit_logs", "webhook_requests", "schemas", "message_traces", "workflow_versions", "ml_prediction_logs"}
 
 	for _, collName := range collections {
 		coll := s.db.Collection(collName)
@@ -233,6 +233,11 @@ func (s *mongoStorage) Init(ctx context.Context) error {
 			})
 			indexModels = append(indexModels, mongo.IndexModel{
 				Keys: bson.D{{Key: "created_at", Value: -1}},
+			})
+		case "ml_prediction_logs":
+			// A model's log is read newest first and purged by age.
+			indexModels = append(indexModels, mongo.IndexModel{
+				Keys: bson.D{{Key: "vhost", Value: 1}, {Key: "model", Value: 1}, {Key: "timestamp", Value: -1}},
 			})
 		case "workflow_versions":
 			indexModels = append(indexModels, mongo.IndexModel{
@@ -869,6 +874,9 @@ func (s *mongoStorage) DeleteVHost(ctx context.Context, id string) error {
 			return err
 		}
 		if err := s.DeleteMLModels(ctx, vhost.Name); err != nil {
+			return err
+		}
+		if err := s.DeleteMLPredictionLogs(ctx, vhost.Name, ""); err != nil {
 			return err
 		}
 	}

@@ -28,6 +28,7 @@ const (
 	QueryInitVHostsTable             = "InitVHostsTable"
 	QueryInitVHostSecretsTable       = "InitVHostSecretsTable"
 	QueryInitMLModelsTable           = "InitMLModelsTable"
+	QueryInitMLPredictionLogsTable   = "InitMLPredictionLogsTable"
 	QueryInitWorkersTable            = "InitWorkersTable"
 	QueryInitLogsTable               = "InitLogsTable"
 	QueryInitWorkflowsTable          = "InitWorkflowsTable"
@@ -102,6 +103,14 @@ const (
 	QuerySetMLModelServingKey  = "SetMLModelServingKey"
 	QueryDeleteMLModel         = "DeleteMLModel"
 	QueryDeleteMLModelsOfVHost = "DeleteMLModelsOfVHost"
+
+	QueryInsertMLPredictionLog         = "InsertMLPredictionLog"
+	QueryListMLPredictionLogs          = "ListMLPredictionLogs"
+	QueryPurgeMLPredictionLogsOfModel  = "PurgeMLPredictionLogsOfModel"
+	QueryPurgeMLPredictionLogsOfVHost  = "PurgeMLPredictionLogsOfVHost"
+	QueryPurgeMLPredictionLogs         = "PurgeMLPredictionLogs"
+	QueryDeleteMLPredictionLogsOfModel = "DeleteMLPredictionLogsOfModel"
+	QueryDeleteMLPredictionLogsOfVHost = "DeleteMLPredictionLogsOfVHost"
 
 	// Workflows
 	QueryListWorkflows        = "ListWorkflows"
@@ -300,6 +309,21 @@ var commonQueries = map[string]string{
 			updated_by TEXT,
 			created_at TIMESTAMP,
 			updated_at TIMESTAMP
+		)`,
+	// One row per logged prediction. inputs and outputs are JSON; inputs are
+	// masked before they are written. Every read and every purge is "this
+	// model of this vhost, by time", which idx_ml_prediction_logs_model_ts
+	// covers.
+	QueryInitMLPredictionLogsTable: `CREATE TABLE IF NOT EXISTS ml_prediction_logs (
+			vhost TEXT NOT NULL DEFAULT '',
+			model TEXT NOT NULL DEFAULT '',
+			version TEXT,
+			timestamp TIMESTAMP NOT NULL,
+			inputs TEXT,
+			outputs TEXT,
+			latency_ms REAL NOT NULL DEFAULT 0,
+			caller_kind TEXT,
+			caller_id TEXT
 		)`,
 	QueryInitWorkersTable: `CREATE TABLE IF NOT EXISTS workers (
 			id TEXT PRIMARY KEY,
@@ -614,7 +638,15 @@ var commonQueries = map[string]string{
 	QuerySetMLModelServingKey:  "UPDATE ml_models SET serving_key_hash = ? WHERE id = ?",
 	QueryDeleteMLModel:         "DELETE FROM ml_models WHERE id = ?",
 	QueryDeleteMLModelsOfVHost: "DELETE FROM ml_models WHERE vhost = ?",
-	QueryGetVHost:              "SELECT id, name, description, created_at FROM vhosts WHERE id = ?",
+
+	QueryInsertMLPredictionLog:         "INSERT INTO ml_prediction_logs (vhost, model, version, timestamp, inputs, outputs, latency_ms, caller_kind, caller_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryListMLPredictionLogs:          "SELECT version, timestamp, inputs, outputs, latency_ms, caller_kind, caller_id FROM ml_prediction_logs WHERE vhost = ? AND model = ? ORDER BY timestamp DESC LIMIT ?",
+	QueryPurgeMLPredictionLogsOfModel:  "DELETE FROM ml_prediction_logs WHERE vhost = ? AND model = ? AND timestamp < ?",
+	QueryPurgeMLPredictionLogsOfVHost:  "DELETE FROM ml_prediction_logs WHERE vhost = ? AND timestamp < ?",
+	QueryPurgeMLPredictionLogs:         "DELETE FROM ml_prediction_logs WHERE timestamp < ?",
+	QueryDeleteMLPredictionLogsOfModel: "DELETE FROM ml_prediction_logs WHERE vhost = ? AND model = ?",
+	QueryDeleteMLPredictionLogsOfVHost: "DELETE FROM ml_prediction_logs WHERE vhost = ?",
+	QueryGetVHost:                      "SELECT id, name, description, created_at FROM vhosts WHERE id = ?",
 
 	QueryListWorkflows:        "SELECT id, name, vhost, active, status, worker_id, owner_id, lease_until, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request, total_processed, total_errors, total_lag, created_at FROM workflows",
 	QueryCountWorkflows:       "SELECT COUNT(*) FROM workflows",
@@ -757,6 +789,9 @@ var driverOverrides = map[string]map[string]string{
 		QuerySaveSetting:     "INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
 	},
 	"sqlserver": {
+		// SQL Server has no LIMIT. OFFSET/FETCH keeps the limit the last
+		// argument, as it is in the common query.
+		QueryListMLPredictionLogs: "SELECT version, timestamp, inputs, outputs, latency_ms, caller_kind, caller_id FROM ml_prediction_logs WHERE vhost = ? AND model = ? ORDER BY timestamp DESC OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY",
 		// SQL Server has no upsert, so this is a MERGE like the two below it.
 		// Without it this key fell through to the SQLite spelling and every
 		// attempt to persist a node's state was rejected as bad syntax.

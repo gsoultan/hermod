@@ -62,40 +62,73 @@ func (t *MaskTransformer) Transform(ctx context.Context, msg hermod.Message, con
 	if val == nil {
 		return msg, nil
 	}
-	fieldVal := fmt.Sprintf("%v", val)
+	msg.SetData(field, t.maskValue(fmt.Sprintf("%v", val), maskType))
+	return msg, nil
+}
 
-	var masked string
+// MaskValue masks one value the way the mask node does: maskType is "email",
+// "partial", "pii", or anything else to replace it whole.
+func MaskValue(s, maskType string) string {
+	return (&MaskTransformer{}).maskValue(s, maskType)
+}
+
+// MaskFields masks fields of a plain map in place, by dotted path. A path to
+// an object masks every string in it; "*" masks every string in data; a
+// non-string value is masked as its text. Paths data does not hold are
+// skipped.
+func MaskFields(data map[string]any, fields []string, maskType string) {
+	t := &MaskTransformer{}
+	for _, field := range fields {
+		if field == "*" {
+			t.scanAndMask(data, maskType)
+			continue
+		}
+		parent, key := data, field
+		for {
+			head, rest, nested := strings.Cut(key, ".")
+			if !nested {
+				break
+			}
+			next, ok := parent[head].(map[string]any)
+			if !ok {
+				parent = nil
+				break
+			}
+			parent, key = next, rest
+		}
+		if parent == nil {
+			continue
+		}
+		switch v := parent[key].(type) {
+		case nil:
+		case string:
+			parent[key] = t.maskValue(v, maskType)
+		case map[string]any:
+			t.scanAndMask(v, maskType)
+		default:
+			parent[key] = t.maskValue(fmt.Sprintf("%v", v), maskType)
+		}
+	}
+}
+
+func (t *MaskTransformer) maskValue(s, maskType string) string {
 	switch maskType {
 	case "email":
-		masked = t.maskEmail(fieldVal)
+		return t.maskEmail(s)
 	case "partial":
-		masked = t.maskPartial(fieldVal)
+		return t.maskPartial(s)
 	case "pii":
-		masked = t.maskPII(fieldVal)
+		return t.maskPII(s)
 	default:
-		masked = "****"
+		return "****"
 	}
-
-	msg.SetData(field, masked)
-	return msg, nil
 }
 
 func (t *MaskTransformer) scanAndMask(data map[string]any, maskType string) {
 	for k, v := range data {
 		switch val := v.(type) {
 		case string:
-			var masked string
-			switch maskType {
-			case "email":
-				masked = t.maskEmail(val)
-			case "partial":
-				masked = t.maskPartial(val)
-			case "pii":
-				masked = t.maskPII(val)
-			default:
-				masked = "****"
-			}
-			data[k] = masked
+			data[k] = t.maskValue(val, maskType)
 		case map[string]any:
 			t.scanAndMask(val, maskType)
 		case []any:
@@ -103,18 +136,7 @@ func (t *MaskTransformer) scanAndMask(data map[string]any, maskType string) {
 				if m, ok := item.(map[string]any); ok {
 					t.scanAndMask(m, maskType)
 				} else if s, ok := item.(string); ok {
-					var masked string
-					switch maskType {
-					case "email":
-						masked = t.maskEmail(s)
-					case "partial":
-						masked = t.maskPartial(s)
-					case "pii":
-						masked = t.maskPII(s)
-					default:
-						masked = "****"
-					}
-					val[i] = masked
+					val[i] = t.maskValue(s, maskType)
 				}
 			}
 		}

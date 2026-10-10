@@ -4,27 +4,112 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
 
+	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/ml"
+	"github.com/gsoultan/hermod/internal/ml/monitor"
+	"github.com/gsoultan/hermod/internal/notification"
+	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/ml/inference"
 	"github.com/gsoultan/hermod/pkg/ml/worker"
 )
 
 // MLService is the model registry and inference path over whatever storage
 // and secrets the registry holds right now. It is cheap to build, so it is
-// built per use rather than cached against a store that may be replaced.
+// built per use rather than cached against a store that may be replaced. The
+// monitor is not: it is the one that holds the drift windows.
 func (r *Registry) MLService() *ml.Service {
-	svc := ml.NewService(func() any { return r.store() }, r.vhostSecrets(), nil)
+	svc := ml.NewService(func() any { return r.store() }, r.vhostSecrets(), nil).
+		WithLogStore(func() any { return r.logStore() }).
+		WithMonitor(r.mlMonitor())
 	if r.mlWorker != nil {
 		svc.WithWorker(r.mlWorker)
 	}
 	return svc
 }
 
+// mlMonitor is this process's prediction monitor, started on first use and
+// stopped with the registry. Prediction logs go to the log store, as message
+// traces do; a drift alert goes out through the notification channels.
+func (r *Registry) mlMonitor() *monitor.Monitor {
+	r.mlMonOnce.Do(func() {
+		r.mlMon = monitor.New(monitor.ConfigFromEnv(), monitor.Deps{
+			Logs: func() any { return r.logStore() },
+			Stats: func(ctx context.Context, vhost, model, version string) (map[string]worker.FeatureStats, error) {
+				return r.MLService().VersionStats(ctx, vhost, model, version)
+			},
+			Notify: r.notifyMLDrift,
+			Logger: r.Logger(),
+		})
+		go r.mlMon.Run(r.ctx)
+	})
+	return r.mlMon
+}
+
 // MLPredict is what the Predict transformer calls: the vhost's model, with
-// the rows it was given.
+// the rows it was given. The workflow is the caller the prediction log names.
 func (r *Registry) MLPredict(ctx context.Context, vhost, model string, rows []inference.Row) ([]inference.Row, error) {
-	return r.MLService().Predict(ctx, vhost, model, rows)
+	workflowID, _ := ctx.Value(hermod.WorkflowIDKey).(string)
+	return r.MLService().Predict(ml.WithCaller(ctx, storage.MLCallerWorkflow, workflowID), vhost, model, rows)
+}
+
+// notifyMLDrift alerts that a model's inputs drifted past its alert
+// threshold. It is called at most once per judged window.
+func (r *Registry) notifyMLDrift(ctx context.Context, rep monitor.Report) {
+	var drifted []string
+	for _, f := range rep.Features {
+		if f.Status == monitor.StatusAlert {
+			drifted = append(drifted, fmt.Sprintf("%s (PSI %.2f)", f.Feature, f.PSI))
+		}
+	}
+	name := rep.VHost + "/" + rep.Model
+	msg := fmt.Sprintf("Version %s of model %s: %s drifted past the alert threshold %.2f over the last %d predictions. "+
+		"The model is seeing inputs unlike the rows it was trained on; check the source data, or train it again.",
+		rep.Version, name, strings.Join(drifted, ", "), rep.Alert, rep.Rows)
+	r.notifyAt(ctx, notification.LevelWarn, "ML model drift: "+name, msg,
+		storage.Workflow{Name: "ML model " + name, VHost: rep.VHost})
+}
+
+// purgeMLPredictionLogs applies each model's prediction log retention, and
+// storage.MaxMLLogRetention to every row, so the log of a model or vhost that
+// is gone does not outlive it.
+func (r *Registry) purgeMLPredictionLogs(ctx context.Context, store, logStore storage.Storage) {
+	logs, ok := logStore.(storage.MLPredictionLogStore)
+	if !ok {
+		return
+	}
+	now := time.Now()
+	if err := logs.PurgeMLPredictionLogs(ctx, "", "", now.Add(-storage.MaxMLLogRetention)); err != nil {
+		r.logger.Error("Registry: purging ML prediction logs failed", "error", err)
+		return
+	}
+	models, ok := store.(storage.MLModelStore)
+	if !ok {
+		return
+	}
+	vhosts := []string{"default"}
+	list, _, err := store.ListVHosts(ctx, storage.CommonFilter{Limit: workflowPageForRetention})
+	if err != nil {
+		r.logger.Error("Registry: listing vhosts for ML prediction log retention failed", "error", err)
+	}
+	for _, v := range list {
+		if v.Name != "default" {
+			vhosts = append(vhosts, v.Name)
+		}
+	}
+	for _, vhost := range vhosts {
+		ms, err := models.ListMLModels(ctx, vhost)
+		if err != nil {
+			continue
+		}
+		for _, m := range ms {
+			if err := logs.PurgeMLPredictionLogs(ctx, vhost, m.Name, now.Add(-m.Monitoring.Retention())); err != nil {
+				r.logger.Error("Registry: purging ML prediction logs failed", "vhost", vhost, "model", m.Name, "error", err)
+			}
+		}
+	}
 }
 
 // MLDatasetFromQuery replaces a vhost's dataset with what a query on one of

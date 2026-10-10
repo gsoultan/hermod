@@ -23,6 +23,8 @@ export interface MLModel {
   input_name?: string
   features?: string[]
   timeout_ms?: number
+  /** How the model is watched; set through saveMonitoring, not saveModel. */
+  monitoring?: MLMonitoring
   /** Whether a serving key exists; the key itself is never returned. */
   serving: boolean
   updated_by?: string
@@ -30,7 +32,7 @@ export interface MLModel {
 }
 
 /** What a client may set on a model; name and vhost come from the URL. */
-export type MLModelInput = Omit<MLModel, 'name' | 'vhost' | 'serving' | 'updated_by' | 'updated_at'>
+export type MLModelInput = Omit<MLModel, 'name' | 'vhost' | 'serving' | 'updated_by' | 'updated_at' | 'monitoring'>
 
 /** The rule storage.ValidMLModelName applies. */
 export const MODEL_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
@@ -161,6 +163,23 @@ export interface ModelVersion {
   metrics: Record<string, number>
   rows: { train: number; test: number }
   created_at: string
+  /** Per-feature statistics of the training split, the baseline drift is measured against. */
+  feature_stats?: Record<string, FeatureStats>
+}
+
+/** One feature of a training split (pkg/ml/worker FeatureStats). */
+export interface FeatureStats {
+  kind: 'numeric' | 'categorical'
+  count: number
+  null_fraction: number
+  mean?: number
+  std?: number
+  min?: number
+  max?: number
+  edges?: number[]
+  fractions?: number[]
+  top?: Array<{ value: string; fraction: number }>
+  other_fraction?: number
 }
 
 export interface TrainResult {
@@ -303,4 +322,97 @@ export function useDataset(vhost: string | undefined, name: string | undefined |
     retry: false,
     staleTime: 30_000,
   })
+}
+
+// ---------------------------------------------------------------------------
+// Monitoring: the prediction log and input drift.
+// ---------------------------------------------------------------------------
+
+/** How a model is watched (internal/storage MLMonitoring). Logging is off until log_sample_rate is above 0. */
+export interface MLMonitoring {
+  log_sample_rate?: number
+  log_mask_fields?: string[]
+  log_mask_type?: '' | 'all' | 'partial' | 'email' | 'pii'
+  log_retention?: string
+  drift_warn?: number
+  drift_alert?: number
+}
+
+export type CallerKind = 'workflow' | 'rest' | 'grpc' | 'ui'
+
+/** One logged prediction, masked as the model's monitoring said when it was written. */
+export interface PredictionLog {
+  vhost: string
+  model: string
+  version?: string
+  timestamp: string
+  inputs: Record<string, unknown>
+  outputs: Record<string, unknown>
+  latency_ms: number
+  caller_kind: CallerKind
+  caller_id?: string
+}
+
+export type DriftLevel = 'ok' | 'warn' | 'alert'
+
+export interface FeatureDrift {
+  feature: string
+  kind: 'numeric' | 'categorical'
+  psi: number
+  status: DriftLevel
+  null_fraction: number
+  training_null_fraction: number
+}
+
+/** One judged window of live inputs (internal/ml/monitor Report). */
+export interface DriftReport {
+  vhost: string
+  model: string
+  version: string
+  window_start: string
+  window_end: string
+  rows: number
+  warn: number
+  alert: number
+  status: DriftLevel
+  features: FeatureDrift[]
+}
+
+/** The latest drift report, or why there is none yet. */
+export interface DriftStatus {
+  report: DriftReport | null
+  reason?: string
+  window?: string
+  min_rows?: number
+}
+
+export const MASK_TYPE_OPTIONS = [
+  { value: 'all', label: 'Replace the whole value (****)' },
+  { value: 'partial', label: 'Keep the first and last characters' },
+  { value: 'email', label: 'Keep the email domain' },
+  { value: 'pii', label: 'Mask PII patterns inside the text' },
+]
+
+export const predictionLogsKey = (vhost: string, name: string) => ['ml-prediction-logs', vhost, name] as const
+export const driftKey = (vhost: string, name: string) => ['ml-drift', vhost, name] as const
+
+export async function listPredictionLogs(vhost: string, name: string, limit = 100, signal?: AbortSignal): Promise<PredictionLog[]> {
+  const res = await apiFetch(`${modelUrl(vhost, name)}/predictions?limit=${limit}`, { signal, silent: true })
+  const body = await res.json()
+  return (body?.data ?? []) as PredictionLog[]
+}
+
+export async function getDrift(vhost: string, name: string, signal?: AbortSignal): Promise<DriftStatus> {
+  const res = await apiFetch(`${modelUrl(vhost, name)}/drift`, { signal, silent: true })
+  return (await res.json()) as DriftStatus
+}
+
+export async function saveMonitoring(vhost: string, name: string, monitoring: MLMonitoring): Promise<MLModel> {
+  const res = await apiFetch(`${modelUrl(vhost, name)}/monitoring`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(monitoring),
+    silent: true,
+  })
+  return (await res.json()) as MLModel
 }
