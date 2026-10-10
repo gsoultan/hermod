@@ -26,6 +26,9 @@ func NewExecutionsHandler(h *handlers.Handler) *ExecutionsHandler {
 // needs access to the workflow's vhost.
 func (h *ExecutionsHandler) RegisterExecutionRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/workflows/{id}/run", h.EditorOnly(h.RunWorkflow))
+	mux.HandleFunc("GET /api/workflows/{id}/executions", h.ListExecutions)
+	mux.HandleFunc("GET /api/workflows/{id}/executions/{run_id}", h.GetExecution)
+	mux.Handle("POST /api/workflows/{id}/executions/{run_id}/replay", h.EditorOnly(h.ReplayExecution))
 }
 
 // loadWorkflow reads the workflow named in the path and checks the caller may
