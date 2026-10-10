@@ -38,6 +38,7 @@ import (
 	"github.com/gsoultan/hermod/pkg/comm/sink/kinesis"
 	"github.com/gsoultan/hermod/pkg/comm/sink/linkedin"
 	sinkmetis "github.com/gsoultan/hermod/pkg/comm/sink/metis"
+	"github.com/gsoultan/hermod/pkg/comm/sink/mldataset"
 	sinkmongodb "github.com/gsoultan/hermod/pkg/comm/sink/mongodb"
 	sinkmqtt "github.com/gsoultan/hermod/pkg/comm/sink/mqtt"
 	sinkmssql "github.com/gsoultan/hermod/pkg/comm/sink/mssql"
@@ -111,6 +112,7 @@ import (
 	"github.com/gsoultan/hermod/pkg/infra/compression"
 	srclient "github.com/gsoultan/hermod/pkg/infra/schemaregistry"
 	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
+	"github.com/gsoultan/hermod/pkg/ml/worker"
 )
 
 type wasmSinkAdapter struct {
@@ -751,6 +753,26 @@ func CreateSink(cfg SinkConfig) (hermod.Sink, error) {
 	return sink.NewRetrySink(decorated, 3, 100*time.Millisecond, nil), nil
 }
 
+// CreateMLDatasetSink builds a Collect Dataset sink on the ML worker w, with
+// the decorators CreateSink puts on every sink. The registry builds it here
+// rather than through CreateSink so the sink reaches the worker training uses.
+func CreateMLDatasetSink(cfg SinkConfig, w *worker.Client) (hermod.Sink, error) {
+	snk, err := newMLDatasetSink(cfg, w)
+	if err != nil {
+		return nil, err
+	}
+	decorated := sink.NewTracingSink(snk, cfg.ID)
+	return sink.NewRetrySink(decorated, 3, 100*time.Millisecond, nil), nil
+}
+
+func newMLDatasetSink(cfg SinkConfig, w *worker.Client) (hermod.Sink, error) {
+	if w == nil {
+		// A nil *worker.Client would make a non-nil Appender.
+		return mldataset.New(cfg.Config, cfg.VHost, nil)
+	}
+	return mldataset.New(cfg.Config, cfg.VHost, w)
+}
+
 // CreateSinkForTransactionGroup builds a sink for membership of a transactional
 // group, without the tracing and retry decorators.
 //
@@ -1224,6 +1246,10 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 		return s, nil
 	case "stdout":
 		return stdout.NewStdoutSink(fmttr), nil
+	case "ml_dataset":
+		// Built here for callers outside the registry, such as the sink
+		// health check, on the worker the environment names.
+		return newMLDatasetSink(cfg, worker.FromEnv())
 	case "sse":
 		stream := cfg.Config["stream"]
 		s := sse.NewSSESink(stream, fmttr)

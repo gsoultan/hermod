@@ -1,0 +1,37 @@
+{
+  "_comment": [
+    "regex_extract and regex_replace, as the engine runs them. Every file in",
+    "this directory is read by pkg/infra/evaluator/function_fixture_test.go;",
+    "each case is a whole expression evaluated against `source`.",
+    "",
+    "Patterns are Go's RE2 syntax, at most 1024 bytes. regex_extract answers the",
+    "first match, or one of its groups by number or by name, and null when",
+    "nothing matches, the group does not exist or the pattern does not compile.",
+    "regex_replace replaces every match; $1 or ${name} in the replacement is that",
+    "group. A pattern that does not compile is null rather than the text",
+    "unchanged, so the mistake shows."
+  ],
+  "source": {
+    "order": "Order #12345 shipped 2024-03-09",
+    "email": "ada@example.com",
+    "phone": "+62 812-555-0199",
+    "none": "no digits here"
+  },
+  "cases": [
+    { "name": "regex_extract: a numbered group", "expr": "regex_extract(source.order, '#(\\d+)', 1)", "want": "12345" },
+    { "name": "regex_extract: the whole match by default", "expr": "regex_extract(source.order, '\\d{4}-\\d{2}-\\d{2}')", "want": "2024-03-09" },
+    { "name": "regex_extract: a named group", "expr": "regex_extract(source.email, '(?P<user>[^@]+)@(?P<domain>.+)', 'domain')", "want": "example.com" },
+    { "name": "regex_extract: no match", "expr": "regex_extract(source.none, '\\d+')", "want": null },
+    { "name": "regex_extract: a group the pattern does not have", "expr": "regex_extract(source.order, '#(\\d+)', 2)", "want": null },
+    { "name": "regex_extract: a negative group", "expr": "regex_extract(source.order, '#(\\d+)', -1)", "want": null },
+    { "name": "regex_extract: a name the pattern does not have", "expr": "regex_extract(source.email, '(?P<user>[^@]+)@', 'host')", "want": null },
+    { "name": "regex_extract: a pattern that does not compile", "expr": "regex_extract(source.order, '[unclosed', 0)", "want": null },
+    { "name": "regex_extract: no pattern", "expr": "regex_extract(source.order)", "want": null },
+
+    { "name": "regex_replace: drop every non-digit", "expr": "regex_replace(source.phone, '[^0-9]', '')", "want": "628125550199" },
+    { "name": "regex_replace: groups in the replacement", "expr": "regex_replace(source.email, '^([^@]+)@(.+)$', '$2/$1')", "want": "example.com/ada" },
+    { "name": "regex_replace: no match leaves the text", "expr": "regex_replace(source.none, '\\d', 'X')", "want": "no digits here" },
+    { "name": "regex_replace: a pattern that does not compile", "expr": "regex_replace(source.phone, '[unclosed', '')", "want": null },
+    { "name": "regex_replace: no replacement", "expr": "regex_replace(source.phone, '\\d')", "want": null }
+  ]
+}
