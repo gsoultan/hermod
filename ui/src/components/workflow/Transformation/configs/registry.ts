@@ -36,6 +36,7 @@ import { AIRetrieveConfig } from './ai-retrieve/AIRetrieveConfig'
 import { AIAgentConfig } from './ai-agent/AIAgentConfig'
 // machine learning
 import { MLPredictConfig } from './ml/MLPredictConfig'
+import { MLTrainConfig } from './ml/MLTrainConfig'
 
 // structure, parsing and reference data
 import { FlattenConfig } from './structure/FlattenConfig'
@@ -164,6 +165,7 @@ export const TRANSFORM_CONFIGS: Record<string, ConfigComponent> = {
   ai_retrieve: AIRetrieveConfig,
   // machine learning
   ml_predict: MLPredictConfig,
+  ml_train: MLTrainConfig,
 
   // structure & parsing (pkg/comm/transformer/structure)
   flatten: FlattenConfig,

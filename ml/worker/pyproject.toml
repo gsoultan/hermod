@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hermod-ml"
+version = "1.0.0"
+description = "Hermod ML worker: dataset storage, model training and ONNX serving over HTTP."
+readme = "README.md"
+requires-python = ">=3.12"
+# Pinned to versions that ship wheels for CPython 3.12 (Docker image) and 3.13.
+# Keep in step with requirements.txt, which also pins the transitive set.
+dependencies = [
+    "fastapi==0.115.6",
+    "uvicorn==0.32.1",
+    "pandas==2.2.3",
+    "pyarrow==18.1.0",
+    "scikit-learn==1.6.1",
+    "skl2onnx==1.19.1",
+    "onnxruntime==1.20.1",
+    "openpyxl==3.1.5",
+    "xgboost-cpu==2.1.4",
+    "onnxmltools==1.14.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest==8.3.4",
+    "httpx==0.28.1",
+]
+
+[tool.setuptools]
+packages = ["hermod_ml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# No .pytest_cache inside the repo.
+addopts = "-p no:cacheprovider"
