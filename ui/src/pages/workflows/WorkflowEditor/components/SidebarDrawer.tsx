@@ -14,6 +14,7 @@ import { AICopilot } from '../../../../components/shared/AICopilot';
 import { NODE_CATEGORIES, categoryKey, paletteItemData } from '../constants/nodeCategories';
 import { filterCategories, matchesQuery, countMatches } from '../utils/paletteSearch';
 import { dlqRecoverySupported } from '@/utils/dlqRecovery';
+import { McpExposureSwitch } from './McpExposureSwitch';
 import { 
   IconDatabase, IconTable, IconX, IconPlus,
   IconCloudUpload, IconRobot, IconPuzzle, IconSettingsAutomation, IconAdjustments, IconShieldLock,
@@ -720,6 +721,7 @@ export function SidebarDrawer({
                         size="xs"
                         clearable
                       />
+                      <McpExposureSwitch tags={tags || []} onChange={setTags} />
                     </Stack>
                   </Paper>
                 </Stack>
