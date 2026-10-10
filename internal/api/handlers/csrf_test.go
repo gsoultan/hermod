@@ -143,6 +143,7 @@ func TestPublicEndpointsAreNotProtected(t *testing.T) {
 		"/api/webhooks/orders",
 		"/api/forms/signup",
 		"/api/ml/serve/tenant-a/churn",
+		"/api/chat/support",
 	} {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, path, nil)
