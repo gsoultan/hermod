@@ -6,9 +6,9 @@ three ways: the **Predict** node in a workflow, the REST API, and gRPC.
 
 A model is either **trained in Hermod**, on a dataset, by the `hermod-ml`
 worker; or **served elsewhere** (KServe, Triton, MLServer, MLflow) and
-registered by its address. Both are called the same way. Collecting training
-data from a running workflow (the Collect Dataset sink) follows in a later
-release; it is drawn dashed below.
+registered by its address. Both are called the same way. A running workflow
+keeps a dataset growing with the **Collect Dataset** sink, and a trained model
+can retrain by itself on a schedule or once enough new rows have arrived.
 
 ```mermaid
 flowchart LR
@@ -25,7 +25,9 @@ flowchart LR
     C2["gRPC hermod.ml.v1.InferenceService/Predict"]
   end
   D["Datasets<br/>CSV / Excel upload<br/>or a SQL query"] --> A3
-  B6["<b>Collect Dataset</b> sink<br/>coming"] -. "fresh rows" .-> D
+  B1 --> B6["<b>Collect Dataset</b> sink"] -- "fresh rows" --> D
+  D -- "schedule or N new rows" --> R["<b>Retrain policy</b><br/>train, go live by rule"]
+  R -. "live version" .-> B2
   A3 -. "live version" .-> B2
   B2 --- C1
   B2 --- C2
@@ -94,6 +96,49 @@ not one that sees every change to a table.
 A trained model is called like any other: the Predict node sends a record's
 fields, one per feature, and gets back `label` and `probability` for a
 classifier, or `value` for a number.
+
+### Collect Dataset sink
+
+*ML Datasets → Collect Dataset* is a sink: every record it receives becomes a
+row of a dataset of the workflow's vhost, appended on the worker. It never
+replaces the dataset, and it writes only to its own vhost's datasets: a sink of
+one vhost refuses records of a workflow in another.
+
+| Setting | Meaning |
+|---|---|
+| `dataset` | Required. The dataset's name; a new name starts a new dataset. |
+| `column_mappings` | Which fields become which columns, as the database sinks map them. Empty means the whole record, nested fields flattened to `parent_child` columns. |
+| `mask_fields`, `mask_type` | Columns masked before the row leaves Hermod: `all` (`****`, the default), `partial`, `email` or `pii`, as the Mask node applies them. |
+| `max_rows` | The dataset stops growing here, default 1,000,000. Later records are skipped and a warning is logged once. |
+
+Rows go to the worker in batches, 500 at a time or every 5 seconds unless the
+sink's reliability settings say otherwise; each append is one part file on the
+worker. A failed append fails the batch, which is retried and then
+dead-lettered like any other sink's, and a stopping workflow flushes what it
+holds. Deleted records are not added.
+
+### Retraining
+
+**Retrain automatically** on a model trained in Hermod makes it train again by
+itself:
+
+- on a **schedule**, a cron expression such as `0 3 * * *` or `@daily`; and/or
+- after **N new rows**: once its dataset holds N rows more than when the model
+  last trained, by any means.
+
+The policy holds the training (dataset, column to predict, features, task,
+algorithm) and the go-live rule, as **Train a model** does. Hermod checks every
+minute. A model is claimed in the database before it trains, so with several
+Hermod servers each retraining runs once, and never while another training of
+the same model, manual or not, is running (a manual training then gets 409).
+The Models page shows the policy and the last retraining: the version it made
+and whether it went live, or its error. A failed retraining is tried again
+after 15 minutes; a worker that is busy is asked again on the next check.
+
+Over the API: `PUT /api/vhosts/{vhost}/ml/models/{name}/retrain` with
+`{"schedule","new_rows","spec":{"dataset","target","features","task","algorithm"},"go_live":{"mode","metric","min"}}`
+sets it, `DELETE` on the same path clears it. The model's `retrain` and
+`retrain_status` fields show both.
 
 ## Register a model served elsewhere
 
