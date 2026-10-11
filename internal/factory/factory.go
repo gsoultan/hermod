@@ -195,7 +195,15 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 		mySrc.SetInitialLoad(cfg.Config["initial_load"] == "true")
 		src = mySrc
 	case "oracle":
-		src = oracle.NewOracleSource(connString, tables, idField, pollInterval, useCDC)
+		oraSrc := oracle.NewOracleSource(connString, tables, idField, pollInterval, useCDC)
+		switch method := cfg.Config["cdc_method"]; method {
+		case "", oracle.CDCMethodIncremental:
+		case oracle.CDCMethodLogMiner:
+			oraSrc.SetLogMiner(cfg.Config["pdb_name"], cfg.Config["initial_load"] == "true")
+		default:
+			return nil, fmt.Errorf("oracle: unknown cdc_method %q (want %q or %q)", method, oracle.CDCMethodIncremental, oracle.CDCMethodLogMiner)
+		}
+		src = oraSrc
 	case "db2":
 		src = db2.NewDB2Source(connString, tables, idField, pollInterval, useCDC)
 	case "mainframe":
