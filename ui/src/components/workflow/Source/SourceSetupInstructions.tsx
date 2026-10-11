@@ -78,26 +78,36 @@ GO`}
         </Stack>
       );
     case 'oracle':
+      if (config.cdc_method !== 'logminer') {
+        return (
+          <Stack gap="xs">
+            <Title order={5}>Oracle Setup</Title>
+            <Text size="sm">Incremental polling reads each table for rows whose ID is above the last one seen. It sees inserts only: choose LogMiner to capture updates and deletes.</Text>
+            <List size="sm" withPadding>
+              <List.Item>Set the Incremental ID Field to an increasing column, such as the primary key</List.Item>
+              <List.Item>Grant <Code>SELECT</Code> on each table to the user</List.Item>
+            </List>
+          </Stack>
+        );
+      }
       return (
         <Stack gap="xs">
-          <Title order={5}>Oracle Setup</Title>
-          <Text size="sm">Hermod supports Oracle CDC via LogMiner:</Text>
+          <Title order={5}>Oracle LogMiner Setup</Title>
+          <Text size="sm">Run these once as a DBA (the first two in CDB$ROOT on a multitenant database):</Text>
           <List size="sm" withPadding>
-            <List.Item>Enable Archivelog mode</List.Item>
-            <List.Item>Enable supplemental logging: <Code>ALTER DATABASE ADD SUPPLEMENTAL LOG DATA;</Code></List.Item>
-            <List.Item>Grant <Code>SELECT ANY TRANSACTION</Code> and <Code>EXECUTE_CATALOG_ROLE</Code> to the user</List.Item>
+            <List.Item>Archive logging: <Code>ALTER DATABASE ARCHIVELOG;</Code> (with the database mounted)</List.Item>
+            <List.Item>Minimal supplemental logging: <Code>ALTER DATABASE ADD SUPPLEMENTAL LOG DATA;</Code></List.Item>
+            <List.Item>Full row images for each table: <Code>ALTER TABLE owner.table ADD SUPPLEMENTAL LOG DATA (ALL) COLUMNS;</Code></List.Item>
+            <List.Item>Grant <Code>LOGMINING</Code>, <Code>EXECUTE ON DBMS_LOGMNR</Code>, <Code>SELECT ANY TRANSACTION</Code>, and <Code>SELECT</Code> on <Code>V_$DATABASE</Code>, <Code>V_$LOGMNR_CONTENTS</Code>, <Code>V_$LOG</Code>, <Code>V_$LOGFILE</Code> and <Code>V_$ARCHIVED_LOG</Code></List.Item>
           </List>
+          <Text size="sm" c="dimmed">Test Connection checks the supplemental logging and names the statement that fixes what is missing.</Text>
         </Stack>
       );
     case 'db2':
       return (
         <Stack gap="xs">
           <Title order={5}>IBM DB2 Setup</Title>
-          <Text size="sm">CDC for DB2 is supported via the IBM CDC replication engine or polling.</Text>
-          <List size="sm" withPadding>
-            <List.Item>Ensure the user has <Code>DATAACCESS</Code> or similar permissions</List.Item>
-            <List.Item>Tables must have <Code>DATA CAPTURE CHANGES</Code> enabled</List.Item>
-          </List>
+          <Text size="sm">This build of Hermod has no DB2 driver: IBM's driver needs CGO and IBM's native client library, which the release images do not include. A DB2 source cannot connect until a build adds them.</Text>
         </Stack>
       );
     case 'http':
