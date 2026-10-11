@@ -27,6 +27,15 @@ import (
 // lineage is read back through the server's own routes and middleware — the
 // session check, the vhost scope and the derivation — as the UI reads it.
 func TestLineageIsServedFromStoredWorkflows(t *testing.T) {
+	checkLineage(t, newLineageServer(t))
+}
+
+type lineageCall func(path, role string, vhosts []string) (int, string)
+
+// newLineageServer stores two tenants' workflows in SQLite and serves them
+// through Server.Routes.
+func newLineageServer(t *testing.T) lineageCall {
+	t.Helper()
 	const secret = "lineage-route-secret"
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "hermod.db")
@@ -82,7 +91,7 @@ func TestLineageIsServedFromStoredWorkflows(t *testing.T) {
 
 	s := &Server{Handler: &handlers.Handler{Storage: st, LogStorage: st}}
 	srv := httptest.NewServer(s.Routes())
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 
 	call := func(path, role string, vhosts []string) (int, string) {
 		t.Helper()
@@ -107,7 +116,11 @@ func TestLineageIsServedFromStoredWorkflows(t *testing.T) {
 		body, _ := io.ReadAll(resp.Body)
 		return resp.StatusCode, string(body)
 	}
+	return call
+}
 
+func checkLineage(t *testing.T, call lineageCall) {
+	t.Helper()
 	if code, _ := call("/api/vhosts/tenant-a/lineage", "", nil); code != http.StatusUnauthorized {
 		t.Fatalf("anonymous: %d, want 401", code)
 	}
@@ -170,5 +183,28 @@ func TestLineageIsServedFromStoredWorkflows(t *testing.T) {
 	code, body = call("/api/vhosts/all/lineage/impact?node="+asset, "Viewer", []string{"tenant-b"})
 	if code != http.StatusOK || strings.Contains(body, "capture") || !strings.Contains(body, "workflow:bwf") {
 		t.Fatalf("tenant-b impact through all: %d %s", code, body)
+	}
+}
+
+// GET /api/infra/lineage (the dashboard's source -> workflow -> sink list)
+// predates vhost scoping and answered every signed-in user with every
+// vhost's sources, sinks and workflows. It now answers each user with the
+// vhosts they may see, as the workflow list does.
+func TestLegacyInfraLineageIsScopedToTheCallersVHosts(t *testing.T) {
+	call := newLineageServer(t)
+
+	if code, _ := call("/api/infra/lineage", "", nil); code != http.StatusUnauthorized {
+		t.Fatalf("anonymous: %d, want 401", code)
+	}
+	code, body := call("/api/infra/lineage", "Viewer", []string{"tenant-b"})
+	if code != http.StatusOK {
+		t.Fatalf("tenant-b viewer: %d %s", code, body)
+	}
+	if strings.Contains(body, "capture") || strings.Contains(body, "orders db") {
+		t.Fatalf("tenant-a's lineage reached a tenant-b viewer: %s", body)
+	}
+	code, body = call("/api/infra/lineage", "Administrator", nil)
+	if code != http.StatusOK || !strings.Contains(body, "capture") {
+		t.Fatalf("administrator: %d %s", code, body)
 	}
 }
