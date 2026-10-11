@@ -73,6 +73,7 @@ GET /api/vhosts/{vhost}/ml/models
 GET /api/vhosts/{vhost}/ml/models/{name}
 GET /api/vhosts/{vhost}/ml/models/{name}/drift
 GET /api/vhosts/{vhost}/ml/models/{name}/predictions
+GET /api/vhosts/{vhost}/ml/models/{name}/scoring
 GET /api/vhosts/{vhost}/ml/models/{name}/versions
 GET /api/vhosts/{vhost}/ml/quotas
 GET /api/vhosts/{vhost}/ml/scripts
@@ -230,6 +231,7 @@ PUT /api/vhosts/{vhost}/ml/models/{name}
 PUT /api/vhosts/{vhost}/ml/models/{name}/mcp
 PUT /api/vhosts/{vhost}/ml/models/{name}/monitoring
 PUT /api/vhosts/{vhost}/ml/models/{name}/retrain
+PUT /api/vhosts/{vhost}/ml/models/{name}/scoring
 PUT /api/vhosts/{vhost}/ml/quotas
 PUT /api/vhosts/{vhost}/ml/scripts/{name}
 PUT /api/vhosts/{vhost}/secrets/{name}

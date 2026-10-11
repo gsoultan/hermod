@@ -30,14 +30,22 @@ import (
 // is computed from the DDL itself, so changing the schema fails this test and
 // forces the question to be asked out loud.
 //
-// Last moved by: adding the ml_scripts table, the custom training scripts a
-// vhost holds, one row per version. currentSchemaVersion was left alone
-// deliberately, for the reasons the ml_models note below gives: it is a
+// Last moved by: adding scoring to ml_models, whether a trained model is
+// scored by the ML worker or in-process. currentSchemaVersion was left alone
+// deliberately, for the reason the retrain note below gives: the column is
+// nullable, and the previous release names its ml_models columns in both
+// directions, so it neither reads nor clears it. A rollback keeps every model
+// callable and scores them all on the worker, which is what the column's NULL
+// means anyway, until the newer binary returns with the setting intact.
+//
+// The note before that: adding the ml_scripts table, the custom training
+// scripts a vhost holds, one row per version. currentSchemaVersion was left
+// alone deliberately, for the reasons the ml_models note below gives: it is a
 // standalone table no earlier code path reads or writes, and a rollback costs
-// the feature (custom training), not a misread of live data. As with
-// ml_models, the previous release's DeleteVHost does not remove a vhost's
-// scripts, so a vhost deleted during a rollback leaves them for a later vhost
-// of the same name; they hold code and who saved it, never a secret.
+// the feature (custom training), not a misread of live data. As with ml_models,
+// the previous release's DeleteVHost does not remove a vhost's scripts, so a
+// vhost deleted during a rollback leaves them for a later vhost of the same
+// name; they hold code and who saved it, never a secret.
 //
 // The note before that: adding the ml_quotas table, the machine-learning
 // limits an Administrator sets on a vhost. currentSchemaVersion was left alone,
@@ -174,7 +182,7 @@ import (
 // unpopulated — a gap in a chart that fills itself in when the newer binary
 // returns — so bumping the version would buy nothing and cost a refused
 // start-up during exactly the rollback it was supposed to make safe.
-const knownSchemaFingerprint = "358b6ae23b18a67dad36731c6d01b0702e6628927266ba3d0aaf4cd2bbc2bac4"
+const knownSchemaFingerprint = "8fb90bc8b887879da9584deb702f541df8c50adc0e5d7cc76f89e0998befce11"
 
 func TestSchemaVersionIsReconsideredWhenTheSchemaChanges(t *testing.T) {
 	if got := SchemaFingerprint(); got != knownSchemaFingerprint {

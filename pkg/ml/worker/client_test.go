@@ -193,6 +193,44 @@ func TestReadyAsksTheHealthRoute(t *testing.T) {
 	}
 }
 
+func TestModelFileReadsTheVersionsGraph(t *testing.T) {
+	f := &fakeWorker{reply: "\x08\x0a\x12\x00onnx bytes"}
+	c := New(f.server(t).URL, "secret", nil)
+
+	raw, err := c.ModelFile(t.Context(), "tenant-a", "churn", "3")
+	if err != nil {
+		t.Fatalf("ModelFile: %v", err)
+	}
+	if string(raw) != f.reply {
+		t.Errorf("ModelFile = %q, want the bytes the worker sent", raw)
+	}
+	if f.method != http.MethodGet || f.path != "/v1/models/tenant-a/churn/versions/3/model.onnx" || f.auth != "Bearer secret" {
+		t.Errorf("called %s %s with %q", f.method, f.path, f.auth)
+	}
+
+	f.status, f.reply = http.StatusNotFound, `{"error":"Model 'churn' has no version '9'."}`
+	if _, err := c.ModelFile(t.Context(), "tenant-a", "churn", "9"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("ModelFile of a missing version = %v, want ErrNotFound", err)
+	}
+	for _, bad := range []string{"", "..", "1/2"} {
+		if _, err := c.ModelFile(t.Context(), "tenant-a", "churn", bad); err == nil {
+			t.Errorf("ModelFile accepted version %q", bad)
+		}
+	}
+}
+
+func TestVersionCarriesWhatScoringNeeds(t *testing.T) {
+	f := &fakeWorker{reply: `{"versions":[{"model":"m","version":"2","task":"classification",
+		"features":["x","city"],"feature_types":{"x":"number","city":"string"},"fill":{"x":0.5},"labels":["no","yes"]}]}`}
+	vs, err := New(f.server(t).URL, "", nil).Versions(t.Context(), "v", "m")
+	if err != nil || len(vs) != 1 {
+		t.Fatalf("Versions = %+v, %v", vs, err)
+	}
+	if vs[0].Fill["x"] != 0.5 || vs[0].FeatureTypes["city"] != "string" {
+		t.Errorf("version = %+v, want its fill values and feature types", vs[0])
+	}
+}
+
 // A version carries the statistics of the rows it was trained on, which is
 // what Hermod measures drift against.
 func TestAVersionCarriesItsTrainingStats(t *testing.T) {
