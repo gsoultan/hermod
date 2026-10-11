@@ -5,6 +5,7 @@ package kafka
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -13,7 +14,9 @@ import (
 
 	"github.com/gsoultan/hermod/pkg/comm/message"
 	sinkkafka "github.com/gsoultan/hermod/pkg/comm/sink/kafka"
-	kafkago "github.com/segmentio/kafka-go"
+	"github.com/twmb/franz-go/pkg/kerr"
+	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/kmsg"
 )
 
 // The Kafka data path, against a real broker.
@@ -46,32 +49,56 @@ func requireKafka(t *testing.T) ([]string, string) {
 		t.Skip("integration: set HERMOD_INTEGRATION=1 and KAFKA_BROKERS to run")
 	}
 	brokers := strings.Split(raw, ",")
+	return brokers, createTopic(t, brokers, 1)
+}
+
+// createTopic makes a fresh topic and waits until it can take writes.
+//
+// Created explicitly rather than left to auto-creation, so a broker with
+// auto-creation off behaves the same and the partition count is known.
+func createTopic(t *testing.T, brokers []string, partitions int32) string {
+	t.Helper()
 	topic := fmt.Sprintf("hermod_it_%d", time.Now().UnixNano())
 
-	// Created explicitly. The sink does not create topics and does not ask the
-	// broker to auto-create them, so a missing topic is a write error rather
-	// than something that quietly appears — which is the right default for a
-	// sink, and worth the test setting up honestly.
-	conn, err := kafkago.Dial("tcp", brokers[0])
+	cl := adminClient(t, brokers)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+
+	req := kmsg.NewPtrCreateTopicsRequest()
+	rt := kmsg.NewCreateTopicsRequestTopic()
+	rt.Topic = topic
+	rt.NumPartitions = partitions
+	rt.ReplicationFactor = 1
+	req.Topics = append(req.Topics, rt)
+	req.TimeoutMillis = 30_000
+	resp, err := req.RequestWith(ctx, cl)
 	if err != nil {
-		t.Fatalf("dialling %s: %v", brokers[0], err)
+		t.Fatalf("creating topic %s: %v", topic, err)
 	}
-	defer conn.Close()
-	if err := conn.CreateTopics(kafkago.TopicConfig{
-		Topic: topic, NumPartitions: 1, ReplicationFactor: 1,
-	}); err != nil {
+	if err := kerr.ErrorForCode(resp.Topics[0].ErrorCode); err != nil {
 		t.Fatalf("creating topic %s: %v", topic, err)
 	}
 	t.Cleanup(func() {
-		c, err := kafkago.Dial("tcp", brokers[0])
-		if err == nil {
-			_ = c.DeleteTopics(topic)
-			_ = c.Close()
-		}
+		del := kmsg.NewPtrDeleteTopicsRequest()
+		dt := kmsg.NewDeleteTopicsRequestTopic()
+		dt.Topic = kmsg.StringPtr(topic)
+		del.Topics = append(del.Topics, dt)
+		del.TopicNames = []string{topic}
+		_, _ = del.RequestWith(context.Background(), cl)
 	})
 
-	waitForTopic(t, brokers[0], topic)
-	return brokers, topic
+	waitForTopic(t, cl, topic, partitions)
+	return topic
+}
+
+func adminClient(t *testing.T, brokers []string) *kgo.Client {
+	t.Helper()
+	cl, err := kgo.NewClient(kgo.SeedBrokers(brokers...))
+	if err != nil {
+		t.Fatalf("admin client: %v", err)
+	}
+	t.Cleanup(cl.Close)
+	return cl
 }
 
 // waitForTopic blocks until the topic is actually usable, which is not the same
@@ -86,38 +113,39 @@ func requireKafka(t *testing.T) ([]string, string) {
 // This is not hypothetical: it is how these tests failed in CI, on one of two
 // runs of the same commit — which is what a race looks like from the outside,
 // and why the local run and the other CI run both stayed green.
-func waitForTopic(t *testing.T, broker, topic string) {
+func waitForTopic(t *testing.T, cl *kgo.Client, topic string, partitions int32) {
 	t.Helper()
 
 	deadline := time.Now().Add(30 * time.Second)
 	var last error
 	for time.Now().Before(deadline) {
-		conn, err := kafkago.Dial("tcp", broker)
-		if err != nil {
-			last = err
-			time.Sleep(250 * time.Millisecond)
-			continue
-		}
-		parts, err := conn.ReadPartitions(topic)
-		_ = conn.Close()
+		req := kmsg.NewPtrMetadataRequest()
+		mt := kmsg.NewMetadataRequestTopic()
+		mt.Topic = kmsg.StringPtr(topic)
+		req.Topics = append(req.Topics, mt)
+		resp, err := req.RequestWith(t.Context(), cl)
 
 		switch {
 		case err != nil:
 			last = err
-		case len(parts) == 0:
-			last = fmt.Errorf("no partitions reported")
+		case len(resp.Topics) == 0:
+			last = errors.New("topic not in metadata")
+		case kerr.ErrorForCode(resp.Topics[0].ErrorCode) != nil:
+			last = kerr.ErrorForCode(resp.Topics[0].ErrorCode)
+		case int32(len(resp.Topics[0].Partitions)) < partitions:
+			last = fmt.Errorf("%d of %d partitions reported", len(resp.Topics[0].Partitions), partitions)
 		default:
 			// A partition with no leader cannot accept a write yet.
 			leaderless := 0
-			for _, p := range parts {
-				if p.Leader.Host == "" {
+			for _, p := range resp.Topics[0].Partitions {
+				if p.Leader < 0 {
 					leaderless++
 				}
 			}
 			if leaderless == 0 {
 				return
 			}
-			last = fmt.Errorf("%d of %d partition(s) have no leader", leaderless, len(parts))
+			last = fmt.Errorf("%d of %d partition(s) have no leader", leaderless, partitions)
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
