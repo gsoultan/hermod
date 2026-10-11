@@ -16,7 +16,7 @@ This document outlines the planned features, development directions, and future 
 - **Autonomous Schema Evolution** (open): when a source schema changes (e.g., a new column in Postgres CDC), Hermod could automatically update the downstream SQL sink schema or alert the user with a "Smart Mapping" suggestion. The analysis exists (`AnalyzeSchemaChange`); nothing triggers it from a CDC schema change yet.
 
 ## 🏢 Enterprise Governance & Observability
-- **Data Lineage & Impact Heatmaps**: Provide a global view of data flows across all workflows. Highlight affected downstream sinks when a source is modified.
+- **Data Lineage & Impact** (Implemented ✅): A per-vhost graph of the assets every workflow reads and writes, derived from saved configuration, with the downstream impact of any source — see [Data lineage](docs/lineage.md). Still open: a heatmap overlay weighted by live throughput.
 - **Hermod Edge Orchestration**: Lightweight Hermod instances for local filtering, masking, and pre-processing before sending data to a central Hermod cluster.
 
 ## ✨ "Zero-Entry" Ease of Use
