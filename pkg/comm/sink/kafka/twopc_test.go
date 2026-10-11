@@ -15,17 +15,16 @@ import (
 // between what the coordinator believes and what the broker holds is the worst
 // failure mode a distributed transaction has.
 //
-// Real Kafka EOS needs a transactional producer (InitTransactions /
-// BeginTransaction / AbortTransaction). segmentio/kafka-go, the client used
-// here, does not expose one — implementing this requires moving to franz-go or
-// confluent-kafka-go first.
+// The sink now runs real Kafka transactions (NewTransactionalKafkaSink), and
+// still must not satisfy the interface. A Kafka transaction has no prepared
+// state that outlives its producer: the next producer with the same
+// transactional ID aborts whatever was left open. A coordinator that prepared
+// the sink, committed its other participants and then lost the process would
+// find this participant rolled back. Each batch is its own transaction
+// instead, committed or aborted before WriteBatch returns.
 //
-// So: until that work happens, KafkaSink must NOT satisfy the interface. Type
-// assertions elsewhere are then correctly false and callers fall back to
-// at-least-once delivery, which is what actually happens.
-//
-// If you are here because you just implemented real Kafka transactions: delete
-// this test in the same commit that makes it fail.
+// So type assertions elsewhere must stay false, and a transaction group must
+// not accept a Kafka sink as a member.
 func TestKafkaSinkDoesNotClaimTwoPhaseCommit(t *testing.T) {
 	var s any = &KafkaSink{}
 

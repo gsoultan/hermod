@@ -246,6 +246,22 @@ export function QueueSinkConfig({ type, config, updateConfig }: QueueSinkConfigP
             <TextInput label="Password (SASL)" type="password" placeholder="Optional" value={config.password || ''} onChange={(e) => updateConfig('password', e.target.value)} />
           </FormRow>
 
+          <TextInput
+            label="Transactional ID"
+            placeholder="Optional, e.g. hermod-orders"
+            description="Writes each batch as one Kafka transaction. Read from a Kafka source and the source's offsets commit in the same transaction: exactly-once. Unique per workflow."
+            value={config.transactional_id || ''}
+            onChange={(e) => updateConfig('transactional_id', e.target.value)}
+            mt="xs"
+          />
+          {(config.transactional_id || '').trim() !== '' && (
+            <Alert color="yellow" mt="xs">
+              Use this only when Kafka is the workflow&apos;s only sink. The transaction commits the
+              source&apos;s offsets with this sink&apos;s output, so a second sink that fails would not
+              get the records again after a restart.
+            </Alert>
+          )}
+
           <Select
             label="Message Format"
             description="How records are serialised onto the topic"

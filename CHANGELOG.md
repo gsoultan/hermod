@@ -9,6 +9,16 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ### Upgrading
 
+**The Kafka sink spreads keyed records by key.** The connectors moved from
+`segmentio/kafka-go` to `franz-go`. The sink used to pick the partition with the
+fewest bytes queued; it now hashes the record key (the message ID), so records
+with the same ID land on the same partition in order, and records without one
+are spread across partitions in batches. A topic whose consumers relied on an even
+spread of records with few distinct IDs will see it change. The source now reads
+`read_committed`, which changes nothing on a topic nobody writes
+transactionally, and SASL credentials on the source are actually sent: they
+were set up on a transport the reader never used.
+
 **Secrets are read from the secret manager, and the env manager reads only its
 prefix.** `secret("X")` and `env("X")` in an expression, and `secret:X` in a
 connector's config, read `HERMOD_SECRET_X` — or the prefix set under
@@ -42,6 +52,19 @@ key saved — the form has always offered one — its endpoint now answers 401 t
 request that does not carry it in the `X-API-Key` header. It used to accept
 every request. Before upgrading, make sure each sender of a keyed webhook sends
 the header, or clear the key on the source.
+
+### Added — Kafka exactly-once
+
+A Kafka sink with a **Transactional ID** writes each batch as one Kafka
+transaction. When the batch came from a Kafka source, the source consumer
+group's offsets are committed in the same transaction, fenced by the group's
+member ID and generation, so Kafka to Kafka is exactly-once: a pipeline killed
+before its commit re-reads from the last committed transaction, and a producer
+left behind is fenced and its open transaction aborted. A batch from a member
+the group has since rebalanced away from is refused. `transactional_id` used to
+be rejected; it is now a field on the Kafka sink form. The sink still does not
+join transactional sink groups, because Kafka cannot commit a transaction a
+previous process prepared.
 
 ### Added — custom training scripts and GPU worker pools
 

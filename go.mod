@@ -81,12 +81,12 @@ require (
 	github.com/jlaffaye/ftp v0.1.0
 	github.com/joho/godotenv v1.3.0
 	github.com/kardianos/service v1.2.4
-	github.com/klauspost/compress v1.19.1
+	github.com/klauspost/compress v1.20.0
 	github.com/microsoft/go-mssqldb v1.7.2
 	github.com/milvus-io/milvus-sdk-go/v2 v2.4.2
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/nats-io/nats.go v1.37.0
-	github.com/pierrec/lz4/v4 v4.1.27
+	github.com/pierrec/lz4/v4 v4.1.30
 	github.com/pkg/sftp v1.13.6
 	github.com/pquerna/otp v1.5.0
 	github.com/prometheus/client_golang v1.21.1
@@ -96,7 +96,6 @@ require (
 	github.com/redis/go-redis/v9 v9.17.2
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/rs/zerolog v1.34.0
-	github.com/segmentio/kafka-go v0.4.48
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/sijms/go-ora/v2 v2.9.0
 	github.com/snowflakedb/gosnowflake/v2 v2.2.0
@@ -106,6 +105,8 @@ require (
 	github.com/tetratelabs/wazero v1.11.0
 	github.com/tidwall/gjson v1.18.0
 	github.com/tidwall/sjson v1.2.5
+	github.com/twmb/franz-go v1.22.1
+	github.com/twmb/franz-go/pkg/kmsg v1.14.0
 	github.com/xeipuuv/gojsonschema v1.2.0
 	github.com/xitongsys/parquet-go v1.6.2
 	github.com/xitongsys/parquet-go-source v0.0.0-20241021075129-b732d2ac9c9b
