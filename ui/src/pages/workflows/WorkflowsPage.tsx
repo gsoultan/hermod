@@ -40,6 +40,15 @@ export default function WorkflowsPage() {
   const itemsPerPage = 30;
   const [selectedWorkspace, setSelectedWorkspace] = useState<string>('all');
   const [selectedIDs, setSelectedIDs] = useState<string[]>([]);
+  // The selection belongs to the rows on screen. Kept across a page, search,
+  // workspace or vhost change, a batch delete reached workflows the user could
+  // no longer see. Reset during render, so no frame shows the old count.
+  const selectionScope = `${activePage}|${debouncedSearch}|${selectedVHost}|${selectedWorkspace}`;
+  const [selectionScopeSeen, setSelectionScopeSeen] = useState(selectionScope);
+  if (selectionScope !== selectionScopeSeen) {
+    setSelectionScopeSeen(selectionScope);
+    setSelectedIDs([]);
+  }
   const [importOpened, { open: openImport, close: closeImport }] = useDisclosure(false);
   const [templatesOpened, { open: openTemplates, close: closeTemplates }] = useDisclosure(false);
   const [describeOpened, { open: openDescribe, close: closeDescribe }] = useDisclosure(false);
