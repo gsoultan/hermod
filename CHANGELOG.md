@@ -20,6 +20,26 @@ shortcuts now use Cmd on macOS (Cmd+S, Cmd+Enter, Cmd+Shift+Enter), so Cmd+S
 saves the workflow instead of opening the browser's Save dialog; Ctrl still
 works everywhere.
 
+### Added — Oracle CDC with LogMiner
+
+The Oracle source has a **Change capture method**. **LogMiner** reads inserts,
+updates and deletes from the redo logs, with before and after images, emitted
+when each transaction commits and in commit order. A restart resumes from the
+last acknowledged position and still delivers a transaction that was open when
+Hermod stopped. It works connected to a PDB, to `CDB$ROOT` with the PDB named,
+or to a non-CDB database, and can load the tables' current rows first. Test
+Connection names any missing supplemental logging. Setup, grants and limits are
+in [docs/oracle-cdc.md](docs/oracle-cdc.md).
+
+**Incremental polling** stays the default, so existing Oracle sources are
+unchanged. The source form now shows its ID field and poll interval while CDC is
+on, which it used to hide.
+
+The setup notes no longer say Oracle CDC uses LogMiner unless that method is
+chosen, and no longer promise DB2 CDC: this build has no DB2 driver, so a DB2
+source cannot connect. The unused Oracle and DB2 stubs in
+`pkg/comm/source/cdc` are removed.
+
 ## [1.18.0] — 2026-10-11
 
 AI automation and machine learning. Workflows can call LLM providers, retrieve
