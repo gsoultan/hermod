@@ -33,11 +33,14 @@ This document outlines the planned features, development directions, and future 
   [Distributed transactions](./README.md#distributed-transactions-transactional-sink-groups),
   which also states the residual risk plainly.
 
-  What limits it now is participants, not the coordinator: **PostgreSQL is the only sink that
-  implements `hermod.TwoPhaseCommit`**, so a group can only span PostgreSQL destinations. A group
+  Two sinks implement `hermod.TwoPhaseCommit`: **PostgreSQL** (`PREPARE TRANSACTION`; YugabyteDB
+  shares the sink) and **MySQL** (XA transactions; MariaDB shares the sink, MySQL 5.7.7+ /
+  MariaDB 10.5.2+), so a group can span any mix of PostgreSQL and MySQL destinations. A group
   refuses to start if any member cannot participate, rather than silently offering no atomicity.
-  The next step is a second implementation — and closing the one window the README documents,
-  which needs `hermod.TwoPhaseCommit` to accept a coordinator-supplied transaction ID.
+  The window the README used to document is closed: the coordinator supplies every transaction
+  ID and records it before Prepare, and hands it over at Begin to a participant that must name
+  the transaction when it opens it (`hermod.NamedBegin`, which MySQL's `XA START` needs). What
+  remains is further participants: no other sink implements it yet, and Kafka cannot (see below).
 - **Kafka exactly-once**: Worth separating into the two different things it could mean, because
   only one of them is reachable.
 
