@@ -30,6 +30,20 @@ interface SinkWizardProps {
   /** Present inside the workflow editor, where the fields come from upstream. */
   onRefreshFields?: () => void;
   isRefreshing?: boolean;
+  /**
+   * Table and database discovery from useSinkForm. The database forms ask for
+   * these and used to be rendered without them, so their table picker stayed
+   * empty and typing a database name called a function that was not there.
+   */
+  discovery?: {
+    tables: string[];
+    loadingTables: boolean;
+    tablesError: string | null;
+    discoverTables: (force?: boolean) => void;
+    discoveredDatabases: string[];
+    isFetchingDBs: boolean;
+    fetchDatabases: () => void;
+  };
 }
 
 export function SinkWizard({
@@ -52,7 +66,8 @@ export function SinkWizard({
   availableFields,
   upstreamSource,
   onRefreshFields,
-  isRefreshing
+  isRefreshing,
+  discovery
 }: SinkWizardProps) {
   const [active, setActive] = useState(0);
 
@@ -185,6 +200,7 @@ export function SinkWizard({
                     availableFields={availableFields}
                     incomingPayload={incomingPayload}
                     upstreamSource={upstreamSource}
+                    {...discovery}
                   />
                 )}
               </Suspense>

@@ -370,6 +370,7 @@ function EditorInner() {
           availableFields={availableFields}
           incomingPayload={incomingPayload}
           inputSkipped={inputSkipped}
+          sources={sources?.data || []}
           sinks={sinks?.data || []}
           upstreamSource={upstreamSource}
           setSettingsOpened={setSettingsOpened}

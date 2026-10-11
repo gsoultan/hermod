@@ -74,6 +74,35 @@ describe('useLiveStatuses', () => {
   })
 
   /**
+   * Eviction went by when an id was first seen, not when it last reported, so
+   * a busy workflow that had been sending updates all along was the first to
+   * go once newer ids filled the map — its badge vanished while idle ones
+   * that reported once stayed.
+   */
+  it('keeps an entry that was updated recently when evicting', async () => {
+    const { result } = renderHook(() => useLiveStatuses())
+    act(() => latest().open())
+
+    act(() => {
+      latest().emit({ workflow_id: 'busy', source_status: 'running' })
+      for (let i = 0; i < LIVE_STATUS_LIMIT - 1; i++) {
+        latest().emit({ workflow_id: `w${i}`, source_status: 'running' })
+      }
+    })
+    await waitFor(() => expect(result.current.statuses[`w${LIVE_STATUS_LIMIT - 2}`]).toBeDefined())
+
+    // The busy workflow reports again, then one more new id arrives.
+    act(() => latest().emit({ workflow_id: 'busy', source_status: 'error' }))
+    await waitFor(() => expect(result.current.statuses.busy?.source_status).toBe('error'))
+    act(() => latest().emit({ workflow_id: 'newcomer', source_status: 'running' }))
+    await waitFor(() => expect(result.current.statuses.newcomer).toBeDefined())
+
+    expect(result.current.statuses.busy?.source_status).toBe('error')
+    expect(result.current.statuses.w0).toBeUndefined()
+    expect(Object.keys(result.current.statuses).length).toBeLessThanOrEqual(LIVE_STATUS_LIMIT)
+  })
+
+  /**
    * A dropped socket used to leave the badges frozen on their last value with
    * nothing to say so — an operations tool silently reporting a stopped
    * pipeline as running.

@@ -20,6 +20,13 @@ interface DebugEvent {
   status?: string;
 }
 
+/**
+ * Most events the debugger holds. Every event used to be kept for as long as
+ * the panel stayed open, so a busy pipeline grew the list without end; the
+ * oldest are dropped once this many have arrived.
+ */
+export const DEBUG_EVENT_LIMIT = 500;
+
 export function WorkflowDebugger({ workflowId }: { workflowId: string }) {
   const [events, setEvents] = useState<DebugEvent[]>([]);
   const [isConnected, setIsConnected] = useState(false);
@@ -43,7 +50,10 @@ export function WorkflowDebugger({ workflowId }: { workflowId: string }) {
     socket.onclose = () => setIsConnected(false);
     socket.onmessage = (event) => {
       const ev = JSON.parse(event.data);
-      setEvents((prev) => [...prev, ev]);
+      setEvents((prev) => {
+        const next = [...prev, ev];
+        return next.length > DEBUG_EVENT_LIMIT ? next.slice(next.length - DEBUG_EVENT_LIMIT) : next;
+      });
     };
 
     ws.current = socket;
