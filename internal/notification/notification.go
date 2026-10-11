@@ -124,8 +124,51 @@ type Service struct {
 	storage   storage.Storage
 	lastSent  map[string]time.Time
 	logger    hermod.Logger
-	wg        sync.WaitGroup
+	inflight  inflight
 	mu        sync.RWMutex
+}
+
+// inflight counts dispatched notifications still sending.
+//
+// It replaces a sync.WaitGroup, which forbids an Add from zero while a Wait is
+// in progress. Alerts are raised from any goroutine — the ML drift monitor has
+// its own — so a shutdown or a test waiting for them could not rule that out,
+// and the race detector caught it.
+type inflight struct {
+	mu   sync.Mutex
+	n    int
+	idle chan struct{}
+}
+
+func (f *inflight) add() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.n == 0 {
+		f.idle = make(chan struct{})
+	}
+	f.n++
+}
+
+func (f *inflight) done() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.n--
+	if f.n == 0 {
+		close(f.idle)
+	}
+}
+
+// wait returns a channel closed once nothing dispatched before the call is
+// still sending.
+func (f *inflight) wait() <-chan struct{} {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.n == 0 {
+		c := make(chan struct{})
+		close(c)
+		return c
+	}
+	return f.idle
 }
 
 func NewService(s storage.Storage) *Service {
@@ -154,7 +197,7 @@ func (s *Service) SetLogger(l hermod.Logger) {
 // Wait blocks until every dispatched notification has finished. It exists for
 // shutdown and for tests; the send path itself never waits.
 func (s *Service) Wait() {
-	s.wg.Wait()
+	<-s.inflight.wait()
 }
 
 // WaitFor blocks until in-flight notifications finish or d elapses, and reports
@@ -165,11 +208,7 @@ func (s *Service) Wait() {
 // never sent. Waiting without a bound is the opposite mistake: an unreachable
 // channel would hold the shutdown open for the full send timeout.
 func (s *Service) WaitFor(d time.Duration) bool {
-	done := make(chan struct{})
-	go func() {
-		s.wg.Wait()
-		close(done)
-	}()
+	done := s.inflight.wait()
 	timer := time.NewTimer(d)
 	defer timer.Stop()
 	select {
@@ -225,9 +264,9 @@ func (s *Service) NotifyLevel(ctx context.Context, level, title, message string,
 	// The deadline below is what bounds the work instead.
 	sendCtx := context.WithoutCancel(ctx)
 
-	s.wg.Add(1)
+	s.inflight.add()
 	go func() {
-		defer s.wg.Done()
+		defer s.inflight.done()
 		ctx, cancel := context.WithTimeout(sendCtx, notifyTimeout)
 		defer cancel()
 
