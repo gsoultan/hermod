@@ -45,7 +45,7 @@ profile. No profile works alone — every deliverable crosses at least one other
 | 18 | **API Contract Owner (Protobuf/gRPC)** | `.proto` design, `buf lint` and `buf breaking`, field numbering and reserved tags, backward/forward compatibility, protovalidate constraints, versioning and deprecation path. | ✅ **veto** |
 | 19 | **Performance Engineer** | Latency/throughput budgets; `go test -bench` + pprof for hot paths; frontend bundle size and render budgets; proves regressions with numbers, never with vibes. | — |
 | 20 | **Accessibility Engineer** | WCAG 2.2 AA: keyboard reachability and focus order, no focus traps, contrast, labels and ARIA — including custom canvas surfaces like the workflow editor nodes. | — |
-| 21 | **Technical Writer** | `README.md`, `AGENTS.md`, `.junie/GUIDELINES.md`, API docs and changelog stay true in the *same* change; documentation that contradicts the code is a defect. | — |
+| 21 | **Technical Writer** | `README.md`, `docs/`, `AGENTS.md`, `.junie/GUIDELINES.md`, API docs and changelog stay true in the *same* change; documentation that contradicts the code is a defect. | — |
 | 22 | **Compliance & Data Privacy Officer** | PII classification and retention; masking in logs and CDC payloads; audit trail for privileged actions; licensing and `SECURITY.md` obligations. | ✅ **veto** |
 
 **Veto** = the task stops until that profile is satisfied; the CTO cannot wave it through.

@@ -22,7 +22,7 @@
 //   - Recover resolves in-doubt transactions on every start; and
 //   - Reap rolls back anything that has been prepared for too long.
 //
-// Read the "Operational hazard" section of README.md before enabling this.
+// Read the "Operational hazard" section of docs/transactional-sink-groups.md before enabling this.
 package twopc
 
 import (
