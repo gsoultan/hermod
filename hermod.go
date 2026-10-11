@@ -300,6 +300,25 @@ type TwoPhaseCommit interface {
 	RollbackPrepared(ctx context.Context, txID string) error
 }
 
+// NamedBegin is an optional interface for a TwoPhaseCommit participant that has
+// to name its transaction when it opens it rather than when it prepares it.
+//
+// MySQL XA is the case: XA START takes the identifier, and an XA transaction
+// cannot be renamed afterwards. Without this the participant would have to
+// invent a name at Begin and report it back from Prepare, and a crash between
+// that Prepare returning and the coordinator recording the substitute would
+// leave a prepared transaction nothing can name — the window the
+// coordinator-supplied ID in Prepare exists to close.
+//
+// The coordinator calls BeginNamed instead of Begin when a participant has it,
+// and later calls Prepare with the same txID. An open transaction that has not
+// been prepared is not in doubt — a crash rolls it back — so the name does not
+// need to be durable yet; it is recorded before Prepare, as for every
+// participant.
+type NamedBegin interface {
+	BeginNamed(ctx context.Context, txID string) error
+}
+
 // Formatter defines the interface for formatting messages before they are written to a sink.
 type Formatter interface {
 	Format(msg Message) ([]byte, error)

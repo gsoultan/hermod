@@ -17,6 +17,17 @@ analysis lists the same downstream assets, and both are limited to the vhosts
 you have access to (so is the dashboard's lineage list, which previously showed
 every vhost). See [Data lineage](docs/lineage.md).
 
+### Added — MySQL and MariaDB in transactional sink groups
+
+A transactional sink group can now include MySQL and MariaDB sinks alongside
+PostgreSQL, so one batch commits to every member or to none of them, across a
+crash. MySQL members use XA transactions and need MySQL 5.7.7 or later (8.0.30 or
+later if binary logging is on) or MariaDB 10.5.2 or later, and an account that
+can run `XA RECOVER` (`XA_RECOVER_ADMIN` on MySQL 8.0+); a group with a member
+that does not meet these refuses to start. Hermod's XA transactions appear in
+`XA RECOVER` with format ID `1213026116`. See "MySQL and MariaDB members (XA)" in
+the README before enabling.
+
 ### Upgrading
 
 **The Kafka sink spreads keyed records by key.** The connectors moved from

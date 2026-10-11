@@ -2,7 +2,6 @@ package mysql
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 
@@ -211,7 +210,7 @@ func sameColumns(a, b []string) bool {
 // One statement per chunk rather than one per message: for a remote database
 // that is the difference between N network round trips and a handful, which
 // dominates everything else a sink does.
-func (s *MySQLSink) writeBatchMultiValues(ctx context.Context, tx *sql.Tx, table string, msgs []hermod.Message) (bool, error) {
+func (s *MySQLSink) writeBatchMultiValues(ctx context.Context, tx sqlExecutor, table string, msgs []hermod.Message) (bool, error) {
 	built, ok, err := s.buildBulkRows(msgs)
 	if err != nil || !ok {
 		return false, err

@@ -222,8 +222,24 @@ func (c *Coordinator) prepareAll(ctx context.Context, participants []Participant
 	// with "no active transaction" — so a coordinator that skipped this would
 	// fail on the first real batch while passing every test whose fake accepts
 	// Prepare unconditionally.
+	//
+	// Each participant's transaction ID is chosen here, before Begin, because
+	// some participants have to name a transaction when they open it (MySQL XA:
+	// XA START takes the identifier and it cannot change afterwards). Choosing
+	// it now does not move when it becomes durable — that is still before
+	// Prepare, below — and an open, unprepared transaction is rolled back by a
+	// crash, so it needs no name in the log yet.
+	txIDs := make(map[string]string, len(participants))
 	for i, p := range participants {
-		if err := p.Sink.Begin(ctx); err != nil {
+		txID := c.newTxID()
+		txIDs[p.ID] = txID
+		var err error
+		if nb, ok := p.Sink.(hermod.NamedBegin); ok {
+			err = nb.BeginNamed(ctx, txID)
+		} else {
+			err = p.Sink.Begin(ctx)
+		}
+		if err != nil {
 			// Roll back the ones already open; the rest were never touched.
 			c.rollbackOpen(ctx, participants[:i])
 			return nil, fmt.Errorf("twopc: participant %q could not begin: %w", p.ID, err)
@@ -257,7 +273,7 @@ func (c *Coordinator) prepareAll(ctx context.Context, participants []Participant
 	}
 
 	for _, p := range participants {
-		// The name is chosen and recorded here, before the participant is asked
+		// The name (chosen before Begin, above) is recorded here, before the participant is asked
 		// to prepare anything. Previously the participant named its own
 		// transaction and returned the name, which left a window: a crash
 		// between Prepare returning and the coordinator writing that name down
@@ -269,7 +285,7 @@ func (c *Coordinator) prepareAll(ctx context.Context, participants []Participant
 		// worst a name recorded for a transaction that was never prepared, and
 		// recovery rolling back an identifier that does not exist is a no-op.
 		// An orphan you can name is a cleanup; one you cannot is an outage.
-		txID := c.newTxID()
+		txID := txIDs[p.ID]
 		rec.TxIDs[p.ID] = txID
 		if err := c.save(ctx, rec); err != nil {
 			delete(rec.TxIDs, p.ID)
@@ -310,8 +326,9 @@ func (c *Coordinator) prepareAll(ctx context.Context, participants []Participant
 // can be recorded before the transaction exists; see the loop in prepareAll.
 //
 // It is a UUID because the PostgreSQL sink interpolates it into PREPARE
-// TRANSACTION, which takes a string literal rather than a bind parameter, and
-// refuses anything that is not a UUID.
+// TRANSACTION, and the MySQL sink into its XA statements, neither of which
+// takes a bind parameter; both refuse anything that is not a UUID (MySQL
+// insists on the canonical lower-case form this produces).
 func (c *Coordinator) newTxID() string {
 	return uuid.New().String()
 }
