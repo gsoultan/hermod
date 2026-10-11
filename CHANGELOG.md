@@ -43,6 +43,17 @@ request that does not carry it in the `X-API-Key` header. It used to accept
 every request. Before upgrading, make sure each sender of a keyed webhook sends
 the header, or clear the key on the source.
 
+### Removed — the Terraform provider
+
+`pkg/terraform/provider` declared `hermod_workflow` and `hermod_workspace`
+resources and a `hermod_workspace` data source, but it never worked: every
+create, read, update and delete, and the data source, returned "not
+implemented". No release built a provider binary either — the stray `main`
+under `ui/cmd/terraform-provider-hermod` was in no build or release target — so
+there was nothing to install. Nothing that worked is lost. The Terraform plugin
+SDK and the dependencies only it pulled in leave `go.mod`. Manage workflows and
+workspaces through the API, `hermodctl` or the UI.
+
 ### Added — custom training scripts and GPU worker pools
 
 An Administrator can save Python training scripts per vhost
