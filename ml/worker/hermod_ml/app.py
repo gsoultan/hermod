@@ -19,9 +19,12 @@ from fastapi.responses import JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from . import transfer
+from .custom import CustomTrainer
 from .datasets import DatasetStore, parse_csv, parse_xlsx, rows_to_table
 from .errors import ApiError, bad_request
 from .names import validate_name
+from .sandbox import SandboxSettings, harden_parent
 from .serving import ModelServer
 from .settings import Settings
 from .training import TASKS, ModelStore, Trainer, algorithm_capabilities
@@ -59,13 +62,21 @@ async def read_json_object(request: Request, limit: int) -> dict[str, Any]:
     return data
 
 
-def create_app(settings: Settings) -> FastAPI:
-    """Build the FastAPI app around one data directory."""
+def create_app(settings: Settings, sandbox: SandboxSettings | None = None) -> FastAPI:
+    """Build the FastAPI app around one data directory.
+
+    `sandbox` says whether custom training scripts may run here; None means
+    they may not.
+    """
+    sandbox = sandbox or SandboxSettings()
     app = FastAPI(title="hermod-ml", docs_url=None, redoc_url=None, openapi_url=None)
     datasets = DatasetStore(settings.data_dir)
     models = ModelStore(settings.data_dir)
     server = ModelServer(models, capacity=settings.model_cache)
     trainer = Trainer(datasets, models, max_concurrent=settings.max_trainings, on_saved=server.evict)
+    custom = CustomTrainer(datasets, models, sandbox, max_concurrent=settings.max_trainings, on_saved=server.evict)
+    if sandbox.enabled:
+        harden_parent()
     app.state.settings = settings
     app.state.datasets = datasets
     app.state.models = models
@@ -181,6 +192,13 @@ def create_app(settings: Settings) -> FastAPI:
         body = await read_json_object(request, limit)
         return await run_in_threadpool(trainer.train, vhost, name, body)
 
+    @api.post("/v1/models/{vhost}/{name}/train-custom")
+    async def train_custom(vhost: str, name: str, request: Request) -> dict[str, Any]:
+        validate_name(vhost, "vhost")
+        validate_name(name, "model")
+        body = await read_json_object(request, limit)
+        return await run_in_threadpool(custom.train, vhost, name, body)
+
     @api.get("/v1/models/{vhost}/{name}/versions")
     async def list_versions(vhost: str, name: str) -> dict[str, Any]:
         validate_name(vhost, "vhost")
@@ -214,6 +232,8 @@ def create_app(settings: Settings) -> FastAPI:
     async def infer_version(vhost: str, name: str, version: str, request: Request) -> dict[str, Any]:
         body = await read_json_object(request, limit)
         return await run_in_threadpool(server.infer, vhost, name, version, body)
+
+    transfer.add_routes(api, datasets, models, server.evict, read_body, read_json_object, limit)
 
     app.include_router(api)
     return app

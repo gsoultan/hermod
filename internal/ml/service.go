@@ -56,6 +56,7 @@ type Service struct {
 	secrets secrets.ScopedManager
 	client  *inference.Client
 	worker  *worker.Client
+	pools   Pools
 
 	// quotaDefaults are the server-wide quotas, for a vhost without its own.
 	quotaDefaults storage.MLQuotas
@@ -79,7 +80,7 @@ func NewService(store func() any, sec secrets.ScopedManager, client *inference.C
 	if client == nil {
 		client = inference.NewClient(nil)
 	}
-	return &Service{store: store, secrets: sec, client: client, worker: envWorker(),
+	return &Service{store: store, secrets: sec, client: client, worker: envWorker(), pools: envPools(),
 		quotaDefaults: envQuotaDefaults(), now: time.Now}
 }
 

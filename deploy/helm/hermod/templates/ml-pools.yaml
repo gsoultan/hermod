@@ -1,0 +1,223 @@
+{{/*
+Training-only worker pools: mlWorker.customPool runs custom training scripts,
+mlWorker.gpuPool runs trainings that ask for the GPU. Each is called with
+(list $ "custom") or (list $ "gpu").
+
+A pool keeps nothing: Hermod copies the dataset in, trains, copies the version
+out to the main worker (which serves it) and deletes the pool's copy. So a
+pool has no volume, only scratch space, and any number of replicas.
+*/}}
+{{- define "hermod.mlPool.fullname" -}}
+{{- $root := index . 0 -}}
+{{- printf "%s-ml-%s" (include "hermod.fullname" $root) (index . 1) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "hermod.mlPool.selectorLabels" -}}
+{{- $root := index . 0 -}}
+app.kubernetes.io/name: {{ printf "%s-ml-%s" (include "hermod.name" $root) (index . 1) }}
+app.kubernetes.io/instance: {{ $root.Release.Name }}
+app.kubernetes.io/component: {{ printf "ml-%s-pool" (index . 1) }}
+{{- end }}
+
+{{- define "hermod.mlPool.labels" -}}
+{{- $root := index . 0 -}}
+helm.sh/chart: {{ include "hermod.chart" $root }}
+{{ include "hermod.mlPool.selectorLabels" . }}
+{{- if $root.Chart.AppVersion }}
+app.kubernetes.io/version: {{ $root.Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ $root.Release.Service }}
+{{- end }}
+
+{{- define "hermod.mlPool" -}}
+{{- $root := index . 0 -}}
+{{- $kind := index . 1 -}}
+{{- $p := index . 2 -}}
+{{- $w := $root.Values.mlWorker -}}
+{{- $name := include "hermod.mlPool.fullname" (list $root $kind) -}}
+{{- $custom := eq $kind "custom" -}}
+{{- if $p.token }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "hermod.mlPool.labels" (list $root $kind) | nindent 4 }}
+type: Opaque
+stringData:
+  {{ $p.existingSecretKey }}: {{ $p.token | quote }}
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "hermod.mlPool.labels" (list $root $kind) | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ $w.port }}
+      targetPort: http
+  selector:
+    {{- include "hermod.mlPool.selectorLabels" (list $root $kind) | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "hermod.mlPool.labels" (list $root $kind) | nindent 4 }}
+spec:
+  replicas: {{ $p.replicas }}
+  selector:
+    matchLabels:
+      {{- include "hermod.mlPool.selectorLabels" (list $root $kind) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hermod.mlPool.selectorLabels" (list $root $kind) | nindent 8 }}
+    spec:
+      {{- with $root.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      # No service-discovery variables: the pool has nothing to find.
+      enableServiceLinks: false
+      {{- with $p.runtimeClassName }}
+      runtimeClassName: {{ . }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: {{ $custom | ternary $p.runAsUser 10001 }}
+        runAsGroup: {{ $custom | ternary $p.runAsUser 10001 }}
+        fsGroup: {{ $custom | ternary $p.runAsUser 10001 }}
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: hermod-ml
+          image: "{{ $p.image.repository | default $w.image.repository }}:{{ $p.image.tag | default $w.image.tag | default $root.Chart.AppVersion }}"
+          imagePullPolicy: {{ $w.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: {{ $w.port }}
+          env:
+            - name: HERMOD_ML_ADDR
+              value: {{ printf "0.0.0.0:%v" $w.port | quote }}
+            - name: HERMOD_ML_DATA_DIR
+              value: /var/lib/hermod-ml
+            - name: HERMOD_ML_MAX_TRAININGS
+              value: {{ $p.maxTrainings | quote }}
+            - name: HERMOD_ML_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $p.existingSecret | default $name }}
+                  key: {{ $p.existingSecretKey }}
+            {{- if $custom }}
+            - name: HERMOD_ML_CUSTOM_SCRIPTS
+              value: "true"
+            - name: HERMOD_ML_SANDBOX_CPU_SECONDS
+              value: {{ $p.sandbox.cpuSeconds | quote }}
+            - name: HERMOD_ML_SANDBOX_MEMORY_MB
+              value: {{ $p.sandbox.memoryMb | quote }}
+            - name: HERMOD_ML_SANDBOX_TIMEOUT_SECONDS
+              value: {{ $p.sandbox.timeoutSeconds | quote }}
+            - name: HERMOD_ML_SANDBOX_FILE_MB
+              value: {{ $p.sandbox.fileMb | quote }}
+            - name: HERMOD_ML_SANDBOX_NPROC
+              value: {{ $p.sandbox.nproc | quote }}
+            - name: HERMOD_ML_SANDBOX_OUTPUT_MB
+              value: {{ $p.sandbox.outputMb | quote }}
+            {{- end }}
+            {{- range $k, $v := $p.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /v2/health/ready
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /v2/health/live
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            {{- toYaml $p.resources | nindent 12 }}
+          volumeMounts:
+            # The job's copy of the dataset and the version it trains.
+            - name: data
+              mountPath: /var/lib/hermod-ml
+            # Training libraries and the sandbox write scratch files.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          emptyDir:
+            sizeLimit: {{ $p.tmpSizeLimit }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ $p.tmpSizeLimit }}
+      {{- with $p.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $p.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $p.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- if $custom }}
+---
+# The custom-script pool reaches nothing: no egress at all unless
+# extraEgress adds some, and only Hermod's own pods may call it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "hermod.mlPool.labels" (list $root $kind) | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "hermod.mlPool.selectorLabels" (list $root $kind) | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "hermod.selectorLabels" $root | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: http
+  {{- with $p.networkPolicy.extraEgress }}
+  egress:
+    {{- toYaml . | nindent 4 }}
+  {{- else }}
+  egress: []
+  {{- end }}
+{{- end }}
+{{- end }}
+
+{{- if and .Values.mlWorker.enabled .Values.mlWorker.customPool.enabled }}
+{{ include "hermod.mlPool" (list $ "custom" .Values.mlWorker.customPool) }}
+{{- end }}
+{{- if and .Values.mlWorker.enabled .Values.mlWorker.gpuPool.enabled }}
+---
+{{ include "hermod.mlPool" (list $ "gpu" .Values.mlWorker.gpuPool) }}
+{{- end }}
