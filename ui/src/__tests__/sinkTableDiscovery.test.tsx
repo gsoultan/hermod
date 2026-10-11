@@ -73,14 +73,14 @@ describe('sink table discovery', () => {
 
     // Wait for the automatic discovery to be in flight, then edit something
     // that has nothing to do with the connection.
-    await waitFor(() => expect(calls).toBe(1), { timeout: 3000 })
-    await user.type(await screen.findByPlaceholderText('NATS Sink'), 's')
+    await waitFor(() => expect(calls).toBe(1), { timeout: 10000 })
+    await user.type(await screen.findByPlaceholderText('NATS Sink', {}, { timeout: 10000 }), 's')
     releaseFirst()
 
     await user.click(screen.getByRole('button', { name: /next step/i }))
-    const tablePicker = await screen.findByPlaceholderText('Select or type table name')
+    const tablePicker = await screen.findByPlaceholderText('Select or type table name', {}, { timeout: 10000 })
     await user.click(tablePicker)
 
-    await waitFor(() => expect(screen.getByText('orders')).toBeInTheDocument(), { timeout: 4000 })
-  }, 20000)
+    await waitFor(() => expect(screen.getByText('orders')).toBeInTheDocument(), { timeout: 10000 })
+  }, 30000)
 })

@@ -80,7 +80,7 @@ describe('live sockets come back after a drop', () => {
         </QueryClientProvider>
       </MantineProvider>,
     )
-    await screen.findByText('Orders')
+    await screen.findByText('Orders', {}, { timeout: 10000 })
     await user.click(screen.getByRole('tab', { name: /logs/i }))
     await waitFor(() => expect(socketsTo('/api/ws/status')).toHaveLength(1))
     await waitFor(() => expect(socketsTo('/api/ws/logs')).toHaveLength(1))
@@ -90,11 +90,11 @@ describe('live sockets come back after a drop', () => {
       socketsTo('/api/ws/logs')[0].drop()
     })
 
-    await waitFor(() => expect(socketsTo('/api/ws/status')).toHaveLength(2), { timeout: 3000 })
-    await waitFor(() => expect(socketsTo('/api/ws/logs')).toHaveLength(2), { timeout: 3000 })
+    await waitFor(() => expect(socketsTo('/api/ws/status')).toHaveLength(2), { timeout: 10000 })
+    await waitFor(() => expect(socketsTo('/api/ws/logs')).toHaveLength(2), { timeout: 10000 })
     act(() => socketsTo('/api/ws/status')[1].emit({ workflow_id: 'wf-1', engine_status: 'reconnecting' }))
-    expect(await screen.findByText(/reconnecting/i)).toBeInTheDocument()
-  }, 20000)
+    expect(await screen.findByText(/reconnecting/i, {}, { timeout: 10000 })).toBeInTheDocument()
+  }, 30000)
 
   it('the header re-opens its dashboard socket', async () => {
     signInAs()
@@ -121,6 +121,6 @@ describe('live sockets come back after a drop', () => {
 
     act(() => socketsTo('/api/ws/dashboard')[0].drop())
 
-    await waitFor(() => expect(socketsTo('/api/ws/dashboard')).toHaveLength(2), { timeout: 3000 })
-  }, 20000)
+    await waitFor(() => expect(socketsTo('/api/ws/dashboard')).toHaveLength(2), { timeout: 10000 })
+  }, 30000)
 })

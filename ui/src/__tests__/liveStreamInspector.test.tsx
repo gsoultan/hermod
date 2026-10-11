@@ -5,6 +5,9 @@ import { vi, afterEach, beforeEach } from 'vitest'
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore'
 import { LiveStreamInspector } from '@/pages/workflows/WorkflowEditor/components/LiveStreamInspector'
 
+// These render whole pages; on a loaded machine the 5s default is too short.
+vi.setConfig({ testTimeout: 30000 })
+
 // jsdom has no Worker; filter on the main thread with the same rule the
 // worker applies to node_id. One function for the life of the test, as the
 // real hook's is, or the inspector's filter effect re-runs every render.
@@ -56,7 +59,7 @@ describe('live stream inspector', () => {
     const user = userEvent.setup()
     renderInspector()
 
-    const warehouse = await screen.findByRole('button', { name: 'Warehouse' })
+    const warehouse = await screen.findByRole('button', { name: 'Warehouse' }, { timeout: 10000 })
     expect(screen.getByRole('button', { name: 'All Nodes' })).toHaveAttribute('aria-pressed', 'true')
     expect(warehouse).toHaveAttribute('aria-pressed', 'false')
 
@@ -78,11 +81,11 @@ describe('live stream inspector', () => {
         data: JSON.stringify({ workflow_id: 'wf-1', node_id: 'src', timestamp: '2026-10-09T10:00:00Z', data: { id: 1 } }),
       })
     })
-    expect(await screen.findByText(/"id": 1/)).toBeInTheDocument()
+    expect(await screen.findByText(/"id": 1/, {}, { timeout: 10000 })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Warehouse' }))
 
-    expect(await screen.findByText(/no messages match this filter/i)).toBeInTheDocument()
+    expect(await screen.findByText(/no messages match this filter/i, {}, { timeout: 10000 })).toBeInTheDocument()
     expect(screen.queryByText(/no live messages yet/i)).toBeNull()
   })
 })

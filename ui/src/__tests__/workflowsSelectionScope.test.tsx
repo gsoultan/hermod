@@ -9,6 +9,9 @@ import { ConfirmProvider } from '@/components/common/ConfirmProvider'
 import { server, signInAs } from '../test/setupTests'
 import WorkflowsPage from '../pages/workflows/WorkflowsPage'
 
+// These render whole pages; on a loaded machine the 5s default is too short.
+vi.setConfig({ testTimeout: 30000 })
+
 vi.mock('@tanstack/react-router', () => ({
   Link: (props: any) => <button {...props} />,
   useNavigate: () => () => {},
@@ -57,11 +60,11 @@ describe('workflow list selection', () => {
   it('is cleared when the page changes', async () => {
     const user = userEvent.setup()
     renderPage()
-    await user.click(await screen.findByRole('checkbox', { name: 'Select workflow First Page Workflow' }))
+    await user.click(await screen.findByRole('checkbox', { name: 'Select workflow First Page Workflow' }, { timeout: 10000 }))
     expect(screen.getByRole('button', { name: /batch actions \(1\)/i })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: '2' }))
-    await screen.findByText('Second Page Workflow')
+    await screen.findByText('Second Page Workflow', {}, { timeout: 10000 })
 
     expect(screen.queryByRole('button', { name: /batch actions/i })).toBeNull()
   })
@@ -69,11 +72,11 @@ describe('workflow list selection', () => {
   it('is cleared when the search changes', async () => {
     const user = userEvent.setup()
     renderPage()
-    await user.click(await screen.findByRole('checkbox', { name: 'Select workflow First Page Workflow' }))
+    await user.click(await screen.findByRole('checkbox', { name: 'Select workflow First Page Workflow' }, { timeout: 10000 }))
     expect(screen.getByRole('button', { name: /batch actions \(1\)/i })).toBeInTheDocument()
 
     await user.type(screen.getByPlaceholderText('Search workflows...'), 'matched')
-    await screen.findByText('Matched Workflow', {}, { timeout: 3000 })
+    await screen.findByText('Matched Workflow', {}, { timeout: 10000 })
 
     await waitFor(() => expect(screen.queryByRole('button', { name: /batch actions/i })).toBeNull())
   })

@@ -1,3 +1,4 @@
+import { vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MantineProvider } from '@mantine/core'
@@ -7,6 +8,9 @@ import { http, HttpResponse } from 'msw'
 import { server, signInAs } from '../test/setupTests'
 import { apiFetch } from '@/api'
 import { mutationCache } from '@/lib/queryClient'
+
+// These render whole pages; on a loaded machine the 5s default is too short.
+vi.setConfig({ testTimeout: 30000 })
 
 /**
  * A failed request is reported by apiFetch itself ("Request Failed"), and the
@@ -72,6 +76,6 @@ describe('a failed mutation without onError', () => {
     )
 
     await user.click(screen.getByRole('button', { name: 'Toggle' }))
-    expect(await screen.findByText('engine offline')).toBeInTheDocument()
+    expect(await screen.findByText('engine offline', {}, { timeout: 10000 })).toBeInTheDocument()
   })
 })

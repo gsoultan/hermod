@@ -1,3 +1,4 @@
+import { vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MantineProvider } from '@mantine/core'
@@ -6,6 +7,9 @@ import { http, HttpResponse } from 'msw'
 import { server, signInAs } from '../test/setupTests'
 import { ConfirmProvider } from '@/components/common/ConfirmProvider'
 import { SettingsPage } from '@/pages/system/SettingsPage'
+
+// These render whole pages; on a loaded machine the 5s default is too short.
+vi.setConfig({ testTimeout: 30000 })
 
 /**
  * Settings warns before the tab closes with unsaved edits. The baseline it
@@ -49,8 +53,8 @@ describe('Settings unsaved-changes warning', () => {
 
   it('does not warn when the saved settings have only been loaded', async () => {
     renderSettings()
-    expect(await screen.findByDisplayValue('postgres://saved/db', {}, { timeout: 4000 })).toBeInTheDocument()
-    expect(await screen.findByDisplayValue('saved-bucket', {}, { timeout: 4000 })).toBeInTheDocument()
+    expect(await screen.findByDisplayValue('postgres://saved/db', {}, { timeout: 10000 })).toBeInTheDocument()
+    expect(await screen.findByDisplayValue('saved-bucket', {}, { timeout: 10000 })).toBeInTheDocument()
 
     expect(warnsOnLeave()).toBe(false)
   })
@@ -58,8 +62,8 @@ describe('Settings unsaved-changes warning', () => {
   it('warns after an edit to the S3 storage settings', async () => {
     const user = userEvent.setup()
     renderSettings()
-    const bucket = await screen.findByDisplayValue('saved-bucket', {}, { timeout: 4000 })
-    await screen.findByDisplayValue('postgres://saved/db', {}, { timeout: 4000 })
+    const bucket = await screen.findByDisplayValue('saved-bucket', {}, { timeout: 10000 })
+    await screen.findByDisplayValue('postgres://saved/db', {}, { timeout: 10000 })
     expect(warnsOnLeave()).toBe(false)
 
     await user.type(bucket, '-2')

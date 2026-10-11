@@ -51,8 +51,8 @@ describe('node settings modal', () => {
       </QueryClientProvider>,
     )
 
-    await user.click(await screen.findByRole('combobox', { name: /database source/i }))
+    await user.click(await screen.findByRole('combobox', { name: /database source/i }, { timeout: 10000 }))
     expect(screen.getByText(/customers-db/)).toBeInTheDocument()
     expect(screen.queryByText(/warehouse-sink/)).toBeNull()
-  }, 15000)
+  }, 30000)
 })

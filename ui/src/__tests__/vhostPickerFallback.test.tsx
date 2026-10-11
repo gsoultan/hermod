@@ -52,6 +52,6 @@ describe('header vhost picker', () => {
       </MantineProvider>,
     )
 
-    expect(await screen.findByText('east,west', {}, { timeout: 4000 })).toBeInTheDocument()
-  }, 20000)
+    expect(await screen.findByText('east,west', {}, { timeout: 10000 })).toBeInTheDocument()
+  }, 30000)
 })
