@@ -20,6 +20,9 @@ vi.mock('@tanstack/react-router', () => ({
 // Reported as "Run Preview shows no returned value" for an execute_sql node
 // behind a RabbitMQ queue. The panel the button is in now says why, and offers
 // the one action that fixes it.
+// Room for the findBy wait below, which outlasts the default test timeout.
+vi.setConfig({ testTimeout: 30_000 })
+
 describe('live preview with no sample to run on', () => {
   const setup = (incoming: any, onRefreshFields?: () => void) => {
     const queryClient = new QueryClient()
@@ -42,11 +45,13 @@ describe('live preview with no sample to run on', () => {
     )
   }
 
+  // The first render pays for loading the form's modules, which on a busy CI
+  // runner took longer than findBy's default second.
   it('says why, where the button is, and fetches a sample when asked', async () => {
     const onRefreshFields = vi.fn()
     setup(undefined, onRefreshFields)
 
-    const panel = await screen.findByTestId('live-preview')
+    const panel = await screen.findByTestId('live-preview', {}, { timeout: 10_000 })
     const notice = await within(panel).findByTestId('preview-no-input')
     expect(notice).toHaveTextContent(/no sample/i)
 
@@ -60,7 +65,7 @@ describe('live preview with no sample to run on', () => {
   it('does not offer a fetch nothing is wired to do', async () => {
     setup(undefined)
 
-    const panel = await screen.findByTestId('live-preview')
+    const panel = await screen.findByTestId('live-preview', {}, { timeout: 10_000 })
     const notice = await within(panel).findByTestId('preview-no-input')
     expect(within(notice).queryByRole('button', { name: /fetch a sample/i })).toBeNull()
   })
@@ -71,7 +76,7 @@ describe('live preview with no sample to run on', () => {
     )
     setup({ code: 'MQ-1' }, vi.fn())
 
-    const panel = await screen.findByTestId('live-preview')
+    const panel = await screen.findByTestId('live-preview', {}, { timeout: 10_000 })
     expect(within(panel).queryByTestId('preview-no-input')).toBeNull()
     expect(within(panel).getByRole('button', { name: /run preview/i })).toBeEnabled()
   })
