@@ -67,6 +67,8 @@ GET /api/vhosts
 GET /api/vhosts/
 GET /api/vhosts/{id}
 GET /api/vhosts/{vhost}/ai/budget
+GET /api/vhosts/{vhost}/lineage
+GET /api/vhosts/{vhost}/lineage/impact
 GET /api/vhosts/{vhost}/ml/datasets
 GET /api/vhosts/{vhost}/ml/datasets/{name}
 GET /api/vhosts/{vhost}/ml/models
