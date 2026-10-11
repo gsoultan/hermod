@@ -9,7 +9,7 @@ import { server, signInAs } from '../test/setupTests'
 import { Layout } from '@/components/layout/Layout'
 
 vi.mock('@tanstack/react-router', () => ({
-  Link: ({ to: _to, params: _params, ...props }: any) => <a {...props} />,
+  Link: ({ children, to: _to, params: _params, ...props }: any) => <a {...props}>{children}</a>,
   useNavigate: () => () => {},
   useRouterState: () => ({ location: { pathname: '/' }, isLoading: false }),
 }))

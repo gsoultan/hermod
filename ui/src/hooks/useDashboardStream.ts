@@ -128,12 +128,17 @@ export function useDashboardStream(vhost: string) {
     });
   }, []);
 
+  // The chart is per vhost. Kept until the new vhost's history arrived, the
+  // previous vhost's points stayed on screen whenever that history did not.
+  // Reset during render, so no frame draws one vhost's points under another.
+  const [seriesVHost, setSeriesVHost] = useState(vhost);
+  if (seriesVHost !== vhost) {
+    setSeriesVHost(vhost);
+    setSeries([]);
+  }
+
   useEffect(() => {
     let cancelled = false;
-
-    // The chart is per vhost. Kept until the new vhost's history arrived, the
-    // previous vhost's points stayed on screen whenever that history did not.
-    setSeries([]);
 
     // Seed the chart from persisted history so a reload shows the trend that
     // was already there rather than starting from flat.
