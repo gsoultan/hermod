@@ -28,6 +28,7 @@ const (
 	QueryInitVHostsTable             = "InitVHostsTable"
 	QueryInitVHostSecretsTable       = "InitVHostSecretsTable"
 	QueryInitMLModelsTable           = "InitMLModelsTable"
+	QueryInitMLQuotasTable           = "InitMLQuotasTable"
 	QueryInitMLPredictionLogsTable   = "InitMLPredictionLogsTable"
 	QueryInitAIBudgetsTable          = "InitAIBudgetsTable"
 	QueryInitAIUsageTable            = "InitAIUsageTable"
@@ -105,6 +106,11 @@ const (
 	QuerySetMLModelServingKey  = "SetMLModelServingKey"
 	QueryDeleteMLModel         = "DeleteMLModel"
 	QueryDeleteMLModelsOfVHost = "DeleteMLModelsOfVHost"
+
+	QueryGetMLQuotas    = "GetMLQuotas"
+	QueryInsertMLQuotas = "InsertMLQuotas"
+	QueryUpdateMLQuotas = "UpdateMLQuotas"
+	QueryDeleteMLQuotas = "DeleteMLQuotas"
 
 	QueryInsertMLPredictionLog         = "InsertMLPredictionLog"
 	QueryListMLPredictionLogs          = "ListMLPredictionLogs"
@@ -335,6 +341,14 @@ var commonQueries = map[string]string{
 			retrain_status TEXT,
 			training_owner TEXT,
 			training_until TIMESTAMP
+		)`,
+	// One row per vhost that has quotas set; spec is the quotas as JSON, so a
+	// new quota is not a schema change.
+	QueryInitMLQuotasTable: `CREATE TABLE IF NOT EXISTS ml_quotas (
+			vhost TEXT PRIMARY KEY,
+			spec TEXT,
+			updated_by TEXT,
+			updated_at TIMESTAMP
 		)`,
 	// One row per logged prediction. inputs and outputs are JSON; inputs are
 	// masked before they are written. Every read and every purge is "this
@@ -697,6 +711,11 @@ var commonQueries = map[string]string{
 	// it takes an unclaimed or expired claim, or renews the owner's own.
 	QueryClaimMLModelTraining:   "UPDATE ml_models SET training_owner = ?, training_until = ? WHERE id = ? AND (training_owner IS NULL OR training_until IS NULL OR training_until < ? OR training_owner = ?)",
 	QueryReleaseMLModelTraining: "UPDATE ml_models SET training_owner = NULL, training_until = NULL WHERE id = ? AND training_owner = ?",
+
+	QueryGetMLQuotas:    "SELECT spec, updated_by, updated_at FROM ml_quotas WHERE vhost = ?",
+	QueryInsertMLQuotas: "INSERT INTO ml_quotas (vhost, spec, updated_by, updated_at) VALUES (?, ?, ?, ?)",
+	QueryUpdateMLQuotas: "UPDATE ml_quotas SET spec = ?, updated_by = ?, updated_at = ? WHERE vhost = ?",
+	QueryDeleteMLQuotas: "DELETE FROM ml_quotas WHERE vhost = ?",
 
 	QueryGetAIBudget:             "SELECT spec, updated_by, updated_at FROM ai_budgets WHERE vhost = ?",
 	QueryInsertAIBudget:          "INSERT INTO ai_budgets (vhost, spec, updated_by, updated_at) VALUES (?, ?, ?, ?)",

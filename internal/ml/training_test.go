@@ -57,7 +57,8 @@ func (f *fakeWorker) server(t *testing.T) *httptest.Server {
 			key := parts[2] + "/" + parts[3]
 			v := worker.Version{Model: parts[3], Version: itoa(len(f.versions[key]) + 1), Task: "classification",
 				Dataset: spec.Dataset, Target: spec.Target, Features: []string{"age", "plan"},
-				Metrics: map[string]float64{"score": f.score, "accuracy": f.score}}
+				FeatureTypes: map[string]string{"age": "number", "plan": "string"},
+				Metrics:      map[string]float64{"score": f.score, "accuracy": f.score}}
 			f.versions[key] = append([]worker.Version{v}, f.versions[key]...)
 			_ = json.NewEncoder(w).Encode(v)
 		case r.Method == http.MethodGet && len(parts) == 5 && parts[4] == "versions":
@@ -127,6 +128,9 @@ func TestTrainingANewModelRegistersItAndPutsItLive(t *testing.T) {
 	}
 	if m.Backend != storage.MLBackendWorker || m.RemoteVersion != "1" || len(m.Features) != 2 || m.UpdatedBy != "ada" {
 		t.Errorf("registered model = %+v", m)
+	}
+	if m.FeatureTypes["age"] != "number" || m.FeatureTypes["plan"] != "string" {
+		t.Errorf("the live version's feature types were not kept: %v", m.FeatureTypes)
 	}
 	if f.auth != "Bearer worker-token" {
 		t.Errorf("the worker was called with %q", f.auth)

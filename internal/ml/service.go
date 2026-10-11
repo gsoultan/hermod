@@ -57,6 +57,11 @@ type Service struct {
 	client  *inference.Client
 	worker  *worker.Client
 
+	// quotaDefaults are the server-wide quotas, for a vhost without its own.
+	quotaDefaults storage.MLQuotas
+	// now is the clock the prediction rate is measured by.
+	now func() time.Time
+
 	// monitor is told of every prediction, for the prediction log and drift;
 	// logs is the store the prediction log is read from. Both are optional.
 	monitor *monitor.Monitor
@@ -74,7 +79,8 @@ func NewService(store func() any, sec secrets.ScopedManager, client *inference.C
 	if client == nil {
 		client = inference.NewClient(nil)
 	}
-	return &Service{store: store, secrets: sec, client: client, worker: envWorker()}
+	return &Service{store: store, secrets: sec, client: client, worker: envWorker(),
+		quotaDefaults: envQuotaDefaults(), now: time.Now}
 }
 
 // WithWorker replaces the ML worker the environment names; nil means none.
@@ -114,12 +120,20 @@ func (s *Service) Model(ctx context.Context, vhost, name string) (storage.MLMode
 }
 
 // Predict sends rows to the vhost's model and returns one prediction per row.
+// Every row counts against the vhost's predictions-per-second quota.
 func (s *Service) Predict(ctx context.Context, vhost, name string, rows []inference.Row) ([]inference.Row, error) {
 	if len(rows) > MaxRowsPerCall {
 		return nil, ErrTooManyRows
 	}
 	m, err := s.Model(ctx, vhost, name)
 	if err != nil {
+		return nil, err
+	}
+	q, err := s.Quotas(ctx, vhost)
+	if err != nil {
+		return nil, err
+	}
+	if err := allowPredictions(vhost, q.MaxPredictionsPerSecond, len(rows), s.now()); err != nil {
 		return nil, err
 	}
 	target, err := s.target(ctx, m)
@@ -139,6 +153,44 @@ func (s *Service) Predict(ctx context.Context, vhost, name string, rows []infere
 		Model: m, CallerKind: c.kind, CallerID: c.id, Inputs: rows, Outputs: out, Latency: took, At: start,
 	})
 	return out, nil
+}
+
+// PutModel saves a model's definition. A model the vhost does not hold yet
+// counts against its model quota.
+func (s *Service) PutModel(ctx context.Context, m storage.MLModel) error {
+	ms, err := s.Models()
+	if err != nil {
+		return err
+	}
+	q, err := s.Quotas(ctx, m.VHost)
+	if err != nil {
+		return err
+	}
+	mu := creationLock(m.VHost)
+	mu.Lock()
+	defer mu.Unlock()
+	if err := s.checkNewModel(ctx, m.VHost, m.Name, q.MaxModels); err != nil {
+		return err
+	}
+	return ms.PutMLModel(ctx, m)
+}
+
+// SetMCPExposed offers the model as a tool on Hermod's MCP server, or stops
+// offering it, and returns the model as saved.
+func (s *Service) SetMCPExposed(ctx context.Context, vhost, name string, exposed bool, by string) (storage.MLModel, error) {
+	ms, err := s.Models()
+	if err != nil {
+		return storage.MLModel{}, err
+	}
+	m, err := s.Model(ctx, vhost, name)
+	if err != nil {
+		return storage.MLModel{}, err
+	}
+	m.MCPExposed, m.UpdatedBy = exposed, by
+	if err := ms.PutMLModel(ctx, m); err != nil {
+		return storage.MLModel{}, err
+	}
+	return m, nil
 }
 
 // target is where the model is called. A model trained by Hermod is on the

@@ -368,6 +368,69 @@ hermod.ml.v1.InferenceService/Predict
 
 One call takes at most 1000 rows.
 
+## MCP clients
+
+A model can be offered to AI assistants and other MCP clients as a tool on
+Hermod's MCP server (`/api/mcp`, see [ai-automation.md](ai-automation.md#mcp-server)).
+It is off for every model until an Editor turns on **Expose to MCP** on the
+Models page (`PUT /api/vhosts/{vhost}/ml/models/{name}/mcp` with
+`{"exposed": true}`). Editing the model keeps the setting.
+
+An exposed model is the tool `predict_<model>`, listed only to a caller who may
+use the model's vhost. When an Administrator sees two vhosts with a model of
+the same name, each tool is named `predict_<model>__<vhost>`. The tool takes
+one record: one argument per feature, all required and nothing else. A model
+trained in Hermod types each argument (number, string or boolean) from its
+dataset; a model served elsewhere takes its features untyped, and one that
+declares no features takes any object. The tool answers
+`{"model", "vhost", "prediction"}`. It is read-only and runs like the Predict
+node, under the vhost's prediction quota. The MCP server takes the caller's
+own session or worker token; a serving key (`hml_…`) does not open it.
+
+An `ai_agent` node can call a model too, with an `ml_predict` tool: set
+`config.model` to the model's name and declare the model's features as the
+tool's `parameters`, which the agent fills. The prediction is the tool's
+result. See [ai-automation.md](ai-automation.md#the-agent).
+
+## Quotas
+
+Each vhost can be held to ML quotas. A vhost has none unless one is set, either
+for the vhost or as a server default:
+
+| Quota | Env var for the server default | Counts |
+|---|---|---|
+| `max_datasets` | `HERMOD_ML_MAX_DATASETS` | Datasets the vhost keeps on the ML worker. |
+| `max_dataset_rows` | `HERMOD_ML_MAX_DATASET_ROWS` | Rows in one dataset. |
+| `max_dataset_bytes` | `HERMOD_ML_MAX_DATASET_BYTES` | Bytes of one dataset: the uploaded file, or the JSON a query sends. |
+| `max_models` | `HERMOD_ML_MAX_MODELS` | Models, trained here or registered by address. |
+| `max_concurrent_trainings` | `HERMOD_ML_MAX_CONCURRENT_TRAININGS` | Trainings running at once, **per Hermod replica**. |
+| `max_predictions_per_second` | `HERMOD_ML_MAX_PREDICTIONS_PER_SECOND` | Rows predicted per second (Predict node, REST, gRPC, MCP), **per Hermod replica**. |
+
+A vhost's own value wins; a quota it leaves unset uses the server default; 0
+means no limit. An env var that is not a non-negative number is ignored.
+Predictions per second is a token bucket per vhost on each replica, with a
+burst of one second's worth: three replicas behind a load balancer let a vhost
+predict up to three times its quota. One call holding more rows than a
+second's worth is refused outright; split it. The dataset and model counts are
+checked when one is created, so two replicas creating at the same moment can
+pass the count by one each.
+
+A refusal names the vhost and the quota. Over REST it is **429** with
+`Retry-After: 1` when waiting is enough (predictions per second, concurrent
+trainings) and **403** otherwise; over gRPC it is `RESOURCE_EXHAUSTED`. An
+uploaded file over the byte quota is refused while it is read; one over the row
+quota is uploaded, counted and removed. A dataset read with a query is refused
+when it passes either quota.
+
+| Endpoint | Role |
+|---|---|
+| `GET /api/vhosts/{vhost}/ml/quotas` | Any role on the vhost. Answers the vhost's own quotas (`quotas`, null where unset), the server `defaults` and the limits in force (`effective`). |
+| `PUT /api/vhosts/{vhost}/ml/quotas` | Administrator. Replaces the vhost's quotas; a quota left out or null falls back to the server default. |
+
+The Models page shows the quotas under **ML quotas**, editable by an
+Administrator. Quotas are kept in the `ml_quotas` table (SQL) or collection
+(MongoDB) and removed with the vhost.
+
 ## Monitoring
 
 **Monitoring** on a model's row on the Models page shows its prediction log,
@@ -389,7 +452,8 @@ Off until `log_sample_rate` is above 0: it is the share of predicted rows
 kept, from 0 to 1 (`0.1` keeps one in ten). Each kept row holds the vhost,
 model, version, time, the row's inputs and outputs, how long the call took,
 and who called: `workflow` (with the workflow's id, from a Predict node),
-`rest` (the serving endpoint), `grpc`, or `ui` (Test on the Models page).
+`rest` (the serving endpoint), `grpc`, `mcp` (a `predict_<model>` tool, with
+the user's name), or `ui` (Test on the Models page).
 
 `log_mask_fields` lists the input or output fields masked before the row is
 written, as dotted paths (`customer.phone`); `*` masks every text value. A
@@ -458,6 +522,7 @@ Hermod registers one yet.
 - `hermod_ml_predictions_total{vhost,model,outcome}`
 - `hermod_ml_prediction_rows_total{vhost,model}`
 - `hermod_ml_prediction_duration_seconds{vhost,model}`
+- `hermod_ml_quota_refusals_total{vhost,quota}`
 - `hermod_ml_feature_drift{vhost,model,feature}`
 - `hermod_ml_prediction_logs_written_total{vhost,model}`
 - `hermod_ml_prediction_logs_dropped_total{vhost,model,reason}`

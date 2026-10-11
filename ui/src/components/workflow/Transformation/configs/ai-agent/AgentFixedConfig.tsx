@@ -15,6 +15,7 @@ interface AgentFixedConfigProps {
 const EXAMPLES: Record<string, Record<string, unknown>> = {
   db_lookup: { sourceId: 'SOURCE_ID', table: 'customers', keyColumn: 'email', keyField: 'email' },
   api_lookup: { url: 'https://api.example.com/orders/{{.order_id}}', method: 'GET' },
+  ml_predict: { model: 'MODEL_NAME' },
   ai_retrieve: {
     provider: 'openai',
     model: 'EMBEDDING_MODEL',
