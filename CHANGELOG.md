@@ -28,6 +28,17 @@ Three behaviour changes come with AI automation, described in full under
 - The AI Enrichment and AI Mapper nodes leave the palette. Saved workflows that
   use them keep working.
 
+### Removed — the Terraform provider
+
+`pkg/terraform/provider` declared `hermod_workflow` and `hermod_workspace`
+resources and a `hermod_workspace` data source, but it never worked: every
+create, read, update and delete, and the data source, returned "not
+implemented". No release built a provider binary either — the stray `main`
+under `ui/cmd/terraform-provider-hermod` was in no build or release target — so
+there was nothing to install. Nothing that worked is lost. The Terraform plugin
+SDK and the dependencies only it pulled in leave `go.mod`. Manage workflows and
+workspaces through the API, `hermodctl` or the UI.
+
 ### Added — custom training scripts and GPU worker pools
 
 An Administrator can save Python training scripts per vhost
