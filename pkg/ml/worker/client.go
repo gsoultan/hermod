@@ -111,17 +111,26 @@ type DatasetInfo struct {
 	Sample    []map[string]any `json:"sample,omitempty"`
 }
 
+// TaskRecommendation is the task of a model that recommends items to people
+// (ml/worker/hermod_ml/recommend.py) rather than predicting a column.
+const TaskRecommendation = "recommendation"
+
 // TrainSpec is one training: which dataset, what to predict from what, and how.
 type TrainSpec struct {
 	Dataset string `json:"dataset"`
-	Target  string `json:"target"`
+	// Target is the column to predict; empty for a recommendation model.
+	Target string `json:"target"`
 	// Features are the columns the model reads; empty means every column but
 	// Target.
 	Features []string `json:"features,omitempty"`
-	// Task is auto, classification or regression.
+	// Task is auto, classification, regression or recommendation.
 	Task string `json:"task,omitempty"`
+	// Recommend names a recommendation model's columns. The worker refuses
+	// it for any other task, and Target, Features and Params for this one.
+	Recommend *RecommendSpec `json:"recommend,omitempty"`
 	// Algorithm is auto, random_forest, gradient_boosting, linear, xgboost,
-	// pytorch_mlp or keras_mlp.
+	// pytorch_mlp or keras_mlp; for a recommendation model, auto, als or
+	// item_similarity.
 	Algorithm string  `json:"algorithm,omitempty"`
 	TestSize  float64 `json:"test_size,omitempty"`
 	Seed      *int    `json:"seed,omitempty"`
@@ -145,6 +154,31 @@ type TrainParams struct {
 	// Patience is how many epochs without a better validation loss end
 	// training early.
 	Patience int `json:"patience,omitempty"`
+}
+
+// RecommendSpec is the columns a recommendation model learns from: who
+// (User) picked what (Item), optionally how much they liked it (Strength: a
+// rating, quantity or count) and when (Time, which makes the test hold back
+// each person's latest picks).
+type RecommendSpec struct {
+	User     string `json:"user"`
+	Item     string `json:"item"`
+	Strength string `json:"strength,omitempty"`
+	Time     string `json:"time,omitempty"`
+}
+
+// Catalog is how many people and items a recommendation model knows.
+type Catalog struct {
+	Users int `json:"users"`
+	Items int `json:"items"`
+}
+
+// RecommendSample is one person of a recommendation model's test: what the
+// model recommended, and what they really picked next.
+type RecommendSample struct {
+	User        string   `json:"user"`
+	Recommended []string `json:"recommended"`
+	Picked      []string `json:"picked"`
 }
 
 // Capabilities is what a worker can train. The slim image cannot train the
@@ -182,6 +216,14 @@ type Version struct {
 	// it printed; both are empty for a built-in algorithm.
 	Script *ScriptRef `json:"script,omitempty"`
 	Log    string     `json:"log,omitempty"`
+
+	// A recommendation version's columns, catalogue, a sample of its test,
+	// and what auto measured for each algorithm (NDCG@10 on a validation
+	// split of the training rows).
+	Recommend  *RecommendSpec     `json:"recommend,omitempty"`
+	Catalog    *Catalog           `json:"catalog,omitempty"`
+	Samples    []RecommendSample  `json:"samples,omitempty"`
+	Candidates map[string]float64 `json:"candidates,omitempty"`
 }
 
 // The kinds of FeatureStats.
@@ -338,6 +380,19 @@ func (c *Client) ModelFile(ctx context.Context, vhost, model, version string) ([
 		return nil, err
 	}
 	return c.do(ctx, http.MethodGet, p+"/versions/"+version+"/model.onnx", "", nil, callTimeout, maxModelFileBytes)
+}
+
+// RecommenderFile returns the artifact a recommendation version serves, for
+// serving it in-process (pkg/ml/recommend).
+func (c *Client) RecommenderFile(ctx context.Context, vhost, model, version string) ([]byte, error) {
+	p, err := modelPath(vhost, model)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkName("version", version); err != nil {
+		return nil, err
+	}
+	return c.do(ctx, http.MethodGet, p+"/versions/"+version+"/model.rec", "", nil, callTimeout, maxModelFileBytes)
 }
 
 // DeleteModel removes every version of a model.

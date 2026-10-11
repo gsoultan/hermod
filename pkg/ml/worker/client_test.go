@@ -314,3 +314,66 @@ func TestCapabilitiesSaysWhatTheWorkerCanTrain(t *testing.T) {
 		t.Errorf("err = %v, want ErrNotFound", err)
 	}
 }
+
+// A recommendation training names its columns in Recommend and nothing a
+// column-predicting model takes; its version says what it learnt from.
+func TestTrainSendsARecommendationSpecAndReadsItsVersion(t *testing.T) {
+	f := &fakeWorker{reply: `{"model":"recs","version":"1","task":"recommendation","algorithm":"als","dataset":"orders",
+		"target":"","features":[],"metrics":{"ndcg@10":0.3,"baseline_ndcg@10":0.1},
+		"recommend":{"user":"customer","item":"sku","strength":"qty","time":null},
+		"catalog":{"users":60,"items":30},
+		"samples":[{"user":"c0","recommended":["sku-1","sku-2"],"picked":["sku-2"]}],
+		"candidates":{"als":0.3,"item_similarity":0.2}}`}
+	c := New(f.server(t).URL, "", nil)
+	v, err := c.Train(t.Context(), "tenant-a", "recs", TrainSpec{
+		Dataset: "orders", Task: TaskRecommendation, Recommend: &RecommendSpec{User: "customer", Item: "sku", Strength: "qty"},
+	})
+	if err != nil {
+		t.Fatalf("Train: %v", err)
+	}
+	var sent map[string]any
+	if err := json.Unmarshal(f.body, &sent); err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]any{"user": "customer", "item": "sku", "strength": "qty"}; !equalJSON(sent["recommend"], want) {
+		t.Errorf("sent recommend = %v, want %v", sent["recommend"], want)
+	}
+	if _, ok := sent["features"]; ok {
+		t.Errorf("sent features for a recommender: %v", sent["features"])
+	}
+	if v.Recommend == nil || v.Recommend.User != "customer" || v.Recommend.Strength != "qty" || v.Recommend.Time != "" {
+		t.Errorf("version recommend = %+v", v.Recommend)
+	}
+	if v.Catalog == nil || v.Catalog.Users != 60 || v.Catalog.Items != 30 {
+		t.Errorf("version catalog = %+v", v.Catalog)
+	}
+	if len(v.Samples) != 1 || v.Samples[0].User != "c0" || len(v.Samples[0].Recommended) != 2 || v.Samples[0].Picked[0] != "sku-2" {
+		t.Errorf("version samples = %+v", v.Samples)
+	}
+	if v.Candidates["item_similarity"] != 0.2 {
+		t.Errorf("version candidates = %+v", v.Candidates)
+	}
+}
+
+func equalJSON(a, b any) bool {
+	ra, _ := json.Marshal(a)
+	rb, _ := json.Marshal(b)
+	return string(ra) == string(rb)
+}
+
+func TestRecommenderFileReadsTheVersionsArtifact(t *testing.T) {
+	f := &fakeWorker{reply: "HREC\x01\x00\x00\x00"}
+	c := New(f.server(t).URL, "secret", nil)
+	raw, err := c.RecommenderFile(t.Context(), "tenant-a", "recs", "3")
+	if err != nil || string(raw) != f.reply {
+		t.Fatalf("RecommenderFile = %q, %v; want the bytes the worker sent", raw, err)
+	}
+	if f.method != http.MethodGet || f.path != "/v1/models/tenant-a/recs/versions/3/model.rec" || f.auth != "Bearer secret" {
+		t.Errorf("called %s %s with %q", f.method, f.path, f.auth)
+	}
+	for _, bad := range []string{"", "..", "1/2"} {
+		if _, err := c.RecommenderFile(t.Context(), "tenant-a", "recs", bad); err == nil {
+			t.Errorf("RecommenderFile accepted version %q", bad)
+		}
+	}
+}

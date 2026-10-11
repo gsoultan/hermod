@@ -19,7 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	InferenceService_Predict_FullMethodName = "/hermod.ml.v1.InferenceService/Predict"
+	InferenceService_Predict_FullMethodName   = "/hermod.ml.v1.InferenceService/Predict"
+	InferenceService_Recommend_FullMethodName = "/hermod.ml.v1.InferenceService/Recommend"
 )
 
 // InferenceServiceClient is the client API for InferenceService service.
@@ -40,6 +41,17 @@ type InferenceServiceClient interface {
 	// which models exist); INVALID_ARGUMENT for no rows or too many;
 	// UNAVAILABLE when the model server could not answer.
 	Predict(ctx context.Context, in *PredictRequest, opts ...grpc.CallOption) (*PredictResponse, error)
+	// Recommend asks a recommendation model for a person's top items, or for
+	// the items most like one item. It is the gRPC twin of a serve call with
+	// {"user"} or {"item"}. A person or item the model does not know gets the
+	// most popular items, each with reason "popular", so the answer is never
+	// empty.
+	//
+	// Errors: UNAUTHENTICATED as for Predict; INVALID_ARGUMENT for no user or
+	// item, a negative k, exclude_seen with an item, or a model that predicts
+	// rows; RESOURCE_EXHAUSTED over the vhost's quota; UNAVAILABLE when the
+	// model could not be loaded.
+	Recommend(ctx context.Context, in *RecommendRequest, opts ...grpc.CallOption) (*RecommendResponse, error)
 }
 
 type inferenceServiceClient struct {
@@ -54,6 +66,16 @@ func (c *inferenceServiceClient) Predict(ctx context.Context, in *PredictRequest
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(PredictResponse)
 	err := c.cc.Invoke(ctx, InferenceService_Predict_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *inferenceServiceClient) Recommend(ctx context.Context, in *RecommendRequest, opts ...grpc.CallOption) (*RecommendResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RecommendResponse)
+	err := c.cc.Invoke(ctx, InferenceService_Recommend_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -78,6 +100,17 @@ type InferenceServiceServer interface {
 	// which models exist); INVALID_ARGUMENT for no rows or too many;
 	// UNAVAILABLE when the model server could not answer.
 	Predict(context.Context, *PredictRequest) (*PredictResponse, error)
+	// Recommend asks a recommendation model for a person's top items, or for
+	// the items most like one item. It is the gRPC twin of a serve call with
+	// {"user"} or {"item"}. A person or item the model does not know gets the
+	// most popular items, each with reason "popular", so the answer is never
+	// empty.
+	//
+	// Errors: UNAUTHENTICATED as for Predict; INVALID_ARGUMENT for no user or
+	// item, a negative k, exclude_seen with an item, or a model that predicts
+	// rows; RESOURCE_EXHAUSTED over the vhost's quota; UNAVAILABLE when the
+	// model could not be loaded.
+	Recommend(context.Context, *RecommendRequest) (*RecommendResponse, error)
 	mustEmbedUnimplementedInferenceServiceServer()
 }
 
@@ -90,6 +123,9 @@ type UnimplementedInferenceServiceServer struct{}
 
 func (UnimplementedInferenceServiceServer) Predict(context.Context, *PredictRequest) (*PredictResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Predict not implemented")
+}
+func (UnimplementedInferenceServiceServer) Recommend(context.Context, *RecommendRequest) (*RecommendResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Recommend not implemented")
 }
 func (UnimplementedInferenceServiceServer) mustEmbedUnimplementedInferenceServiceServer() {}
 func (UnimplementedInferenceServiceServer) testEmbeddedByValue()                          {}
@@ -130,6 +166,24 @@ func _InferenceService_Predict_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _InferenceService_Recommend_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RecommendRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InferenceServiceServer).Recommend(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InferenceService_Recommend_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InferenceServiceServer).Recommend(ctx, req.(*RecommendRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // InferenceService_ServiceDesc is the grpc.ServiceDesc for InferenceService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -140,6 +194,10 @@ var InferenceService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Predict",
 			Handler:    _InferenceService_Predict_Handler,
+		},
+		{
+			MethodName: "Recommend",
+			Handler:    _InferenceService_Recommend_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

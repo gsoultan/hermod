@@ -78,6 +78,11 @@ func (s *Service) Scoring(ctx context.Context, vhost, name string) (ScoringStatu
 		return ScoringStatus{}, err
 	}
 	st := ScoringStatus{Scoring: storage.MLScoringWorker, Version: m.RemoteVersion}
+	if m.IsRecommender() {
+		// Always served in-process, from its artifact (recommend.go).
+		st.Scoring, st.InProcess = storage.MLScoringInProcess, m.RemoteVersion != ""
+		return st, nil
+	}
 	if m.Scoring != storage.MLScoringInProcess {
 		return st, nil
 	}
@@ -127,11 +132,11 @@ func (s *Service) scorer(ctx context.Context, m storage.MLModel) (*onnxscore.Sco
 	e := scorers.get(s.worker.URL+"\x00"+m.VHost+"\x00"+m.Name, id, func(e *scorerEntry) {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), scorerLoadTimeout)
 		defer cancel()
-		e.scorer, e.err = loadScorer(ctx, s.worker, m)
+		e.value, e.err = loadScorer(ctx, s.worker, m)
 	})
 	select {
 	case <-e.ready:
-		return e.scorer, e.err
+		return e.value, e.err
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
@@ -168,53 +173,60 @@ type scorerID struct {
 	saved   time.Time
 }
 
-type scorerEntry struct {
-	id     scorerID
-	ready  chan struct{}
-	scorer *onnxscore.Scorer
-	err    error
-	done   time.Time
+// versionEntry is what was loaded for one model version: a scorer, or a
+// recommender (recommend.go).
+type versionEntry[T any] struct {
+	id    scorerID
+	ready chan struct{}
+	value T
+	err   error
+	done  time.Time
 }
 
-// lasting reports whether a failed load stays failed until the version
+type scorerEntry = versionEntry[*onnxscore.Scorer]
+
+// scorerLasting reports whether a failed load stays failed until the version
 // changes: the graph is not supported, or the worker does not have it.
-func (e *scorerEntry) lasting() bool {
-	return errors.Is(e.err, onnxscore.ErrUnsupported) || errors.Is(e.err, worker.ErrNotFound) ||
-		errors.Is(e.err, ErrVersionNotFound)
+func scorerLasting(err error) bool {
+	return errors.Is(err, onnxscore.ErrUnsupported) || errors.Is(err, worker.ErrNotFound) ||
+		errors.Is(err, ErrVersionNotFound)
 }
 
-// scorerCache holds one entry per model. It is shared by every Service,
-// which are built per use.
-type scorerCache struct {
+// versionCache holds one entry per model. It is shared by every Service,
+// which are built per use. lasting says which failed loads stay failed until
+// the version changes; any other is tried again after scorerRetryAfter.
+type versionCache[T any] struct {
 	mu      sync.Mutex
-	entries map[string]*scorerEntry
+	entries map[string]*versionEntry[T]
+	max     int
+	lasting func(error) bool
 }
 
-var scorers = &scorerCache{entries: map[string]*scorerEntry{}}
+var scorers = &versionCache[*onnxscore.Scorer]{entries: map[string]*scorerEntry{}, max: maxScorers, lasting: scorerLasting}
 
 // get returns the model's entry for id, starting load in the background of
 // the first caller when there is none, or when the one there is for another
 // version or failed for a reason that may since have passed.
-func (c *scorerCache) get(key string, id scorerID, load func(*scorerEntry)) *scorerEntry {
+func (c *versionCache[T]) get(key string, id scorerID, load func(*versionEntry[T])) *versionEntry[T] {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if e, ok := c.entries[key]; ok && e.id == id {
 		select {
 		case <-e.ready:
-			if e.err == nil || e.lasting() || time.Since(e.done) < scorerRetryAfter {
+			if e.err == nil || c.lasting(e.err) || time.Since(e.done) < scorerRetryAfter {
 				return e
 			}
 		default:
 			return e // still loading
 		}
 	}
-	if _, ok := c.entries[key]; !ok && len(c.entries) >= maxScorers {
+	if _, ok := c.entries[key]; !ok && len(c.entries) >= c.max {
 		for k := range c.entries {
 			delete(c.entries, k)
 			break
 		}
 	}
-	e := &scorerEntry{id: id, ready: make(chan struct{})}
+	e := &versionEntry[T]{id: id, ready: make(chan struct{})}
 	c.entries[key] = e
 	go func() {
 		defer func() {
@@ -227,7 +239,7 @@ func (c *scorerCache) get(key string, id scorerID, load func(*scorerEntry)) *sco
 }
 
 // forget drops a model's entry, on any worker.
-func (c *scorerCache) forget(vhost, name string) {
+func (c *versionCache[T]) forget(vhost, name string) {
 	suffix := "\x00" + vhost + "\x00" + name
 	c.mu.Lock()
 	defer c.mu.Unlock()

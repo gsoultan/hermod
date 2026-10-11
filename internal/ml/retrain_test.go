@@ -107,6 +107,10 @@ func TestValidateRetrainPolicy(t *testing.T) {
 		{"no dataset", storage.MLRetrainPolicy{Schedule: "@daily", Spec: worker.TrainSpec{Target: "y"}}, "dataset"},
 		{"no target", storage.MLRetrainPolicy{Schedule: "@daily", Spec: worker.TrainSpec{Dataset: "d"}}, "target"},
 		{"a bad rule", storage.MLRetrainPolicy{Schedule: "@daily", Spec: churnSpec, GoLive: storage.MLGoLive{Mode: GoLiveIf}}, "minimum"},
+		{"a recommender has no target", storage.MLRetrainPolicy{Schedule: "@daily", Spec: worker.TrainSpec{Dataset: "orders",
+			Task: worker.TaskRecommendation, Recommend: &worker.RecommendSpec{User: "u", Item: "i"}}}, ""},
+		{"a recommender without its columns", storage.MLRetrainPolicy{Schedule: "@daily", Spec: worker.TrainSpec{Dataset: "orders",
+			Task: worker.TaskRecommendation}}, "recommend.user"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

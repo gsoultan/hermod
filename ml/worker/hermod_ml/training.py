@@ -11,8 +11,9 @@ Layout on disk:
     DATA_DIR/models/{vhost}/{name}/{version}/model.onnx
                                              meta.json
 
-Only `model.onnx` and `meta.json` are ever written or read; nothing is
-pickled.
+A recommendation version (recommend.py) keeps `model.rec` in place of
+`model.onnx`. Only those files and `meta.json` are ever written or read;
+nothing is pickled.
 """
 
 from __future__ import annotations
@@ -57,7 +58,7 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from skl2onnx import convert_sklearn, get_latest_tested_opset_version
 from skl2onnx.common.data_types import FloatTensorType, StringTensorType
 
-from . import deep
+from . import deep, recommend
 from .datasets import BOOL, NUMBER, STRING, DatasetStore, is_null, to_text
 from .errors import ApiError, bad_request, not_found
 from .names import validate_name
@@ -67,8 +68,10 @@ MIN_ROWS = 10
 MAX_AUTO_CLASSES = 20  # integer targets with at most this many values are classes
 REGRESSION_RTOL = 1e-3
 
-TASKS = ("auto", "classification", "regression")
+TASKS = ("auto", "classification", "regression", recommend.TASK)
 ALGORITHMS = ("auto", "random_forest", "gradient_boosting", "linear", "xgboost", *deep.ALGORITHMS)
+# What /v1/capabilities offers: every task's algorithms.
+ALL_ALGORITHMS = (*ALGORITHMS, *(a for a in recommend.ALGORITHMS if a not in ALGORITHMS))
 # A deep-learning model's labels may differ from its framework's where the top
 # two probabilities are closer than this: float32 rounding decides those ties.
 PROBABILITY_ATOL = 1e-4
@@ -131,11 +134,19 @@ class ModelStore:
     def onnx_path(self, vhost: str, name: str, version: str) -> Path:
         return self._dir(vhost, name) / validate_name(version, "version") / "model.onnx"
 
+    def file_path(self, vhost: str, name: str, version: str, filename: str) -> Path:
+        """The path of one of a version's files: model.onnx or model.rec."""
+        if filename not in ("model.onnx", recommend.ARTIFACT):
+            raise not_found(f"A model version has no file {filename!r}.")
+        return self._dir(vhost, name) / validate_name(version, "version") / filename
+
     def versions(self, vhost: str, name: str) -> list[dict[str, Any]]:
         return [self.meta(vhost, name, v) for v in self.version_names(vhost, name)]
 
-    def save(self, vhost: str, name: str, model_bytes: bytes, meta: dict[str, Any]) -> dict[str, Any]:
+    def save(self, vhost: str, name: str, model_bytes: bytes, meta: dict[str, Any], filename: str = "model.onnx") -> dict[str, Any]:
         """Write a new version and return its meta (with "version" filled in).
+
+        `filename` is model.onnx, or model.rec for a recommendation version.
 
         Files go into a hidden temp dir first; a single rename publishes the
         version, so a crash never leaves a half-written version behind.
@@ -150,7 +161,7 @@ class ModelStore:
             tmp = model_dir / f".tmp-{uuid.uuid4().hex}"
             tmp.mkdir()
             try:
-                (tmp / "model.onnx").write_bytes(model_bytes)
+                (tmp / filename).write_bytes(model_bytes)
                 (tmp / "meta.json").write_text(json.dumps(meta, indent=2))
                 os.rename(tmp, model_dir / version)
             finally:
@@ -186,6 +197,27 @@ class TrainRequest:
     params: dict[str, Any] | None = None
 
 
+def parse_test_size(body: dict[str, Any]) -> float:
+    test_size = body.get("test_size", 0.2)
+    if isinstance(test_size, bool) or not isinstance(test_size, (int, float)) or not 0 < test_size < 1:
+        raise bad_request("'test_size' must be a number between 0 and 1 (exclusive).")
+    return float(test_size)
+
+
+def parse_seed(body: dict[str, Any]) -> int:
+    seed = body.get("seed", 42)
+    if isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed < 2**32:
+        raise bad_request("'seed' must be an integer between 0 and 4294967295.")
+    return seed
+
+
+def parse_any_request(body: dict[str, Any]) -> TrainRequest | recommend.RecommendRequest:
+    """A recommendation request, or a request to predict a column."""
+    if body.get("task") == recommend.TASK:
+        return recommend.parse_request(body, parse_test_size(body), parse_seed(body))
+    return parse_request(body)
+
+
 def parse_request(body: dict[str, Any]) -> TrainRequest:
     dataset = body.get("dataset")
     if not isinstance(dataset, str):
@@ -205,20 +237,17 @@ def parse_request(body: dict[str, Any]) -> TrainRequest:
         raise bad_request("'features' lists a column more than once.")
 
     task = body.get("task", "auto")
-    if task not in TASKS:
+    if task not in TASKS or task == recommend.TASK:
         raise bad_request(f"'task' must be one of {', '.join(TASKS)}.")
+    if body.get("recommend") is not None:
+        raise bad_request(f"'recommend' applies only to task {recommend.TASK!r}.")
 
     algorithm = body.get("algorithm", "auto")
     if algorithm not in ALGORITHMS:
         raise bad_request(f"'algorithm' must be one of {', '.join(ALGORITHMS)}.")
 
-    test_size = body.get("test_size", 0.2)
-    if isinstance(test_size, bool) or not isinstance(test_size, (int, float)) or not 0 < test_size < 1:
-        raise bad_request("'test_size' must be a number between 0 and 1 (exclusive).")
-
-    seed = body.get("seed", 42)
-    if isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed < 2**32:
-        raise bad_request("'seed' must be an integer between 0 and 4294967295.")
+    test_size = parse_test_size(body)
+    seed = parse_seed(body)
 
     params = None
     if algorithm in deep.ALGORITHMS:
@@ -226,7 +255,7 @@ def parse_request(body: dict[str, Any]) -> TrainRequest:
     elif body.get("params") is not None:
         raise bad_request(f"'params' applies only to the algorithms {', '.join(deep.ALGORITHMS)}.")
 
-    return TrainRequest(dataset, target, list(features), task, algorithm, float(test_size), seed, params)
+    return TrainRequest(dataset, target, list(features), task, algorithm, test_size, seed, params)
 
 
 # --------------------------------------------------------------------------
@@ -432,7 +461,7 @@ def algorithm_capabilities() -> tuple[list[str], dict[str, str]]:
     """The algorithms this image can train, and why each other one cannot."""
     available: list[str] = []
     unavailable: dict[str, str] = {}
-    for algorithm in ALGORITHMS:
+    for algorithm in ALL_ALGORITHMS:
         if algorithm == "xgboost":
             reason = _xgboost_unavailable()
         elif algorithm in deep.ALGORITHMS:
@@ -517,11 +546,17 @@ class Trainer:
 
     def train(self, vhost: str, name: str, body: dict[str, Any]) -> dict[str, Any]:
         """Validate the request, take a slot (or 429) and train."""
-        request = parse_request(body)
+        request = parse_any_request(body)
         if not self._slots.acquire(blocking=False):
             raise ApiError(429, "Training is busy; try again when the current training finishes.")
         try:
-            meta = self._train(vhost, name, request)
+            if isinstance(request, recommend.RecommendRequest):
+                frame, types = self._datasets.load(vhost, request.dataset)
+                artifact, meta = recommend.train(frame, types, request, name)
+                meta["created_at"] = utc_now()
+                meta = self._models.save(vhost, name, artifact, meta, recommend.ARTIFACT)
+            else:
+                meta = self._train(vhost, name, request)
         finally:
             self._slots.release()
         if self._on_saved is not None:

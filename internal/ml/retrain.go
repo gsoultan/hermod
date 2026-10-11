@@ -64,7 +64,10 @@ func ValidateRetrainPolicy(p storage.MLRetrainPolicy) error {
 	if p.Spec.Dataset == "" {
 		return errors.New("name the dataset the model retrains on")
 	}
-	if p.Spec.Target == "" {
+	if err := checkRecommendSpec(p.Spec); err != nil {
+		return err
+	}
+	if p.Spec.Target == "" && p.Spec.Task != worker.TaskRecommendation {
 		return errors.New("name the target column the model predicts")
 	}
 	// The spec is a training's, device and custom script included; whether

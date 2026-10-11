@@ -67,6 +67,7 @@ Errors are always `{"error": "<sentence>"}` with 400, 401, 404, 413, 429 or 500.
 | POST | `/v1/models/{vhost}/{name}/import?dataset=` | Keep an exported version as this model's next one, checked again |
 | GET | `/v1/models/{vhost}/{name}/versions` | Version metadata, newest first |
 | GET | `/v1/models/{vhost}/{name}/versions/{v}/model.onnx` | The version's ONNX graph, for Hermod's in-process scoring |
+| GET | `/v1/models/{vhost}/{name}/versions/{v}/model.rec` | A recommendation version's `HREC` file, which Hermod serves in-process |
 | DELETE | `/v1/models/{vhost}/{name}` | Delete every version |
 | GET | `/v2/health/live`, `/v2/health/ready` | Health (no auth) |
 | GET | `/vhosts/{vhost}/v2/models/{name}[/versions/{v}]` | OIP model metadata |
@@ -78,6 +79,16 @@ Algorithms: `random_forest` (default), `gradient_boosting`, `linear` and
 `xgboost` (200 trees, depth 6, `hist`; exported to ONNX via `onnxmltools`).
 The image uses `xgboost-cpu`, which has the same API as `xgboost` without
 the CUDA/NCCL dependency.
+
+Task `recommendation` (`hermod_ml/recommend.py`) takes `"recommend": {"user",
+"item", "strength"?, "time"?}` instead of a target and features, and trains
+`als` (implicit ALS, 32 factors), `item_similarity` (item-item cosine, 50
+neighbours) or `auto` (both, keeping the better NDCG@10), with numpy and scipy
+only. It saves `model.rec` rather than `model.onnx`: `HREC`, a uint32 format
+version and header length, a JSON header, then little-endian float32/uint32
+sections (factors or neighbours, each person's seen items, the popular items),
+at most 64 MiB. The OIP routes and export refuse a recommendation version;
+Hermod reads the file itself (`pkg/ml/recommend`).
 
 `pytorch_mlp` and `keras_mlp` (`hermod_ml/deep.py`) train a multilayer
 perceptron on the same preprocessing. A train request may carry

@@ -8,6 +8,7 @@ import (
 
 	"github.com/gsoultan/hermod/internal/mcpserver"
 	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/pkg/ml/recommend"
 )
 
 // fakeModels is a model registry in memory whose models echo their input.
@@ -15,6 +16,7 @@ type fakeModels struct {
 	models []storage.MLModel
 	calls  []string
 	rows   []map[string]any
+	recs   []mcpserver.RecommendArgs
 }
 
 func (f *fakeModels) ListModels(_ context.Context, vhost string) ([]storage.MLModel, error) {
@@ -156,5 +158,78 @@ func TestNoModelSourceMeansNoModelTools(t *testing.T) {
 	tools, err := (&mcpserver.Service{}).ModelTools(t.Context(), editorOf("tenant-a"), []string{"tenant-a"})
 	if err != nil || len(tools) != 0 {
 		t.Errorf("tools = %v, %v", tools, err)
+	}
+}
+
+// Recommend answers the popular items with the request it was given recorded.
+func (f *fakeModels) Recommend(_ context.Context, vhost, name string, req mcpserver.RecommendArgs) ([]recommend.Item, error) {
+	f.calls = append(f.calls, vhost+"/"+name)
+	f.recs = append(f.recs, req)
+	return []recommend.Item{{Item: "sku-1", Score: 3, Reason: recommend.ReasonPopular}}, nil
+}
+
+func recs(vhost string) storage.MLModel {
+	return storage.MLModel{VHost: vhost, Name: "recs", MCPExposed: true, Task: storage.MLTaskRecommendation,
+		Description: "Suggests products"}
+}
+
+// A recommendation model is a recommend_<model> tool taking a user or an
+// item, not its (empty) features.
+func TestARecommenderIsARecommendTool(t *testing.T) {
+	models := &fakeModels{models: []storage.MLModel{recs("tenant-a"), fraud("tenant-a", true)}}
+	svc := &mcpserver.Service{Models: models}
+	caller := editorOf("tenant-a")
+	tools, err := svc.ModelTools(t.Context(), caller, []string{"tenant-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := toolNames(tools)
+	tool, ok := byName["recommend_recs"]
+	if !ok || !tool.Recommend || len(tools) != 2 || byName["predict_fraud"].Recommend {
+		t.Fatalf("tools = %v", byName)
+	}
+	props, _ := tool.InputSchema["properties"].(map[string]any)
+	for _, p := range []string{"user", "item", "k", "exclude_seen"} {
+		if _, ok := props[p]; !ok {
+			t.Errorf("schema has no %q: %v", p, tool.InputSchema)
+		}
+	}
+	if tool.InputSchema["additionalProperties"] != false {
+		t.Errorf("schema = %v", tool.InputSchema)
+	}
+
+	res, err := svc.RecommendTool(t.Context(), caller, tool, json.RawMessage(`{"user": "1000", "k": 5, "exclude_seen": false}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Model != "recs" || res.VHost != "tenant-a" || len(res.Items) != 1 || res.Items[0].Reason != recommend.ReasonPopular {
+		t.Errorf("result = %+v", res)
+	}
+	got := models.recs[0]
+	if got.User != "1000" || got.Item != nil || got.K != 5 || got.ExcludeSeen == nil || *got.ExcludeSeen {
+		t.Errorf("request = %+v", got)
+	}
+
+	for name, args := range map[string]string{
+		"neither":       `{"k": 3}`,
+		"an object":     `[1]`,
+		"unknown field": `{"user": "1", "amount": 3}`,
+		"fractional k":  `{"item": "a", "k": 2.5}`,
+	} {
+		if _, err := svc.RecommendTool(t.Context(), caller, tool, json.RawMessage(args)); err == nil {
+			t.Errorf("%s: the call was not refused", name)
+		}
+	}
+	if len(models.calls) != 1 {
+		t.Errorf("a refused call reached the model: %v", models.calls)
+	}
+	if _, err := svc.RecommendTool(t.Context(), editorOf("tenant-b"), tool, json.RawMessage(`{"user":"1"}`)); !errors.Is(err, mcpserver.ErrModelNotFound) {
+		t.Errorf("a caller without the vhost: err = %v", err)
+	}
+	if _, err := svc.RecommendTool(t.Context(), caller, byName["predict_fraud"], json.RawMessage(`{"user":"1"}`)); err == nil {
+		t.Error("a predict tool was called as a recommender")
+	}
+	if _, err := svc.PredictTool(t.Context(), caller, tool, json.RawMessage(`{"user":"1"}`)); err == nil {
+		t.Error("a recommend tool was called as a predictor")
 	}
 }

@@ -20,6 +20,55 @@ service InferenceService {
   // which models exist); INVALID_ARGUMENT for no rows or too many;
   // UNAVAILABLE when the model server could not answer.
   rpc Predict(PredictRequest) returns (PredictResponse);
+
+  // Recommend asks a recommendation model for a person's top items, or for
+  // the items most like one item. It is the gRPC twin of a serve call with
+  // {"user"} or {"item"}. A person or item the model does not know gets the
+  // most popular items, each with reason "popular", so the answer is never
+  // empty.
+  //
+  // Errors: UNAUTHENTICATED as for Predict; INVALID_ARGUMENT for no user or
+  // item, a negative k, exclude_seen with an item, or a model that predicts
+  // rows; RESOURCE_EXHAUSTED over the vhost's quota; UNAVAILABLE when the
+  // model could not be loaded.
+  rpc Recommend(RecommendRequest) returns (RecommendResponse);
+}
+
+message RecommendRequest {
+  // The vhost the model belongs to.
+  string vhost = 1;
+  // The model's name in that vhost.
+  string model = 2;
+  // Who or what to recommend for: ids as text, as the training data held
+  // them ("1000" for a numeric id 1000).
+  oneof subject {
+    // A person: their top items.
+    string user = 3;
+    // An item: the items most like it.
+    string item = 4;
+  }
+  // How many items: 10 when 0, at most 100.
+  int32 k = 5;
+  // For a user, whether to leave out items they already had. True when
+  // unset. Not allowed with an item.
+  optional bool exclude_seen = 6;
+}
+
+message RecommendResponse {
+  // The model that answered.
+  string model = 1;
+  // Best first.
+  repeated RecommendedItem items = 2;
+}
+
+message RecommendedItem {
+  // The item's id.
+  string item = 1;
+  // The model's score: higher is a stronger recommendation. Scores compare
+  // only within one answer.
+  double score = 2;
+  // "popular" when the item comes from the popular fallback; empty otherwise.
+  string reason = 3;
 }
 
 message PredictRequest {

@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react'
-import { ActionIcon, Alert, Anchor, Autocomplete, Button, Group, Select, Stack, Text, TextInput } from '@mantine/core'
+import { useEffect, useMemo, useState } from 'react'
+import { ActionIcon, Alert, Anchor, Autocomplete, Button, Checkbox, Group, Radio, Select, Stack, Text, TextInput } from '@mantine/core'
 import { IconInfoCircle, IconPlus, IconTrash } from '@tabler/icons-react'
-import { useVHostModels } from '@/lib/mlModels'
+import { isRecommender, useVHostModels } from '@/lib/mlModels'
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore'
 
 interface MLPredictConfigProps {
@@ -61,6 +61,13 @@ export function MLPredictConfig({ config, updateNodeConfig, nodeId, fieldPaths =
 
   const model = useMemo(() => models.find((m) => m.name === config.model), [models, config.model])
 
+  // A recommendation model is only ever called in Recommend mode.
+  const recommender = isRecommender(model)
+  useEffect(() => {
+    if (recommender && config.mode !== 'recommend') updateNodeConfig(nodeId, { mode: 'recommend' })
+  }, [recommender, config.mode, nodeId, updateNodeConfig])
+  const recommending = config.mode === 'recommend'
+
   // A model that declares its features is offered a row for each one the
   // mapping lacks, so the person fills in fields rather than retyping feature
   // names. Those rows are derived, not stored, until something is typed.
@@ -103,6 +110,17 @@ export function MLPredictConfig({ config, updateNodeConfig, nodeId, fieldPaths =
       )}
       {model?.description && <Text size="xs" c="dimmed">{model.description}</Text>}
 
+      <Radio.Group label="Mode" value={recommending ? 'recommend' : 'predict'}
+        onChange={(v) => set({ mode: v })}>
+        <Group gap="lg" mt={4}>
+          <Radio value="predict" label="Predict" disabled={recommender} />
+          <Radio value="recommend" label="Recommend" />
+        </Group>
+      </Radio.Group>
+
+      {recommending ? (
+        <RecommendFields config={config} set={set} fieldPaths={fieldPaths} />
+      ) : (<>
       <Stack gap={6}>
         <Text size="sm" fw={500}>Inputs</Text>
         <Text size="xs" c="dimmed">
@@ -143,6 +161,59 @@ export function MLPredictConfig({ config, updateNodeConfig, nodeId, fieldPaths =
         label="Output field"
         description="Where the prediction is written on the record."
         placeholder="prediction"
+        value={config.outputField ?? ''}
+        onChange={(e) => set({ outputField: e.currentTarget.value })}
+      />
+      </>)}
+    </Stack>
+  )
+}
+
+/**
+ * Recommend mode: the id of a person (or an item) is read from a record
+ * field, and the model's items are written onto the record as a list of
+ * {item, score, reason?}, best first.
+ */
+function RecommendFields({ config, set, fieldPaths }: {
+  config: any; set: (patch: Record<string, unknown>) => void; fieldPaths: string[]
+}) {
+  const forItem = config.recommendFor === 'item'
+  return (
+    <Stack gap="sm">
+      <Radio.Group label="Recommend" value={forItem ? 'item' : 'user'}
+        onChange={(v) => set(v === 'item' ? { recommendFor: 'item', excludeSeen: undefined } : { recommendFor: 'user' })}>
+        <Group gap="lg" mt={4}>
+          <Radio value="user" label="A person's top items" />
+          <Radio value="item" label="Items like an item" />
+        </Group>
+      </Radio.Group>
+      <Autocomplete
+        label="Field with the id"
+        description={forItem ? 'The record field holding the item id.' : 'The record field holding the person id.'}
+        placeholder={forItem ? 'e.g. product_id' : 'e.g. customer.id'}
+        data={fieldPaths}
+        value={config.idField ?? ''}
+        onChange={(v) => set({ idField: v })}
+        required
+      />
+      <TextInput
+        label="How many"
+        description="Items to return: 10 when empty, at most 100."
+        placeholder="10"
+        value={config.k ?? ''}
+        onChange={(e) => set({ k: e.currentTarget.value })}
+      />
+      {!forItem && (
+        <Checkbox
+          label="Leave out what the person already had"
+          checked={config.excludeSeen === undefined || config.excludeSeen === true || config.excludeSeen === 'true'}
+          onChange={(e) => set({ excludeSeen: e.currentTarget.checked })}
+        />
+      )}
+      <TextInput
+        label="Output field"
+        description={'Where the items are written: a list of {item, score, reason}. Reason "popular" marks the fallback for an id the model never saw.'}
+        placeholder="recommendations"
         value={config.outputField ?? ''}
         onChange={(e) => set({ outputField: e.currentTarget.value })}
       />

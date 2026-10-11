@@ -486,6 +486,172 @@ several writes an object. A mapped field the record lacks fails the record
 rather than sending a null; the node's On Error setting (fail, continue, drop)
 decides what happens next.
 
+## Recommendations
+
+A recommendation model learns **who had what** from rows such as order
+lines, views or plays, and then answers two questions: *what should this
+person see next* (their top items) and *what is like this item* (similar
+items). It needs the ML worker, and it is trained, versioned, put live,
+served, logged and held to quotas like any model trained in Hermod.
+
+### Training one
+
+On the Models page choose **Train a model → Recommend items to people**, or
+send `task: "recommendation"` with a `recommend` object instead of a target:
+
+| Column | Required | Means |
+|---|---|---|
+| `user` | yes | Who: a person or account id. |
+| `item` | yes | What they had: a product, article or song id. |
+| `strength` | no | How much: a quantity or rating column (numeric, ≥ 0). Rows of the same person and item are added up. Empty counts each row once. |
+| `time` | no | When. With it, each person's latest picks are held back to test on; without it, a random share of each person's picks. |
+
+The share held back is `test_size` (a fifth by default) of each person who
+has at least two rows, always leaving them at least one to train on. People
+with one row only train. Ids are compared as text: a numeric id `1000` and the
+string `"1000"` are the same person.
+
+`algorithm` is one of:
+
+- `als` — implicit matrix factorization (alternating least squares, 32
+  factors). Good when people have many picks each; it can recommend items a
+  person's neighbours never had.
+- `item_similarity` — "people who had this also had …": cosine similarity
+  between items over who had them, 50 neighbours per item. Good with few picks
+  per person and easy to explain.
+- `auto` (the default) — trains both on part of the training rows, keeps the
+  one with the better NDCG@10, and reports both in `candidates`.
+
+Whichever is chosen is retrained on every row before it is saved. Training
+needs at least 10 usable rows; a model is at most 64 MB (people × factors plus
+items × factors for ALS, items × 50 neighbours for item similarity), and a
+larger one is refused with how many people and items it had.
+
+`target`, `features`, `params` and `device: "gpu"` are refused for a
+recommendation model, as are `recommend` and the two algorithms above for any
+other task. Custom scripts cannot train one.
+
+### How good is it
+
+Each person held back is asked for their top 10 (leaving out what they had in
+training), and the answer is checked against what they really picked next:
+
+| Metric | Means |
+|---|---|
+| `hit_rate@10` | Share of people for whom at least one of their top 10 was something they picked next. |
+| `precision@10` | Of the 10 shown, the share that were picked. |
+| `recall@10` | Of what they picked, the share that was in their top 10. |
+| `ndcg@10` | Like recall, with a hit near the top counting more. It is the version's `score`, the metric a go-live rule checks by default. |
+| `coverage` | Share of all items that appeared in at least one top 10. |
+
+Each metric also has a `baseline_` twin: what recommending everyone the most
+popular items scores on the same people. A model worth having beats it. The
+Models page puts it in words: *"For 34 of 100 people, one of their top 10 was
+something they really picked next. Recommending everyone the most popular
+items would find it for 12 of 100."* At most 5000 people are scored, chosen
+with the seed. The version also keeps `catalog` (how many people and items it
+knows) and three `samples` of the test: what a person was recommended and what
+they picked.
+
+### Calling one
+
+A recommendation model is called on the same routes as any model, with
+`user` or `item` instead of `instances`:
+
+```bash
+# A person's top 5, leaving out what they already had (exclude_seen defaults to true).
+curl -X POST https://hermod.example.com/api/ml/serve/default/recs \
+  -H "X-API-Key: hml_…" -d '{"user": "c-1042", "k": 5}'
+# {"model":"recs","items":[{"item":"p-17","score":0.83},{"item":"p-3","score":0.71}, …]}
+
+# The 10 items most like one item.
+curl -X POST https://hermod.example.com/api/ml/serve/default/recs \
+  -H "X-API-Key: hml_…" -d '{"item": "p-17"}'
+```
+
+`k` is 10 when left out and at most 100. `exclude_seen` applies to a person
+only. Items come best first; `score` is the model's (a dot product for ALS, a
+summed similarity for item similarity) and compares only within one answer.
+A person or item the model never saw gets the most popular items, each with
+`"reason": "popular"`, so the answer is never empty; the console's **Test**
+button shows the same. Sending `instances` to a recommendation model, or
+`user`/`item` to any other, is a 400.
+
+gRPC has `hermod.ml.v1.InferenceService/Recommend`:
+
+```
+{ vhost: "default", model: "recs", user: "c-1042", k: 5 }   // or item: "p-17"
+```
+
+Each call counts as one row against `max_predictions_per_second`, and is
+logged (inputs `user` or `item`, `k`, `exclude_seen`; outputs the items) like
+a prediction.
+
+Recommendations are served **in-process**: Hermod downloads the version's
+`model.rec` from the worker once, keeps up to 32 recommenders in memory, and
+answers without calling the worker. The file is a small, versioned binary
+format (not ONNX) that Hermod checks section by section before using; a file
+it cannot read is refused, and the version stays refused until it changes. An
+older Hermod that does not know the recommendation task drops it when it saves
+the model, so do not roll back past this version with recommendation models
+in use. Export and import of a recommendation version are not supported yet.
+
+### In a workflow
+
+The **Predict** node has a **Recommend** mode, chosen by itself for a
+recommendation model:
+
+```json
+{"transType": "ml_predict", "model": "recs", "mode": "recommend",
+ "recommendFor": "user", "idField": "customer_id", "k": "5",
+ "excludeSeen": "true", "outputField": "recommendations"}
+```
+
+It reads the id from `idField` (`recommendFor: "item"` for similar items) and
+writes the items, `[{"item", "score", "reason"?}]`, to `outputField`
+(`recommendations` by default).
+
+To an MCP client an exposed recommendation model is the tool
+`recommend_<model>`, which takes `user` or `item`, `k` and `exclude_seen`, and
+answers `{"model", "vhost", "items"}`.
+
+### Watching one
+
+A recommendation model has no features to drift. Its **Monitoring → Coverage**
+tab shows, per window of at least the minimum number of calls (the same
+window and minimum as drift):
+
+- **coverage**: how many distinct items it recommended, of all it knows. Low
+  coverage means the same few items go to everyone.
+- **popular share**: how many calls were answered with the popular fallback.
+  A rising share means callers are people or items the model has not seen:
+  train it again on newer rows.
+
+They are exported as `hermod_ml_recommendation_coverage` and
+`hermod_ml_recommendation_popular_share`.
+
+### Example: orders to recommendations
+
+1. Read the orders into a dataset (**Datasets → From a database**):
+   `SELECT customer_id, product_id, quantity, ordered_at FROM order_lines`
+   into `order-lines`.
+2. Train: **Train a model → Recommend items to people**, Who `customer_id`,
+   What they picked `product_id`, How much `quantity`, When `ordered_at`. Or:
+
+   ```bash
+   curl -X POST https://hermod.example.com/api/vhosts/default/ml/models/recs/train \
+     -H "Authorization: Bearer …" \
+     -d '{"dataset": "order-lines", "task": "recommendation",
+          "recommend": {"user": "customer_id", "item": "product_id",
+                        "strength": "quantity", "time": "ordered_at"},
+          "go_live": {"mode": "always"}}'
+   ```
+
+3. Make a serving key and call it: `{"user": "c-1042", "k": 5}`.
+4. In a workflow fed by new orders, add **Predict** with model `recs`, mode
+   Recommend, id field `customer_id`, and send `recommendations` on to an
+   email or a cache.
+
 ## Feature engineering nodes
 
 *Feature Engineering* in the palette holds the preprocessing a model needs
@@ -779,6 +945,10 @@ Hermod registers one yet.
   to score in-process, `path` `in_process` or `fallback` (sent to the worker)
 - `hermod_ml_quota_refusals_total{vhost,quota}`
 - `hermod_ml_feature_drift{vhost,model,feature}`
+- `hermod_ml_recommendations_total{vhost,model,kind,source}`: recommendation
+  calls, `kind` `user` or `item`, `source` `model` or `popular` (the fallback)
+- `hermod_ml_recommendation_coverage{vhost,model}` and
+  `hermod_ml_recommendation_popular_share{vhost,model}`: the last judged window
 - `hermod_ml_prediction_logs_written_total{vhost,model}`
 - `hermod_ml_prediction_logs_dropped_total{vhost,model,reason}`
 - `hermod_ml_monitor_dropped_total{vhost,model,reason}`

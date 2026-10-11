@@ -34,6 +34,7 @@ type mlModelDoc struct {
 	FeatureTypes   map[string]string `bson:"feature_types,omitempty"`
 	TimeoutMs      int               `bson:"timeout_ms,omitempty"`
 	MCPExposed     bool              `bson:"mcp_exposed,omitempty"`
+	Task           string            `bson:"task,omitempty"`
 	Monitoring     mlMonDoc          `bson:"monitoring"`
 	ServingKeyHash string            `bson:"serving_key_hash,omitempty"`
 	UpdatedBy      string            `bson:"updated_by"`
@@ -81,7 +82,7 @@ func (d mlModelDoc) model() storage.MLModel {
 		Backend: inference.Backend(d.Backend), URL: d.URL, RemoteModel: d.RemoteModel, RemoteVersion: d.RemoteVersion,
 		TokenSecret: d.TokenSecret, InputName: d.InputName, Features: d.Features, TimeoutMs: d.TimeoutMs,
 		FeatureTypes: d.FeatureTypes, MCPExposed: d.MCPExposed,
-		ServingKeyHash: d.ServingKeyHash, Serving: d.ServingKeyHash != "", Monitoring: d.Monitoring.monitoring(),
+		ServingKeyHash: d.ServingKeyHash, Serving: d.ServingKeyHash != "", Monitoring: d.Monitoring.monitoring(), Task: d.Task,
 		Retrain: d.Retrain, RetrainStatus: d.RetrainStatus, Scoring: d.Scoring,
 		UpdatedBy: d.UpdatedBy, CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
 	}
@@ -130,7 +131,7 @@ func (s *mongoStorage) PutMLModel(ctx context.Context, m storage.MLModel) error 
 				"description": m.Description, "backend": string(m.Backend), "url": m.URL,
 				"remote_model": m.RemoteModel, "remote_version": m.RemoteVersion, "token_secret": m.TokenSecret,
 				"input_name": m.InputName, "features": m.Features, "timeout_ms": m.TimeoutMs,
-				"feature_types": m.FeatureTypes, "mcp_exposed": m.MCPExposed,
+				"feature_types": m.FeatureTypes, "mcp_exposed": m.MCPExposed, "task": m.Task,
 				"monitoring": monDoc(m.Monitoring), "updated_by": m.UpdatedBy, "updated_at": now,
 			},
 			"$setOnInsert": bson.M{"vhost": m.VHost, "name": m.Name, "created_at": now},

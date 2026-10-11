@@ -38,7 +38,7 @@ type Dialog =
   | { kind: 'form'; model?: MLModel }
   | { kind: 'test'; model: MLModel }
   | { kind: 'key'; model: MLModel }
-  | { kind: 'train'; modelName?: string }
+  | { kind: 'train'; modelName?: string; task?: string }
   | { kind: 'versions'; model: MLModel }
   | { kind: 'monitoring'; model: MLModel }
   | { kind: 'retrain'; model: MLModel }
@@ -147,7 +147,7 @@ export function ModelsPage() {
               </Tooltip>
               {canTrain && (
                 <Tooltip label="Train again">
-                  <ActionIcon variant="light" color="blue" radius="md" aria-label={`Train ${m.name} again`} onClick={() => setDialog({ kind: 'train', modelName: m.name })}>
+                  <ActionIcon variant="light" color="blue" radius="md" aria-label={`Train ${m.name} again`} onClick={() => setDialog({ kind: 'train', modelName: m.name, task: m.task })}>
                     <IconSchool size="1.1rem" />
                   </ActionIcon>
                 </Tooltip>
@@ -294,7 +294,7 @@ export function ModelsPage() {
         )}
       </Stack>
 
-      {vhost && dialog?.kind === 'train' && <TrainModal vhost={vhost} modelName={dialog.modelName} onClose={() => setDialog(undefined)} />}
+      {vhost && dialog?.kind === 'train' && <TrainModal vhost={vhost} modelName={dialog.modelName} task={dialog.task} onClose={() => setDialog(undefined)} />}
       {vhost && dialog?.kind === 'retrain' && <RetrainModal vhost={vhost} model={dialog.model} onClose={() => setDialog(undefined)} />}
       {vhost && dialog?.kind === 'scoring' && <ScoringModal vhost={vhost} model={dialog.model} onClose={() => setDialog(undefined)} />}
       {vhost && dialog?.kind === 'versions' && <VersionsModal vhost={vhost} model={dialog.model} onClose={() => setDialog(undefined)} />}

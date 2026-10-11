@@ -20,6 +20,18 @@ var (
 		Help: "Population stability index of a model feature's live values against its training split, for the last full window.",
 	}, []string{"vhost", "model", "feature"})
 
+	// A recommendation model's coverage and popular share, for the last full
+	// window (recommendations.go).
+	recommendationCoverage = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "hermod_ml_recommendation_coverage",
+		Help: "Share of a recommendation model's catalogue it recommended at least once, for the last full window.",
+	}, []string{"vhost", "model"})
+
+	recommendationPopularShare = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "hermod_ml_recommendation_popular_share",
+		Help: "Share of a recommendation model's calls answered with popular items because the person or item was unknown, for the last full window.",
+	}, []string{"vhost", "model"})
+
 	droppedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "hermod_ml_monitor_dropped_total",
 		Help: "Prediction calls not monitored (neither logged nor counted for drift) because the monitor's queue was full.",

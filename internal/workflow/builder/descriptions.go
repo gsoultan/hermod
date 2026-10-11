@@ -66,7 +66,10 @@ var descriptions = map[string]string{
 		`and "storeApiKey", each as a {{secret(\"NAME\")}} reference.`,
 	"transformation:ml_predict": `Calls a machine-learning model registered in the workflow's vhost and writes its ` +
 		`prediction onto the record. config: {"model":"<registered model name>","inputs":{"feature":"field.path"},` +
-		`"outputField":"prediction"}. Empty inputs send the whole record.`,
+		`"outputField":"prediction"}. Empty inputs send the whole record. For a recommendation model use ` +
+		`{"model","mode":"recommend","recommendFor":"user|item","idField":"customer_id","k":"10","excludeSeen":"true",` +
+		`"outputField":"recommendations"}: it reads the person's (or item's) id from idField and writes a list of ` +
+		`{"item","score","reason"} best first; reason "popular" marks the fallback for an id the model never saw.`,
 	"transformation:ml_train": `Trains a new version of a model on a dataset held by the vhost's ML worker and writes ` +
 		`the result (version, metrics, whether it went live) onto the record. config: {"model","dataset","target",` +
 		`"features":"a,b,c","task":"auto|classification|regression",` +

@@ -7,6 +7,30 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — Recommendation models
+
+The ML worker trains a new kind of model, **recommendation**, from who-had-what
+rows such as order lines: name the person, item and optionally strength
+(quantity, rating) and time columns, and it learns with implicit ALS or item
+similarity (`auto` tries both and keeps the better). Each person's latest picks
+(a random share without a time column) are held back, and the result is reported as hit rate, precision, recall and
+NDCG at 10 and catalog coverage, next to what recommending the most popular
+items would score; the Models page says it in words ("For 34 of 100 people, one
+of their top 10 was something they really picked next").
+
+A recommendation model is called on the existing predict and serve routes with
+`{"user", "k", "exclude_seen"}` for a person's top items or `{"item", "k"}` for
+similar items, and answers `{"items": [{"item", "score", "reason"}]}`; an
+unknown person or item gets the most popular items with reason `popular`. It is
+served in-process from a small versioned file Hermod checks before use, logged
+and held to the prediction quota like any model. gRPC gains
+`InferenceService/Recommend`, the Predict node a Recommend mode, and MCP a
+`recommend_<model>` tool. Monitoring shows coverage and the popular-fallback
+share instead of drift. See "Recommendations" in docs/ml.md.
+
+An older Hermod drops the model's task when it saves the model, so do not roll
+back past this release with recommendation models in use.
+
 ### Added — MySQL and MariaDB in transactional sink groups
 
 A transactional sink group can now include MySQL and MariaDB sinks alongside

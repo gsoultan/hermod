@@ -24,8 +24,10 @@ type workerStub struct {
 	uploaded string
 	versions []worker.Version
 	busy     bool
-	// onnx is the graph every version serves (scoring_test.go).
+	// onnx is the graph every version serves (scoring_test.go), and rec the
+	// recommender artifact (recommend_test.go).
 	onnx []byte
+	rec  []byte
 	// trained is the last training spec the worker was sent.
 	trained string
 	// capabilities answers /v1/capabilities; empty answers 404, like a
@@ -65,10 +67,17 @@ func (s *workerStub) start(t *testing.T) *worker.Client {
 			s.trained = string(b)
 			v := worker.Version{Model: "churn", Version: "1", Task: "classification", Dataset: "customers",
 				Target: "churned", Features: []string{"age"}, Metrics: map[string]float64{"score": 0.6}}
+			var spec worker.TrainSpec
+			if json.Unmarshal(b, &spec) == nil && spec.Task == worker.TaskRecommendation {
+				v = worker.Version{Model: "recs", Version: "1", Task: worker.TaskRecommendation, Dataset: spec.Dataset,
+					Recommend: spec.Recommend, Metrics: map[string]float64{"score": 0.2, "ndcg@10": 0.2}}
+			}
 			s.versions = append([]worker.Version{v}, s.versions...)
 			_ = json.NewEncoder(w).Encode(v)
 		case strings.HasSuffix(p, "/model.onnx") && s.onnx != nil:
 			_, _ = w.Write(s.onnx)
+		case strings.HasSuffix(p, "/model.rec") && s.rec != nil:
+			_, _ = w.Write(s.rec)
 		case strings.HasSuffix(p, "/versions"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"versions": s.versions})
 		default:

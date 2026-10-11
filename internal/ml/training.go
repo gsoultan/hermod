@@ -145,6 +145,9 @@ func (s *Service) train(ctx context.Context, vhost, name string, spec worker.Tra
 	if err := rule.Validate(); err != nil {
 		return TrainResult{}, err
 	}
+	if err := checkRecommendSpec(spec); err != nil {
+		return TrainResult{}, err
+	}
 	if !storage.ValidMLModelName(name) {
 		return TrainResult{}, fmt.Errorf("model name %q must start with a letter and hold only letters, digits, '_' or '-'", name)
 	}
@@ -174,14 +177,14 @@ func (s *Service) train(ctx context.Context, vhost, name string, spec worker.Tra
 	live, reason := rule.decide(v)
 	if live {
 		m.RemoteVersion = v.Version
-		m.Features, m.FeatureTypes = v.Features, v.FeatureTypes
+		m.Features, m.FeatureTypes, m.Task = v.Features, v.FeatureTypes, v.Task
 	} else if m.RemoteVersion == "" {
 		// Nothing is live yet, so the features the next promotion will serve
 		// are the ones to show.
-		m.Features, m.FeatureTypes = v.Features, v.FeatureTypes
+		m.Features, m.FeatureTypes, m.Task = v.Features, v.FeatureTypes, v.Task
 	}
 	if m.Description == "" {
-		m.Description = fmt.Sprintf("Predicts %s from dataset %s", v.Target, v.Dataset)
+		m.Description = describe(v)
 	}
 	m.UpdatedBy = by
 	if err := s.register(ctx, ms, m, isNew); err != nil {
@@ -233,6 +236,7 @@ func (s *Service) Promote(ctx context.Context, vhost, name, version, by string) 
 		return err
 	}
 	m.RemoteVersion, m.Features, m.FeatureTypes, m.UpdatedBy = version, vs[i].Features, vs[i].FeatureTypes, by
+	m.Task = vs[i].Task
 	return ms.PutMLModel(ctx, m)
 }
 
@@ -256,6 +260,7 @@ func (s *Service) DeleteModel(ctx context.Context, vhost, name string) error {
 		return err
 	}
 	scorers.forget(vhost, name)
+	recommenders.forget(vhost, name)
 	logsErr := s.forgetModel(ctx, vhost, name)
 	if m.Backend != storage.MLBackendWorker || s.worker == nil {
 		return logsErr

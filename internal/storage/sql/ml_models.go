@@ -36,6 +36,8 @@ type mlModelSpec struct {
 	MCPExposed   bool              `json:"mcp_exposed,omitempty"`
 
 	Monitoring storage.MLMonitoring `json:"monitoring"`
+	// Task tells a recommender from a model that predicts a column.
+	Task string `json:"task,omitempty"`
 }
 
 func specOf(m storage.MLModel) mlModelSpec {
@@ -43,7 +45,7 @@ func specOf(m storage.MLModel) mlModelSpec {
 		Description: m.Description, Backend: string(m.Backend), URL: m.URL,
 		RemoteModel: m.RemoteModel, RemoteVersion: m.RemoteVersion, TokenSecret: m.TokenSecret,
 		InputName: m.InputName, Features: m.Features, TimeoutMs: m.TimeoutMs,
-		FeatureTypes: m.FeatureTypes, MCPExposed: m.MCPExposed, Monitoring: m.Monitoring,
+		FeatureTypes: m.FeatureTypes, MCPExposed: m.MCPExposed, Monitoring: m.Monitoring, Task: m.Task,
 	}
 }
 
@@ -52,7 +54,7 @@ func (sp mlModelSpec) apply(m *storage.MLModel) {
 	m.RemoteModel, m.RemoteVersion, m.TokenSecret = sp.RemoteModel, sp.RemoteVersion, sp.TokenSecret
 	m.InputName, m.Features, m.TimeoutMs = sp.InputName, sp.Features, sp.TimeoutMs
 	m.FeatureTypes, m.MCPExposed = sp.FeatureTypes, sp.MCPExposed
-	m.Monitoring = sp.Monitoring
+	m.Monitoring, m.Task = sp.Monitoring, sp.Task
 }
 
 // scanMLModel fills m from a row's spec and bookkeeping columns.

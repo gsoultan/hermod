@@ -64,6 +64,13 @@ type MLModel struct {
 	// PutMLModel does not change it; MLScoringStore does.
 	Scoring string `json:"scoring,omitempty"`
 
+	// Task is what a model Hermod trained does, as its live version (or,
+	// before one is live, its latest) says: classification, regression or
+	// MLTaskRecommendation. A recommender is called with a person or an
+	// item, not rows. Empty for a model served elsewhere, and for one
+	// trained before the task was kept.
+	Task string `json:"task,omitempty"`
+
 	UpdatedBy string    `json:"updated_by,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -92,6 +99,14 @@ func ValidateMLScoring(s string) error {
 	}
 	return fmt.Errorf("scoring is %q or %q, not %q", MLScoringWorker, MLScoringInProcess, s)
 }
+
+// MLTaskRecommendation is the task of a trained model that recommends items
+// to people. Hermod serves it in-process from its artifact (pkg/ml/recommend).
+const MLTaskRecommendation = "recommendation"
+
+// IsRecommender reports whether the model recommends items rather than
+// predicting a column.
+func (m MLModel) IsRecommender() bool { return m.Task == MLTaskRecommendation }
 
 // MaxMLModelNameLen bounds a model name, which appears in URLs and metrics.
 const MaxMLModelNameLen = 64
@@ -166,6 +181,15 @@ func ValidateMLModel(m MLModel) error {
 	}
 	if err := m.Monitoring.Validate(); err != nil {
 		return err
+	}
+	switch m.Task {
+	case "", "classification", "regression":
+	case MLTaskRecommendation:
+		if m.Backend != MLBackendWorker {
+			return errors.New("only a model trained by Hermod can be a recommendation model")
+		}
+	default:
+		return fmt.Errorf("task %q is not classification, regression or %s", m.Task, MLTaskRecommendation)
 	}
 	if m.Backend == MLBackendWorker {
 		return validateWorkerModel(m)

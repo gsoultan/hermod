@@ -52,7 +52,7 @@ func (s *Server) Predict(ctx context.Context, req *proto.PredictRequest) (*proto
 
 	preds, err := svc.Predict(ml.WithCaller(ctx, storage.MLCallerGRPC, ""), req.GetVhost(), req.GetModel(), rows)
 	if err != nil {
-		if errors.Is(err, ml.ErrTooManyRows) {
+		if errors.Is(err, ml.ErrTooManyRows) || errors.Is(err, ml.ErrRecommender) {
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
 		if errors.Is(err, ml.ErrQuotaExceeded) {
@@ -68,6 +68,42 @@ func (s *Server) Predict(ctx context.Context, req *proto.PredictRequest) (*proto
 			return nil, status.Errorf(codes.Internal, "prediction %d cannot be sent: %v", i, err)
 		}
 		resp.Predictions[i] = st
+	}
+	return resp, nil
+}
+
+// Recommend authenticates the caller as Predict does, then asks the
+// recommendation model for a person's items or the items like one item.
+func (s *Server) Recommend(ctx context.Context, req *proto.RecommendRequest) (*proto.RecommendResponse, error) {
+	svc := s.ServiceFunc()
+	if svc == nil {
+		return nil, status.Error(codes.Unavailable, "Hermod is not set up yet")
+	}
+	if err := svc.AuthorizeServing(ctx, req.GetVhost(), req.GetModel(), apiKey(ctx)); err != nil {
+		return nil, status.Error(codes.Unauthenticated, "invalid serving key")
+	}
+
+	call := ml.RecommendRequest{K: int(req.GetK()), ExcludeSeen: req.ExcludeSeen}
+	switch subject := req.GetSubject().(type) {
+	case *proto.RecommendRequest_User:
+		call.User = subject.User
+	case *proto.RecommendRequest_Item:
+		call.Item = subject.Item
+	}
+	items, err := svc.Recommend(ml.WithCaller(ctx, storage.MLCallerGRPC, ""), req.GetVhost(), req.GetModel(), call)
+	if err != nil {
+		switch {
+		case errors.Is(err, ml.ErrBadRecommendRequest), errors.Is(err, ml.ErrNotRecommender):
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		case errors.Is(err, ml.ErrQuotaExceeded):
+			return nil, status.Error(codes.ResourceExhausted, err.Error())
+		}
+		return nil, status.Error(codes.Unavailable, err.Error())
+	}
+
+	resp := &proto.RecommendResponse{Model: req.GetModel(), Items: make([]*proto.RecommendedItem, len(items))}
+	for i, it := range items {
+		resp.Items[i] = &proto.RecommendedItem{Item: it.Item, Score: it.Score, Reason: it.Reason}
 	}
 	return resp, nil
 }

@@ -134,6 +134,10 @@ type Observation struct {
 	Outputs []map[string]any
 	Latency time.Duration
 	At      time.Time
+	// Recommendation is set for a call of a recommendation model, which is
+	// watched by coverage and popular share rather than drift
+	// (recommendations.go).
+	Recommendation *RecommendationCall
 }
 
 type modelKey struct{ vhost, model string }
@@ -147,6 +151,7 @@ type event struct {
 	features []string
 	values   [][]any // per row, aligned with features; nil when drift is not measured
 	logs     []storage.MLPredictionLog
+	rec      *recEvent
 }
 
 // window counts one model version's live values until it is judged.
@@ -180,6 +185,9 @@ type Monitor struct {
 	reports map[modelKey]Report
 	hooks   []func(Report)
 
+	recWindows map[modelKey]*recWindow
+	recReports map[modelKey]RecommendationReport
+
 	// Run's goroutine only.
 	pending    []storage.MLPredictionLog
 	lastErrLog time.Time
@@ -192,6 +200,7 @@ func New(cfg Config, deps Deps) *Monitor {
 	return &Monitor{
 		cfg: cfg, deps: deps, queue: make(chan event, cfg.Queue), now: time.Now,
 		windows: map[modelKey]*window{}, stats: map[modelKey]versionStats{}, reports: map[modelKey]Report{},
+		recWindows: map[modelKey]*recWindow{}, recReports: map[modelKey]RecommendationReport{},
 	}
 }
 
@@ -231,8 +240,12 @@ func (m *Monitor) Forget(vhost, model string) {
 	delete(m.windows, k)
 	delete(m.stats, k)
 	delete(m.reports, k)
+	delete(m.recWindows, k)
+	delete(m.recReports, k)
 	m.mu.Unlock()
 	featureDrift.DeletePartialMatch(prometheus.Labels{"vhost": vhost, "model": model})
+	recommendationCoverage.DeletePartialMatch(prometheus.Labels{"vhost": vhost, "model": model})
+	recommendationPopularShare.DeletePartialMatch(prometheus.Labels{"vhost": vhost, "model": model})
 }
 
 // Observe hands one prediction call to the monitor. It never blocks: when the
@@ -244,14 +257,18 @@ func (m *Monitor) Observe(o Observation) {
 	mdl := o.Model
 	ev := event{key: modelKey{mdl.VHost, mdl.Name}, version: mdl.RemoteVersion, mon: mdl.Monitoring}
 
-	// Only a model Hermod trained has training stats to measure drift against.
-	if mdl.Backend == storage.MLBackendWorker && ev.version != "" && len(mdl.Features) > 0 {
+	// Only a model Hermod trained has training stats to measure drift
+	// against, and a recommender has no features to drift.
+	if mdl.Backend == storage.MLBackendWorker && ev.version != "" && len(mdl.Features) > 0 && !mdl.IsRecommender() {
 		ev.features = mdl.Features
 		ev.values = featureValues(o.Inputs, ev.features)
 	}
+	if rc := o.Recommendation; rc != nil && mdl.IsRecommender() {
+		ev.rec = &recEvent{items: slices.Clone(rc.Items), fallback: rc.Fallback, catalog: rc.Catalog}
+	}
 	ev.logs = sample(o, ev.version)
 
-	if ev.values == nil && len(ev.logs) == 0 {
+	if ev.values == nil && ev.rec == nil && len(ev.logs) == 0 {
 		return
 	}
 	select {
@@ -357,6 +374,9 @@ func (m *Monitor) absorb(ctx context.Context, ev event) {
 	if ev.values != nil {
 		m.count(ctx, ev)
 	}
+	if ev.rec != nil {
+		m.countRecommendation(ev)
+	}
 }
 
 // count adds an event's values to its model's window, starting a new window
@@ -446,8 +466,14 @@ func (m *Monitor) evaluate(ctx context.Context, now time.Time) {
 		}
 		m.windows[k] = next
 	}
+	recs := m.judgeRecommendations(now)
 	hooks := slices.Clone(m.hooks)
 	m.mu.Unlock()
+
+	for _, r := range recs {
+		recommendationCoverage.WithLabelValues(r.VHost, r.Model).Set(r.Coverage)
+		recommendationPopularShare.WithLabelValues(r.VHost, r.Model).Set(r.PopularShare)
+	}
 
 	for _, r := range judged {
 		featureDrift.DeletePartialMatch(prometheus.Labels{"vhost": r.VHost, "model": r.Model})

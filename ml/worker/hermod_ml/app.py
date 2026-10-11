@@ -19,10 +19,10 @@ from fastapi.responses import JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import transfer
+from . import recommend, transfer
 from .custom import CustomTrainer
 from .datasets import DatasetStore, parse_csv, parse_xlsx, rows_to_table
-from .errors import ApiError, bad_request
+from .errors import ApiError, bad_request, not_found
 from .names import validate_name
 from .sandbox import SandboxSettings, harden_parent
 from .serving import ModelServer
@@ -209,10 +209,24 @@ def create_app(settings: Settings, sandbox: SandboxSettings | None = None) -> Fa
     async def model_file(vhost: str, name: str, version: str) -> Response:
         # The graph a version serves, for Hermod to score small models
         # in-process. resolve() refuses a version the model does not have.
+        return await version_file(vhost, name, version, "model.onnx")
+
+    @api.get("/v1/models/{vhost}/{name}/versions/{version}/model.rec")
+    async def recommender_file(vhost: str, name: str, version: str) -> Response:
+        # A recommendation version's artifact (recommend.py), which Hermod
+        # parses and serves in-process.
+        return await version_file(vhost, name, version, recommend.ARTIFACT)
+
+    async def version_file(vhost: str, name: str, version: str, filename: str) -> Response:
         validate_name(vhost, "vhost")
         validate_name(name, "model")
         resolved = await run_in_threadpool(models.resolve, vhost, name, version)
-        body = await run_in_threadpool(models.onnx_path(vhost, name, resolved).read_bytes)
+        meta = await run_in_threadpool(models.meta, vhost, name, resolved)
+        is_recommender = meta.get("task") == recommend.TASK
+        if is_recommender != (filename == recommend.ARTIFACT):
+            kind = "a recommendation model, which has no ONNX graph" if is_recommender else "not a recommendation model"
+            raise not_found(f"Version {resolved} of model {name!r} is {kind}.")
+        body = await run_in_threadpool(models.file_path(vhost, name, resolved, filename).read_bytes)
         return Response(content=body, media_type="application/octet-stream")
 
     @api.delete("/v1/models/{vhost}/{name}", status_code=204)

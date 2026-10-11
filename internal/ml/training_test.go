@@ -59,6 +59,9 @@ func (f *fakeWorker) server(t *testing.T) *httptest.Server {
 				Dataset: spec.Dataset, Target: spec.Target, Features: []string{"age", "plan"},
 				FeatureTypes: map[string]string{"age": "number", "plan": "string"},
 				Metrics:      map[string]float64{"score": f.score, "accuracy": f.score}}
+			if spec.Task == worker.TaskRecommendation {
+				v.Task, v.Recommend, v.Features, v.FeatureTypes = spec.Task, spec.Recommend, nil, nil
+			}
 			f.versions[key] = append([]worker.Version{v}, f.versions[key]...)
 			_ = json.NewEncoder(w).Encode(v)
 		case r.Method == http.MethodGet && len(parts) == 5 && parts[4] == "versions":

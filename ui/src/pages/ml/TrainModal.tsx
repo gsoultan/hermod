@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import {
-  Alert, Badge, Button, Group, Modal, MultiSelect, Select, Stack, Table, Text, TextInput,
+  Alert, Badge, Button, Group, Modal, MultiSelect, Radio, Select, Stack, Table, Text, TextInput,
 } from '@mantine/core'
 import { IconAlertCircle, IconCircleCheck, IconInfoCircle } from '@tabler/icons-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  DEVICE_OPTIONS, MODEL_NAME_PATTERN, TASK_OPTIONS, algorithmOptions, isCustomAlgorithm, isDeepAlgorithm, mlModelsKey, modelNameRule,
-  trainModel, useDataset, useVHostDatasets, useVHostScripts, useWorkerStatus, versionsKey, type GoLive, type TrainAlgorithm,
-  type TrainDevice, type TrainParams, type TrainResult, type TrainTask,
+  DEVICE_OPTIONS, MODEL_NAME_PATTERN, RECOMMEND_ALGORITHM_OPTIONS, RECOMMENDATION, TASK_OPTIONS, algorithmOptions,
+  describeRecommendation, isCustomAlgorithm, isDeepAlgorithm, mlModelsKey, modelNameRule,
+  trainModel, useDataset, useVHostDatasets, useVHostScripts, useWorkerStatus, versionsKey, type GoLive, type RecommendAlgorithm,
+  type TrainAlgorithm, type TrainDevice, type TrainParams, type TrainResult, type TrainTask,
 } from '@/lib/mlModels'
 import { DeepParamsFields, readDeepParams, type DeepParamsText } from './deepParams'
 import { GoLiveField } from './goLive'
@@ -20,7 +21,9 @@ export const formatMetric = (v: number) => (Number.isInteger(v) ? String(v) : v.
  * of `modelName`. The worker holds back a fifth of the rows to score it, and
  * the result says how it did and whether it went live.
  */
-export function TrainModal({ vhost, modelName, onClose }: { vhost: string; modelName?: string; onClose: () => void }) {
+export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
+  vhost: string; modelName?: string; task?: string; onClose: () => void
+}) {
   const queryClient = useQueryClient()
   const [name, setName] = useState(modelName ?? '')
   const [dataset, setDataset] = useState<string | null>(null)
@@ -33,6 +36,13 @@ export function TrainModal({ vhost, modelName, onClose }: { vhost: string; model
   const [nameError, setNameError] = useState<string | null>(null)
   const [deepText, setDeepText] = useState<DeepParamsText>({})
   const [deepErrors, setDeepErrors] = useState<ReturnType<typeof readDeepParams>['errors']>({})
+  // 'predict' learns a column; 'recommend' learns who had what.
+  // A model trained again keeps what it does.
+  const [goal, setGoal] = useState<'predict' | 'recommend'>(modelTask === RECOMMENDATION ? 'recommend' : 'predict')
+  const [cols, setCols] = useState<{ user: string | null; item: string | null; strength: string | null; time: string | null }>(
+    { user: null, item: null, strength: null, time: null })
+  const [recAlgorithm, setRecAlgorithm] = useState<RecommendAlgorithm>('auto')
+  const recommending = goal === 'recommend'
 
   const { data: worker } = useWorkerStatus()
   const { data: datasets = [] } = useVHostDatasets(vhost)
@@ -45,9 +55,24 @@ export function TrainModal({ vhost, modelName, onClose }: { vhost: string; model
   const showDevice = !!caps?.gpu && !custom
   const deep = isDeepAlgorithm(algorithm)
 
+  const numberColumns = (info?.columns ?? []).filter((c) => c.type === 'number').map((c) => c.name)
+
   const train = useMutation({
-    mutationFn: (params: TrainParams | undefined) =>
-      trainModel(vhost, name.trim(), {
+    mutationFn: (params: TrainParams | undefined) => recommending
+      ? trainModel(vhost, name.trim(), {
+        dataset: dataset as string,
+        target: '',
+        task: 'recommendation',
+        algorithm: recAlgorithm as TrainAlgorithm,
+        recommend: {
+          user: cols.user as string,
+          item: cols.item as string,
+          ...(cols.strength ? { strength: cols.strength } : {}),
+          ...(cols.time ? { time: cols.time } : {}),
+        },
+        go_live: goLive,
+      })
+      : trainModel(vhost, name.trim(), {
         dataset: dataset as string,
         target: target as string,
         features: features.length ? features : undefined,
@@ -63,10 +88,18 @@ export function TrainModal({ vhost, modelName, onClose }: { vhost: string; model
     },
   })
 
+  const ready = recommending ? !!dataset && !!cols.user && !!cols.item : !!dataset && !!target
+  const setCol = (key: keyof typeof cols) => (v: string | null) => setCols((c) => ({ ...c, [key]: v }))
+
   const submit = (event: React.FormEvent) => {
     event.preventDefault()
     const badName = !MODEL_NAME_PATTERN.test(name.trim())
     setNameError(badName ? `"${name.trim()}" is not a valid name.` : null)
+    if (recommending) {
+      if (badName || !ready) return
+      train.mutate(undefined)
+      return
+    }
     const { params, errors } = deep ? readDeepParams(deepText) : { params: undefined, errors: {} }
     setDeepErrors(errors)
     if (badName || !dataset || !target || Object.keys(errors).length) return
@@ -81,9 +114,44 @@ export function TrainModal({ vhost, modelName, onClose }: { vhost: string; model
             <TextInput label="Model name" description={modelNameRule} placeholder="churn" required value={name}
               onChange={(e) => { setName(e.currentTarget.value); setNameError(null) }} error={nameError} data-autofocus />
           )}
+          {!modelName && (
+            <Radio.Group label="What should the model do?" value={goal} onChange={(v) => setGoal(v as typeof goal)}>
+              <Group gap="lg" mt={4}>
+                <Radio value="predict" label="Predict a column" />
+                <Radio value="recommend" label="Recommend items to people" />
+              </Group>
+            </Radio.Group>
+          )}
           <Select label="Dataset" placeholder={datasets.length ? 'Choose a dataset' : 'No datasets yet'} required searchable
             data={datasets.map((d) => ({ value: d.name, label: d.name }))} value={dataset}
-            onChange={(v) => { setDataset(v); setTarget(null); setFeatures([]) }} nothingFoundMessage="No dataset by that name" />
+            onChange={(v) => {
+              setDataset(v); setTarget(null); setFeatures([])
+              setCols({ user: null, item: null, strength: null, time: null })
+            }} nothingFoundMessage="No dataset by that name" />
+          {recommending ? (
+            <>
+              <Text size="xs" c="dimmed">
+                One row per time someone had something: an order line, a view, a play. The model learns who had what and
+                recommends each person what people like them had.
+              </Text>
+              <Group grow align="flex-start">
+                <Select label="Who" description="The person, e.g. customer id." required searchable disabled={!dataset}
+                  data={columns.filter((c) => c !== cols.item)} value={cols.user} onChange={setCol('user')} />
+                <Select label="What they picked" description="The item, e.g. product id." required searchable disabled={!dataset}
+                  data={columns.filter((c) => c !== cols.user)} value={cols.item} onChange={setCol('item')} />
+              </Group>
+              <Group grow align="flex-start">
+                <Select label="How much" description="Optional: quantity or rating. Empty counts each row once." searchable clearable
+                  disabled={!dataset} data={numberColumns.filter((c) => c !== cols.user && c !== cols.item)}
+                  value={cols.strength} onChange={setCol('strength')} />
+                <Select label="When" description="Optional: each person's latest pick is held back to test on." searchable clearable
+                  disabled={!dataset} data={columns.filter((c) => c !== cols.user && c !== cols.item)}
+                  value={cols.time} onChange={setCol('time')} />
+              </Group>
+              <Select label="Algorithm" data={RECOMMEND_ALGORITHM_OPTIONS} value={recAlgorithm} allowDeselect={false}
+                onChange={(v) => setRecAlgorithm((v ?? 'auto') as RecommendAlgorithm)} />
+            </>
+          ) : (<>
           <Select label="Column to predict" placeholder="The target" required searchable disabled={!dataset}
             data={columns} value={target} onChange={(v) => { setTarget(v); setFeatures((f) => f.filter((x) => x !== v)) }} />
           <MultiSelect label="Learn from" description="Empty learns from every other column." searchable clearable
@@ -107,6 +175,7 @@ export function TrainModal({ vhost, modelName, onClose }: { vhost: string; model
             <DeepParamsFields value={deepText} errors={deepErrors}
               onChange={(patch) => { setDeepText((t) => ({ ...t, ...patch })); setDeepErrors({}) }} />
           )}
+          </>)}
           <GoLiveField value={goLive} onChange={setGoLive} />
 
           {train.error && (
@@ -118,7 +187,7 @@ export function TrainModal({ vhost, modelName, onClose }: { vhost: string; model
 
           <Group justify="flex-end">
             <Button variant="default" onClick={onClose}>{train.data ? 'Close' : 'Cancel'}</Button>
-            <Button type="submit" loading={train.isPending} disabled={!dataset || !target}>Train</Button>
+            <Button type="submit" loading={train.isPending} disabled={!ready}>Train</Button>
           </Group>
           {train.isPending && (
             <Text size="xs" c="dimmed" ta="right">Training runs on the ML worker; a large dataset takes a few minutes.</Text>
@@ -131,6 +200,7 @@ export function TrainModal({ vhost, modelName, onClose }: { vhost: string; model
 
 function TrainOutcome({ result }: { result: TrainResult }) {
   const v = result.version
+  if (v.task === RECOMMENDATION) return <RecommendOutcome result={result} />
   return (
     <Alert color={result.live ? 'green' : 'yellow'} icon={result.live ? <IconCircleCheck size="1rem" /> : <IconInfoCircle size="1rem" />}
       title={`Version ${v.version} trained${result.live ? ' and live' : ', not live'}`}>
@@ -143,6 +213,40 @@ function TrainOutcome({ result }: { result: TrainResult }) {
           <Badge variant="light" tt="none">{v.rows.train} rows trained, {v.rows.test} held back</Badge>
         </Group>
         <MetricsTable metrics={v.metrics} />
+      </Stack>
+    </Alert>
+  )
+}
+
+/** A recommendation version's result in words, then its metrics and a few people of the test. */
+function RecommendOutcome({ result }: { result: TrainResult }) {
+  const v = result.version
+  const said = describeRecommendation(v.metrics)
+  const own = Object.fromEntries(Object.entries(v.metrics).filter(([k]) => !k.startsWith('baseline_')))
+  return (
+    <Alert color={result.live ? 'green' : 'yellow'} icon={result.live ? <IconCircleCheck size="1rem" /> : <IconInfoCircle size="1rem" />}
+      title={`Version ${v.version} trained${result.live ? ' and live' : ', not live'}`}>
+      <Stack gap="xs">
+        <Text size="sm" fw={500}>{said.hits}</Text>
+        {said.baseline && <Text size="sm">{said.baseline}</Text>}
+        {said.coverage && <Text size="sm" c="dimmed">{said.coverage}</Text>}
+        <Text size="sm">{result.reason}.</Text>
+        <Group gap="xs">
+          <Badge variant="light" tt="none">{v.algorithm}</Badge>
+          {v.catalog && <Badge variant="light" tt="none">{v.catalog.users} people, {v.catalog.items} items</Badge>}
+          <Badge variant="light" tt="none">{v.rows.train} rows trained, {v.rows.test} held back</Badge>
+        </Group>
+        <MetricsTable metrics={own} />
+        {!!v.samples?.length && (
+          <Stack gap={2}>
+            <Text size="xs" fw={500}>A few people of the test</Text>
+            {v.samples.map((s) => (
+              <Text key={s.user} size="xs" c="dimmed">
+                {s.user}: recommended {s.recommended.slice(0, 5).join(', ') || 'nothing'}; really picked {s.picked.join(', ')}
+              </Text>
+            ))}
+          </Stack>
+        )}
       </Stack>
     </Alert>
   )
