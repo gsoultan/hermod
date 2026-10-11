@@ -84,14 +84,13 @@ func New(svc *service.Service) Endpoints {
 func summarize(g lineage.Graph) Summary {
 	s := Summary{Edges: len(g.Edges)}
 	for _, n := range g.Nodes {
-		switch {
-		case n.Kind == lineage.KindWorkflow:
+		if n.Kind == lineage.KindWorkflow {
 			s.Workflows++
-		default:
-			s.Assets++
-			if !n.Resolved {
-				s.Unresolved++
-			}
+			continue
+		}
+		s.Assets++
+		if !n.Resolved {
+			s.Unresolved++
 		}
 	}
 	return s

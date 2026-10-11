@@ -41,34 +41,7 @@ func Downstream(g Graph, id string) (Impact, error) {
 	for _, n := range g.Nodes {
 		byID[n.ID] = n
 	}
-	out := map[string][]Edge{}
-	for _, e := range g.Edges {
-		out[e.From] = append(out[e.From], e)
-	}
-	for k := range out {
-		slices.SortFunc(out[k], func(a, b Edge) int { return cmp.Or(cmp.Compare(a.To, b.To), cmp.Compare(a.Relation, b.Relation)) })
-	}
-
-	type visit struct {
-		parent   string
-		relation string
-		depth    int
-	}
-	seen := map[string]visit{id: {}}
-	queue := []string{id}
-	order := []string{}
-	for len(queue) > 0 {
-		cur := queue[0]
-		queue = queue[1:]
-		for _, e := range out[cur] {
-			if _, done := seen[e.To]; done {
-				continue
-			}
-			seen[e.To] = visit{parent: cur, relation: e.Relation, depth: seen[cur].depth + 1}
-			queue = append(queue, e.To)
-			order = append(order, e.To)
-		}
-	}
+	seen, order := walk(g.Edges, id)
 
 	imp := Impact{Root: root, Impacted: make([]Impacted, 0, len(order))}
 	for _, nid := range order {
@@ -91,4 +64,40 @@ func Downstream(g Graph, id string) (Impact, error) {
 	}
 	slices.SortStableFunc(imp.Impacted, func(a, b Impacted) int { return cmp.Compare(a.Depth, b.Depth) })
 	return imp, nil
+}
+
+// visit is how the walk first reached a node.
+type visit struct {
+	parent   string
+	relation string
+	depth    int
+}
+
+// walk visits every node reachable from id breadth-first, following edges in
+// (target, relation) order. It returns how each was reached and the order
+// they were reached in, id excluded.
+func walk(edges []Edge, id string) (map[string]visit, []string) {
+	out := map[string][]Edge{}
+	for _, e := range edges {
+		out[e.From] = append(out[e.From], e)
+	}
+	for k := range out {
+		slices.SortFunc(out[k], func(a, b Edge) int { return cmp.Or(cmp.Compare(a.To, b.To), cmp.Compare(a.Relation, b.Relation)) })
+	}
+	seen := map[string]visit{id: {}}
+	queue := []string{id}
+	var order []string
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		for _, e := range out[cur] {
+			if _, done := seen[e.To]; done {
+				continue
+			}
+			seen[e.To] = visit{parent: cur, relation: e.Relation, depth: seen[cur].depth + 1}
+			queue = append(queue, e.To)
+			order = append(order, e.To)
+		}
+	}
+	return seen, order
 }

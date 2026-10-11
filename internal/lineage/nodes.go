@@ -89,8 +89,7 @@ func (r nodeReader) node(n storage.WorkflowNode) []nodeIO {
 // transformer reads the config of one transformer, or of each step of a
 // pipeline.
 func (r nodeReader) transformer(kind string, cfg map[string]any) []nodeIO {
-	switch kind {
-	case "pipeline", "parallel_pipeline":
+	if kind == "pipeline" || kind == "parallel_pipeline" {
 		var out []nodeIO
 		for _, step := range objects(cfg["steps"]) {
 			if st := str(step, "transType"); st != "pipeline" && st != "parallel_pipeline" {
@@ -98,45 +97,65 @@ func (r nodeReader) transformer(kind string, cfg map[string]any) []nodeIO {
 			}
 		}
 		return out
-	case "db_lookup":
+	}
+	if read, ok := transformerReaders[kind]; ok {
+		return read(r, cfg)
+	}
+	return nil
+}
+
+// transformerReaders are the transformers that read or write an asset, by
+// transType.
+var transformerReaders = map[string]func(r nodeReader, cfg map[string]any) []nodeIO{
+	"db_lookup": func(r nodeReader, cfg map[string]any) []nodeIO {
 		if db, ok := r.sourceDB(sourceRef(cfg)); ok {
 			return []nodeIO{{asset: tables(db, str(cfg, "table"))[0], relation: RelLooksUp}}
 		}
-	case "execute_sql":
+		return nil
+	},
+	"execute_sql": func(r nodeReader, cfg map[string]any) []nodeIO {
 		// The statement is free SQL; the database it runs in is what is known.
 		if db, ok := r.sourceDB(sourceRef(cfg)); ok {
 			return []nodeIO{{asset: db, relation: RelWrites, out: true}}
 		}
-	case "scd":
-		db, ok := r.sourceDB(str(cfg, "targetSourceId"))
-		if !ok {
-			return nil
-		}
-		var out []nodeIO
-		for _, t := range []string{str(cfg, "targetTable"), str(cfg, "historyTable")} {
-			if t != "" {
-				out = append(out, nodeIO{asset: tables(db, t)[0], relation: RelWrites, out: true})
-			}
-		}
-		return out
-	case "api_lookup":
+		return nil
+	},
+	"scd": nodeReader.scd,
+	"api_lookup": func(_ nodeReader, cfg map[string]any) []nodeIO {
 		if loc, ok := urlLocator(str(cfg, "url")); ok {
 			return []nodeIO{{asset: one(KindEndpoint, "http", loc, "")[0], relation: RelLooksUp}}
 		}
-	case "reference_lookup":
+		return nil
+	},
+	"reference_lookup": func(_ nodeReader, cfg map[string]any) []nodeIO {
 		if p := str(cfg, "filePath"); p != "" {
 			return []nodeIO{{asset: one(KindFile, "file", "", p)[0], relation: RelLooksUp}}
 		}
-	case "ml_predict":
+		return nil
+	},
+	"ml_predict": func(r nodeReader, cfg map[string]any) []nodeIO {
 		if m := str(cfg, "model"); m != "" {
 			return []nodeIO{{asset: modelAsset(r.vhost, m), relation: RelPredicts}}
 		}
-	case "ml_train":
-		return r.train(cfg)
-	case "ai_retrieve":
-		return r.retrieve(cfg)
+		return nil
+	},
+	"ml_train":    nodeReader.train,
+	"ai_retrieve": nodeReader.retrieve,
+}
+
+// scd writes its target and history tables in targetSourceId's database.
+func (r nodeReader) scd(cfg map[string]any) []nodeIO {
+	db, ok := r.sourceDB(str(cfg, "targetSourceId"))
+	if !ok {
+		return nil
 	}
-	return nil
+	var out []nodeIO
+	for _, t := range []string{str(cfg, "targetTable"), str(cfg, "historyTable")} {
+		if t != "" {
+			out = append(out, nodeIO{asset: tables(db, t)[0], relation: RelWrites, out: true})
+		}
+	}
+	return out
 }
 
 // train is ml_train: it trains model on dataset, refilling the dataset from

@@ -71,6 +71,17 @@ func one(kind, system, locator, object string) []asset {
 	return []asset{{kind: kind, system: system, locator: locator, object: object, resolved: true}}
 }
 
+// oneIf is one(...) when ok holds, and nothing otherwise.
+func oneIf(ok bool, kind, system, locator, object string) []asset {
+	if !ok {
+		return nil
+	}
+	return one(kind, system, locator, object)
+}
+
+// reader derives the assets of one connector type from its config.
+type reader func(typ string, c cfgMap) []asset
+
 // sourceAssets are the assets a source reads. sources resolves a batch_sql
 // delegate; it is nil-safe.
 func sourceAssets(src storage.Source, sources map[string]storage.Source) []asset {
@@ -78,51 +89,72 @@ func sourceAssets(src storage.Source, sources map[string]storage.Source) []asset
 	if db, ok := sqlDatabase(src.Type, c); ok {
 		return tables(db, list(c.get("tables"))...)
 	}
-	var out []asset
-	switch src.Type {
-	case "batch_sql":
-		// batch_sql's queries are free SQL; the database is what is known.
-		if d, ok := sources[c.get("source_id")]; ok && d.ID != src.ID {
-			if db, ok := sqlDatabase(d.Type, cfgMap(d.Config)); ok {
-				out = []asset{db}
-			}
-		}
-	case "mongodb":
+	if src.Type == "batch_sql" {
+		return batchSQLAssets(src, c, sources)
+	}
+	if read, ok := sourceReaders[src.Type]; ok {
+		return read(src.Type, c)
+	}
+	return messagingAssets(src.Type, c, true)
+}
+
+// batchSQLAssets is the database of a batch_sql source's delegate: its
+// queries are free SQL, so the database is what is known.
+func batchSQLAssets(src storage.Source, c cfgMap, sources map[string]storage.Source) []asset {
+	d, ok := sources[c.get("source_id")]
+	if !ok || d.ID == src.ID {
+		return nil
+	}
+	if db, ok := sqlDatabase(d.Type, cfgMap(d.Config)); ok {
+		return []asset{db}
+	}
+	return nil
+}
+
+// sourceReaders are the source types whose keys differ from their sink's.
+var sourceReaders = map[string]reader{
+	"mongodb": func(_ string, c cfgMap) []asset {
 		loc, ok := connLocator(cfgMap{"uri": c.get("uri")}, false)
 		if !ok {
 			loc = hostPort(c.get("host"), c.get("port"))
 		}
-		if loc != "" && c.get("collection") != "" {
-			out = one(KindCollection, "mongodb", loc, c.get("database")+"."+c.get("collection"))
+		return oneIf(loc != "" && c.get("collection") != "", KindCollection, "mongodb", loc, c.get("database")+"."+c.get("collection"))
+	},
+	"cassandra": cassandraSource,
+	"scylladb":  cassandraSource,
+	"mainframe": func(_ string, c cfgMap) []asset {
+		hp := hostPort(c.get("host"), c.get("port"))
+		return oneIf(hp != "" && c.get("table") != "", KindTable, "mainframe", joinPath(hp, c.get("database")), joinDot(c.get("schema"), c.get("table")))
+	},
+	"eventstore": func(_ string, c cfgMap) []asset {
+		db, ok := eventStoreDB(c)
+		if !ok {
+			return nil
 		}
-	case "cassandra", "scylladb":
-		hosts := sortedList(c.get("hosts"), strings.ToLower)
-		for _, t := range list(c.get("tables")) {
-			out = append(out, one(KindTable, src.Type, hosts, t)...)
+		if s := c.get("stream_id"); s != "" {
+			db.kind, db.object = KindStream, s
 		}
-	case "mainframe":
-		if hp := hostPort(c.get("host"), c.get("port")); hp != "" && c.get("table") != "" {
-			out = one(KindTable, "mainframe", joinPath(hp, c.get("database")), joinDot(c.get("schema"), c.get("table")))
-		}
-	case "eventstore":
-		if db, ok := eventStoreDB(c); ok {
-			out = []asset{db}
-			if s := c.get("stream_id"); s != "" {
-				out[0].kind, out[0].object = KindStream, s
-			}
-		}
-	case "excel":
-		out = fileAssets(strings.ToLower(c.get("source_type")), c, joinFile(c.first("base_path", "local_path"), c.get("pattern")))
-	case "file":
+		return []asset{db}
+	},
+	"excel": func(_ string, c cfgMap) []asset {
+		return fileAssets(strings.ToLower(c.get("source_type")), c, joinFile(c.first("base_path", "local_path"), c.get("pattern")))
+	},
+	"file": func(_ string, c cfgMap) []asset {
 		backend := strings.ToLower(c.get("source_type"))
 		base := ""
 		if c.get("format") == "csv" && backend != "http" && backend != "s3" {
 			// The CSV reader takes file_path only (sourcefile.NewCSVSource).
 			backend, base = "local", c.get("file_path")
 		}
-		out = fileAssets(backend, c, base)
-	default:
-		out = messagingAssets(src.Type, c, true)
+		return fileAssets(backend, c, base)
+	},
+}
+
+func cassandraSource(typ string, c cfgMap) []asset {
+	hosts := sortedList(c.get("hosts"), strings.ToLower)
+	var out []asset
+	for _, t := range list(c.get("tables")) {
+		out = append(out, one(KindTable, typ, hosts, t)...)
 	}
 	return out
 }
@@ -131,209 +163,230 @@ func sourceAssets(src storage.Source, sources map[string]storage.Source) []asset
 // failover or txgroup sink.
 func sinkAssets(snk storage.Sink, sinks map[string]storage.Sink, seen map[string]bool) []asset {
 	c := cfgMap(snk.Config)
-	switch snk.Type {
-	case "failover", "txgroup":
-		if seen[snk.ID] {
-			return nil
-		}
-		seen[snk.ID] = true
-		ids := list(c.get("members"))
-		if snk.Type == "failover" {
-			ids = append(list(c.get("primary_id")), list(c.get("fallback_ids"))...)
-		}
-		var out []asset
-		for _, id := range ids {
-			if m, ok := sinks[id]; ok && !seen[id] {
-				out = append(out, sinkAssets(m, sinks, seen)...)
-			}
-		}
-		return out
-	case "clickhouse":
-		if loc := joinPath(strings.ToLower(c.get("addr")), c.get("database")); loc != "" && c.get("table") != "" {
-			return one(KindTable, "clickhouse", loc, c.get("table"))
-		}
-		return nil
+	if snk.Type == "failover" || snk.Type == "txgroup" {
+		return memberAssets(snk, c, sinks, seen)
+	}
+	if read, ok := sinkReaders[snk.Type]; ok {
+		return read(snk.Type, c)
 	}
 	if db, ok := sqlDatabase(snk.Type, c); ok {
 		return tables(db, c.get("table"))
 	}
-	switch snk.Type {
-	case "mongodb":
-		if loc, ok := connLocator(cfgMap{"uri": c.get("uri")}, false); ok && c.get("table") != "" {
-			return one(KindCollection, "mongodb", loc, c.get("database")+"."+c.get("table"))
+	if snk.Type == "ml_dataset" {
+		if d := c.get("dataset"); d != "" {
+			return []asset{datasetAsset(snk.VHost, d)}
 		}
-	case "cassandra":
-		if t := c.get("table"); t != "" {
-			return one(KindTable, "cassandra", sortedList(c.get("hosts"), strings.ToLower), joinDot(c.get("keyspace"), t))
+		return nil
+	}
+	return messagingAssets(snk.Type, c, false)
+}
+
+// memberAssets are the assets of every member of a failover or txgroup sink,
+// each composite visited once.
+func memberAssets(snk storage.Sink, c cfgMap, sinks map[string]storage.Sink, seen map[string]bool) []asset {
+	if seen[snk.ID] {
+		return nil
+	}
+	seen[snk.ID] = true
+	ids := list(c.get("members"))
+	if snk.Type == "failover" {
+		ids = append(list(c.get("primary_id")), list(c.get("fallback_ids"))...)
+	}
+	var out []asset
+	for _, id := range ids {
+		if m, ok := sinks[id]; ok && !seen[id] {
+			out = append(out, sinkAssets(m, sinks, seen)...)
 		}
-	case "eventstore":
+	}
+	return out
+}
+
+// sinkReaders are the sink types whose keys differ from their source's.
+var sinkReaders = map[string]reader{
+	"clickhouse": func(_ string, c cfgMap) []asset {
+		loc := joinPath(strings.ToLower(c.get("addr")), c.get("database"))
+		return oneIf(loc != "" && c.get("table") != "", KindTable, "clickhouse", loc, c.get("table"))
+	},
+	"mongodb": func(_ string, c cfgMap) []asset {
+		loc, ok := connLocator(cfgMap{"uri": c.get("uri")}, false)
+		return oneIf(ok && c.get("table") != "", KindCollection, "mongodb", loc, c.get("database")+"."+c.get("table"))
+	},
+	"cassandra": func(_ string, c cfgMap) []asset {
+		t := c.get("table")
+		return oneIf(t != "", KindTable, "cassandra", sortedList(c.get("hosts"), strings.ToLower), joinDot(c.get("keyspace"), t))
+	},
+	"eventstore": func(_ string, c cfgMap) []asset {
 		if db, ok := eventStoreDB(c); ok {
 			return []asset{db}
 		}
-	case "s3", "s3-parquet":
-		if b := c.get("bucket"); b != "" {
-			return one(KindObject, "s3", b, c.get("key_prefix"))
-		}
-	case "file":
-		if f := c.get("filename"); f != "" {
-			return one(KindFile, "file", "", f)
-		}
-	case "ftp":
+		return nil
+	},
+	"s3":         s3Sink,
+	"s3-parquet": s3Sink,
+	"file": func(_ string, c cfgMap) []asset {
+		f := c.get("filename")
+		return oneIf(f != "", KindFile, "file", "", f)
+	},
+	"ftp": func(_ string, c cfgMap) []asset {
 		port := c.get("port")
 		if port == "" || port == "0" {
 			port = "21"
 		}
-		if hp := hostPort(c.get("host"), port); c.get("host") != "" {
-			return one(KindFile, "ftp", hp, joinFile(c.get("root_dir"), c.get("path_template")))
-		}
-	case "ml_dataset":
-		if d := c.get("dataset"); d != "" {
-			return []asset{datasetAsset(snk.VHost, d)}
-		}
-	case "salesforce":
-		if o := c.get("object"); o != "" {
-			return one(KindEntity, "salesforce", "", o)
-		}
-	case "servicenow":
-		if h := hostOf(c.get("instance_url")); h != "" && c.get("table") != "" {
-			return one(KindTable, "servicenow", h, c.get("table"))
-		}
-	case "metis":
-		if h := hostOf(c.get("base_url")); h != "" {
-			if o := c.first("definition_key", "message_name", "signal_name"); o != "" {
-				return one(KindProcess, "metis", h, o)
-			}
-		}
-	case "telegram":
-		if id := c.get("chat_id"); id != "" {
-			return one(KindChannel, "telegram", id, "")
-		}
-	case "sse":
-		if s := c.get("stream"); s != "" {
-			return one(KindStream, "sse", "", s)
-		}
-	case "pulsar":
-		if loc, ok := urlLocator(c.get("url")); ok && c.get("topic") != "" {
-			return one(KindTopic, "pulsar", loc, c.get("topic"))
-		}
-	case "kinesis":
-		if s := c.get("stream_name"); s != "" {
-			return one(KindStream, "kinesis", c.get("region"), s)
-		}
-	case "pubsub":
-		if t := c.get("topic_id"); t != "" {
-			return one(KindTopic, "pubsub", c.get("project_id"), t)
-		}
-	case "elasticsearch":
+		return oneIf(c.get("host") != "", KindFile, "ftp", hostPort(c.get("host"), port), joinFile(c.get("root_dir"), c.get("path_template")))
+	},
+	"salesforce": func(_ string, c cfgMap) []asset {
+		o := c.get("object")
+		return oneIf(o != "", KindEntity, "salesforce", "", o)
+	},
+	"servicenow": func(_ string, c cfgMap) []asset {
+		h := hostOf(c.get("instance_url"))
+		return oneIf(h != "" && c.get("table") != "", KindTable, "servicenow", h, c.get("table"))
+	},
+	"metis": func(_ string, c cfgMap) []asset {
+		h := hostOf(c.get("base_url"))
+		o := c.first("definition_key", "message_name", "signal_name")
+		return oneIf(h != "" && o != "", KindProcess, "metis", h, o)
+	},
+	"telegram": func(_ string, c cfgMap) []asset {
+		id := c.get("chat_id")
+		return oneIf(id != "", KindChannel, "telegram", id, "")
+	},
+	"sse": func(_ string, c cfgMap) []asset {
+		s := c.get("stream")
+		return oneIf(s != "", KindStream, "sse", "", s)
+	},
+	"pulsar": func(_ string, c cfgMap) []asset {
+		loc, ok := urlLocator(c.get("url"))
+		return oneIf(ok && c.get("topic") != "", KindTopic, "pulsar", loc, c.get("topic"))
+	},
+	"kinesis": func(_ string, c cfgMap) []asset {
+		s := c.get("stream_name")
+		return oneIf(s != "", KindStream, "kinesis", c.get("region"), s)
+	},
+	"pubsub": func(_ string, c cfgMap) []asset {
+		t := c.get("topic_id")
+		return oneIf(t != "", KindTopic, "pubsub", c.get("project_id"), t)
+	},
+	"elasticsearch": func(_ string, c cfgMap) []asset {
 		addrs := sortedList(c.get("addresses"), func(a string) string {
 			if loc, ok := urlLocator(a); ok {
 				return loc
 			}
 			return strings.ToLower(a)
 		})
-		if addrs != "" && c.get("index") != "" {
-			return one(KindIndex, "elasticsearch", addrs, c.get("index"))
-		}
-	default:
-		return messagingAssets(snk.Type, c, false)
-	}
-	return nil
+		return oneIf(addrs != "" && c.get("index") != "", KindIndex, "elasticsearch", addrs, c.get("index"))
+	},
+}
+
+func s3Sink(_ string, c cfgMap) []asset {
+	b := c.get("bucket")
+	return oneIf(b != "", KindObject, "s3", b, c.get("key_prefix"))
 }
 
 // messagingAssets covers the types whose sources and sinks read the same keys.
 func messagingAssets(typ string, c cfgMap, isSource bool) []asset {
+	if read, ok := sharedReaders[typ]; ok {
+		return read(typ, c)
+	}
 	switch typ {
-	case "kafka":
-		if t := c.get("topic"); t != "" {
-			return one(KindTopic, "kafka", sortedList(c.get("brokers"), strings.ToLower), t)
-		}
-	case "nats":
-		if loc, ok := urlLocator(c.get("url")); ok && c.get("subject") != "" {
-			return one(KindSubject, "nats", loc, c.get("subject"))
-		}
-	case "redis":
-		if s := c.get("stream"); s != "" {
-			return one(KindStream, "redis", strings.ToLower(c.get("addr")), s)
-		}
-	case "rabbitmq", "rabbitmq_queue":
-		loc, ok := connLocator(c, true)
-		if !ok {
-			return nil
-		}
-		if typ == "rabbitmq" && c.get("stream_name") != "" {
-			return one(KindStream, "rabbitmq", loc, c.get("stream_name"))
-		}
-		if typ == "rabbitmq_queue" && c.get("queue_name") != "" {
-			return one(KindQueue, "rabbitmq", loc, c.get("queue_name"))
-		}
 	case "mqtt":
-		loc, ok := urlLocator(c.first("broker_url", "url"))
-		if !ok {
-			return nil
-		}
-		topics := []string{c.get("topic")}
-		if isSource {
-			if ts := list(c.get("topics")); len(ts) > 0 {
-				topics = ts
-			}
-		}
-		var out []asset
-		for _, t := range topics {
-			if t != "" {
-				out = append(out, one(KindTopic, "mqtt", loc, t)...)
-			}
-		}
-		return out
+		return mqttAssets(c, isSource)
 	case "webhook", "chat", "graphql", "grpc", "form":
-		if p := c.get("path"); p != "" && isSource {
-			return one(KindEndpoint, typ, "", p)
-		}
-	case "http":
-		if loc, ok := urlLocator(c.get("url")); ok {
-			return one(KindEndpoint, "http", loc, "")
-		}
-	case "websocket":
-		if loc, ok := urlLocator(c.get("url")); ok {
-			return one(KindEndpoint, "websocket", loc, "")
-		}
-	case "googlesheets":
-		if id := c.get("spreadsheet_id"); id != "" {
-			return one(KindSheet, "googlesheets", id, c.get("range"))
-		}
-	case "sap":
-		if h := hostOf(c.get("host")); h != "" && c.get("entity") != "" {
-			return one(KindEntity, "sap", joinPath(h, c.get("service")), c.get("entity"))
-		}
-	case "dynamics365":
-		if h := hostOf(c.get("resource")); h != "" && c.get("entity") != "" {
-			return one(KindEntity, "dynamics365", h, c.get("entity"))
-		}
+		// An inbound path exists only on the receiving side.
+		p := c.get("path")
+		return oneIf(p != "" && isSource, KindEndpoint, typ, "", p)
 	case "metis":
-		if h := hostOf(c.get("base_url")); h != "" && isSource && c.get("stream") != "" {
-			return one(KindStream, "metis", h, c.get("stream"))
-		}
-	case "metis_task":
-		if h := hostOf(c.get("base_url")); h != "" && c.get("topic") != "" {
-			return one(KindTopic, "metis", h, c.get("topic"))
-		}
-	case "firebase":
-		if p := c.get("project_id"); p != "" && c.get("collection") != "" {
-			return one(KindCollection, "firebase", p, c.get("collection"))
-		}
-	case "googleanalytics":
-		if p := c.get("property_id"); p != "" {
-			return one(KindEndpoint, "googleanalytics", p, "")
-		}
-	case "slack", "discord":
-		if ch := c.get("channel_id"); ch != "" {
-			return one(KindChannel, typ, ch, "")
-		}
-	case "facebook":
-		if p := c.get("page_id"); p != "" {
-			return one(KindChannel, "facebook", p, "")
-		}
+		h := hostOf(c.get("base_url"))
+		return oneIf(h != "" && isSource && c.get("stream") != "", KindStream, "metis", h, c.get("stream"))
 	}
 	return nil
+}
+
+func mqttAssets(c cfgMap, isSource bool) []asset {
+	loc, ok := urlLocator(c.first("broker_url", "url"))
+	if !ok {
+		return nil
+	}
+	topics := []string{c.get("topic")}
+	if isSource {
+		if ts := list(c.get("topics")); len(ts) > 0 {
+			topics = ts
+		}
+	}
+	var out []asset
+	for _, t := range topics {
+		if t != "" {
+			out = append(out, one(KindTopic, "mqtt", loc, t)...)
+		}
+	}
+	return out
+}
+
+// sharedReaders are the types whose sources and sinks read the same keys the
+// same way.
+var sharedReaders = map[string]reader{
+	"kafka": func(_ string, c cfgMap) []asset {
+		t := c.get("topic")
+		return oneIf(t != "", KindTopic, "kafka", sortedList(c.get("brokers"), strings.ToLower), t)
+	},
+	"nats": func(_ string, c cfgMap) []asset {
+		loc, ok := urlLocator(c.get("url"))
+		return oneIf(ok && c.get("subject") != "", KindSubject, "nats", loc, c.get("subject"))
+	},
+	"redis": func(_ string, c cfgMap) []asset {
+		s := c.get("stream")
+		return oneIf(s != "", KindStream, "redis", strings.ToLower(c.get("addr")), s)
+	},
+	"rabbitmq": func(_ string, c cfgMap) []asset {
+		loc, ok := connLocator(c, true)
+		return oneIf(ok && c.get("stream_name") != "", KindStream, "rabbitmq", loc, c.get("stream_name"))
+	},
+	"rabbitmq_queue": func(_ string, c cfgMap) []asset {
+		loc, ok := connLocator(c, true)
+		return oneIf(ok && c.get("queue_name") != "", KindQueue, "rabbitmq", loc, c.get("queue_name"))
+	},
+	"http":      urlEndpoint,
+	"websocket": urlEndpoint,
+	"googlesheets": func(_ string, c cfgMap) []asset {
+		id := c.get("spreadsheet_id")
+		return oneIf(id != "", KindSheet, "googlesheets", id, c.get("range"))
+	},
+	"sap": func(_ string, c cfgMap) []asset {
+		h := hostOf(c.get("host"))
+		return oneIf(h != "" && c.get("entity") != "", KindEntity, "sap", joinPath(h, c.get("service")), c.get("entity"))
+	},
+	"dynamics365": func(_ string, c cfgMap) []asset {
+		h := hostOf(c.get("resource"))
+		return oneIf(h != "" && c.get("entity") != "", KindEntity, "dynamics365", h, c.get("entity"))
+	},
+	"metis_task": func(_ string, c cfgMap) []asset {
+		h := hostOf(c.get("base_url"))
+		return oneIf(h != "" && c.get("topic") != "", KindTopic, "metis", h, c.get("topic"))
+	},
+	"firebase": func(_ string, c cfgMap) []asset {
+		p := c.get("project_id")
+		return oneIf(p != "" && c.get("collection") != "", KindCollection, "firebase", p, c.get("collection"))
+	},
+	"googleanalytics": func(_ string, c cfgMap) []asset {
+		p := c.get("property_id")
+		return oneIf(p != "", KindEndpoint, "googleanalytics", p, "")
+	},
+	"slack":   channelID,
+	"discord": channelID,
+	"facebook": func(_ string, c cfgMap) []asset {
+		p := c.get("page_id")
+		return oneIf(p != "", KindChannel, "facebook", p, "")
+	},
+}
+
+func urlEndpoint(typ string, c cfgMap) []asset {
+	loc, ok := urlLocator(c.get("url"))
+	return oneIf(ok, KindEndpoint, typ, loc, "")
+}
+
+func channelID(typ string, c cfgMap) []asset {
+	ch := c.get("channel_id")
+	return oneIf(ch != "", KindChannel, typ, ch, "")
 }
 
 // fileAssets is where a file or excel source reads, by its backend

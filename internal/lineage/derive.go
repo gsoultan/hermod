@@ -7,10 +7,12 @@ import (
 	"github.com/gsoultan/hermod/internal/storage"
 )
 
-// builder accumulates nodes and edges, each once.
+// builder accumulates nodes and edges, each once, from records indexed by id.
 type builder struct {
-	nodes map[string]*Node
-	edges map[Edge]bool
+	nodes   map[string]*Node
+	edges   map[Edge]bool
+	sources map[string]storage.Source
+	sinks   map[string]storage.Sink
 }
 
 func (b *builder) addAsset(a asset, ref *Ref) string {
@@ -34,81 +36,21 @@ func (b *builder) addEdge(e Edge) { b.edges[e] = true }
 // Derive builds the lineage graph of the inputs. It is deterministic: nodes
 // are ordered by id and edges by (from, to, relation, node).
 func Derive(in Inputs) Graph {
-	b := &builder{nodes: map[string]*Node{}, edges: map[Edge]bool{}}
-
-	sources := make(map[string]storage.Source, len(in.Sources))
+	b := &builder{
+		nodes:   map[string]*Node{},
+		edges:   map[Edge]bool{},
+		sources: make(map[string]storage.Source, len(in.Sources)),
+		sinks:   make(map[string]storage.Sink, len(in.Sinks)),
+	}
 	for _, s := range in.Sources {
-		sources[s.ID] = s
+		b.sources[s.ID] = s
 	}
-	sinks := make(map[string]storage.Sink, len(in.Sinks))
 	for _, s := range in.Sinks {
-		sinks[s.ID] = s
+		b.sinks[s.ID] = s
 	}
-
-	// srcAssets and snkAssets are the assets of a record, its connector
-	// asset when none can be derived.
-	srcAssets := func(s storage.Source) ([]asset, Ref) {
-		ref := Ref{Kind: "source", ID: s.ID, Name: s.Name, Type: s.Type}
-		as := sourceAssets(s, sources)
-		if len(as) == 0 {
-			as = []asset{connector(s.Type, "source", s.ID, s.Name)}
-		}
-		return as, ref
-	}
-	snkAssets := func(s storage.Sink) ([]asset, Ref) {
-		ref := Ref{Kind: "sink", ID: s.ID, Name: s.Name, Type: s.Type}
-		as := sinkAssets(s, sinks, map[string]bool{})
-		if len(as) == 0 && s.Type != "failover" && s.Type != "txgroup" {
-			as = []asset{connector(s.Type, "sink", s.ID, s.Name)}
-		}
-		return as, ref
-	}
-
 	for _, wf := range in.Workflows {
-		wfID := WorkflowNodeID(wf.ID)
-		active := wf.Active
-		b.nodes[wfID] = &Node{ID: wfID, Kind: KindWorkflow, Label: cmp.Or(wf.Name, wf.ID), Resolved: true, VHost: wf.VHost, Active: &active}
-		reader := nodeReader{vhost: wf.VHost, sources: sources}
-
-		for _, n := range wf.Nodes {
-			switch n.Type {
-			case "source":
-				if s, ok := sources[n.RefID]; ok {
-					as, ref := srcAssets(s)
-					for _, a := range as {
-						id := b.addAsset(a, &ref)
-						b.addEdge(Edge{From: id, To: wfID, Relation: RelReads, WorkflowID: wf.ID, NodeID: n.ID})
-					}
-				}
-			case "sink":
-				if s, ok := sinks[n.RefID]; ok {
-					as, ref := snkAssets(s)
-					for _, a := range as {
-						id := b.addAsset(a, &ref)
-						b.addEdge(Edge{From: wfID, To: id, Relation: RelWrites, WorkflowID: wf.ID, NodeID: n.ID})
-					}
-				}
-			default:
-				for _, io := range reader.node(n) {
-					id := b.addAsset(io.asset, nil)
-					e := Edge{From: id, To: wfID, Relation: io.relation, WorkflowID: wf.ID, NodeID: n.ID}
-					if io.out {
-						e.From, e.To = wfID, id
-					}
-					b.addEdge(e)
-				}
-			}
-		}
-
-		if s, ok := sinks[wf.DeadLetterSinkID]; ok && wf.DeadLetterSinkID != "" {
-			as, ref := snkAssets(s)
-			for _, a := range as {
-				id := b.addAsset(a, &ref)
-				b.addEdge(Edge{From: wfID, To: id, Relation: RelDeadLetter, WorkflowID: wf.ID})
-			}
-		}
+		b.addWorkflow(wf)
 	}
-
 	// Registered models are assets whether or not a workflow uses them yet; a
 	// retraining policy reads its dataset.
 	for _, m := range in.Models {
@@ -118,7 +60,85 @@ func Derive(in Inputs) Graph {
 			b.addEdge(Edge{From: did, To: mid, Relation: RelTrains})
 		}
 	}
+	return b.graph()
+}
 
+// sourceAssets are the assets of a source record, its connector asset when
+// none can be derived.
+func (b *builder) sourceAssets(s storage.Source) ([]asset, Ref) {
+	ref := Ref{Kind: "source", ID: s.ID, Name: s.Name, Type: s.Type}
+	as := sourceAssets(s, b.sources)
+	if len(as) == 0 {
+		as = []asset{connector(s.Type, "source", s.ID, s.Name)}
+	}
+	return as, ref
+}
+
+// sinkAssets are the assets of a sink record, its connector asset when none
+// can be derived. A composite sink with no members has none.
+func (b *builder) sinkAssets(s storage.Sink) ([]asset, Ref) {
+	ref := Ref{Kind: "sink", ID: s.ID, Name: s.Name, Type: s.Type}
+	as := sinkAssets(s, b.sinks, map[string]bool{})
+	if len(as) == 0 && s.Type != "failover" && s.Type != "txgroup" {
+		as = []asset{connector(s.Type, "sink", s.ID, s.Name)}
+	}
+	return as, ref
+}
+
+// addWorkflow adds a workflow node, the assets its nodes and dead-letter
+// sink read and write, and the edges between them.
+func (b *builder) addWorkflow(wf storage.Workflow) {
+	wfID := WorkflowNodeID(wf.ID)
+	active := wf.Active
+	b.nodes[wfID] = &Node{ID: wfID, Kind: KindWorkflow, Label: cmp.Or(wf.Name, wf.ID), Resolved: true, VHost: wf.VHost, Active: &active}
+	reader := nodeReader{vhost: wf.VHost, sources: b.sources}
+
+	for _, n := range wf.Nodes {
+		switch n.Type {
+		case "source":
+			if s, ok := b.sources[n.RefID]; ok {
+				as, ref := b.sourceAssets(s)
+				b.link(as, &ref, Edge{To: wfID, Relation: RelReads, WorkflowID: wf.ID, NodeID: n.ID})
+			}
+		case "sink":
+			if s, ok := b.sinks[n.RefID]; ok {
+				as, ref := b.sinkAssets(s)
+				b.link(as, &ref, Edge{From: wfID, Relation: RelWrites, WorkflowID: wf.ID, NodeID: n.ID})
+			}
+		default:
+			for _, io := range reader.node(n) {
+				e := Edge{To: wfID, Relation: io.relation, WorkflowID: wf.ID, NodeID: n.ID}
+				if io.out {
+					e = Edge{From: wfID, Relation: io.relation, WorkflowID: wf.ID, NodeID: n.ID}
+				}
+				b.link([]asset{io.asset}, nil, e)
+			}
+		}
+	}
+
+	if s, ok := b.sinks[wf.DeadLetterSinkID]; ok && wf.DeadLetterSinkID != "" {
+		as, ref := b.sinkAssets(s)
+		b.link(as, &ref, Edge{From: wfID, Relation: RelDeadLetter, WorkflowID: wf.ID})
+	}
+}
+
+// link adds each asset and an edge like e to or from it: e names the
+// workflow on one end and leaves the other empty for the asset.
+func (b *builder) link(as []asset, ref *Ref, e Edge) {
+	for _, a := range as {
+		id := b.addAsset(a, ref)
+		edge := e
+		if edge.From == "" {
+			edge.From = id
+		} else {
+			edge.To = id
+		}
+		b.addEdge(edge)
+	}
+}
+
+// graph is the accumulated graph, in a deterministic order.
+func (b *builder) graph() Graph {
 	g := Graph{Nodes: make([]Node, 0, len(b.nodes)), Edges: make([]Edge, 0, len(b.edges))}
 	for _, n := range b.nodes {
 		slices.SortFunc(n.Refs, func(a, b Ref) int { return cmp.Or(cmp.Compare(a.Kind, b.Kind), cmp.Compare(a.ID, b.ID)) })
