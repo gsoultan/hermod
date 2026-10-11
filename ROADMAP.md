@@ -45,12 +45,12 @@ This document outlines the planned features, development directions, and future 
   only one of them is reachable.
 
   **Exactly-once within Kafka** — transactional produce, with consumer offsets committed inside
-  the same transaction — is reachable and is the useful one. It needs a producer-level
-  transactional API. `segmentio/kafka-go` exposes the wire primitives (`InitProducerID`,
-  `AddPartitionsToTxn`, `AddOffsetsToTxn`, `EndTxn`, `TxnOffsetCommit`) but its `Writer` has no
-  transaction support at all, so using them means reimplementing producer-side bookkeeping —
-  per-produce partition registration, epoch and sequence handling — which is exactly what
-  `franz-go` already provides. That migration is the work.
+  the same transaction — is **implemented**. The connectors moved from `segmentio/kafka-go` to
+  `franz-go`, and a Kafka sink with a `transactional_id` writes each batch as one transaction that
+  also commits the source consumer group's offsets, fenced by the group generation. A live-broker
+  test kills the pipeline before a commit and after a rebalance and reads the output back
+  read_committed: each record once. What remains open is the multi-sink case: the offsets commit
+  with the Kafka sink's output, so a workflow with a second sink should not turn it on.
 
   **Kafka as a member of a transactional sink group** is *not* reachable, and no client library
   changes that. The coordinator's recovery path has to be able to commit a transaction that a
