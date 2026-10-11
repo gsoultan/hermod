@@ -52,6 +52,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/vhosts/{vhost}/ml/models/{name}/predict", h.EditorOnly(h.Predict))
 	mux.Handle("POST /api/vhosts/{vhost}/ml/models/{name}/serving-key", h.EditorOnly(h.RotateServingKey))
 	mux.Handle("DELETE /api/vhosts/{vhost}/ml/models/{name}/serving-key", h.EditorOnly(h.DisableServing))
+	mux.Handle("PUT /api/vhosts/{vhost}/ml/models/{name}/mcp", h.EditorOnly(h.SetMCPExposure))
+	mux.HandleFunc("GET /api/vhosts/{vhost}/ml/quotas", h.GetQuotas)
+	mux.Handle("PUT /api/vhosts/{vhost}/ml/quotas", h.AdminOnly(h.PutQuotas))
 	mux.HandleFunc("POST /api/ml/serve/{vhost}/{name}", h.Serve)
 
 	mux.HandleFunc("GET /api/ml/worker", h.WorkerStatus)
@@ -120,9 +123,18 @@ func (h *Handler) access(w http.ResponseWriter, r *http.Request, write bool) (st
 }
 
 // fail maps a service error onto a status. Errors from a model server are
-// passed on as 502 with their text: the caller is debugging that server.
+// passed on as 502 with their text: the caller is debugging that server. A
+// quota refusal is 429 when waiting is enough and 403 when it is not.
 func (h *Handler) fail(w http.ResponseWriter, err error) {
+	var quota *ml.QuotaError
 	switch {
+	case errors.As(err, &quota) && quota.Retryable:
+		w.Header().Set("Retry-After", "1")
+		h.JsonError(w, err.Error(), http.StatusTooManyRequests)
+	case errors.As(err, &quota):
+		h.JsonError(w, err.Error(), http.StatusForbidden)
+	case errors.Is(err, storage.ErrMLQuotasUnsupported):
+		h.JsonError(w, err.Error(), http.StatusNotImplemented)
 	case errors.Is(err, ml.ErrModelNotFound):
 		h.JsonError(w, "this vhost has no model by that name", http.StatusNotFound)
 	case errors.Is(err, ml.ErrVersionNotFound), errors.Is(err, worker.ErrNotFound):
@@ -187,6 +199,8 @@ func (h *Handler) GetModel(w http.ResponseWriter, r *http.Request) {
 
 // modelRequest is what a client may set on a model. VHost, name, the serving
 // key and the bookkeeping come from the path and the server, never the body.
+// MCPExposed left out keeps what the model has; the model form does not send
+// it, and the Expose to MCP switch uses its own route.
 type modelRequest struct {
 	Description   string            `json:"description"`
 	Backend       inference.Backend `json:"backend"`
@@ -197,6 +211,7 @@ type modelRequest struct {
 	InputName     string            `json:"input_name"`
 	Features      []string          `json:"features"`
 	TimeoutMs     int               `json:"timeout_ms"`
+	MCPExposed    *bool             `json:"mcp_exposed"`
 }
 
 func (h *Handler) PutModel(w http.ResponseWriter, r *http.Request) {
@@ -219,7 +234,8 @@ func (h *Handler) PutModel(w http.ResponseWriter, r *http.Request) {
 		h.JsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	ms, err := h.service().Models()
+	svc := h.service()
+	ms, err := svc.Models()
 	if err != nil {
 		h.fail(w, err)
 		return
@@ -227,9 +243,19 @@ func (h *Handler) PutModel(w http.ResponseWriter, r *http.Request) {
 	// The definition is replaced; how the model is monitored is set on its
 	// own (PutMonitoring) and kept.
 	if old, err := ms.GetMLModel(r.Context(), vhost, m.Name); err == nil {
+		m.MCPExposed = old.MCPExposed
+		m.FeatureTypes = keptTypes(old.FeatureTypes, m.Features)
 		m.Monitoring = old.Monitoring
 	}
-	if err := ms.PutMLModel(r.Context(), m); err != nil {
+	if req.MCPExposed != nil {
+		m.MCPExposed = *req.MCPExposed
+	}
+	if err := svc.PutModel(r.Context(), m); err != nil {
+		var quota *ml.QuotaError
+		if errors.As(err, &quota) {
+			h.fail(w, err)
+			return
+		}
 		h.JsonError(w, "Failed to save the model", http.StatusInternalServerError)
 		return
 	}
@@ -240,6 +266,23 @@ func (h *Handler) PutModel(w http.ResponseWriter, r *http.Request) {
 		saved = m
 	}
 	writeJSON(w, saved)
+}
+
+// keptTypes is the known types of the features a model still declares.
+func keptTypes(types map[string]string, features []string) map[string]string {
+	if len(types) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(features))
+	for _, f := range features {
+		if t, ok := types[f]; ok {
+			out[f] = t
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func (h *Handler) DeleteModel(w http.ResponseWriter, r *http.Request) {

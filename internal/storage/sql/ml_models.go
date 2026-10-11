@@ -30,6 +30,10 @@ type mlModelSpec struct {
 	InputName     string   `json:"input_name,omitempty"`
 	Features      []string `json:"features,omitempty"`
 	TimeoutMs     int      `json:"timeout_ms,omitempty"`
+	// FeatureTypes and MCPExposed live in spec too: a new field on a model
+	// is not a schema change.
+	FeatureTypes map[string]string `json:"feature_types,omitempty"`
+	MCPExposed   bool              `json:"mcp_exposed,omitempty"`
 
 	Monitoring storage.MLMonitoring `json:"monitoring"`
 }
@@ -38,7 +42,8 @@ func specOf(m storage.MLModel) mlModelSpec {
 	return mlModelSpec{
 		Description: m.Description, Backend: string(m.Backend), URL: m.URL,
 		RemoteModel: m.RemoteModel, RemoteVersion: m.RemoteVersion, TokenSecret: m.TokenSecret,
-		InputName: m.InputName, Features: m.Features, TimeoutMs: m.TimeoutMs, Monitoring: m.Monitoring,
+		InputName: m.InputName, Features: m.Features, TimeoutMs: m.TimeoutMs,
+		FeatureTypes: m.FeatureTypes, MCPExposed: m.MCPExposed, Monitoring: m.Monitoring,
 	}
 }
 
@@ -46,6 +51,7 @@ func (sp mlModelSpec) apply(m *storage.MLModel) {
 	m.Description, m.Backend, m.URL = sp.Description, inference.Backend(sp.Backend), sp.URL
 	m.RemoteModel, m.RemoteVersion, m.TokenSecret = sp.RemoteModel, sp.RemoteVersion, sp.TokenSecret
 	m.InputName, m.Features, m.TimeoutMs = sp.InputName, sp.Features, sp.TimeoutMs
+	m.FeatureTypes, m.MCPExposed = sp.FeatureTypes, sp.MCPExposed
 	m.Monitoring = sp.Monitoring
 }
 

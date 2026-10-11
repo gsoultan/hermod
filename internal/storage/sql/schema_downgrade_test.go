@@ -30,8 +30,16 @@ import (
 // is computed from the DDL itself, so changing the schema fails this test and
 // forces the question to be asked out loud.
 //
-// Last moved by: adding the ml_prediction_logs table, the sampled and masked
-// predictions a model logs when its monitoring turns logging on.
+// Last moved by: adding the ml_quotas table, the machine-learning limits an
+// Administrator sets on a vhost. currentSchemaVersion was left alone, for the
+// same reasons as ml_models below: a standalone table no earlier code path
+// reads or writes. A rollback costs only the enforcement — the previous
+// release ignores the quotas — and a vhost deleted during one leaves its row
+// for a later vhost of the same name, which can only limit that vhost, never
+// grant it anything.
+//
+// The note before that: adding the ml_prediction_logs table, the sampled and
+// masked predictions a model logs when its monitoring turns logging on.
 // currentSchemaVersion was left alone deliberately: it is a standalone table no
 // earlier code path reads or writes, and the setting that fills it lives in
 // ml_models' JSON spec, which the previous release decodes into a struct
@@ -157,7 +165,7 @@ import (
 // unpopulated — a gap in a chart that fills itself in when the newer binary
 // returns — so bumping the version would buy nothing and cost a refused
 // start-up during exactly the rollback it was supposed to make safe.
-const knownSchemaFingerprint = "6bce64b0a0957aac059b787d4c065055797f64b2cf0e2e83be757af535d3daed"
+const knownSchemaFingerprint = "34a4804652c6283d934a6ea300cacbe4ab09eb7e9c3de67d5cd07960ad79b2f1"
 
 func TestSchemaVersionIsReconsideredWhenTheSchemaChanges(t *testing.T) {
 	if got := SchemaFingerprint(); got != knownSchemaFingerprint {
