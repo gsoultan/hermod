@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { type Node, type Edge, useReactFlow, addEdge } from '@xyflow/react';
 import { notifications } from '@mantine/notifications';
+import { useShallow } from 'zustand/react/shallow';
 import { useWorkflowStore } from '../store/useWorkflowStore';
 
 export function useWorkflowEvents(
@@ -11,7 +12,12 @@ export function useWorkflowEvents(
   const { 
     setNodes, setEdges, setSelectedNode, setDrawerOpened,
     setQuickAddSource, quickAddSource, active, testResults, setSettingsOpened
-  } = useWorkflowStore();
+  } = useWorkflowStore(useShallow(state => ({
+    setNodes: state.setNodes, setEdges: state.setEdges,
+    setSelectedNode: state.setSelectedNode, setDrawerOpened: state.setDrawerOpened,
+    setQuickAddSource: state.setQuickAddSource, quickAddSource: state.quickAddSource,
+    active: state.active, testResults: state.testResults, setSettingsOpened: state.setSettingsOpened,
+  })));
 
   const addNodeAtPosition = useCallback((type: string, refId: string, label: string, subType: string, position: { x: number, y: number }, extraData?: any) => {
     const newNode: Node = {

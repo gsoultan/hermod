@@ -17,6 +17,19 @@ analysis lists the same downstream assets, and both are limited to the vhosts
 you have access to (so is the dashboard's lineage list, which previously showed
 every vhost). See [Data lineage](docs/lineage.md).
 
+### Fixed — a faster workflow editor that keeps each workflow's own state
+
+The workflow editor no longer redraws itself on every live status update, log
+line or step of a node drag, and a connection on the canvas only redraws when
+its own numbers change, so large workflows stay responsive while they run.
+Opening another workflow no longer shows the previous one's live logs, status,
+samples or selected node. A Test that finishes after a newer run, such as a
+field refresh, no longer puts the older results back. A node's Live Preview
+clears when there is no longer a sample to run it on. Save, Test and Dry Run
+shortcuts now use Cmd on macOS (Cmd+S, Cmd+Enter, Cmd+Shift+Enter), so Cmd+S
+saves the workflow instead of opening the browser's Save dialog; Ctrl still
+works everywhere.
+
 ### Added — Oracle CDC with LogMiner
 
 The Oracle source has a **Change capture method**. **LogMiner** reads inserts,
