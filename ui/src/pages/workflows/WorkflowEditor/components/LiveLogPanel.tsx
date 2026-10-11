@@ -1,6 +1,6 @@
 import { useRef, useEffect } from 'react';
 import { 
-  Paper, Group, Text, Badge, ActionIcon, ScrollArea, Stack 
+  Paper, Group, Text, Badge, ActionIcon, ScrollArea, Stack, UnstyledButton
 } from '@mantine/core';
 import { 
   IconChevronDown, IconChevronUp, IconClearAll, IconPlayerPlay, IconPlayerPause 
@@ -31,12 +31,27 @@ export const LiveLogPanel = ({ active, onTraceClick, onErrorClick }: LiveLogPane
     setLogsPaused: state.setLogsPaused,
   })));
 
-  // Auto-scroll to bottom when new logs arrive
+  // Follow new lines as they arrive. They are added at the top of the list,
+  // so that is where to scroll; scrolling to the bottom, as this used to,
+  // moved away from the line that had just arrived.
   useEffect(() => {
     if (logsOpened && !logsPaused && logScrollRef.current) {
-      logScrollRef.current.scrollTo({ top: logScrollRef.current.scrollHeight, behavior: 'smooth' });
+      logScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
     }
   }, [logs, logsOpened, logsPaused]);
+
+  const openLog = (log: LogEntry) => {
+    if (log.data) {
+      let msgId = log.data;
+      if (msgId.includes('message_id: ')) {
+        const match = msgId.match(/message_id: ([^,]+)/);
+        if (match) msgId = match[1].trim();
+      }
+      onTraceClick(msgId);
+    } else if (log.level === 'ERROR') {
+      onErrorClick(log);
+    }
+  };
 
   return (
     <Paper
@@ -58,11 +73,16 @@ export const LiveLogPanel = ({ active, onTraceClick, onErrorClick }: LiveLogPane
       }}
     >
        <Group justify="space-between" px="sm" h={40} style={{ borderBottom: logsOpened ? '1px solid var(--mantine-color-gray-2)' : 'none', cursor: 'pointer' }} onClick={() => setLogsOpened(!logsOpened)}>
-          <Group gap="xs">
-             {logsOpened ? <IconChevronDown size="1rem" /> : <IconChevronUp size="1rem" />}
-             <Text size="sm" fw={600}>Live Workflow Logs</Text>
-             {active && <Badge size="xs" color="green" variant="dot">Streaming</Badge>}
-          </Group>
+          {/* A real button, so the panel folds from the keyboard and says
+              whether it is open. No handler of its own: its click bubbles to
+              the header, which stays clickable across its whole width. */}
+          <UnstyledButton aria-expanded={logsOpened}>
+            <Group gap="xs">
+               {logsOpened ? <IconChevronDown size="1rem" /> : <IconChevronUp size="1rem" />}
+               <Text size="sm" fw={600}>Live Workflow Logs</Text>
+               {active && <Badge size="xs" color="green" variant="dot">Streaming</Badge>}
+            </Group>
+          </UnstyledButton>
           <Group gap="xs">
              <ActionIcon aria-label="Clear logs" variant="subtle" size="sm" color="gray" onClick={(e) => { e.stopPropagation(); setLogs([]); }}>
                 <IconClearAll size="1rem" />
@@ -75,28 +95,28 @@ export const LiveLogPanel = ({ active, onTraceClick, onErrorClick }: LiveLogPane
        {logsOpened && (
           <ScrollArea style={{ flex: 1 }} p="xs" viewportRef={logScrollRef}>
              <Stack gap={4}>
-                {logs.map((log: LogEntry, i: number) => (
+                {logs.map((log: LogEntry, i: number) => {
+                   // A row that opens something is a button: focusable, and
+                   // pressed with Enter or Space as well as a click.
+                   const actionable = Boolean(log.data) || log.level === 'ERROR';
+                   return (
                    <Group 
                       key={i} 
                       gap="xs" 
                       wrap="nowrap" 
                       align="flex-start" 
+                      role={actionable ? 'button' : undefined}
+                      tabIndex={actionable ? 0 : undefined}
                       style={{ 
-                        cursor: log.data ? 'pointer' : 'default',
+                        cursor: actionable ? 'pointer' : 'default',
                         padding: '2px 4px',
                         borderRadius: '4px'
                       }}
-                      onClick={() => {
-                        if (log.data) {
-                          let msgId = log.data;
-                          if (msgId.includes('message_id: ')) {
-                            const match = msgId.match(/message_id: ([^,]+)/);
-                            if (match) msgId = match[1].trim();
-                          }
-                          onTraceClick(msgId);
-                        } else if (log.level === 'ERROR') {
-                          onErrorClick(log);
-                        }
+                      onClick={() => openLog(log)}
+                      onKeyDown={(e) => {
+                        if (!actionable || (e.key !== 'Enter' && e.key !== ' ')) return;
+                        e.preventDefault();
+                        openLog(log);
                       }}
                    >
                       <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
@@ -110,7 +130,8 @@ export const LiveLogPanel = ({ active, onTraceClick, onErrorClick }: LiveLogPane
                          {log.data && <Badge size="xs" ml="xs" variant="outline" color="blue">Trace</Badge>}
                       </Text>
                    </Group>
-                ))}
+                   );
+                })}
                 {logs.length === 0 && (
                    <Text size="xs" c="dimmed" ta="center" py="xl">No logs yet.</Text>
                 )}

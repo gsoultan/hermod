@@ -5,6 +5,7 @@ import { Link, useRouterState, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useVHost } from '@/context/VHostContext';
 import { apiFetch } from '@/api';
+import { connectWithReconnect } from '@/lib/reconnectingSocket';
 import { getSessionRole, getSessionUser, clearSession } from '@/auth/session';
 import { Spotlight, spotlight } from '@mantine/spotlight';
 import '@mantine/spotlight/styles.css';
@@ -168,18 +169,16 @@ export function Layout({ children }: LayoutProps) {
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/api/ws/dashboard`;
-    const ws = new WebSocket(wsUrl);
-    
-    ws.onmessage = (event) => {
+    // Re-opened after a drop; opened once, as it was, the header counts
+    // stopped moving after a server restart until the page was reloaded.
+    return connectWithReconnect(() => wsUrl, (event) => {
       try {
         const data = JSON.parse(event.data);
         queryClient.setQueryData(['dashboard-stats'], data);
       } catch (err) {
         console.error('Failed to parse dashboard stats in layout', err);
       }
-    };
-
-    return () => ws.close();
+    });
   }, [queryClient]);
 
   const { selectedVHost, setSelectedVHost, availableVHosts, setAvailableVHosts } = useVHost();
@@ -202,19 +201,29 @@ export function Layout({ children }: LayoutProps) {
     enabled: !isPublicRoute,
     staleTime: 60_000,
     queryFn: async ({ signal }) => {
-      const res = await apiFetch('/api/vhosts', { signal });
-      if (res.ok) {
+      // apiFetch throws on any non-OK response, so a refusal arrives here as
+      // an exception — testing res.ok after it, as this used to, meant the
+      // fallback below could never run. 401 is left to apiFetch's redirect.
+      try {
+        const res = await apiFetch('/api/vhosts', { signal, silent: true });
         const body = await res.json();
         const list = body && Array.isArray(body.data) ? body.data : [];
         return list.map((v: any) => String(v.name)).sort();
+      } catch (err: any) {
+        if (signal.aborted || err?.status === undefined || err.status === 401) throw err;
       }
       // Not permitted to list vhosts: derive them from what this user can see.
-      const [sourcesRes, sinksRes] = await Promise.all([
-        apiFetch('/api/sources', { signal }),
-        apiFetch('/api/sinks', { signal }),
-      ]);
-      const sources = (await sourcesRes.json())?.data || [];
-      const sinks = (await sinksRes.json())?.data || [];
+      // Either list may be refused too; one that is contributes nothing.
+      const dataOf = async (url: string) => {
+        try {
+          const res = await apiFetch(url, { signal, silent: true });
+          return (await res.json())?.data || [];
+        } catch (err: any) {
+          if (signal.aborted || err?.status === 401) throw err;
+          return [];
+        }
+      };
+      const [sources, sinks] = await Promise.all([dataOf('/api/sources'), dataOf('/api/sinks')]);
       const names = new Set<string>();
       for (const s of sources) if (s.vhost) names.add(s.vhost);
       for (const s of sinks) if (s.vhost) names.add(s.vhost);

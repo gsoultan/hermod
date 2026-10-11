@@ -124,11 +124,17 @@ export function LiveStreamInspector({ opened, onClose, workflowId }: {
                 <ScrollArea style={{ flex: 1 }}>
                   <Group gap={5} wrap="nowrap">
                     {nodeOptions.map(opt => (
+                      // Buttons, not click-only badges: reachable with Tab,
+                      // pressed with Enter or Space, and aria-pressed says
+                      // which filter is on.
                       <Badge 
                         key={opt.value}
+                        component="button"
+                        type="button"
+                        aria-pressed={filterNode === opt.value}
                         variant={filterNode === opt.value ? 'filled' : 'light'}
                         color={filterNode === opt.value ? 'blue' : 'gray'}
-                        style={{ cursor: 'pointer' }}
+                        style={{ cursor: 'pointer', border: 0 }}
                         onClick={() => setFilterNode(opt.value)}
                       >
                         {opt.label as string}
@@ -141,9 +147,18 @@ export function LiveStreamInspector({ opened, onClose, workflowId }: {
 
            <ScrollArea style={{ flex: 1 }} p="md">
               <Stack gap="sm">
-                {filteredMessages.length === 0 && (
+                {/* While the worker is still filtering, say nothing rather
+                    than that nothing matches. */}
+                {filteredMessages.length === 0 && (messages.length === 0 || !processing) && (
                   <Box py="xl" style={{ textAlign: 'center' }}>
-                    <Text c="dimmed" size="sm">No live messages yet. Start the workflow to see data.</Text>
+                    {/* Messages are arriving and the node filter or the
+                        search hides them all: saying none have arrived would
+                        send the user to start a workflow that is running. */}
+                    <Text c="dimmed" size="sm">
+                      {messages.length > 0
+                        ? 'No messages match this filter. Choose All Nodes or clear the search to see them.'
+                        : 'No live messages yet. Start the workflow to see data.'}
+                    </Text>
                   </Box>
                 )}
                 {filteredMessages.map((msg, i) => (

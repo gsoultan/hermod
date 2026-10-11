@@ -36,6 +36,8 @@ export function describeError(error: unknown): string {
 export const mutationCache = new MutationCache({
   onError: (error, _variables, _context, mutation) => {
     if (mutation.options.onError) return
+    // apiFetch has already shown this failure as "Request Failed".
+    if ((error as { notified?: boolean } | null)?.notified) return
     notifications.show({
       title: 'Action failed',
       message: describeError(error),

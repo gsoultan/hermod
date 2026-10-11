@@ -32,6 +32,32 @@ be rejected; it is now a field on the Kafka sink form. The sink still does not
 join transactional sink groups, because Kafka cannot commit a transaction a
 previous process prepared.
 
+### Forms, lists and live panels in the web UI behave as they say
+
+- A database sink lists its tables again. Editing another field while the
+  tables were loading cancelled the request and they never came back; the
+  table picker was also never handed the list at all.
+- Settings no longer warns about unsaved changes when nothing was changed, and
+  now does warn after an edit to the S3 file-storage fields.
+- The workflow list clears its checkbox selection when you change page, search,
+  workspace or vhost, so a batch delete only reaches rows you can see.
+- The vhost picker in the header lists the vhosts of your sources and sinks
+  when you are not allowed to list vhosts, instead of offering only "All".
+- A failed action shows one error, not two.
+- The workflow page's live status and logs, and the header counts, reconnect
+  after the server restarts or the network drops.
+- The debugger keeps its latest 500 events; live status keeps the workflows
+  that reported most recently; the dashboard chart starts empty when you
+  switch vhost.
+- Lookup editors opened from the node settings window list sources, not sinks.
+- The live log panel stays on its newest line, which is at the top. Its header
+  and clickable rows, and the Live Stream Inspector's node filter, work from
+  the keyboard and tell a screen reader whether they are open or selected.
+- The Live Stream Inspector says when a filter is hiding messages, rather than
+  that none have arrived.
+- The workflow page's graph draws validator, approval, log, collect,
+  deduplicate and note nodes properly instead of as blank boxes.
+
 ### Fixed — a faster workflow editor that keeps each workflow's own state
 
 The workflow editor no longer redraws itself on every live status update, log

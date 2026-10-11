@@ -211,7 +211,14 @@ export function SinkForm({
     updateConfig,
     handleSinkChange,
     hasActiveReferencingWorkflow,
-    referencingWorkflows
+    referencingWorkflows,
+    tables,
+    loadingTables,
+    tablesError,
+    discoverTables,
+    discoveredDatabases,
+    isFetchingDBs,
+    fetchDatabases
   } = useSinkForm({
     initialData,
     isEditing,
@@ -329,6 +336,7 @@ export function SinkForm({
         upstreamSource={upstreamSource}
         onRefreshFields={onRefreshFields}
         isRefreshing={isRefreshing}
+        discovery={{ tables, loadingTables, tablesError, discoverTables, discoveredDatabases, isFetchingDBs, fetchDatabases }}
       />
     </Stack>
   );
