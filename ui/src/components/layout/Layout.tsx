@@ -5,6 +5,7 @@ import { Link, useRouterState, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useVHost } from '@/context/VHostContext';
 import { apiFetch } from '@/api';
+import { connectWithReconnect } from '@/lib/reconnectingSocket';
 import { getSessionRole, getSessionUser, clearSession } from '@/auth/session';
 import { Spotlight, spotlight } from '@mantine/spotlight';
 import '@mantine/spotlight/styles.css';
@@ -168,18 +169,16 @@ export function Layout({ children }: LayoutProps) {
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/api/ws/dashboard`;
-    const ws = new WebSocket(wsUrl);
-    
-    ws.onmessage = (event) => {
+    // Re-opened after a drop; opened once, as it was, the header counts
+    // stopped moving after a server restart until the page was reloaded.
+    return connectWithReconnect(() => wsUrl, (event) => {
       try {
         const data = JSON.parse(event.data);
         queryClient.setQueryData(['dashboard-stats'], data);
       } catch (err) {
         console.error('Failed to parse dashboard stats in layout', err);
       }
-    };
-
-    return () => ws.close();
+    });
   }, [queryClient]);
 
   const { selectedVHost, setSelectedVHost, availableVHosts, setAvailableVHosts } = useVHost();
