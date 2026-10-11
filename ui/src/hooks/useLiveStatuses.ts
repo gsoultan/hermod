@@ -35,7 +35,7 @@ const BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 15_000, 30_000];
  *    running — the failure mode an operations tool can least afford.
  *
  * Frames are coalesced into one state update per animation frame, the map is
- * bounded with oldest-first eviction, and `connected` lets callers say plainly
+ * bounded with least-recently-updated eviction, and `connected` lets callers say plainly
  * that what is on screen may be stale.
  */
 export function useLiveStatuses() {
@@ -60,11 +60,16 @@ export function useLiveStatuses() {
 
       setStatuses((prev) => {
         const next = { ...prev };
-        for (const [id, update] of batch) next[id] = update;
+        for (const [id, update] of batch) {
+          // Delete first: re-assigning a key keeps its original position, which
+          // made eviction drop the busiest workflow — added early, updated often
+          // — ahead of ones that reported once. Re-inserting moves it to the end.
+          delete next[id];
+          next[id] = update;
+        }
 
-        // Oldest-first eviction. Object key order is insertion order for string
-        // keys, and re-assigning an existing key keeps its original position, so
-        // the front of this list is genuinely the least recently *added*.
+        // Least-recently-updated eviction. Object key order is insertion order
+        // for string keys, so the front of this list is the stalest.
         const keys = Object.keys(next);
         if (keys.length > LIVE_STATUS_LIMIT) {
           for (const stale of keys.slice(0, keys.length - LIVE_STATUS_LIMIT)) {

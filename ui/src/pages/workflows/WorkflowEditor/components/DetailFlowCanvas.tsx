@@ -164,6 +164,15 @@ export const detailNodeTypes = {
   explode: TransformationNode,
   ai_classify: TransformationNode,
   ai_agent: TransformationNode,
+  // Without these React Flow drew a bare default box, with no handles, for
+  // node types the editor draws. detailCanvasNodeTypes.test.tsx keeps the
+  // two maps in step.
+  validator: TransformationNode,
+  approval: TransformationNode,
+  log: TransformationNode,
+  collect: TransformationNode,
+  deduplicate: TransformationNode,
+  note: TransformationNode,
 };
 
 interface DetailFlowCanvasProps {

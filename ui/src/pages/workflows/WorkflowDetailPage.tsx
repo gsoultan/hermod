@@ -33,6 +33,7 @@ import { ExecutionsPanel } from './executions/ExecutionsPanel';
 import { RunWithInputModal } from './executions/RunWithInputModal';
 import { ProposalsPanel } from './proposals/ProposalsPanel';
 import { useProposals } from '@/lib/proposals';
+import { connectWithReconnect } from '@/lib/reconnectingSocket';
 const API_BASE = '/api';
 
 export function WorkflowDetailPage() {
@@ -206,11 +207,11 @@ export function WorkflowDetailPage() {
 
     // Authenticated by the HttpOnly session cookie, sent on the same-origin
     // WebSocket handshake. No credential in the URL.
+    // Re-opened after a drop: opened once, as it was, a server restart left
+    // the live log list frozen for the life of the page.
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/api/ws/logs?workflow_id=${encodeURIComponent(id)}`;
-    const ws = new WebSocket(wsUrl);
-
-    ws.onmessage = (event) => {
+    return connectWithReconnect(() => wsUrl, (event) => {
       try {
         const payload = JSON.parse(event.data);
         if (Array.isArray(payload)) {
@@ -236,17 +237,14 @@ export function WorkflowDetailPage() {
       } catch (err) {
         console.error('Failed to parse log update', err);
       }
-    };
-
-    return () => ws.close();
+    });
   }, [id, activeTab]);
 
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/api/ws/status?workflow_id=${encodeURIComponent(id)}`;
-    const ws = new WebSocket(wsUrl);
-
-    ws.onmessage = (event) => {
+    // Re-opened after a drop, or the status badge freezes on its last value.
+    return connectWithReconnect(() => wsUrl, (event) => {
       try {
         const payload = JSON.parse(event.data);
         if (payload.workflow_id === id || !payload.workflow_id) {
@@ -255,9 +253,7 @@ export function WorkflowDetailPage() {
       } catch (err) {
         console.error('Failed to parse status update', err);
       }
-    };
-
-    return () => ws.close();
+    });
   }, [id]);
 
   const logs = useMemo(() => {

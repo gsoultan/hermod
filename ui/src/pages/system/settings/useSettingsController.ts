@@ -113,8 +113,8 @@ export function useSettingsController() {
   // fields used to be in here, which meant opening the workspace modal marked
   // the whole Settings page dirty.
   const formSnapshot = useMemo(
-    () => ({ dbType, dbConn, logDbType, logDbConn, secretType, vaultAddr, vaultToken, vaultMount, baoAddr, baoToken, baoMount, awsRegion, azureUrl, envPrefix, cryptoKey, stateType, statePath, stateAddr, statePass, stateDB, statePrefix, otlpEndpoint, otlpServiceName, otlpInsecure, fileStorageType, localDir, notifSettings }),
-    [dbType, dbConn, logDbType, logDbConn, secretType, vaultAddr, vaultToken, vaultMount, baoAddr, baoToken, baoMount, awsRegion, azureUrl, envPrefix, cryptoKey, stateType, statePath, stateAddr, statePass, stateDB, statePrefix, otlpEndpoint, otlpServiceName, otlpInsecure, fileStorageType, localDir, notifSettings],
+    () => ({ dbType, dbConn, logDbType, logDbConn, secretType, vaultAddr, vaultToken, vaultMount, baoAddr, baoToken, baoMount, awsRegion, azureUrl, envPrefix, cryptoKey, stateType, statePath, stateAddr, statePass, stateDB, statePrefix, otlpEndpoint, otlpServiceName, otlpInsecure, fileStorageType, localDir, s3Endpoint, s3Region, s3Bucket, s3AccessKey, s3SecretKey, s3UseSSL, notifSettings }),
+    [dbType, dbConn, logDbType, logDbConn, secretType, vaultAddr, vaultToken, vaultMount, baoAddr, baoToken, baoMount, awsRegion, azureUrl, envPrefix, cryptoKey, stateType, statePath, stateAddr, statePass, stateDB, statePrefix, otlpEndpoint, otlpServiceName, otlpInsecure, fileStorageType, localDir, s3Endpoint, s3Region, s3Bucket, s3AccessKey, s3SecretKey, s3UseSSL, notifSettings],
   );
   // Latest snapshot for the save handlers' onSuccess callbacks, which run after
   // commit — so assigning in an effect is current by the time they read it.
@@ -129,10 +129,16 @@ export function useSettingsController() {
   // whether to warn on navigation, and a ref read in render does not re-render
   // when it changes — this only worked because typing happened to re-render.
   const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
+  // The five config loaders below and the file-storage query. The baseline
+  // waits for all of them: taken on first render, as it used to be, it held
+  // the defaults, and the loaders filling in the saved values read as edits.
+  const [pendingLoads, setPendingLoads] = useState(6);
+  const settleLoad = useCallback(() => setPendingLoads((n) => Math.max(0, n - 1)), []);
   useEffect(() => {
     // Establish the baseline once the loaded config has populated the fields.
+    if (pendingLoads > 0) return;
     setSavedSnapshot((prev) => prev ?? JSON.stringify(formSnapshot));
-  }, [formSnapshot]);
+  }, [formSnapshot, pendingLoads]);
   const hasUnsavedChanges = useMemo(
     () => savedSnapshot !== null && isDirty(formSnapshot, JSON.parse(savedSnapshot)),
     [formSnapshot, savedSnapshot],
@@ -252,7 +258,7 @@ export function useSettingsController() {
     }
   }, [confirm, deleteWSMutation])
 
-  const { data: fileStorageConfig } = useQuery({
+  const { data: fileStorageConfig, status: fileStorageStatus } = useQuery({
     queryKey: ['file-storage-config'],
     queryFn: async () => {
       const res = await apiFetch('/api/config/storage')
@@ -274,6 +280,15 @@ export function useSettingsController() {
       }
     }
   }, [fileStorageConfig])
+
+  // Counted here, in the same commit as the setters above, so the baseline
+  // sees the applied values rather than the render before them.
+  const storageSettled = useRef(false);
+  useEffect(() => {
+    if (storageSettled.current || fileStorageStatus === 'pending') return;
+    storageSettled.current = true;
+    settleLoad();
+  }, [fileStorageStatus, settleLoad])
 
   const saveStorageMutation = useMutation({
     mutationFn: async () => {
@@ -537,6 +552,8 @@ export function useSettingsController() {
         if (typeof data.log_conn === 'string') setLogDbConn(data.log_conn)
       } catch {
         // ignore
+      } finally {
+        if (!aborted) settleLoad()
       }
     })()
     
@@ -563,6 +580,8 @@ export function useSettingsController() {
         if (data.env) setEnvPrefix(data.env.prefix || '')
       } catch {
         // ignore
+      } finally {
+        if (!aborted) settleLoad()
       }
     })()
 
@@ -581,6 +600,8 @@ export function useSettingsController() {
         if (data.prefix) setStatePrefix(data.prefix)
       } catch {
         // ignore
+      } finally {
+        if (!aborted) settleLoad()
       }
     })()
 
@@ -598,6 +619,8 @@ export function useSettingsController() {
         }
       } catch {
         // ignore
+      } finally {
+        if (!aborted) settleLoad()
       }
     })()
 
@@ -611,11 +634,13 @@ export function useSettingsController() {
         setNotifSettings(prev => ({ ...prev, ...data }))
       } catch {
         // ignore
+      } finally {
+        if (!aborted) settleLoad()
       }
     })()
 
     return () => { aborted = true }
-  }, [])
+  }, [settleLoad])
 
   const handleExport = async () => {
     try {
