@@ -17,41 +17,37 @@ analysis lists the same downstream assets, and both are limited to the vhosts
 you have access to (so is the dashboard's lineage list, which previously showed
 every vhost). See [Data lineage](docs/lineage.md).
 
+## [1.18.0] — 2026-10-11
+
+AI automation and machine learning. Workflows can call LLM providers, retrieve
+from vector stores and run agents whose writes wait for approval, with budgets
+and a kill switch per vhost. Models can be trained in Hermod by the `hermod-ml`
+worker, served from workflows, REST, gRPC and MCP, and watched for drift. Also
+new: a chat trigger, structure, parsing and reference-data nodes, feature
+engineering nodes and 42 more expression functions.
+
 ### Upgrading
 
-**Secrets are read from the secret manager, and the env manager reads only its
-prefix.** `secret("X")` and `env("X")` in an expression, and `secret:X` in a
-connector's config, read `HERMOD_SECRET_X` — or the prefix set under
-Settings → Security — and never the bare variable `X`. Rename every variable a
-workflow reads this way, for example `PANMAIL_API_KEY` to
-`HERMOD_SECRET_PANMAIL_API_KEY`. Until you have, start Hermod with
-`HERMOD_SECRETS_ALLOW_UNPREFIXED=true`: bare names are read again and the log
-names the first one read that way. That switch will be removed. A blank prefix
-under Settings → Security now means `HERMOD_SECRET_`; it used to mean every
-variable.
+Nothing is required: every AI and ML feature waits until it is configured.
+Three behaviour changes come with AI automation, described in full under
+[Added — AI automation](#added--ai-automation):
 
-**A Mapping, Data Conversion, Aggregate, Fuzzy Lookup or Term Extraction node
-whose field is a function call needs a target field.** With
-`lower(source.status)` as its field and no target, such a node used to write
-its result to a field named after the expression — in the message as
-`{"lower(source": {"status)": …}}` — and stay green. It now fails that record
-with "set a target field", and a workflow holding such a node is refused when
-it is saved or started. Open the node and set its Target Field. A node whose
-field is a plain path is unchanged.
+- Self-correction no longer changes a running workflow. A retry increase is a
+  proposal to approve, and Safe Mode is recommended rather than entered.
+- Mapping suggestions are off unless `HERMOD_SELF_HEALING_AI_PROVIDER` is set.
+- The AI Enrichment and AI Mapper nodes leave the palette. Saved workflows that
+  use them keep working.
 
-**A Fuzzy Lookup or Term Extraction node built in the editor starts doing what
-its form says.** A Fuzzy Lookup's options were never read, so it changed
-nothing; it now writes its match to `<field>_fuzzy` and its score to
-`<field>_score` on every record — or fails the record if its Options are not a
-JSON list. A Term Extraction's Min Word Length and Stopwords were never read
-either, so its terms may change. Check what follows such a node — a sink's
-columns, a condition on the result — before upgrading a workflow that has one.
+### Removed — the Terraform provider
 
-**A webhook source's API key is now checked.** If a webhook source has an API
-key saved — the form has always offered one — its endpoint now answers 401 to a
-request that does not carry it in the `X-API-Key` header. It used to accept
-every request. Before upgrading, make sure each sender of a keyed webhook sends
-the header, or clear the key on the source.
+`pkg/terraform/provider` declared `hermod_workflow` and `hermod_workspace`
+resources and a `hermod_workspace` data source, but it never worked: every
+create, read, update and delete, and the data source, returned "not
+implemented". No release built a provider binary either — the stray `main`
+under `ui/cmd/terraform-provider-hermod` was in no build or release target — so
+there was nothing to install. Nothing that worked is lost. The Terraform plugin
+SDK and the dependencies only it pulled in leave `go.mod`. Manage workflows and
+workspaces through the API, `hermodctl` or the UI.
 
 ### Added — custom training scripts and GPU worker pools
 
@@ -280,6 +276,50 @@ default, dropping the least recently seen. Their windows are in memory unless
 **Keep windows across restarts** is on, which saves them to the state store as
 Aggregate's persistent mode does. See
 [docs/ml.md](docs/ml.md#feature-engineering-nodes).
+
+## [1.17.0] — 2026-10-06
+
+A vhost keeps its own secrets, and the secret manager reads only its prefix. A
+webhook, gRPC or WebSocket source can answer with what the workflow did, and the
+gRPC source takes a stream of records. Set Fields offers the functions it has
+always run, and a function in a node's field needs a target field. A webhook
+source's API key is now checked.
+
+### Upgrading
+
+**Secrets are read from the secret manager, and the env manager reads only its
+prefix.** `secret("X")` and `env("X")` in an expression, and `secret:X` in a
+connector's config, read `HERMOD_SECRET_X` — or the prefix set under
+Settings → Security — and never the bare variable `X`. Rename every variable a
+workflow reads this way, for example `PANMAIL_API_KEY` to
+`HERMOD_SECRET_PANMAIL_API_KEY`. Until you have, start Hermod with
+`HERMOD_SECRETS_ALLOW_UNPREFIXED=true`: bare names are read again and the log
+names the first one read that way. That switch will be removed. A blank prefix
+under Settings → Security now means `HERMOD_SECRET_`; it used to mean every
+variable.
+
+**A Mapping, Data Conversion, Aggregate, Fuzzy Lookup or Term Extraction node
+whose field is a function call needs a target field.** With
+`lower(source.status)` as its field and no target, such a node used to write
+its result to a field named after the expression — in the message as
+`{"lower(source": {"status)": …}}` — and stay green. It now fails that record
+with "set a target field", and a workflow holding such a node is refused when
+it is saved or started. Open the node and set its Target Field. A node whose
+field is a plain path is unchanged.
+
+**A Fuzzy Lookup or Term Extraction node built in the editor starts doing what
+its form says.** A Fuzzy Lookup's options were never read, so it changed
+nothing; it now writes its match to `<field>_fuzzy` and its score to
+`<field>_score` on every record — or fails the record if its Options are not a
+JSON list. A Term Extraction's Min Word Length and Stopwords were never read
+either, so its terms may change. Check what follows such a node — a sink's
+columns, a condition on the result — before upgrading a workflow that has one.
+
+**A webhook source's API key is now checked.** If a webhook source has an API
+key saved — the form has always offered one — its endpoint now answers 401 to a
+request that does not carry it in the `X-API-Key` header. It used to accept
+every request. Before upgrading, make sure each sender of a keyed webhook sends
+the header, or clear the key on the source.
 
 ### Added — a vhost keeps its own secrets
 
@@ -5824,6 +5864,8 @@ Stated here rather than discovered later. All three are also in `README.md` or
   were left alone rather than changed mechanically. Treat a restart as
   potentially lossy for these. They are Experimental in `README.md`.
 
+[1.18.0]: https://github.com/gsoultan/hermod/releases/tag/v1.18.0
+[1.17.0]: https://github.com/gsoultan/hermod/releases/tag/v1.17.0
 [1.16.2]: https://github.com/gsoultan/hermod/releases/tag/v1.16.2
 [1.16.1]: https://github.com/gsoultan/hermod/releases/tag/v1.16.1
 [1.16.0]: https://github.com/gsoultan/hermod/releases/tag/v1.16.0

@@ -9,16 +9,18 @@ This document outlines the planned features, development directions, and future 
 - **Stateful Event Correlation (Join/Zip)**: Implemented a Join node that waits for messages from multiple sources based on a common key and merges them.
 
 ## 🤖 AI & Data Intelligence
-- **Semantic Routing**: Leverage LLM integrations to route data based on **intent or sentiment** (e.g., "If the message sounds like a complaint, route to the Urgent Support sink").
-- **Autonomous Schema Evolution**: When a source schema changes (e.g., a new column in Postgres CDC), Hermod could automatically update the downstream SQL sink schema or alert the user with a "Smart Mapping" suggestion.
-- **Natural Language Workflow Generation**: A "Prompt to Workflow" feature where users can describe their needs in natural language to generate the DAG automatically.
+- **Implemented ✅ in 1.18.0** — see [docs/ai-automation.md](./docs/ai-automation.md) and [docs/ml.md](./docs/ml.md):
+  - **Semantic Routing**: the AI Classify node labels a message by intent or sentiment, and a router sends each label to its own branch.
+  - **Natural Language Workflow Generation**: the workflow builder drafts a workflow from a plain-language description.
+  - AI Prompt, Extract, Embed, Retrieve and Agent nodes; budgets and a kill switch per vhost; models trained, served and monitored for drift.
+- **Autonomous Schema Evolution** (open): when a source schema changes (e.g., a new column in Postgres CDC), Hermod could automatically update the downstream SQL sink schema or alert the user with a "Smart Mapping" suggestion. The analysis exists (`AnalyzeSchemaChange`); nothing triggers it from a CDC schema change yet.
 
 ## 🏢 Enterprise Governance & Observability
 - **Data Lineage & Impact** (Implemented ✅): A per-vhost graph of the assets every workflow reads and writes, derived from saved configuration, with the downstream impact of any source — see [Data lineage](docs/lineage.md). Still open: a heatmap overlay weighted by live throughput.
 - **Hermod Edge Orchestration**: Lightweight Hermod instances for local filtering, masking, and pre-processing before sending data to a central Hermod cluster.
 
 ## ✨ "Zero-Entry" Ease of Use
-- **Live "Dry-Run" Preview**: A split-pane view in the Editor that displays exactly how sample messages are transformed at each node in real-time as configurations change.
+- **Live "Dry-Run" Preview** (Implemented ✅): each node's settings show a Live Preview of how the sample from the node before it is transformed, re-run as the configuration changes.
 - **Workflow "Blueprints" Marketplace**: An integrated store where users can download and share pre-built templates for common scenarios (e.g., "GDPR Compliance Pipeline," "E-commerce Sync").
 
 ## 🔗 Infrastructure & Connectivity
