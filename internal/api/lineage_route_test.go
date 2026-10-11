@@ -17,9 +17,11 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/ai"
 	"github.com/gsoultan/hermod/internal/api/handlers"
 	"github.com/gsoultan/hermod/internal/storage"
 	sqlstorage "github.com/gsoultan/hermod/internal/storage/sql"
+	"github.com/gsoultan/hermod/pkg/engine/telemetry"
 )
 
 // The reachability test for lineage: workflows, sources and sinks are stored
@@ -89,13 +91,22 @@ func newLineageServer(t *testing.T) lineageCall {
 	must(st.CreateWorkflow(ctx, storage.Workflow{ID: "bwf", Name: "tenant b copy", VHost: "tenant-b",
 		Nodes: []storage.WorkflowNode{{ID: "s", Type: "source", RefID: "bpg"}}}))
 
-	s := &Server{Handler: &handlers.Handler{Storage: st, LogStorage: st}}
+	// No model is configured, so the schema analysis takes its heuristic.
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("AI_MODEL", "")
+	s := &Server{Handler: &handlers.Handler{Storage: st, LogStorage: st, AI: ai.NewSelfHealingService(telemetry.NewDefaultLogger())}}
 	srv := httptest.NewServer(s.Routes())
 	t.Cleanup(srv.Close)
 
 	call := func(path, role string, vhosts []string) (int, string) {
 		t.Helper()
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+path, nil)
+		method, target, body := http.MethodGet, path, ""
+		if verb, rest, ok := strings.Cut(path, " "); ok {
+			// "POST /path {json}"
+			method = verb
+			target, body, _ = strings.Cut(rest, " ")
+		}
+		req, err := http.NewRequestWithContext(ctx, method, srv.URL+target, strings.NewReader(body))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -113,8 +124,8 @@ func newLineageServer(t *testing.T) lineageCall {
 			t.Fatal(err)
 		}
 		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
-		return resp.StatusCode, string(body)
+		out, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(out)
 	}
 	return call
 }
@@ -183,6 +194,53 @@ func checkLineage(t *testing.T, call lineageCall) {
 	code, body = call("/api/vhosts/all/lineage/impact?node="+asset, "Viewer", []string{"tenant-b"})
 	if code != http.StatusOK || strings.Contains(body, "capture") || !strings.Contains(body, "workflow:bwf") {
 		t.Fatalf("tenant-b impact through all: %d %s", code, body)
+	}
+}
+
+// A schema change to a workflow's data reaches everything downstream of the
+// workflow, so the analysis lists it from the lineage — for a caller who may
+// see the workflow's vhost.
+func TestSchemaChangeAnalysisListsTheDownstreamAssets(t *testing.T) {
+	call := newLineageServer(t)
+	const req = `POST /api/ai/analyze-schema {"workflow_id":"capture","old_schema":{"id":1,"total":2},"new_schema":{"id":1}}`
+
+	code, body := call(req, "Editor", []string{"tenant-a"})
+	if code != http.StatusOK {
+		t.Fatalf("analyze: %d %s", code, body)
+	}
+	var res struct {
+		Breaking   bool `json:"breaking"`
+		Downstream *struct {
+			Impacted []struct {
+				Node struct {
+					ID string `json:"id"`
+				} `json:"node"`
+			} `json:"impacted"`
+			Workflows int `json:"workflows"`
+		} `json:"downstream"`
+	}
+	if err := json.Unmarshal([]byte(body), &res); err != nil {
+		t.Fatal(err)
+	}
+	if !res.Breaking {
+		t.Errorf("a removed field is breaking: %s", body)
+	}
+	if res.Downstream == nil {
+		t.Fatalf("no downstream in %s", body)
+	}
+	var got []string
+	for _, it := range res.Downstream.Impacted {
+		got = append(got, it.Node.ID)
+	}
+	if want := "topic:kafka://kafka:9092/orders workflow:index index:elasticsearch://es:9200/orders"; strings.Join(got, " ") != want {
+		t.Fatalf("downstream = %v, want %s", got, want)
+	}
+
+	// Another tenant's editor still gets the analysis, which only echoes the
+	// schemas sent, but nothing of tenant-a's lineage.
+	code, body = call(req, "Editor", []string{"tenant-b"})
+	if code != http.StatusOK || strings.Contains(body, `"downstream":`) || strings.Contains(body, "kafka") {
+		t.Fatalf("tenant-b editor: %d %s", code, body)
 	}
 }
 

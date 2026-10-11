@@ -16,9 +16,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/ai"
 	"github.com/gsoultan/hermod/internal/api/handlers"
 	"github.com/gsoultan/hermod/internal/engine/registry"
 	"github.com/gsoultan/hermod/internal/governance"
+	"github.com/gsoultan/hermod/internal/lineage"
+	lineagehttp "github.com/gsoultan/hermod/internal/lineage/transport/http"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/internal/workflow/redact"
 	"github.com/gsoultan/hermod/pkg/comm/message"
@@ -550,7 +553,37 @@ func (h *WorkflowHandler) HandleAIAnalyzeSchema(w http.ResponseWriter, r *http.R
 	h.RecordAuditLog(r, "INFO", "AI analyzed schema change for workflow "+req.WorkflowID, "AI_ANALYZE_SCHEMA", req.WorkflowID, "", "", nil)
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(res)
+	_ = json.NewEncoder(w).Encode(schemaAnalysis{SchemaImpact: res, Downstream: h.schemaDownstream(ctx, r, req.WorkflowID)})
+}
+
+// schemaAnalysis is the schema-change analysis with, when the caller may see
+// the workflow, everything downstream of it in the lineage: the assets and
+// workflows a change to its data reaches.
+type schemaAnalysis struct {
+	*ai.SchemaImpact
+	Downstream *lineage.Impact `json:"downstream,omitempty"`
+}
+
+// schemaDownstream is the workflow's downstream impact, or nil when there is
+// no such workflow, the caller may not see its vhost, or the lineage cannot
+// be read. The analysis stands without it, so none of these fail the request.
+func (h *WorkflowHandler) schemaDownstream(ctx context.Context, r *http.Request, workflowID string) *lineage.Impact {
+	if workflowID == "" || h.Storage == nil {
+		return nil
+	}
+	wf, err := h.Storage.GetWorkflow(ctx, workflowID)
+	if err != nil {
+		return nil
+	}
+	scope, ok := lineagehttp.Scope(h.Handler, r, wf.VHost)
+	if !ok {
+		return nil
+	}
+	imp, err := lineagehttp.Service(h.Storage).WorkflowImpact(ctx, scope, wf.ID)
+	if err != nil {
+		return nil
+	}
+	return &imp
 }
 
 func (h *WorkflowHandler) HandleAISuggestMapping(w http.ResponseWriter, r *http.Request) {
