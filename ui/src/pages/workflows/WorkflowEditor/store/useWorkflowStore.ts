@@ -141,6 +141,35 @@ export interface WorkflowState {
   updateNodeConfig: (nodeId: string, config: any, replace?: boolean) => void;
 }
 
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** Same keys, and each value identical or, when both are objects, with identical values. */
+function sameFields(a: Record<string, unknown>, b: Record<string, unknown>, depth: number): boolean {
+  if (a === b) return true;
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  for (const k of keys) {
+    if (!(k in b)) return false;
+    const x = a[k];
+    const y = b[k];
+    if (x === y) continue;
+    if (depth > 0 && isPlainObject(x) && isPlainObject(y) && sameFields(x, y, depth - 1)) continue;
+    return false;
+  }
+  return true;
+}
+
+/** Whether a change to a node or edge list left every item as it was. */
+function sameItems<T extends object>(next: T[], prev: T[]): boolean {
+  if (next === prev) return true;
+  if (next.length !== prev.length) return false;
+  for (let i = 0; i < next.length; i++) {
+    if (!sameFields(next[i] as Record<string, unknown>, prev[i] as Record<string, unknown>, 1)) return false;
+  }
+  return true;
+}
+
 export const useWorkflowStore = create<WorkflowState>((set) => ({
   nodes: [],
   edges: [],
@@ -220,17 +249,17 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
     if (JSON.stringify(nextEdges) === JSON.stringify(state.edges)) return state;
     return { edges: nextEdges };
   }),
+  // These run on every drag frame. React Flow keeps an untouched node or edge
+  // as the same object and copies the one a change applies to, so comparing
+  // each pair two levels deep finds a no-op without serialising the graph.
   onNodesChange: (changes) => set((state) => {
     const nextNodes = applyNodeChanges(changes, state.nodes);
-    if (nextNodes === state.nodes) return state;
-    // Check if there are any actual changes beyond reference
-    if (JSON.stringify(nextNodes) === JSON.stringify(state.nodes)) return state;
+    if (sameItems(nextNodes, state.nodes)) return state;
     return { nodes: nextNodes };
   }),
   onEdgesChange: (changes) => set((state) => {
     const nextEdges = applyEdgeChanges(changes, state.edges);
-    if (nextEdges === state.edges) return state;
-    if (JSON.stringify(nextEdges) === JSON.stringify(state.edges)) return state;
+    if (sameItems(nextEdges, state.edges)) return state;
     return { edges: nextEdges };
   }),
 

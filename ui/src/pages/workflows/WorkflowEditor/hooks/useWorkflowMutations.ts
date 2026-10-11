@@ -1,8 +1,9 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { notifications } from '@mantine/notifications';
 import { apiFetch } from '@/api';
+import { useShallow } from 'zustand/react/shallow';
 import { useWorkflowStore } from '../store/useWorkflowStore';
 import type { Source, Sink } from '@/types';
 import { resolveSampleSource, sampleTableFor, simulationInputs } from '../sampleCapture';
@@ -100,11 +101,24 @@ export function useWorkflowMutations(
     name, active, testInput, selectedNode,
     setWorkflowStatus, setActive, setTestResults, setTestModalOpened,
     updateNodeConfig, setSettingsOpened, setSelectedNode
-  } = useWorkflowStore();
+  } = useWorkflowStore(useShallow(state => ({
+    name: state.name, active: state.active, testInput: state.testInput, selectedNode: state.selectedNode,
+    setWorkflowStatus: state.setWorkflowStatus, setActive: state.setActive,
+    setTestResults: state.setTestResults, setTestModalOpened: state.setTestModalOpened,
+    updateNodeConfig: state.updateNodeConfig, setSettingsOpened: state.setSettingsOpened,
+    setSelectedNode: state.setSelectedNode,
+  })));
 
   const [refreshing, setRefreshing] = useState(false);
 
-  const testMutation = useMutation<any, Error, SimulationVars | undefined>({
+  // The number of the latest simulation run. Runs can overlap -- the Test
+  // hotkey is not disabled while a refresh is running -- and only the latest
+  // may store its results: an older one finishing last put back the fields the
+  // newer run had replaced.
+  const latestRun = useRef(0);
+
+  const testMutation = useMutation<any, Error, SimulationVars | undefined, number>({
+    onMutate: () => ++latestRun.current,
     // The Configure Test modal's Run Simulation calls mutate() with no
     // variables, and destructuring them here threw before any request was
     // sent — so that button never ran anything.
@@ -161,9 +175,10 @@ export function useWorkflowMutations(
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
-    onSuccess: (data, vars) => {
-      setTestResults(data);
+    onSuccess: (data, vars, run) => {
       setTestModalOpened(false);
+      if (run !== latestRun.current) return;
+      setTestResults(data);
       if (vars?.quiet) return;
       notifications.show({ title: 'Test Complete', message: 'The flow has been simulated. Active paths are highlighted.', color: 'blue' });
     },
