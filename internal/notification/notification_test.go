@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -337,5 +338,35 @@ func TestFaultAlertsStayErrors(t *testing.T) {
 	defer st.mu.Unlock()
 	if len(st.logs) != 1 || st.logs[0].Level != "ERROR" {
 		t.Fatalf("logs = %+v, want one ERROR row", st.logs)
+	}
+}
+
+// WaitFor must be safe to call while alerts are still being raised. The ML
+// drift monitor raises alerts on its own goroutine, and the test waiting for
+// one polls WaitFor in a loop: a sync.WaitGroup forbids an Add from zero while
+// a Wait is in progress, and the race detector failed CI on exactly that.
+func TestWaitForWhileAlertsAreRaisedIsNotARace(t *testing.T) {
+	svc := NewService(&stubStorage{})
+
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			svc.Notify(t.Context(), fmt.Sprintf("alert %d", i), "m", storage.Workflow{ID: "wf"})
+		}
+	}()
+	for range 200 {
+		svc.WaitFor(10 * time.Millisecond)
+	}
+	close(stop)
+	<-done
+	if !svc.WaitFor(5 * time.Second) {
+		t.Fatal("in-flight alerts never finished")
 	}
 }
