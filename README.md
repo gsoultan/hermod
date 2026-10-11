@@ -68,7 +68,7 @@ duplicates that ordering produces are what sink-side idempotency is for.
 
 Hermod is built for mission-critical enterprise data workloads, providing robust features for governance, reliability, and observability:
 
-- **Two-Phase Commit (2PC) across a transactional sink group**: A group of sinks commits atomically — either every member applied the batch or none did — and the guarantee survives a crash, because the coordinator's decision is durable before any member is told about it. Recovery uses **presumed abort**, and a reaper rolls back anything left in doubt past a deadline, which is what keeps an interrupted round from holding PostgreSQL locks indefinitely. Scope, stated plainly: **only the Postgres sink can participate today**, so the realistic shape is two or more Postgres sinks kept consistent; a group containing a sink that cannot take part is refused at construction rather than silently degraded. Kafka does *not* participate — it previously carried no-op stubs that would have reported a failed rollback as a success. See [Distributed transactions](#distributed-transactions-transactional-sink-groups), including the operational hazard note, before enabling.
+- **Two-Phase Commit (2PC) across a transactional sink group**: A group of sinks commits atomically — either every member applied the batch or none did — and the guarantee survives a crash, because the coordinator's decision is durable before any member is told about it. Recovery uses **presumed abort**, and a reaper rolls back anything left in doubt past a deadline, which is what keeps an interrupted round from holding PostgreSQL locks indefinitely. Scope, stated plainly: **the PostgreSQL (and YugabyteDB) sink and the MySQL (and MariaDB) sink can participate**, so a group can keep PostgreSQL and MySQL destinations consistent with each other; MySQL needs 5.7.7+ and MariaDB 10.5.2+. A group containing a sink that cannot take part is refused at construction rather than silently degraded. Kafka does *not* participate — it previously carried no-op stubs that would have reported a failed rollback as a success. See [Distributed transactions](#distributed-transactions-transactional-sink-groups), including the operational hazard note, before enabling.
 - **SSO & OpenID Connect (OIDC)**: Support for centralized identity providers like **Okta**, **Auth0**, and **Azure AD** for platform-wide authentication and RBAC.
 - **AI automation**: Prompt, extract, classify, embed and retrieve with Claude, ChatGPT, Gemini, DeepSeek, Ollama or any OpenAI-compatible model; an **AI Agent** node whose writes wait for human approval; an **MCP server** so Claude and other MCP clients can run Hermod workflows; run history with replay. See [AI automation](docs/ai-automation.md).
 - **Vector Database Sinks**: Built-in support for **Pinecone**, **Milvus**, and **pgvector** to power enterprise AI knowledge bases and RAG pipelines.
@@ -565,11 +565,12 @@ transaction: either every member applied the batch or none did, and that holds a
 a crash. It is built on `pkg/engine/twopc` (the coordinator and its durable log) and
 `pkg/comm/sink/txgroup` (the group, which presents to the engine as a single sink).
 
-**Currently only the PostgreSQL sink can participate.** It is the one sink implementing
-`hermod.TwoPhaseCommit` with real `PREPARE TRANSACTION` semantics, so the realistic
-shape today is two or more Postgres sinks kept consistent with each other. A group
-containing a sink that cannot participate is **refused at construction**, not silently
-degraded.
+**Two sinks can participate: PostgreSQL and MySQL.** Each implements
+`hermod.TwoPhaseCommit` with real prepared-transaction semantics — `PREPARE
+TRANSACTION` on PostgreSQL (and YugabyteDB, which shares the sink), XA transactions on
+MySQL (and MariaDB, which shares the sink) — so a group can keep any mix of PostgreSQL
+and MySQL destinations consistent with each other. A group containing a sink that
+cannot participate is **refused at construction**, not silently degraded.
 
 ### Declaring one
 
@@ -663,6 +664,68 @@ Roll back rather than commit unless you have positively established the transact
 should have committed. Presumed abort is the safe direction for the same reason the
 coordinator uses it.
 
+### MySQL and MariaDB members (XA)
+
+The MySQL sink — which MariaDB shares — takes part through XA transactions: `XA
+START`, the writes, `XA END`, `XA PREPARE`, then `XA COMMIT` or `XA ROLLBACK`. The
+same three defences apply. A prepared XA transaction holds its row locks and a
+metadata lock on every table it touched (so an `ALTER` or `DROP` of that table waits
+behind it) until it is resolved, and it survives a server restart.
+
+**Server requirements, checked by the preflight.** A group refuses to start when a
+MySQL member fails any of these:
+
+| Requirement | Why |
+| :--- | :--- |
+| **MySQL 5.7.7+** or **MariaDB 10.5.2+** | Earlier servers roll a prepared XA transaction back when the client disconnects, so a crash after the vote would abort it behind the coordinator's back. |
+| `innodb_support_xa = ON` (MySQL 5.7.7–5.7.9 only) | With it off, `XA PREPARE` is not crash-safe. From 5.7.10 it is always on, and 8.0 removed the variable. |
+| The account can run `XA RECOVER` | On MySQL 8.0+ that needs the `XA_RECOVER_ADMIN` privilege. Without it an in-doubt transaction is invisible to the account that created it: `GRANT XA_RECOVER_ADMIN ON *.* TO 'hermod'@'%';` |
+
+**Use MySQL 8.0.30 or later if binary logging is on** (it is by default from 8.0).
+Earlier versions had known cases where a *server* crash during `XA PREPARE` or `XA
+COMMIT` left the binary log and InnoDB disagreeing about the transaction, so a replica
+could diverge from its source; 8.0.30 made XA crash-safe with the binary log. The
+preflight does not refuse older 8.0 releases, because the hazard is a server crash
+at a precise moment rather than a misconfiguration, but it is a reason to upgrade.
+
+**What the sink does differently from PostgreSQL**, and why:
+
+- **The ID is given at Begin.** `XA START` takes the transaction ID and it cannot be
+  changed, so the coordinator hands each participant its ID before it opens the
+  transaction (`hermod.NamedBegin`), and records it before `XA PREPARE` as for every
+  member. The sink refuses to prepare under any other ID.
+- **One dedicated connection per transaction.** Everything between `XA START` and
+  `XA PREPARE` has to run on the same session, so the sink holds one connection
+  for the round. After `XA PREPARE` it closes that connection rather than returning
+  it to the pool: on MySQL before 8.0.27, with `xa_detach_on_prepare = OFF`, and on
+  MariaDB, a prepared XA transaction stays attached to the session that prepared it,
+  and no other connection can commit it until that session ends. Commit and rollback
+  then run on a fresh connection, as recovery after a restart must.
+- **Table DDL runs outside the transaction.** MySQL refuses a statement that commits
+  implicitly — `CREATE TABLE`, `ALTER TABLE`, `TRUNCATE` — while an XA transaction
+  is active, so when the sink has to create or alter its table it does that through
+  the pool first. MySQL DDL is never transactional, so nothing is lost by it.
+- **Hermod's XIDs are marked.** They use format ID `1213026116` ("HMOD") with an
+  empty branch qualifier, so `XA RECOVER` output can be told apart from another
+  application's on the same server.
+
+**Checking for stranded transactions.** `XA RECOVER` is MySQL's counterpart of
+`pg_prepared_xacts`, and worth alerting on:
+
+```sql
+XA RECOVER;   -- Hermod's rows have formatID = 1213026116
+```
+
+If Hermod's own log was lost, resolve them by hand, naming the format ID — without it
+MySQL looks for a different XID and answers `XAER_NOTA`:
+
+```sql
+XA ROLLBACK '<data>','',1213026116;
+```
+
+As on PostgreSQL, roll back unless you have positively established the transaction
+should have committed.
+
 ### Verified against a real server
 
 The coordinator's unit tests use fakes, which prove the protocol is implemented
@@ -685,6 +748,20 @@ They found two defects that every fake-based test had passed over:
   missing phase was invisible.
 
 Both are fixed, and both are now covered by tests that would catch a regression.
+
+The MySQL sink's XA tests do the same against `XA RECOVER`: prepare then commit or
+roll back from a fresh connection, a crash after the commit decision and a crash
+before it (each recovered by a new coordinator over the same log), the sink creating
+its table inside a round, and a server that keeps prepared transactions attached to
+their session. A group spanning PostgreSQL and MySQL is tested from stored sink
+configuration through the registry, in both failure directions:
+
+```bash
+HERMOD_INTEGRATION=1 MYSQL_DSN='user:pass@tcp(host:3306)/db' \
+  go test -tags=integration -run XA ./pkg/comm/sink/mysql/
+HERMOD_INTEGRATION=1 POSTGRES_DSN='postgres://...' MYSQL_DSN='user:pass@tcp(host:3306)/db' \
+  go test -tags=integration -run Mixed ./internal/engine/registry/
+```
 
 ### Residual risk, stated plainly
 
@@ -711,6 +788,15 @@ the PostgreSQL sink does when it is behind a transaction pooler and degrades to
 a local commit — and the coordinator records what it is told, because that is
 what recovery must act on. The `pg_prepared_xacts` check remains as a backstop
 for transactions this coordinator never created.
+
+The window stays closed for MySQL, which names a transaction at `XA START`
+rather than at prepare time. The coordinator chooses every participant's ID
+before Begin and passes it to a participant that needs it then
+(`hermod.NamedBegin`); it is still made durable before `XA PREPARE`. A
+transaction that has been started but not prepared is not in doubt — MySQL rolls
+it back when the session ends — so it needs no name in the log until it is about
+to be prepared. The MySQL sink never substitutes an identifier: asked to prepare
+under one it was not opened with, it refuses. `XA RECOVER` is the backstop there.
 
 ## Connector maturity tiers
 
@@ -890,16 +976,16 @@ a transaction an earlier process prepared and Kafka can only abort one. See
 documented guarantee everywhere, so this is the same bargain as the rest of the
 platform rather than a Kafka-specific caveat.
 
-**TxGroup** stays here despite having live-PostgreSQL tests that cover more than
-most GA entries — commit landing in both tables, and rows staying invisible after
-a crash between prepare and recovery. Two things hold it back, and both are
-semantic rather than a gap in coverage: PostgreSQL is the only sink implementing
-`hermod.TwoPhaseCommit`, so a group can span nothing else; and there is a
-documented window in which a crash strands a prepared transaction the coordinator
-cannot name, which on PostgreSQL holds locks cluster-wide until someone finds it.
-See [Residual risk, stated plainly](#residual-risk-stated-plainly). Neither is a
-reason to avoid it — they are reasons to know what you are taking on, which is
-what a tier is for.
+**TxGroup** stays here despite having live-PostgreSQL and live-MySQL tests that
+cover more than most GA entries — commit landing in every member, rows staying
+invisible after a crash between prepare and recovery, and a PostgreSQL + MySQL
+group built from stored configuration. The two things this entry used to cite
+have moved: PostgreSQL and MySQL/MariaDB now both implement
+`hermod.TwoPhaseCommit`, though a group still cannot include any other sink; and
+the window in which a crash stranded a prepared transaction the coordinator could
+not name is closed (see [Residual risk, stated plainly](#residual-risk-stated-plainly)).
+The tier has not been revisited since. Read the operational hazard notes before
+enabling it — a member left in doubt holds locks until it is resolved.
 
 ### Experimental
 

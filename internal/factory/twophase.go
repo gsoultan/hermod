@@ -20,10 +20,14 @@ import "slices"
 //
 // postgres and yugabyte share a sink (see the switch in CreateSink), which is
 // why both are here: yugabyte speaks the PostgreSQL wire protocol including
-// PREPARE TRANSACTION.
+// PREPARE TRANSACTION. mysql and mariadb share a sink too, which uses XA
+// transactions; its preflight refuses a server version on which a prepared XA
+// transaction would not survive a disconnect (MySQL < 5.7.7, MariaDB < 10.5.2).
 var twoPhaseCapableSinkTypes = []string{
 	"postgres",
 	"yugabyte",
+	"mysql",
+	"mariadb",
 }
 
 // TwoPhaseCapableSinkTypes returns the sink types that can join a transactional
