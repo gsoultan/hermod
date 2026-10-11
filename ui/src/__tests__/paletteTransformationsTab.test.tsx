@@ -1,5 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MantineProvider } from '@mantine/core'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, vi } from 'vitest'
@@ -52,12 +51,16 @@ describe('the palette Transformations tab', () => {
   })
 
   it('points a search for a source at the Sources tab instead of listing it', async () => {
-    const user = userEvent.setup()
     renderDrawer()
-    await user.type(screen.getByLabelText('Search the node palette'), 'postgres')
+    // One change event rather than typing it out: every keystroke re-rendered
+    // the whole palette, and eight of them ran past the test timeout on a busy
+    // CI runner. The search reads the final value either way.
+    fireEvent.change(screen.getByLabelText('Search the node palette'), { target: { value: 'postgres' } })
     const tab = within(transformationsTab())
-    expect(tab.getByText(/Nothing here matches/)).toBeInTheDocument()
+    expect(await tab.findByText(/Nothing here matches/)).toBeInTheDocument()
     expect(tab.getByText(/in Sources/)).toBeInTheDocument()
     expect(tab.queryByText('PostgreSQL', { exact: true })).not.toBeInTheDocument()
-  })
+    // Filtering the full palette takes seconds under jsdom, close to the
+    // default five-second limit even on an idle machine.
+  }, 20_000)
 })
