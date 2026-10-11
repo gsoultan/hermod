@@ -94,9 +94,14 @@ function renderPage() {
   )
 }
 
-/** Picks an option of a Mantine Select or MultiSelect by its accessible name. */
+/**
+ * Picks an option of a Mantine Select or MultiSelect by its accessible name.
+ * Hidden inputs count: jsdom never ends the Advanced section's opening
+ * transition, so what it holds stays aria-hidden there although a person sees it.
+ */
 async function pick(user: ReturnType<typeof userEvent.setup>, scope: HTMLElement, label: RegExp, option: string) {
-  const input = within(scope).queryByRole('combobox', { name: label }) ?? within(scope).getByRole('textbox', { name: label })
+  const input = within(scope).queryByRole('combobox', { name: label, hidden: true })
+    ?? within(scope).getByRole('textbox', { name: label, hidden: true })
   await user.click(input)
   // The option of this input's own list: two pickers may offer the same column.
   await waitFor(() => expect(document.getElementById(input.getAttribute('aria-controls') ?? '')).toBeTruthy())
@@ -106,11 +111,28 @@ async function pick(user: ReturnType<typeof userEvent.setup>, scope: HTMLElement
 
 /** Opens a Mantine Select and returns its own option list. */
 async function openOptions(user: ReturnType<typeof userEvent.setup>, scope: HTMLElement, label: RegExp) {
-  const input = within(scope).queryByRole('combobox', { name: label }) ?? within(scope).getByRole('textbox', { name: label })
+  const input = within(scope).queryByRole('combobox', { name: label, hidden: true })
+    ?? within(scope).getByRole('textbox', { name: label, hidden: true })
   await user.click(input)
   await waitFor(() => expect(document.getElementById(input.getAttribute('aria-controls') ?? '')).toBeTruthy())
   return document.getElementById(input.getAttribute('aria-controls') as string) as HTMLElement
 }
+
+/** Opens the Train dialog for a new model and walks it to "How careful", with Advanced open. */
+async function toAdvanced(user: ReturnType<typeof userEvent.setup>, model: string) {
+  await user.click(await screen.findByRole('button', { name: /train a model/i }))
+  const dialog = await screen.findByRole('dialog')
+  await user.type(within(dialog).getByRole('textbox', { name: /model name/i }), model)
+  await pick(user, dialog, /^dataset/i, 'customers')
+  await user.click(within(dialog).getByRole('button', { name: /^next$/i }))
+  await pick(user, dialog, /column to predict/i, 'churned')
+  await user.click(within(dialog).getByRole('button', { name: /^next$/i }))
+  await user.click(within(dialog).getByRole('button', { name: /advanced/i }))
+  await within(dialog).findAllByLabelText(/^algorithm/i)
+  return dialog
+}
+
+const field = (scope: HTMLElement, name: RegExp) => within(scope).getByRole('textbox', { name, hidden: true })
 
 describe('Training on the Models page', () => {
   it('lists the datasets and shows a trained model with its live version', async () => {
@@ -167,14 +189,19 @@ describe('Training on the Models page', () => {
     const dialog = await screen.findByRole('dialog')
     await user.type(within(dialog).getByRole('textbox', { name: /model name/i }), 'churn2')
     await pick(user, dialog, /^dataset/i, 'customers')
+    await user.click(within(dialog).getByRole('button', { name: /^next$/i }))
     await pick(user, dialog, /column to predict/i, 'churned')
+    await user.click(within(dialog).getByRole('button', { name: /^next$/i }))
+    await user.click(within(dialog).getByRole('button', { name: /^next$/i }))
     await user.click(within(dialog).getByRole('radio', { name: /if it scores/i }))
     await user.click(within(dialog).getByRole('button', { name: /^train$/i }))
 
     await waitFor(() => expect(writes.find((w) => w.method === 'TRAIN')).toBeTruthy())
     const train = writes.find((w) => w.method === 'TRAIN')!
     expect(train.path).toBe('tenant-a/churn2')
-    expect(train.body).toMatchObject({ dataset: 'customers', target: 'churned', task: 'auto', algorithm: 'auto', go_live: { mode: 'if', metric: 'score', min: 0.8 } })
+    expect(train.body).toMatchObject({
+      dataset: 'customers', target: 'churned', task: 'auto', algorithm: 'auto', preset: 'balanced', go_live: { mode: 'if', metric: 'score', min: 0.8 },
+    })
     expect(await within(dialog).findByText(/below the minimum/)).toBeInTheDocument()
     expect(within(dialog).getByText(/version 2/i)).toBeInTheDocument()
   })
@@ -183,10 +210,9 @@ describe('Training on the Models page', () => {
     trainingApi({ algorithms: ['auto', 'random_forest', 'gradient_boosting', 'linear', 'xgboost'] })
     renderPage()
     const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: /train a model/i }))
-    const dialog = await screen.findByRole('dialog')
     // The page shows its Train button only once the worker status, and so
     // its list of algorithms, has arrived.
+    const dialog = await toAdvanced(user, 'churn2')
     const list = await openOptions(user, dialog, /algorithm/i)
     expect(await within(list).findByRole('option', { name: 'XGBoost', hidden: true })).toBeInTheDocument()
     expect(within(list).queryByRole('option', { name: /pytorch/i, hidden: true })).not.toBeInTheDocument()
@@ -197,16 +223,13 @@ describe('Training on the Models page', () => {
     const writes = trainingApi()
     renderPage()
     const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: /train a model/i }))
-    const dialog = await screen.findByRole('dialog')
-    await user.type(within(dialog).getByRole('textbox', { name: /model name/i }), 'deep')
-    await pick(user, dialog, /^dataset/i, 'customers')
-    await pick(user, dialog, /column to predict/i, 'churned')
-    expect(within(dialog).queryByRole('textbox', { name: /hidden layers/i })).not.toBeInTheDocument()
+    const dialog = await toAdvanced(user, 'deep')
+    expect(within(dialog).queryByRole('textbox', { name: /hidden layers/i, hidden: true })).not.toBeInTheDocument()
     await pick(user, dialog, /algorithm/i, 'PyTorch MLP (neural network)')
-    await user.type(within(dialog).getByRole('textbox', { name: /hidden layers/i }), '32, 16')
-    await user.type(within(dialog).getByRole('textbox', { name: /epochs/i }), '50')
-    await user.type(within(dialog).getByRole('textbox', { name: /learning rate/i }), '0.01')
+    await user.type(field(dialog, /hidden layers/i), '32, 16')
+    await user.type(field(dialog, /epochs/i), '50')
+    await user.type(field(dialog, /learning rate/i), '0.01')
+    await user.click(within(dialog).getByRole('button', { name: /^next$/i }))
     await user.click(within(dialog).getByRole('button', { name: /^train$/i }))
 
     await waitFor(() => expect(writes.find((w) => w.method === 'TRAIN')).toBeTruthy())
@@ -219,15 +242,12 @@ describe('Training on the Models page', () => {
     const writes = trainingApi()
     renderPage()
     const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: /train a model/i }))
-    const dialog = await screen.findByRole('dialog')
-    await user.type(within(dialog).getByRole('textbox', { name: /model name/i }), 'deep')
-    await pick(user, dialog, /^dataset/i, 'customers')
-    await pick(user, dialog, /column to predict/i, 'churned')
+    const dialog = await toAdvanced(user, 'deep')
     await pick(user, dialog, /algorithm/i, 'Keras MLP (neural network)')
-    await user.type(within(dialog).getByRole('textbox', { name: /hidden layers/i }), '32, wide')
-    await user.click(within(dialog).getByRole('button', { name: /^train$/i }))
+    await user.type(field(dialog, /hidden layers/i), '32, wide')
+    await user.click(within(dialog).getByRole('button', { name: /^next$/i }))
     expect(await within(dialog).findByText(/whole numbers/i)).toBeInTheDocument()
+    expect(within(dialog).queryByRole('button', { name: /^train$/i })).not.toBeInTheDocument()
     expect(writes.find((w) => w.method === 'TRAIN')).toBeUndefined()
   })
 
@@ -315,11 +335,13 @@ describe('Train Model node', () => {
       </MantineProvider>,
     )
     const user = userEvent.setup()
-    expect(screen.queryByRole('textbox', { name: /hidden layers/i })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /advanced/i }))
+    await screen.findAllByLabelText(/^algorithm/i)
+    expect(screen.queryByRole('textbox', { name: /hidden layers/i, hidden: true })).not.toBeInTheDocument()
     await pick(user, document.body, /algorithm/i, 'Keras MLP (neural network)')
-    await user.type(screen.getByRole('textbox', { name: /hidden layers/i }), '64,32')
-    await user.type(screen.getByRole('textbox', { name: /epochs/i }), '30')
-    await user.type(screen.getByRole('textbox', { name: /patience/i }), '4')
+    await user.type(field(document.body, /hidden layers/i), '64,32')
+    await user.type(field(document.body, /epochs/i), '30')
+    await user.type(field(document.body, /patience/i), '4')
     await waitFor(() => expect(last).toMatchObject({ algorithm: 'keras_mlp', hiddenLayers: '64,32', epochs: '30', patience: '4' }))
   })
 
@@ -337,6 +359,8 @@ describe('Train Model node', () => {
     )
     const user = userEvent.setup()
     await waitFor(() => expect(qc.getQueryData(['ml-worker'])).toBeTruthy())
+    await user.click(screen.getByRole('button', { name: /advanced/i }))
+    await screen.findAllByLabelText(/^algorithm/i)
     const list = await openOptions(user, document.body, /algorithm/i)
     expect(within(list).getByRole('option', { name: 'Linear / logistic regression', hidden: true })).toBeInTheDocument()
     expect(within(list).queryByRole('option', { name: 'XGBoost', hidden: true })).not.toBeInTheDocument()
