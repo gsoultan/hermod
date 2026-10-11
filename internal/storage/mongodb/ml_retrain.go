@@ -39,6 +39,17 @@ func (s *mongoStorage) SetMLModelRetrain(ctx context.Context, vhost, name string
 	return s.updateMLModel(ctx, vhost, name, update, "retrain policy")
 }
 
+func (s *mongoStorage) SetMLModelScoring(ctx context.Context, vhost, name, scoring string) error {
+	if err := storage.ValidateMLScoring(scoring); err != nil {
+		return err
+	}
+	update := bson.M{"$unset": bson.M{"scoring": ""}}
+	if scoring != "" {
+		update = bson.M{"$set": bson.M{"scoring": scoring}}
+	}
+	return s.updateMLModel(ctx, vhost, name, update, "scoring")
+}
+
 func (s *mongoStorage) SetMLModelRetrainStatus(ctx context.Context, vhost, name string, st storage.MLRetrainStatus) error {
 	return s.updateMLModel(ctx, vhost, name, bson.M{"$set": bson.M{"retrain_status": st}}, "retrain status")
 }

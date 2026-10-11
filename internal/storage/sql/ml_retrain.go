@@ -50,6 +50,17 @@ func (s *sqlStorage) SetMLModelRetrain(ctx context.Context, vhost, name string, 
 	return s.setMLModelColumn(ctx, QuerySetMLModelRetrain, vhost, name, value, "retrain policy")
 }
 
+func (s *sqlStorage) SetMLModelScoring(ctx context.Context, vhost, name, scoring string) error {
+	if err := storage.ValidateMLScoring(scoring); err != nil {
+		return err
+	}
+	var value any // NULL is the default, the worker
+	if scoring != "" {
+		value = scoring
+	}
+	return s.setMLModelColumn(ctx, QuerySetMLModelScoring, vhost, name, value, "scoring")
+}
+
 func (s *sqlStorage) SetMLModelRetrainStatus(ctx context.Context, vhost, name string, st storage.MLRetrainStatus) error {
 	raw, err := json.Marshal(st)
 	if err != nil {
