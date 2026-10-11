@@ -38,13 +38,22 @@ import (
 // callable and scores them all on the worker, which is what the column's NULL
 // means anyway, until the newer binary returns with the setting intact.
 //
+// The note before that: adding the ml_scripts table, the custom training
+// scripts a vhost holds, one row per version. currentSchemaVersion was left
+// alone deliberately, for the reasons the ml_models note below gives: it is a
+// standalone table no earlier code path reads or writes, and a rollback costs
+// the feature (custom training), not a misread of live data. As with ml_models,
+// the previous release's DeleteVHost does not remove a vhost's scripts, so a
+// vhost deleted during a rollback leaves them for a later vhost of the same
+// name; they hold code and who saved it, never a secret.
+//
 // The note before that: adding the ml_quotas table, the machine-learning
-// limits an Administrator sets on a vhost. currentSchemaVersion was left
-// alone, for the same reasons as ml_models below: a standalone table no
-// earlier code path reads or writes. A rollback costs only the enforcement —
-// the previous release ignores the quotas — and a vhost deleted during one
-// leaves its row for a later vhost of the same name, which can only limit that
-// vhost, never grant it anything.
+// limits an Administrator sets on a vhost. currentSchemaVersion was left alone,
+// for the same reasons as ml_models below: a standalone table no earlier code
+// path reads or writes. A rollback costs only the enforcement — the previous
+// release ignores the quotas — and a vhost deleted during one leaves its row
+// for a later vhost of the same name, which can only limit that vhost, never
+// grant it anything.
 //
 // The note before that: adding the ml_prediction_logs table, the sampled and
 // masked predictions a model logs when its monitoring turns logging on.
@@ -173,7 +182,7 @@ import (
 // unpopulated — a gap in a chart that fills itself in when the newer binary
 // returns — so bumping the version would buy nothing and cost a refused
 // start-up during exactly the rollback it was supposed to make safe.
-const knownSchemaFingerprint = "7e5813af167e7636b4aa392585ca7e2f090a0af54519995d5cf658c308d75fb1"
+const knownSchemaFingerprint = "8fb90bc8b887879da9584deb702f541df8c50adc0e5d7cc76f89e0998befce11"
 
 func TestSchemaVersionIsReconsideredWhenTheSchemaChanges(t *testing.T) {
 	if got := SchemaFingerprint(); got != knownSchemaFingerprint {
