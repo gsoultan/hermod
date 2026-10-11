@@ -7,6 +7,7 @@ import { WorkflowHistoryModal } from '@/components/modals/WorkflowHistoryModal';
 import { LiveStreamInspector } from './LiveStreamInspector';
 import { AIGeneratorModal } from './AIGeneratorModal';
 import { AIFixModal } from './AIFixModal';
+import { useShallow } from 'zustand/react/shallow';
 import { useWorkflowStore } from '../store/useWorkflowStore';
 
 interface WorkflowModalsProps {
@@ -34,7 +35,13 @@ export function WorkflowModals({
     liveStreamOpened, setLiveStreamOpened,
     aiGeneratorOpened, setAIGeneratorOpened,
     setNodes, setEdges, setName
-  } = useWorkflowStore();
+  } = useWorkflowStore(useShallow(state => ({
+    schemaRegistryOpened: state.schemaRegistryOpened, setSchemaRegistryOpened: state.setSchemaRegistryOpened,
+    historyOpened: state.historyOpened, setHistoryOpened: state.setHistoryOpened,
+    liveStreamOpened: state.liveStreamOpened, setLiveStreamOpened: state.setLiveStreamOpened,
+    aiGeneratorOpened: state.aiGeneratorOpened, setAIGeneratorOpened: state.setAIGeneratorOpened,
+    setNodes: state.setNodes, setEdges: state.setEdges, setName: state.setName,
+  })));
 
   return (
     <>
