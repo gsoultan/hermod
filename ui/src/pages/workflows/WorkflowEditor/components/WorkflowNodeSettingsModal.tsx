@@ -22,6 +22,8 @@ interface WorkflowNodeSettingsModalProps {
   incomingPayload: any;
   /** Nodes before this one with no output for incomingPayload; see useNodeContext. */
   inputSkipped?: number;
+  /** The editors that pick a database source (db_lookup, sql, scd) list these. */
+  sources?: Source[];
   sinks: Sink[];
   upstreamSource: any;
   setSettingsOpened: (opened: boolean) => void;
@@ -33,7 +35,7 @@ interface WorkflowNodeSettingsModalProps {
 export function WorkflowNodeSettingsModal({
   opened, onClose, selectedNode, selectedNodeData,
   handleInlineSave, handleTest, handleRefreshFields, isRefreshing,
-  vhost, workerID, availableFields, incomingPayload, inputSkipped, sinks, upstreamSource,
+  vhost, workerID, availableFields, incomingPayload, inputSkipped, sources = [], sinks, upstreamSource,
   setSettingsOpened, updateNodeConfig, deleteNode, sinkSchema
 }: WorkflowNodeSettingsModalProps) {
   return (
@@ -107,7 +109,7 @@ export function WorkflowNodeSettingsModal({
                   onRunSimulation={handleTest}
                   availableFields={availableFields}
                   incomingPayload={incomingPayload}
-                  sources={sinks} 
+                  sources={sources}
                   sinkSchema={sinkSchema}
                   onRefreshFields={handleRefreshFields}
                   isRefreshing={isRefreshing}
