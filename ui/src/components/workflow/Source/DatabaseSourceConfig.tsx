@@ -1,4 +1,4 @@
-import { TextInput, Stack, Group, Divider, Checkbox, PasswordInput, NumberInput, Fieldset, Switch, Text, SimpleGrid } from '@mantine/core';
+import { TextInput, Stack, Group, Divider, Checkbox, PasswordInput, NumberInput, Fieldset, Switch, Text, SimpleGrid, Radio } from '@mantine/core';
 import { PostgresReplicationConfig } from './PostgresReplicationConfig';
 import { ConnectionUrlPaste } from '../../shared/ConnectionUrlPaste';
 
@@ -189,6 +189,9 @@ export function DatabaseSourceConfig({ type, config, updateConfig, tablesInput, 
               {type === 'postgres' && (
                 <PostgresReplicationConfig type={type} config={config} updateConfig={updateConfig} />
               )}
+              {type === 'oracle' && (
+                <OracleCdcMethod config={config} updateConfig={updateConfig} />
+              )}
               {type === 'mssql' && (
                 <Checkbox 
                   label="Auto Enable CDC" 
@@ -238,6 +241,72 @@ export function DatabaseSourceConfig({ type, config, updateConfig, tablesInput, 
           </SimpleGrid>
         </Stack>
       </Fieldset>
+    </Stack>
+  );
+}
+
+// Oracle CDC either polls for rows above the last id seen, which sees inserts
+// only, or reads inserts, updates and deletes from the redo logs with LogMiner.
+// The factory reads cdc_method; empty means incremental, as before.
+function OracleCdcMethod({ config, updateConfig }: { config: Record<string, any>; updateConfig: (key: string, value: any) => void }) {
+  const method = config.cdc_method === 'logminer' ? 'logminer' : 'incremental';
+  return (
+    <Stack gap="sm">
+      <Radio.Group
+        label="Change capture method"
+        value={method}
+        onChange={(v) => updateConfig('cdc_method', v)}
+      >
+        <Stack gap="xs" mt="xs">
+          <Radio value="incremental" label="Incremental polling" description="Polls each table for rows above the last ID seen. Sees inserts only." />
+          <Radio value="logminer" label="LogMiner" description="Reads inserts, updates and deletes from the redo logs. Needs archive logging and supplemental logging." />
+        </Stack>
+      </Radio.Group>
+      {method === 'logminer' ? (
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+          <TextInput
+            label="Pluggable database (PDB)"
+            placeholder="ORCLPDB1"
+            value={config.pdb_name || ''}
+            onChange={(e) => updateConfig('pdb_name', e.target.value)}
+            description="Only when connected to CDB$ROOT. Leave empty when connected to the PDB itself."
+            mih={80}
+          />
+          <TextInput
+            label="Poll Interval"
+            placeholder="5s"
+            value={config.poll_interval || '5s'}
+            onChange={(e) => updateConfig('poll_interval', e.target.value)}
+            description="Delay between reads of the redo logs when idle"
+            mih={80}
+          />
+          <Checkbox
+            label="Load existing rows first"
+            description="Emit the tables' current rows as snapshots before the first change"
+            checked={config.initial_load === 'true'}
+            onChange={(e) => updateConfig('initial_load', e.target.checked ? 'true' : 'false')}
+          />
+        </SimpleGrid>
+      ) : (
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+          <TextInput
+            label="Incremental ID Field"
+            placeholder="ID"
+            value={config.id_field || ''}
+            onChange={(e) => updateConfig('id_field', e.target.value)}
+            description="An increasing column such as the primary key"
+            mih={80}
+          />
+          <TextInput
+            label="Poll Interval"
+            placeholder="5s"
+            value={config.poll_interval || '5s'}
+            onChange={(e) => updateConfig('poll_interval', e.target.value)}
+            description="Delay between polls"
+            mih={80}
+          />
+        </SimpleGrid>
+      )}
     </Stack>
   );
 }

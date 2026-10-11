@@ -32,6 +32,89 @@ type OracleSource struct {
 	// It keeps a running process moving forward; only lastIDs is persisted.
 	pendingIDs map[string]any
 	msgChan    chan hermod.Message
+	// lm is the LogMiner reader when CDC runs in logminer mode; nil when it
+	// polls (see SetLogMiner).
+	lm *logMiner
+}
+
+// SetLogMiner switches CDC from incremental polling to LogMiner, which reads
+// inserts, updates and deletes from the redo logs. pdb names the pluggable
+// database to capture when the connection is to CDB$ROOT; leave it empty when
+// connected to the PDB itself or to a non-CDB. initialLoad emits the tables'
+// current rows, read as of the start SCN, before the first change.
+func (o *OracleSource) SetLogMiner(pdb string, initialLoad bool) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.lm = newLogMiner(o, pdb, initialLoad)
+}
+
+func (o *OracleSource) logMinerReader() *logMiner {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if !o.useCDC {
+		return nil
+	}
+	return o.lm
+}
+
+func (o *OracleSource) readLogMiner(ctx context.Context, lm *logMiner) (hermod.Message, error) {
+	for {
+		select {
+		case msg := <-o.msgChan:
+			// A manual snapshot requested through Snapshot.
+			return msg, nil
+		default:
+		}
+		if m := lm.pop(); m != nil {
+			return m, nil
+		}
+		o.mu.Lock()
+		db := o.db
+		o.mu.Unlock()
+		if err := lm.step(ctx, db); err != nil {
+			// A broken session is not reused: the next Read opens a new one.
+			lm.close()
+			lm.resetSession()
+			return nil, err
+		}
+		if m := lm.pop(); m != nil {
+			return m, nil
+		}
+		lm.mu.Lock()
+		loading := lm.snap != nil
+		lm.mu.Unlock()
+		if loading {
+			continue
+		}
+		select {
+		case msg := <-o.msgChan:
+			return msg, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(o.pollInterval):
+		}
+	}
+}
+
+// IsReady reports what stops LogMiner from capturing complete changes:
+// supplemental logging, grants, or tables it cannot see.
+func (o *OracleSource) IsReady(ctx context.Context) error {
+	if err := o.Ping(ctx); err != nil {
+		return fmt.Errorf("oracle connection failed: %w", err)
+	}
+	lm := o.logMinerReader()
+	if lm == nil {
+		return nil
+	}
+	o.mu.Lock()
+	db := o.db
+	o.mu.Unlock()
+	probe := newLogMiner(o, lm.pdb, false)
+	defer probe.close()
+	if err := probe.connect(ctx, db); err != nil {
+		return err
+	}
+	return probe.checkReady(ctx)
 }
 
 func NewOracleSource(connString string, tables []string, idField string, pollInterval time.Duration, useCDC bool) *OracleSource {
@@ -112,6 +195,10 @@ func (o *OracleSource) init(ctx context.Context) error {
 func (o *OracleSource) Read(ctx context.Context) (hermod.Message, error) {
 	if err := o.init(ctx); err != nil {
 		return nil, err
+	}
+
+	if lm := o.logMinerReader(); lm != nil {
+		return o.readLogMiner(ctx, lm)
 	}
 
 	if !o.useCDC {
@@ -322,6 +409,9 @@ func (o *OracleSource) snapshotTable(ctx context.Context, table string) error {
 }
 
 func (o *OracleSource) GetState() map[string]string {
+	if lm := o.logMinerReader(); lm != nil {
+		return lm.getState()
+	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
@@ -333,6 +423,10 @@ func (o *OracleSource) GetState() map[string]string {
 }
 
 func (o *OracleSource) SetState(state map[string]string) {
+	if lm := o.logMinerReader(); lm != nil {
+		lm.setState(state)
+		return
+	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
@@ -359,6 +453,10 @@ func (o *OracleSource) Ack(ctx context.Context, msg hermod.Message) error {
 	if msg == nil {
 		return nil
 	}
+	if lm := o.logMinerReader(); lm != nil {
+		lm.ack(msg)
+		return nil
+	}
 	md := msg.Metadata()
 	id, table := md[watermarkKey], md[watermarkTableKey]
 	if id == "" || table == "" {
@@ -379,6 +477,9 @@ func (o *OracleSource) Ping(ctx context.Context) error {
 
 func (o *OracleSource) Close() error {
 	o.log("INFO", "Closing OracleSource")
+	if lm := o.logMinerReader(); lm != nil {
+		lm.close()
+	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
