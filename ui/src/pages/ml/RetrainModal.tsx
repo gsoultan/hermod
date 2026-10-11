@@ -5,8 +5,9 @@ import {
 import { IconAlertCircle } from '@tabler/icons-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  ALGORITHM_OPTIONS, TASK_OPTIONS, clearRetrainPolicy, mlModelsKey, setRetrainPolicy, useDataset, useVHostDatasets,
-  type GoLive, type MLModel, type TrainAlgorithm, type TrainTask,
+  DEVICE_OPTIONS, TASK_OPTIONS, algorithmOptions, clearRetrainPolicy, isCustomAlgorithm, mlModelsKey, setRetrainPolicy,
+  useDataset, useVHostDatasets, useVHostScripts, useWorkerStatus, type GoLive, type MLModel, type TrainAlgorithm,
+  type TrainDevice, type TrainTask,
 } from '@/lib/mlModels'
 import { GoLiveField } from './goLive'
 import { RetrainStatusLine } from './retrainStatus'
@@ -26,11 +27,21 @@ export function RetrainModal({ vhost, model, onClose }: { vhost: string; model: 
   const [features, setFeatures] = useState<string[]>(current?.spec.features ?? [])
   const [task, setTask] = useState<TrainTask>(current?.spec.task ?? 'auto')
   const [algorithm, setAlgorithm] = useState<TrainAlgorithm>(current?.spec.algorithm ?? 'auto')
+  const [device, setDevice] = useState<TrainDevice>(current?.spec.device ?? 'cpu')
   const [goLive, setGoLive] = useState<GoLive>(current?.go_live ?? { mode: 'never' })
 
   const { data: datasets = [] } = useVHostDatasets(vhost)
   const { data: info } = useDataset(vhost, dataset)
   const columns = (info?.columns ?? []).map((c) => c.name)
+  const { data: worker } = useWorkerStatus()
+  const caps = worker?.capabilities
+  const { data: scripts = [] } = useVHostScripts(vhost, !!caps?.custom_scripts)
+  const algorithms = algorithmOptions(worker, scripts)
+  // A policy's script stays visible even if the server stops offering it.
+  if (!algorithms.some((a) => a.value === algorithm)) algorithms.push({ value: algorithm, label: `${algorithm} (unavailable)` })
+  const custom = isCustomAlgorithm(algorithm)
+  // A script trains on its own pool; the device applies to built-in algorithms.
+  const showDevice = (!!caps?.gpu || device === 'gpu') && !custom
 
   const done = () => {
     queryClient.invalidateQueries({ queryKey: mlModelsKey(vhost) })
@@ -47,6 +58,7 @@ export function RetrainModal({ vhost, model, onClose }: { vhost: string; model: 
           features: features.length ? features : undefined,
           task,
           algorithm,
+          device: showDevice && device === 'gpu' ? 'gpu' : undefined,
         },
         go_live: goLive,
       }),
@@ -90,8 +102,12 @@ export function RetrainModal({ vhost, model, onClose }: { vhost: string; model: 
             value={features} onChange={setFeatures} />
           <Group grow align="flex-start">
             <Select label="Task" data={TASK_OPTIONS} value={task} allowDeselect={false} onChange={(v) => setTask((v ?? 'auto') as TrainTask)} />
-            <Select label="Algorithm" data={ALGORITHM_OPTIONS} value={algorithm} allowDeselect={false}
+            <Select label="Algorithm" data={algorithms} value={algorithm} allowDeselect={false}
               onChange={(v) => setAlgorithm((v ?? 'auto') as TrainAlgorithm)} />
+            {showDevice && (
+              <Select label="Device" description="GPU trains on the GPU worker pool." data={DEVICE_OPTIONS} value={device}
+                allowDeselect={false} onChange={(v) => setDevice((v ?? 'cpu') as TrainDevice)} />
+            )}
           </Group>
           <GoLiveField value={goLive} onChange={setGoLive} />
 

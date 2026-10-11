@@ -536,6 +536,52 @@ jobs:
           fails --set mlWorker.enabled=true --set mlWorker.token=a --set mlWorker.image.variant=gpu
           helm template t deploy/helm/hermod --set mlWorker.enabled=true --set mlWorker.token=a \
             --set mlWorker.image.variant=dl | grep -qE 'image: "[^"]+/hermod-ml:[^"]+-dl"'
+          # The custom-script pool runs uploaded code: it needs the main
+          # worker to serve what it trains, a token of its own (not the main
+          # worker's, which opens every dataset), and one training at a time so
+          # a script never shares the pool with another vhost's data.
+          ml="--set mlWorker.enabled=true --set mlWorker.token=a"
+          fails --set mlWorker.customPool.enabled=true --set mlWorker.customPool.token=c
+          fails $ml --set mlWorker.customPool.enabled=true
+          fails $ml --set mlWorker.customPool.enabled=true --set mlWorker.customPool.token=a
+          fails $ml --set mlWorker.customPool.enabled=true --set mlWorker.customPool.token=c --set mlWorker.customPool.existingSecret=s
+          fails $ml --set mlWorker.customPool.enabled=true --set mlWorker.customPool.token=c --set mlWorker.customPool.maxTrainings=2
+          fails $ml --set mlWorker.customPool.enabled=true --set mlWorker.customPool.token=c --set mlWorker.customPool.networkPolicy.enabled=false
+          fails --set mlWorker.gpuPool.enabled=true --set mlWorker.gpuPool.token=g
+          fails $ml --set mlWorker.gpuPool.enabled=true
+          fails $ml --set mlWorker.gpuPool.enabled=true --set mlWorker.gpuPool.token=a
+          helm template t deploy/helm/hermod $ml --set mlWorker.customPool.enabled=true --set mlWorker.customPool.token=c \
+            --set mlWorker.gpuPool.enabled=true --set mlWorker.gpuPool.token=g > /dev/null
+
+      # The custom-script pool's isolation lives in its pod spec and its
+      # NetworkPolicy, so check the rendered objects say what docs/ml.md says.
+      - name: Custom-script pool is isolated, GPU pool lands on GPUs
+        run: |
+          out=$(helm template t deploy/helm/hermod --set mlWorker.enabled=true --set mlWorker.token=a \
+            --set mlWorker.customPool.enabled=true --set mlWorker.customPool.token=c \
+            --set mlWorker.gpuPool.enabled=true --set mlWorker.gpuPool.token=g \
+            --set-string 'mlWorker.gpuPool.nodeSelector.nvidia\.com/gpu\.present=true' \
+            --set mlWorker.gpuPool.runtimeClassName=nvidia)
+          pool=$(printf '%s\n' "$out" | awk '/^# Source: hermod\/templates\/ml-pools.yaml/{p=1} /^# Source: /&&!/ml-pools.yaml/{p=0} p')
+          has() { printf '%s\n' "$pool" | grep -qE -- "$1" || { echo "missing from the pools: $1"; exit 1; }; echo "ok: $1"; }
+          has 'kind: NetworkPolicy'
+          has '^  egress: \[\]$'
+          has 'type: RuntimeDefault'
+          has 'readOnlyRootFilesystem: true'
+          has 'runAsNonRoot: true'
+          has 'automountServiceAccountToken: false'
+          has 'name: HERMOD_ML_CUSTOM_SCRIPTS'
+          has 'nvidia.com/gpu: 1'
+          has 'runtimeClassName: nvidia'
+          has 'nvidia.com/gpu.present: "true"'
+          for v in HERMOD_ML_CUSTOM_SCRIPTS HERMOD_ML_CUSTOM_WORKER_URL HERMOD_ML_CUSTOM_WORKER_TOKEN HERMOD_ML_GPU_WORKER_URL HERMOD_ML_GPU_WORKER_TOKEN; do
+            printf '%s\n' "$out" | grep -q "name: $v" || { echo "Hermod is not given $v"; exit 1; }
+          done
+          # Off by default: no pool, and Hermod is not told custom scripts are on.
+          off=$(helm template t deploy/helm/hermod --set mlWorker.enabled=true --set mlWorker.token=a)
+          if printf '%s\n' "$off" | grep -qE 'HERMOD_ML_CUSTOM_SCRIPTS|kind: NetworkPolicy'; then
+            echo "custom scripts are on without mlWorker.customPool.enabled"; exit 1
+          fi
 
       # The release tarball, not `go install`: the Prometheus module carries
       # replace directives, so `go install .../cmd/promtool@latest` refuses with
@@ -610,6 +656,25 @@ jobs:
           curl -sf -H 'Authorization: Bearer ci-token' http://127.0.0.1:8090/v1/capabilities | tee /tmp/caps.json
           python -c "import json; c = json.load(open('/tmp/caps.json')); assert {'pytorch_mlp', 'keras_mlp'} <= set(c['unavailable']), c"
           docker rm -f hermod-ml-ci
+
+      # Started the way the chart starts mlWorker.customPool: read-only root,
+      # its own uid, no capabilities. A script must train there, sandbox and
+      # all; without a token the worker must refuse to start.
+      - name: Custom-script pool trains in the sandbox and refuses to run open
+        run: |
+          if timeout 60 docker run --rm -e HERMOD_ML_CUSTOM_SCRIPTS=true hermod-ml:ci; then
+            echo "the worker started with custom scripts on and no token"; exit 1
+          fi
+          docker run -d --name hermod-ml-custom -p 8091:8090 \
+            --read-only --tmpfs /tmp:mode=1777 --tmpfs /var/lib/hermod-ml:mode=1777 \
+            --user 10002:10002 --cap-drop ALL --security-opt no-new-privileges \
+            -e HERMOD_ML_CUSTOM_SCRIPTS=true -e HERMOD_ML_TOKEN=ci-custom hermod-ml:ci
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8091/v2/health/ready && break
+            sleep 2
+          done
+          python -m tests.smoke_custom http://127.0.0.1:8091 ci-custom || { docker logs hermod-ml-custom; exit 1; }
+          docker rm -f hermod-ml-custom
 
   # The deep-learning extras (requirements-dl.txt: CPU-only PyTorch and
   # TensorFlow): the pytorch_mlp and keras_mlp tests, which skip in the job

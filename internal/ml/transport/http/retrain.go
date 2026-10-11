@@ -46,7 +46,8 @@ func (h *Handler) PutRetrain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.RecordAuditLog(r, "INFO", "Set the retrain policy of model "+name+" in vhost "+vhost, "update", vhost, "vhost", "",
-		map[string]any{"model": name, "retrain_schedule": policy.Schedule, "retrain_new_rows": policy.NewRows, "dataset": policy.Spec.Dataset})
+		map[string]any{"model": name, "retrain_schedule": policy.Schedule, "retrain_new_rows": policy.NewRows, "dataset": policy.Spec.Dataset,
+			"algorithm": policy.Spec.Algorithm, "device": policy.Spec.Device})
 	writeJSON(w, m)
 }
 

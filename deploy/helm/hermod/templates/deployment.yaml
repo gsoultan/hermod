@@ -105,6 +105,30 @@ spec:
                   key: {{ .Values.mlWorker.existingSecretKey }}
             - name: HERMOD_ML_TRAIN_TIMEOUT
               value: {{ .Values.mlWorker.trainTimeout | quote }}
+            {{- with .Values.mlWorker.customPool }}
+            {{- if .enabled }}
+            - name: HERMOD_ML_CUSTOM_SCRIPTS
+              value: "true"
+            - name: HERMOD_ML_CUSTOM_WORKER_URL
+              value: {{ printf "http://%s:%v" (include "hermod.mlPool.fullname" (list $ "custom")) $.Values.mlWorker.port | quote }}
+            - name: HERMOD_ML_CUSTOM_WORKER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .existingSecret | default (include "hermod.mlPool.fullname" (list $ "custom")) }}
+                  key: {{ .existingSecretKey }}
+            {{- end }}
+            {{- end }}
+            {{- with .Values.mlWorker.gpuPool }}
+            {{- if .enabled }}
+            - name: HERMOD_ML_GPU_WORKER_URL
+              value: {{ printf "http://%s:%v" (include "hermod.mlPool.fullname" (list $ "gpu")) $.Values.mlWorker.port | quote }}
+            - name: HERMOD_ML_GPU_WORKER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .existingSecret | default (include "hermod.mlPool.fullname" (list $ "gpu")) }}
+                  key: {{ .existingSecretKey }}
+            {{- end }}
+            {{- end }}
             {{- end }}
             {{- range $k, $v := .Values.env }}
             - name: {{ $k }}
