@@ -129,6 +129,11 @@ export function useSinkForm({ initialData, isEditing = false, embedded = false, 
     } catch (err: any) {
       if (err?.name !== 'AbortError') {
         setTablesError(err.message);
+      } else if (tablesAbortRef.current === controller) {
+        // Aborted without a newer request taking over — by an edit to another
+        // field re-running the effect. Forget these parameters, or the retry
+        // the effect schedules is skipped as a repeat and the tables never load.
+        lastDiscoveryParams.current = '';
       }
     } finally {
       setLoadingTables(false);
