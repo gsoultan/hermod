@@ -31,6 +31,16 @@ share instead of drift. See "Recommendations" in docs/ml.md.
 An older Hermod drops the model's task when it saves the model, so do not roll
 back past this release with recommendation models in use.
 
+### Added — data lineage and impact
+
+The **Data Lineage** page now shows how data flows through a vhost: the tables,
+topics, files, endpoints and ML models its workflows read and write, joined into
+one graph. Pick an asset to see every workflow and asset downstream of it,
+nearest first, with the path to each — what breaks if it changes. The schema-change
+analysis lists the same downstream assets, and both are limited to the vhosts
+you have access to (so is the dashboard's lineage list, which previously showed
+every vhost). See [Data lineage](docs/lineage.md).
+
 ### Added — MySQL and MariaDB in transactional sink groups
 
 A transactional sink group can now include MySQL and MariaDB sinks alongside

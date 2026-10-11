@@ -1603,14 +1603,48 @@ func (h *InfraHandler) RegisterMeshCluster(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusCreated)
 }
 
+// GetLineage lists every source -> workflow -> sink pair, of the workflows
+// the caller may see: an administrator every vhost's, anyone else only those
+// of the vhosts their session names (HasVHostAccess, as the workflow list).
+// The vhost-scoped graph and impact are GET /api/vhosts/{vhost}/lineage.
 func (h *InfraHandler) GetLineage(w http.ResponseWriter, r *http.Request) {
+	user, _ := r.Context().Value(handlers.UserContextKey).(*storage.User)
+	if user == nil {
+		h.JsonError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 	lineage, err := h.Storage.GetLineage(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if user.Role != storage.RoleAdministrator {
+		visible := map[string]bool{}
+		for page := 1; ; page++ {
+			wfs, total, err := h.Storage.ListWorkflows(r.Context(), storage.CommonFilter{Page: page, Limit: 1000})
+			if err != nil {
+				h.JsonError(w, "Failed to list workflows", http.StatusInternalServerError)
+				return
+			}
+			for _, wf := range wfs {
+				if h.HasVHostAccess(wf.VHost, user.VHosts) {
+					visible[wf.ID] = true
+				}
+			}
+			if len(wfs) < 1000 || page*1000 >= total {
+				break
+			}
+		}
+		scoped := lineage[:0:0]
+		for _, e := range lineage {
+			if visible[e.WorkflowID] {
+				scoped = append(scoped, e)
+			}
+		}
+		lineage = scoped
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(lineage)
+	_ = json.NewEncoder(w).Encode(lineage)
 }
 
 func (h *InfraHandler) GetDashboardLayout(w http.ResponseWriter, r *http.Request) {

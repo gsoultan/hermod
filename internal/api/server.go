@@ -29,6 +29,7 @@ import (
 	fileshttp "github.com/gsoultan/hermod/internal/files/transport/http"
 	formshttp "github.com/gsoultan/hermod/internal/forms/transport/http"
 	infrahttp "github.com/gsoultan/hermod/internal/infra/transport/http"
+	lineagehttp "github.com/gsoultan/hermod/internal/lineage/transport/http"
 	logshttp "github.com/gsoultan/hermod/internal/logs/transport/http"
 	marketplacehttp "github.com/gsoultan/hermod/internal/marketplace/transport/http"
 	mcphttp "github.com/gsoultan/hermod/internal/mcpserver/transport/http"
@@ -173,6 +174,7 @@ func (s *Server) Routes() http.Handler {
 	proposalH := selfhealhttp.NewProposalHandler(s.Handler)
 	mlH := mlhttp.NewHandler(s.Handler)
 	aiBudgetH := aibudgethttp.NewHandler(s.Handler)
+	lineageH := lineagehttp.NewHandler(s.Handler)
 
 	// Health endpoints (unauthenticated; used by Kubernetes and load balancers)
 	mux.HandleFunc("GET /healthz", infraH.HandleLiveness)
@@ -212,6 +214,7 @@ func (s *Server) Routes() http.Handler {
 	proposalH.RegisterProposalRoutes(mux)
 	mlH.RegisterRoutes(mux)
 	aiBudgetH.RegisterRoutes(mux)
+	lineageH.RegisterRoutes(mux)
 
 	mux.HandleFunc("POST /api/graphql/{path...}", webhooksH.HandleGraphQL)
 

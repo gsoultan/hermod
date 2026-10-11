@@ -424,7 +424,7 @@ export function Layout({ children }: LayoutProps) {
     {
       id: 'lineage',
       label: 'Data Lineage',
-      description: 'Global data flow visualization',
+      description: 'Data flow per vhost, and what breaks if a source changes',
       onClick: () => navigate({ to: '/lineage' }),
       leftSection: <IconGitMerge size="1.2rem" />,
     },
