@@ -142,8 +142,8 @@ func trainedFixtures(t testing.TB) []string {
 			names = append(names, e.Name())
 		}
 	}
-	if len(names) != 12 {
-		t.Fatalf("found %d trained fixtures, want 12 (4 algorithms x 3 tasks)", len(names))
+	if len(names) != 18 {
+		t.Fatalf("found %d trained fixtures, want 18 (6 algorithms x 3 tasks)", len(names))
 	}
 	return names
 }
@@ -232,7 +232,7 @@ func TestEveryWorkerExportIsSupported(t *testing.T) {
 		"linear_multiclass": append([]string{"ai.onnx.ml.LinearClassifier", "ai.onnx.ml.Normalizer", "ai.onnx.ml.Scaler"}, glue...),
 		"linear_regression": append([]string{"ai.onnx.ml.LinearRegressor", "ai.onnx.ml.Scaler"}, glue...),
 	}
-	for _, algo := range []string{"random_forest", "gradient_boosting", "xgboost"} {
+	for _, algo := range []string{"random_forest", "gradient_boosting", "xgboost", "extra_trees", "hist_gradient_boosting"} {
 		want[algo+"_binary"] = append([]string{"ai.onnx.ml.TreeEnsembleClassifier"}, glue...)
 		want[algo+"_multiclass"] = append([]string{"ai.onnx.ml.TreeEnsembleClassifier"}, glue...)
 		want[algo+"_regression"] = append([]string{"ai.onnx.ml.TreeEnsembleRegressor"}, glue...)

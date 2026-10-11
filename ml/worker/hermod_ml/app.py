@@ -192,6 +192,13 @@ def create_app(settings: Settings, sandbox: SandboxSettings | None = None) -> Fa
         body = await read_json_object(request, limit)
         return await run_in_threadpool(trainer.train, vhost, name, body)
 
+    @api.post("/v1/train-check/{vhost}")
+    async def train_check(vhost: str, request: Request) -> dict[str, Any]:
+        """Pre-flight for a training: the same body as train, nothing trained."""
+        validate_name(vhost, "vhost")
+        body = await read_json_object(request, limit)
+        return await run_in_threadpool(trainer.check, vhost, body)
+
     @api.post("/v1/models/{vhost}/{name}/train-custom")
     async def train_custom(vhost: str, name: str, request: Request) -> dict[str, Any]:
         validate_name(vhost, "vhost")

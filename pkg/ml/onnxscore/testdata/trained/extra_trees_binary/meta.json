@@ -1,0 +1,171 @@
+{
+  "algorithm": "extra_trees",
+  "baseline": {
+    "accuracy": 0.5,
+    "balanced_accuracy": 0.5,
+    "f1": 0.3333333333333333,
+    "roc_auc": 0.5,
+    "score": 0.5
+  },
+  "created_at": "2026-01-01T00:00:00Z",
+  "dataset": "binary",
+  "feature_stats": {
+    "city": {
+      "count": 32,
+      "kind": "categorical",
+      "null_fraction": 0.0,
+      "other_fraction": 0.0,
+      "top": [
+        {
+          "fraction": 0.4375,
+          "value": "Bergen"
+        },
+        {
+          "fraction": 0.3125,
+          "value": "Oslo"
+        },
+        {
+          "fraction": 0.25,
+          "value": "Tromso"
+        }
+      ]
+    },
+    "flag": {
+      "count": 32,
+      "edges": [
+        0.0,
+        1.0
+      ],
+      "fractions": [
+        0.5625,
+        0.4375,
+        0.0
+      ],
+      "kind": "numeric",
+      "max": 1.0,
+      "mean": 0.4375,
+      "min": 0.0,
+      "null_fraction": 0.0,
+      "std": 0.49607837082461076
+    },
+    "x1": {
+      "count": 32,
+      "edges": [
+        -2.180000066757202,
+        -1.4500000476837158,
+        -1.3799999952316275,
+        -0.3799999952316284,
+        0.20999999344348907,
+        0.5400000214576721,
+        0.7200000286102306,
+        1.5700000524520874,
+        2.119999885559082
+      ],
+      "fractions": [
+        0.12903225806451613,
+        0.0967741935483871,
+        0.0967741935483871,
+        0.0967741935483871,
+        0.0967741935483871,
+        0.0967741935483871,
+        0.0967741935483871,
+        0.0967741935483871,
+        0.0967741935483871,
+        0.0967741935483871
+      ],
+      "kind": "numeric",
+      "max": 2.75,
+      "mean": -0.05806450593856073,
+      "min": -2.8299999237060547,
+      "null_fraction": 0.03125,
+      "std": 1.6051859841693958
+    },
+    "x2": {
+      "count": 32,
+      "edges": [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0,
+        8.0
+      ],
+      "fractions": [
+        0.15625,
+        0.125,
+        0.09375,
+        0.15625,
+        0.09375,
+        0.125,
+        0.09375,
+        0.0625,
+        0.09375
+      ],
+      "kind": "numeric",
+      "max": 9.0,
+      "mean": 4.4375,
+      "min": 0.0,
+      "null_fraction": 0.0,
+      "std": 2.6918569334197535
+    }
+  },
+  "feature_types": {
+    "city": "string",
+    "flag": "number",
+    "x1": "number",
+    "x2": "number"
+  },
+  "features": [
+    "x1",
+    "x2",
+    "city",
+    "flag"
+  ],
+  "fill": {
+    "flag": 0.0,
+    "x1": 0.20999999344348907,
+    "x2": 4.0
+  },
+  "importance": [
+    {
+      "feature": "flag",
+      "weight": 0.6111111111111112
+    },
+    {
+      "feature": "city",
+      "weight": 0.3333333333333333
+    },
+    {
+      "feature": "x1",
+      "weight": 0.05555555555555556
+    },
+    {
+      "feature": "x2",
+      "weight": 0.0
+    }
+  ],
+  "labels": [
+    "no",
+    "yes"
+  ],
+  "metrics": {
+    "accuracy": 0.875,
+    "balanced_accuracy": 0.875,
+    "f1": 0.873015873015873,
+    "roc_auc": 1.0,
+    "score": 0.875
+  },
+  "model": "extra_trees_binary",
+  "rows": {
+    "test": 8,
+    "train": 32
+  },
+  "target": "y",
+  "task": "classification",
+  "version": "1",
+  "warnings": [
+    "Only 40 rows have a value in 'y'. A model learned from so few is rough; more rows give better results."
+  ]
+}

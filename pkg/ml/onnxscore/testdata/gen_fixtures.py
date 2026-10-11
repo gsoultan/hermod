@@ -49,7 +49,7 @@ from hermod_ml.datasets import DatasetStore, rows_to_table  # noqa: E402
 from hermod_ml.serving import ModelServer  # noqa: E402
 from hermod_ml.training import ModelStore, Trainer  # noqa: E402
 
-ALGORITHMS = ("linear", "random_forest", "gradient_boosting", "xgboost")
+ALGORITHMS = ("linear", "random_forest", "gradient_boosting", "xgboost", "extra_trees", "hist_gradient_boosting")
 # binary: string labels; multiclass: integer labels; regression: numbers.
 KINDS = ("binary", "multiclass", "regression")
 TRAIN_ROWS = 40

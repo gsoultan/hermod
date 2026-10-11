@@ -107,6 +107,10 @@ func TestValidateRetrainPolicy(t *testing.T) {
 		{"no dataset", storage.MLRetrainPolicy{Schedule: "@daily", Spec: worker.TrainSpec{Target: "y"}}, "dataset"},
 		{"no target", storage.MLRetrainPolicy{Schedule: "@daily", Spec: worker.TrainSpec{Dataset: "d"}}, "target"},
 		{"a bad rule", storage.MLRetrainPolicy{Schedule: "@daily", Spec: churnSpec, GoLive: storage.MLGoLive{Mode: GoLiveIf}}, "minimum"},
+		{"auto with a preset", storage.MLRetrainPolicy{Schedule: "@daily",
+			Spec: worker.TrainSpec{Dataset: "d", Target: "y", Algorithm: "auto", Preset: "best"}}, ""},
+		{"a preset with an explicit algorithm", storage.MLRetrainPolicy{Schedule: "@daily",
+			Spec: worker.TrainSpec{Dataset: "d", Target: "y", Algorithm: "xgboost", Preset: "best"}}, "preset"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

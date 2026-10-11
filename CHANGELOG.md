@@ -7,6 +7,27 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — Smart Auto, training presets, two more algorithms and a pre-flight check
+
+`algorithm: "auto"` no longer always trains a random forest: it cross-validates
+several candidates on the training rows only (never the held-out rows) and
+keeps the best. A new `preset` (`quick`, `balanced` by default, or `best`) sets
+how many candidates, folds and settings it tries, within a time budget; any
+other algorithm with a preset is a 400. `extra_trees` and
+`hist_gradient_boosting` are new built-in algorithms; both export to ONNX tree
+ensembles that in-process scoring serves. A lopsided classification target is
+trained with balanced class weights and Auto judges classifiers by balanced
+accuracy, now also among a classifier's metrics. Every version records a
+`baseline` (the metrics of always guessing the most common class or the mean),
+permutation `importance` (top 20, normalised) and data `warnings`; an Auto
+version also its `preset` and a `leaderboard` of what it tried. `POST
+/api/vhosts/{vhost}/ml/train-check` takes a training's body, trains nothing,
+and returns the task, the target in words, usable rows, a role per column
+(ID-like, constant, mostly empty, suspected leak) and warnings. The Train Model
+node takes `preset`. The worker now also checks that an exported classifier's
+probabilities, not only its labels, match the trained model's. See "Training"
+in `docs/ml.md`.
+
 ### Added — MySQL and MariaDB in transactional sink groups
 
 A transactional sink group can now include MySQL and MariaDB sinks alongside
