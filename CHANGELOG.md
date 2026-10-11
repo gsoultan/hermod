@@ -17,6 +17,31 @@ analysis lists the same downstream assets, and both are limited to the vhosts
 you have access to (so is the dashboard's lineage list, which previously showed
 every vhost). See [Data lineage](docs/lineage.md).
 
+### Upgrading
+
+**The Kafka sink spreads keyed records by key.** The connectors moved from
+`segmentio/kafka-go` to `franz-go`. The sink used to pick the partition with the
+fewest bytes queued; it now hashes the record key (the message ID), so records
+with the same ID land on the same partition in order, and records without one
+are spread across partitions in batches. A topic whose consumers relied on an even
+spread of records with few distinct IDs will see it change. The source now reads
+`read_committed`, which changes nothing on a topic nobody writes
+transactionally, and SASL credentials on the source are actually sent: they
+were set up on a transport the reader never used.
+
+### Added — Kafka exactly-once
+
+A Kafka sink with a **Transactional ID** writes each batch as one Kafka
+transaction. When the batch came from a Kafka source, the source consumer
+group's offsets are committed in the same transaction, fenced by the group's
+member ID and generation, so Kafka to Kafka is exactly-once: a pipeline killed
+before its commit re-reads from the last committed transaction, and a producer
+left behind is fenced and its open transaction aborted. A batch from a member
+the group has since rebalanced away from is refused. `transactional_id` used to
+be rejected; it is now a field on the Kafka sink form. The sink still does not
+join transactional sink groups, because Kafka cannot commit a transaction a
+previous process prepared.
+
 ### Forms, lists and live panels in the web UI behave as they say
 
 - A database sink lists its tables again. Editing another field while the
