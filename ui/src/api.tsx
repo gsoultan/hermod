@@ -70,7 +70,8 @@ export async function apiFetch(url: string, options: RequestInit & { silent?: bo
     const errorMessage = data.error || response.statusText || 'An unexpected error occurred';
     
     // Only show notification if it's not a background check and not silent
-    if (!options.silent && !url.includes('/api/config/status') && !url.includes('/api/vhosts')) {
+    const notify = !options.silent && !url.includes('/api/config/status') && !url.includes('/api/vhosts');
+    if (notify) {
       const isToggle = url.includes('/toggle');
       let workflowID = '';
       if (isToggle) {
@@ -114,6 +115,9 @@ export async function apiFetch(url: string, options: RequestInit & { silent?: bo
     const error = new Error(errorMessage);
     (error as any).status = response.status;
     (error as any).data = data;
+    // Already shown to the user above; the mutation cache's fallback toast
+    // reads this so the same failure is not reported twice.
+    (error as any).notified = notify;
     throw error;
   }
 
