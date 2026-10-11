@@ -28,6 +28,24 @@ node takes `preset`. The worker now also checks that an exported classifier's
 probabilities, not only its labels, match the trained model's. See "Training"
 in `docs/ml.md`.
 
+### Added — guided training for people new to machine learning
+
+**Train a model** on the Models page is now five steps instead of one long
+form: pick a dataset and see its first rows; pick the column to predict, which
+the new pre-flight check describes in words ("a yes/no question") and screens
+for ID-like, constant, mostly empty and answer-leaking columns, leaving them
+out with a one-click way to put them back; choose **Quick**, **Balanced**
+(recommended) or **Best quality**; train; and read the result in plain words
+("Right 87 of 100 times on rows it never saw", or "Typically off by 12.4"),
+rated good, fair or weak against a model that only guesses, with what mattered
+most, what Auto tried, and buttons to try it, put it live, or copy the API
+call. Task, algorithm, device and network settings sit under **Advanced**, and
+the raw metrics under **Details**. The Train Model node gets the same quality
+picker, and an empty Models page walks through dataset, train and try. Extra
+trees and histogram gradient boosting are offered as algorithms. Against a
+server without the check or the new result fields, the dialog trains as before.
+See [docs/ml.md](docs/ml.md#guided-training).
+
 ### Added — MySQL and MariaDB in transactional sink groups
 
 A transactional sink group can now include MySQL and MariaDB sinks alongside

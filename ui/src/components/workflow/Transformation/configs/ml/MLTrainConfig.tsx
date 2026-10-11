@@ -1,11 +1,13 @@
-import { Alert, Divider, Group, MultiSelect, Select, Stack, Text, TextInput, Textarea } from '@mantine/core'
+import { Accordion, Alert, Divider, MultiSelect, Select, Stack, Text, TextInput, Textarea } from '@mantine/core'
 import { IconInfoCircle } from '@tabler/icons-react'
 import {
   CUSTOM_PREFIX, DEVICE_OPTIONS, SQL_SOURCE_TYPES, TASK_OPTIONS, algorithmOptions, isCustomAlgorithm, isDeepAlgorithm, useDataset, useVHostDatasets,
-  useVHostScripts, useWorkerStatus, type GoLive,
+  useVHostScripts, useWorkerStatus, type GoLive, type TrainPreset,
 } from '@/lib/mlModels'
+import { FormRow } from '@/components/common/FormRow'
 import { DeepParamsFields, readDeepParams } from '@/pages/ml/deepParams'
 import { GoLiveField } from '@/pages/ml/goLive'
+import { PresetPicker } from '@/pages/ml/presetPicker'
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore'
 
 interface MLTrainConfigProps {
@@ -66,6 +68,11 @@ export function MLTrainConfig({ config, updateNodeConfig, nodeId, sources = [] }
     learningRate: config.learningRate ?? '', patience: config.patience ?? '',
   }
 
+  const auto = !config.algorithm || config.algorithm === 'auto'
+  // Advanced opens by itself when something in it is already set.
+  const advancedSet = !auto || (!!config.task && config.task !== 'auto') || config.device === 'gpu'
+    || Object.values(deepText).some((v) => String(v).trim() !== '')
+
   const goLive: GoLive = {
     mode: (config.goLive || 'never') as GoLive['mode'],
     metric: config.goLiveMetric || undefined,
@@ -100,18 +107,33 @@ export function MLTrainConfig({ config, updateNodeConfig, nodeId, sources = [] }
       <MultiSelect label="Learn from" description="Empty learns from every other column." searchable clearable disabled={!config.target}
         data={columns.filter((c) => c !== config.target)} value={features}
         onChange={(list) => set({ features: list.length ? JSON.stringify(list) : '' })} />
-      <Group grow align="flex-start">
-        <Select label="Task" data={TASK_OPTIONS} value={config.task || 'auto'} allowDeselect={false} onChange={(v) => set({ task: v ?? 'auto' })} />
-        <Select label="Algorithm" data={algorithms} value={config.algorithm || 'auto'} allowDeselect={false}
-          onChange={(v) => set(isCustomAlgorithm(v) ? { algorithm: v ?? 'auto', device: '' } : { algorithm: v ?? 'auto' })} />
-        {showDevice && (
-          <Select label="Device" description="GPU trains on the GPU worker pool." data={DEVICE_OPTIONS} value={config.device || 'cpu'}
-            allowDeselect={false} onChange={(v) => set({ device: v === 'gpu' ? 'gpu' : '' })} />
-        )}
-      </Group>
-      {isDeepAlgorithm(config.algorithm) && (
-        <DeepParamsFields value={deepText} errors={readDeepParams(deepText).errors} onChange={(patch) => set({ ...patch })} />
-      )}
+      <PresetPicker value={(config.preset || undefined) as TrainPreset | undefined} disabled={!auto}
+        onChange={(preset) => set({ preset })} />
+      <Accordion variant="contained" keepMounted={false} defaultValue={advancedSet ? 'advanced' : null}>
+        <Accordion.Item value="advanced">
+          <Accordion.Control>Advanced</Accordion.Control>
+          <Accordion.Panel>
+            <Stack gap="sm">
+              <FormRow cols={showDevice ? 3 : 2}>
+                <Select label="Task" data={TASK_OPTIONS} value={config.task || 'auto'} allowDeselect={false} onChange={(v) => set({ task: v ?? 'auto' })} />
+                {/* The worker refuses a quality with any algorithm but auto, so picking one clears it. */}
+                <Select label="Algorithm" data={algorithms} value={config.algorithm || 'auto'} allowDeselect={false}
+                  onChange={(v) => {
+                    const algorithm = v ?? 'auto'
+                    set({ algorithm, ...(algorithm === 'auto' ? {} : { preset: '' }), ...(isCustomAlgorithm(v) ? { device: '' } : {}) })
+                  }} />
+                {showDevice && (
+                  <Select label="Device" description="GPU trains on the GPU worker pool." data={DEVICE_OPTIONS} value={config.device || 'cpu'}
+                    allowDeselect={false} onChange={(v) => set({ device: v === 'gpu' ? 'gpu' : '' })} />
+                )}
+              </FormRow>
+              {isDeepAlgorithm(config.algorithm) && (
+                <DeepParamsFields value={deepText} errors={readDeepParams(deepText).errors} onChange={(patch) => set({ ...patch })} />
+              )}
+            </Stack>
+          </Accordion.Panel>
+        </Accordion.Item>
+      </Accordion>
       <GoLiveField value={goLive} onChange={setGoLive} />
 
       <Divider label="Refill from a database first (optional)" labelPosition="left" mt="xs" />

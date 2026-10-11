@@ -220,6 +220,42 @@ rule: **only when I put it live**, **always**, or **if it scores at least** a
 minimum on a metric. A version that is not put live is kept; **Versions** on
 the model lists them all and puts any one live, which is also how you roll back.
 
+### Guided training
+
+**Train a model** walks through five steps, in plain words, so no machine
+learning knowledge is needed:
+
+1. **Your data.** Name the model, pick a dataset, and check its first rows.
+2. **What to predict.** Pick the column. Hermod runs a pre-flight check
+   (`POST /api/vhosts/{vhost}/ml/train-check`, the train body, nothing trained)
+   and says what the column is: a yes/no question, a category, or a number.
+   Columns that would spoil the model are unticked for you: ID-like columns,
+   constant ones, mostly empty ones, and any that give the answer away. Each
+   warning has a one-click fix, such as putting a column back or choosing
+   another dataset. When the check says training would be refused, the dialog
+   stops here and says why.
+3. **How careful.** **Quick** (about a minute), **Balanced** (recommended, a
+   few minutes) or **Best quality** (10 minutes or more) is sent as `preset`
+   and sets how much Auto tries. **Advanced** holds the task, algorithm, device
+   and neural-network settings; picking an algorithm there trains only that
+   one, and no preset is sent.
+4. **Train.** One button; leave the window open while it runs.
+5. **Result.** A headline such as "Right 87 of 100 times on rows it never
+   saw" (classification, from `accuracy`) or "Typically off by 12.4" (numbers,
+   from `mae`). A **good / fair / weak** badge says how much of the gap between
+   the version's `baseline` (a model that always guesses the most common answer
+   or the average) and a perfect score it closes: at least half is good, at
+   least a fifth fair. Then **What mattered most** (`importance`), **What Auto
+   tried** (`leaderboard`) and the next steps: **Try it** with a row of the
+   dataset, **Make it live**, **Copy API call**, or use it from a Predict node.
+   The raw metrics are under **Details**.
+
+Training a model again opens on step 2 with the last version's dataset, target
+and columns. Every one of these fields is optional: against a server without
+the check or the new result fields, the dialog learns from every other column
+and shows the headline and metrics as before. The Train Model node has the same
+quality picker, saved as `preset`, with the expert fields under **Advanced**.
+
 ### Train Model node
 
 *Machine Learning → Train Model* does the same from a workflow: each message

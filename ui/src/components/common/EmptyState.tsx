@@ -31,7 +31,8 @@ export function EmptyState({ title, description, icon, action, compact }: EmptyS
           {title}
         </Text>
         {description && (
-          <Text size="sm" c="dimmed" ta="center">
+          // A paragraph cannot hold a list; a description that is markup gets a div.
+          <Text size="sm" c="dimmed" ta="center" component={typeof description === 'string' ? 'p' : 'div'}>
             {description}
           </Text>
         )}
