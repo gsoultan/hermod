@@ -5,7 +5,9 @@ export function useWorkflowHotkeys(
   handleSave: () => void,
   handleTest: (input: any, dryRun: boolean) => void
 ) {
-  const { setNodes, setEdges, setSelectedNode } = useWorkflowStore();
+  const setNodes = useWorkflowStore(s => s.setNodes);
+  const setEdges = useWorkflowStore(s => s.setEdges);
+  const setSelectedNode = useWorkflowStore(s => s.setSelectedNode);
 
   const isTypingTarget = (evt: any) => {
     const t = (evt?.target as HTMLElement) || null;
@@ -14,10 +16,12 @@ export function useWorkflowHotkeys(
     return tag === 'input' || tag === 'textarea' || tag === 'select' || (t as any).isContentEditable;
   };
 
+  // `mod` is Cmd on macOS and Ctrl elsewhere. Bound to ctrl, Cmd+S on a Mac
+  // reached the browser and opened its Save Page dialog.
   useHotkeys([
-    ['ctrl+s', (e) => { if (isTypingTarget(e)) return; e.preventDefault(); handleSave(); }],
-    ['ctrl+enter', (e) => { if (isTypingTarget(e)) return; e.preventDefault(); handleTest(null, false); }],
-    ['ctrl+shift+enter', (e) => { if (isTypingTarget(e)) return; e.preventDefault(); handleTest(null, true); }],
+    ['mod+s', (e) => { if (isTypingTarget(e)) return; e.preventDefault(); handleSave(); }],
+    ['mod+enter', (e) => { if (isTypingTarget(e)) return; e.preventDefault(); handleTest(null, false); }],
+    ['mod+shift+enter', (e) => { if (isTypingTarget(e)) return; e.preventDefault(); handleTest(null, true); }],
     // One key per entry: useHotkeys has no "a, b" alternative syntax, and
     // 'delete, backspace' parsed as a single key no keyboard sends, so Delete
     // did nothing. Backspace stays with React Flow, whose default delete key

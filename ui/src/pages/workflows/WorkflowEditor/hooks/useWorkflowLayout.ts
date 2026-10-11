@@ -4,7 +4,8 @@ import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWork
 
 export function useWorkflowLayout() {
   const { getNodes, getEdges } = useReactFlow();
-  const { setNodes, setEdges } = useWorkflowStore();
+  const setNodes = useWorkflowStore(s => s.setNodes);
+  const setEdges = useWorkflowStore(s => s.setEdges);
   const workerRef = useRef<Worker | null>(null);
   const seqRef = useRef(0);
   const latestSeqRef = useRef(0);

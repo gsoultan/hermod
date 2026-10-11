@@ -72,6 +72,29 @@ function toStoreValues(workflow: any): any {
   return newValues;
 }
 
+/**
+ * What the editor shows of a running workflow, and the node open in it. The
+ * store outlives this page, so without clearing these the next workflow opened
+ * showed the last one's logs, status and samples. A reload of the same
+ * workflow keeps them: the status socket is still reporting on it.
+ */
+function noLiveState() {
+  return {
+    logs: [],
+    sourceStatus: '',
+    sinkStatuses: {},
+    nodeMetrics: {},
+    nodeErrorMetrics: {},
+    nodeSamples: {},
+    sinkCBStatuses: {},
+    sinkBufferFill: {},
+    workflowDeadLetterCount: 0,
+    edgeSamples: {},
+    edgeThroughput: {},
+    selectedNode: null,
+  };
+}
+
 /** A new workflow before anything is added to it. */
 function blankWorkflow(selectedVHost: string) {
   return {
@@ -145,7 +168,7 @@ export function useWorkflowInitialization(id: string, selectedVHost: string) {
       // A draft is not on the server: measured against a blank workflow, the
       // whole draft counts as unsaved edits.
       const baseline = draft ? persistedSnapshot(toStoreValues(blankWorkflow(selectedVHost))) : serverSnap;
-      useWorkflowStore.setState({ ...values, persistedBaseline: baseline });
+      useWorkflowStore.setState({ ...values, ...noLiveState(), persistedBaseline: baseline });
       return;
     }
     // Nothing on the server can be newer than a draft that was never saved,

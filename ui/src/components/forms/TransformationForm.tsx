@@ -233,6 +233,18 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
   // raised error toasts. That node previews when Run Preview is pressed.
   const previewsOnDemand = transType === 'execute_sql';
 
+  // With nothing to run on, the last result describes an input that is gone,
+  // so the preview starts over instead of showing it.
+  const hasInput = !!incomingPayload;
+  const { cancel: cancelPreview, reset: resetPreview } = previewMutation;
+  useEffect(() => {
+    if (hasInput) return;
+    cancelPreview();
+    resetPreview();
+    setPreviewResult(null);
+    setPreviewError(null);
+  }, [hasInput, cancelPreview, resetPreview]);
+
   useEffect(() => {
     if (!incomingPayload || previewsOnDemand) return;
     const timer = setTimeout(() => {
