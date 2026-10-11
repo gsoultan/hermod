@@ -38,6 +38,14 @@ import (
 // callable and scores them all on the worker, which is what the column's NULL
 // means anyway, until the newer binary returns with the setting intact.
 //
+// The note before that: adding the ml_quotas table, the machine-learning
+// limits an Administrator sets on a vhost. currentSchemaVersion was left
+// alone, for the same reasons as ml_models below: a standalone table no
+// earlier code path reads or writes. A rollback costs only the enforcement —
+// the previous release ignores the quotas — and a vhost deleted during one
+// leaves its row for a later vhost of the same name, which can only limit that
+// vhost, never grant it anything.
+//
 // The note before that: adding the ml_prediction_logs table, the sampled and
 // masked predictions a model logs when its monitoring turns logging on.
 // currentSchemaVersion was left alone deliberately: it is a standalone table no
@@ -165,7 +173,7 @@ import (
 // unpopulated — a gap in a chart that fills itself in when the newer binary
 // returns — so bumping the version would buy nothing and cost a refused
 // start-up during exactly the rollback it was supposed to make safe.
-const knownSchemaFingerprint = "8e39faa153a4f68e8051b094d48fcae48be8e06b61cffc5b5e7e614e63095c7f"
+const knownSchemaFingerprint = "7e5813af167e7636b4aa392585ca7e2f090a0af54519995d5cf658c308d75fb1"
 
 func TestSchemaVersionIsReconsideredWhenTheSchemaChanges(t *testing.T) {
 	if got := SchemaFingerprint(); got != knownSchemaFingerprint {

@@ -82,6 +82,9 @@ type TrainResult struct {
 //
 // One training of a model runs at a time, across every Hermod sharing the
 // store: while another holds the model, Train returns ErrTrainingRunning.
+//
+// The training takes one of the vhost's training slots, and a new model
+// counts against its model quota.
 func (s *Service) Train(ctx context.Context, vhost, name string, spec worker.TrainSpec, rule GoLive, by string) (TrainResult, error) {
 	release, err := s.claimTraining(ctx, vhost, name, newClaimOwner())
 	if err != nil {
@@ -89,6 +92,48 @@ func (s *Service) Train(ctx context.Context, vhost, name string, spec worker.Tra
 	}
 	defer release()
 	return s.train(ctx, vhost, name, spec, rule, by)
+}
+
+// trainingSlot takes one of the vhost's training slots, refusing first a new
+// model over the vhost's model quota: before the worker spends minutes on it.
+// The model quota is checked again at registration, when another model may
+// have taken the last place. done gives the slot back.
+func (s *Service) trainingSlot(ctx context.Context, vhost, name string, isNew bool) (done func(), err error) {
+	q, err := s.Quotas(ctx, vhost)
+	if err != nil {
+		return nil, err
+	}
+	if isNew {
+		if err := s.checkNewModel(ctx, vhost, name, q.MaxModels); err != nil {
+			return nil, err
+		}
+	}
+	return startTraining(vhost, q.MaxConcurrentTrainings)
+}
+
+// register saves a trained model: a new one through PutModel, which holds it
+// to the vhost's model quota, an existing one as it is.
+func (s *Service) register(ctx context.Context, ms storage.MLModelStore, m storage.MLModel, isNew bool) error {
+	if isNew {
+		return s.PutModel(ctx, m)
+	}
+	return ms.PutMLModel(ctx, m)
+}
+
+// trainedModel is the model a training registers its version on: the
+// vhost's model of that name, or a new one when it has none (isNew). A model
+// of that name served elsewhere is refused.
+func trainedModel(ctx context.Context, ms storage.MLModelStore, vhost, name string) (m storage.MLModel, isNew bool, err error) {
+	m, err = ms.GetMLModel(ctx, vhost, name)
+	switch {
+	case errors.Is(err, storage.ErrNotFound):
+		return storage.MLModel{VHost: vhost, Name: name, Backend: storage.MLBackendWorker}, true, nil
+	case err != nil:
+		return m, false, err
+	case m.Backend != storage.MLBackendWorker:
+		return m, false, fmt.Errorf("vhost %q already has a model %q served elsewhere; train under another name", vhost, name)
+	}
+	return m, false, nil
 }
 
 // train is Train for a caller that already holds the model's claim.
@@ -107,15 +152,15 @@ func (s *Service) train(ctx context.Context, vhost, name string, spec worker.Tra
 	if err != nil {
 		return TrainResult{}, err
 	}
-	m, err := ms.GetMLModel(ctx, vhost, name)
-	switch {
-	case errors.Is(err, storage.ErrNotFound):
-		m = storage.MLModel{VHost: vhost, Name: name, Backend: storage.MLBackendWorker}
-	case err != nil:
+	m, isNew, err := trainedModel(ctx, ms, vhost, name)
+	if err != nil {
 		return TrainResult{}, err
-	case m.Backend != storage.MLBackendWorker:
-		return TrainResult{}, fmt.Errorf("vhost %q already has a model %q served elsewhere; train under another name", vhost, name)
 	}
+	done, err := s.trainingSlot(ctx, vhost, name, isNew)
+	if err != nil {
+		return TrainResult{}, err
+	}
+	defer done()
 
 	// How many rows the training sees, for the next "after N new rows". Read
 	// before it starts, so rows added while it runs count as new; a dataset
@@ -129,17 +174,17 @@ func (s *Service) train(ctx context.Context, vhost, name string, spec worker.Tra
 	live, reason := rule.decide(v)
 	if live {
 		m.RemoteVersion = v.Version
-		m.Features = v.Features
+		m.Features, m.FeatureTypes = v.Features, v.FeatureTypes
 	} else if m.RemoteVersion == "" {
 		// Nothing is live yet, so the features the next promotion will serve
 		// are the ones to show.
-		m.Features = v.Features
+		m.Features, m.FeatureTypes = v.Features, v.FeatureTypes
 	}
 	if m.Description == "" {
 		m.Description = fmt.Sprintf("Predicts %s from dataset %s", v.Target, v.Dataset)
 	}
 	m.UpdatedBy = by
-	if err := ms.PutMLModel(ctx, m); err != nil {
+	if err := s.register(ctx, ms, m, isNew); err != nil {
 		return TrainResult{}, fmt.Errorf("version %s of %q was trained but not registered: %w", v.Version, name, err)
 	}
 	if rowsErr == nil {
@@ -187,7 +232,7 @@ func (s *Service) Promote(ctx context.Context, vhost, name, version, by string) 
 	if err != nil {
 		return err
 	}
-	m.RemoteVersion, m.Features, m.UpdatedBy = version, vs[i].Features, by
+	m.RemoteVersion, m.Features, m.FeatureTypes, m.UpdatedBy = version, vs[i].Features, vs[i].FeatureTypes, by
 	return ms.PutMLModel(ctx, m)
 }
 

@@ -267,6 +267,9 @@ describe('Train Model node', () => {
     expect(TRANSFORM_CONFIGS.ml_train).toBe(MLTrainConfig)
   })
 
+  // Text is pasted, not typed: each keystroke re-renders the whole node form,
+  // and this test is about what the form saves, not about typing. The longer
+  // timeout is for a loaded machine, as in functionPicker.test.tsx.
   it('saves the model, dataset, target and go-live rule the engine reads', async () => {
     trainingApi()
     signInAs('Editor')
@@ -282,19 +285,21 @@ describe('Train Model node', () => {
     )
     const user = userEvent.setup()
     const form = document.body
-    await user.type(screen.getByRole('textbox', { name: /model name/i }), 'churn')
+    await user.click(screen.getByRole('textbox', { name: /model name/i }))
+    await user.paste('churn')
     await screen.findByRole('combobox', { name: /^dataset/i })
     await pick(user, form, /^dataset/i, 'customers')
     await pick(user, form, /column to predict/i, 'churned')
     await user.click(screen.getByRole('radio', { name: /if it scores/i }))
     await pick(user, form, /database source/i, 'CRM database')
-    await user.type(screen.getByRole('textbox', { name: /query/i }), 'SELECT * FROM customers')
+    await user.click(screen.getByRole('textbox', { name: /query/i }))
+    await user.paste('SELECT * FROM customers')
 
     await waitFor(() => expect(last).toMatchObject({
       model: 'churn', dataset: 'customers', target: 'churned', goLive: 'if', goLiveMetric: 'score', goLiveMin: '0.8',
       sourceId: 'crm', query: 'SELECT * FROM customers',
     }))
-  })
+  }, 20000)
 
   it('saves the deep-learning hyperparameters the engine reads', async () => {
     trainingApi()

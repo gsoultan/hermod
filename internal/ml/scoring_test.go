@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/ml/inference"
@@ -293,5 +294,48 @@ func TestAnInProcessPredictionIsLoggedAndCountedForDrift(t *testing.T) {
 	})
 	if r := drift.Report; r.Version != "1" || r.Rows != int64(len(rows)) {
 		t.Errorf("drift report = %+v, want version 1 over %d rows", r, len(rows))
+	}
+}
+
+// Scoring in-process skips the worker, not the vhost's quotas or the
+// prediction log: a call over the rate is refused before the graph is
+// touched, and one an MCP tool makes is logged as the MCP's.
+func TestAnInProcessPredictionIsHeldToTheQuotaAndLoggedWithItsCaller(t *testing.T) {
+	resetScorers()
+	w, client := newScoringWorker(t, "trained/random_forest_binary")
+	m := trainedChurn(storage.MLScoringInProcess)
+	m.Monitoring = storage.MLMonitoring{LogSampleRate: 1}
+	st := newMemStore(m)
+	st.quotas["v"] = storage.MLQuotas{VHost: "v", MaxPredictionsPerSecond: new(2.0)}
+	logs := &predLogs{}
+	svc := NewService(func() any { return st }, nil, nil).WithWorker(client).
+		WithLogStore(func() any { return logs }).WithQuotaDefaults(storage.MLQuotas{})
+	now := time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+	startMonitor(t, svc, logs)
+	rows, _ := workerCases(t, "trained/random_forest_binary")
+	row := rows[:1]
+	ctx := WithCaller(t.Context(), storage.MLCallerMCP, "")
+
+	for i := range 2 {
+		if _, err := svc.Predict(ctx, "v", "churn", row); err != nil {
+			t.Fatalf("prediction %d within the rate: %v", i+1, err)
+		}
+	}
+	_, err := svc.Predict(ctx, "v", "churn", row)
+	asQuota(t, err, QuotaPredictionsPerSecond)
+	if n := w.infers.Load(); n != 0 {
+		t.Fatalf("the worker was asked to infer %d times; the test needs in-process predictions", n)
+	}
+
+	waitFor(t, "the predictions to be logged", func() bool { return logs.count() == 2 })
+	logged, err := svc.PredictionLogs(t.Context(), "v", "churn", 2)
+	if err != nil || len(logged) != 2 {
+		t.Fatalf("PredictionLogs = %+v, %v", logged, err)
+	}
+	for _, l := range logged {
+		if l.CallerKind != storage.MLCallerMCP {
+			t.Errorf("logged caller %q, want %q", l.CallerKind, storage.MLCallerMCP)
+		}
 	}
 }

@@ -35,6 +35,12 @@ var (
 		Name: "hermod_ml_in_process_scoring_total",
 		Help: "Prediction calls to a model set to score in-process, by where they were scored (in_process or fallback).",
 	}, []string{"vhost", "model", "path"})
+
+	// quotaRefusals counts what a vhost's ML quotas turned away, by quota.
+	quotaRefusals = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "hermod_ml_quota_refusals_total",
+		Help: "Requests refused because a vhost was at one of its ML quotas, by quota.",
+	}, []string{"vhost", "quota"})
 )
 
 func observe(vhost, model string, rows int, took time.Duration, err error) {
