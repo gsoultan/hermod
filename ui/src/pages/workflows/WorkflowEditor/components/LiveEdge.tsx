@@ -25,9 +25,14 @@ export const LiveEdge = memo((props: EdgeProps) => {
   const [hovered, setHovered] = useState(false);
 
   const pulseEnabled = useWorkflowStore(s => s.pulseEnabled);
-  const nodeMetrics = useWorkflowStore(s => s.nodeMetrics);
-  const edgeThroughput = useWorkflowStore(s => s.edgeThroughput);
-  const nodeSamples = useWorkflowStore(s => s.nodeSamples);
+  // Only this edge's own entries: selecting the whole maps re-rendered every
+  // edge whenever any node's telemetry changed.
+  const targetKey = `${source}->${id.includes(':::') ? id.split(':::')[1] : props.target}`;
+  // Use per-edge throughput if available, else fall back to source node throughput
+  const throughput = useWorkflowStore(s =>
+    s.edgeThroughput[targetKey] ?? s.edgeThroughput[`${source}->${props.target}`] ?? s.nodeMetrics[source] ?? 0
+  );
+  const srcSample = useWorkflowStore(s => s.nodeSamples[source]);
   const setEdges = useWorkflowStore(s => s.setEdges);
   // Whether the last simulation's message travelled this edge. While one is
   // shown it decides how the edge is drawn: Data Pulse is on by default and
@@ -37,11 +42,6 @@ export const LiveEdge = memo((props: EdgeProps) => {
   const taken = simulation === 'taken';
   const hasBreakpoint = !!(data as any)?.breakpoint;
 
-  // Use per-edge throughput if available, else fall back to source node throughput
-  const throughput = edgeThroughput[`${source}->${id.includes(':::') ? id.split(':::')[1] : props.target}`] ?? 
-                    edgeThroughput[`${source}->${props.target}`] ?? 
-                    nodeMetrics[source] ?? 0;
-  const srcSample = nodeSamples[source];
   const samples = Array.isArray(srcSample) ? srcSample : (srcSample ? [srcSample] : []);
 
   const strokeWidth = useMemo(() => {
