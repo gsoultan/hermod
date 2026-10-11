@@ -55,6 +55,9 @@ func (s *Server) Predict(ctx context.Context, req *proto.PredictRequest) (*proto
 		if errors.Is(err, ml.ErrTooManyRows) {
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
+		if errors.Is(err, ml.ErrQuotaExceeded) {
+			return nil, status.Error(codes.ResourceExhausted, err.Error())
+		}
 		return nil, status.Error(codes.Unavailable, err.Error())
 	}
 

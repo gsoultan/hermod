@@ -862,9 +862,9 @@ func (s *mongoStorage) UpdateVHost(ctx context.Context, vhost storage.VHost) err
 }
 
 // DeleteVHost removes the vhost and the secrets, models, prediction logs,
-// training scripts and AI budget it holds. All are keyed by the vhost's name,
-// so one left behind would be inherited by the next vhost created under that
-// name.
+// training scripts, ML quotas and AI budget it holds. All are keyed by the
+// vhost's name, so one left behind would be inherited by the next vhost created
+// under that name.
 func (s *mongoStorage) DeleteVHost(ctx context.Context, id string) error {
 	vhost, err := s.GetVHost(ctx, id)
 	if err != nil && !errors.Is(err, storage.ErrNotFound) {
@@ -881,6 +881,9 @@ func (s *mongoStorage) DeleteVHost(ctx context.Context, id string) error {
 			return err
 		}
 		if err := s.DeleteMLScripts(ctx, vhost.Name); err != nil {
+			return err
+		}
+		if err := s.DeleteMLQuotas(ctx, vhost.Name); err != nil {
 			return err
 		}
 		if err := s.DeleteAIBudgets(ctx, vhost.Name); err != nil {

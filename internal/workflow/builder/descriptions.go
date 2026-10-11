@@ -20,12 +20,13 @@ var descriptions = map[string]string{
 	// Node executors.
 	"ai_agent": `Language-model agent that pursues a goal with a bounded loop over the tools it is given. config: ` +
 		`{"provider","model","apiKey":"{{secret(\"NAME\")}}","goal","system","maxSteps","tools":[{"name","description",` +
-		`"kind":"db_lookup|api_lookup|ai_retrieve|sink|mcp","config":{...},"nodeId":"<sink node id, for kind sink>",` +
+		`"kind":"db_lookup|api_lookup|ai_retrieve|ml_predict|sink|mcp","config":{...},"nodeId":"<sink node id, for kind sink>",` +
 		`"server":{"url":"https://...","headers":{"Authorization":"Bearer {{secret(\"NAME\")}}"}},"tool":"<remote tool, for kind mcp>",` +
 		`"write","requireApproval","parameters":[{"name","type","description","required"}]}]}. A kind mcp tool calls ` +
 		`that one tool of a remote MCP server (parameters default to its input schema). Sink tools, tools marked write, ` +
 		`and mcp tools pause for human approval unless requireApproval is false; an mcp tool runs unapproved only when ` +
-		`it sets "write": false and its server also marks it read-only. ` +
+		`it sets "write": false and its server also marks it read-only. A kind ml_predict tool runs the vhost's model ` +
+		`named in config {"model":"<name>"} on its parameters, which must be the model's features. ` +
 		`Writes the answer to targetField (default "ai_agent_answer").`,
 	"ai_classify": `Language-model classifier and router. config: {"provider","model","apiKey":"{{secret(\"NAME\")}}",` +
 		`"labels":"billing,bug,refund","instructions","threshold","targetField"}. Each label is an outgoing ` +

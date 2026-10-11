@@ -39,6 +39,14 @@ import (
 // scripts, so a vhost deleted during a rollback leaves them for a later vhost
 // of the same name; they hold code and who saved it, never a secret.
 //
+// The note before that: adding the ml_quotas table, the machine-learning
+// limits an Administrator sets on a vhost. currentSchemaVersion was left alone,
+// for the same reasons as ml_models below: a standalone table no earlier code
+// path reads or writes. A rollback costs only the enforcement — the previous
+// release ignores the quotas — and a vhost deleted during one leaves its row
+// for a later vhost of the same name, which can only limit that vhost, never
+// grant it anything.
+//
 // The note before that: adding the ml_prediction_logs table, the sampled and
 // masked predictions a model logs when its monitoring turns logging on.
 // currentSchemaVersion was left alone deliberately: it is a standalone table no
@@ -166,7 +174,7 @@ import (
 // unpopulated — a gap in a chart that fills itself in when the newer binary
 // returns — so bumping the version would buy nothing and cost a refused
 // start-up during exactly the rollback it was supposed to make safe.
-const knownSchemaFingerprint = "e8d8956d32aee820d5c7db1e512ebe4d78fedc94f5638e8f4b16b27e56fd1811"
+const knownSchemaFingerprint = "358b6ae23b18a67dad36731c6d01b0702e6628927266ba3d0aaf4cd2bbc2bac4"
 
 func TestSchemaVersionIsReconsideredWhenTheSchemaChanges(t *testing.T) {
 	if got := SchemaFingerprint(); got != knownSchemaFingerprint {

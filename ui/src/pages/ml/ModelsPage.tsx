@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import {
-  ActionIcon, Alert, Badge, Box, Button, Group, Loader, Paper, Select, Stack, Table, Tabs, Text, Title, Tooltip,
+  ActionIcon, Alert, Badge, Box, Button, Group, Loader, Paper, Select, Stack, Switch, Table, Tabs, Text, Title, Tooltip,
 } from '@mantine/core'
 import {
   IconActivityHeartbeat, IconAlertCircle, IconBrain, IconCode, IconHistory, IconInfoCircle, IconKey, IconPencil, IconPlayerPlay, IconPlus, IconRepeat, IconSchool, IconTrash,
@@ -9,12 +9,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useVHost } from '@/context/VHostContext'
 import { useConfirm } from '@/components/common/ConfirmProvider'
 import { EmptyState } from '@/components/common/EmptyState'
-import { deleteModel, isModelVHost, isTrainedModel, listModels, mlModelsKey, useWorkerStatus, type MLModel } from '@/lib/mlModels'
+import { useSessionStore } from '@/auth/session'
+import {
+  deleteModel, isModelVHost, isTrainedModel, listModels, mlModelsKey, setMCPExposure, useWorkerStatus, type MLModel,
+} from '@/lib/mlModels'
 import { DatasetsPanel } from './DatasetsPanel'
 import { ScriptsPanel } from './ScriptsPanel'
 import { ModelFormModal } from './ModelFormModal'
 import { ModelTestModal } from './ModelTestModal'
 import { MonitoringModal } from './MonitoringModal'
+import { QuotasPanel } from './QuotasPanel'
 import { RetrainModal } from './RetrainModal'
 import { RetrainStatusLine } from './retrainStatus'
 import { ServingKeyModal } from './ServingKeyModal'
@@ -59,6 +63,8 @@ export function ModelsPage() {
   // The Scripts tab exists only where the server has custom scripts on.
   const showScripts = canTrain && !!worker?.capabilities?.scripts_enabled
   const [tab, setTab] = useState<string | null>('models')
+  const role = useSessionStore((s) => s.user?.role)
+  const canEdit = role === 'Administrator' || role === 'Editor'
 
   const { data: models, isLoading, error } = useQuery({
     queryKey: mlModelsKey(vhost ?? ''),
@@ -69,6 +75,11 @@ export function ModelsPage() {
 
   const remove = useMutation({
     mutationFn: (name: string) => deleteModel(vhost as string, name),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: mlModelsKey(vhost as string) }),
+  })
+
+  const expose = useMutation({
+    mutationFn: ({ name, exposed }: { name: string; exposed: boolean }) => setMCPExposure(vhost as string, name, exposed),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: mlModelsKey(vhost as string) }),
   })
 
@@ -93,6 +104,15 @@ export function ModelsPage() {
       <Table.Td><Badge variant="light" tt="none">{BACKEND_LABEL[m.backend] ?? m.backend}</Badge></Table.Td>
       <Table.Td><Text size="sm" ff="var(--mantine-font-family-monospace)">{servedFrom(m)}</Text></Table.Td>
       <Table.Td>{m.serving ? <Badge color="green" variant="light">On</Badge> : <Badge color="gray" variant="light">Off</Badge>}</Table.Td>
+      <Table.Td>
+        {canEdit ? (
+          <Tooltip label={`Offer as the predict_${m.name} tool on Hermod's MCP server`}>
+            <Switch aria-label={`Expose ${m.name} to MCP`} checked={!!m.mcp_exposed}
+              disabled={expose.isPending && expose.variables?.name === m.name}
+              onChange={(e) => expose.mutate({ name: m.name, exposed: e.currentTarget.checked })} />
+          </Tooltip>
+        ) : m.mcp_exposed ? <Badge color="grape" variant="light">Exposed</Badge> : <Text size="sm" c="dimmed">No</Text>}
+      </Table.Td>
       <Table.Td>
         <Group justify="flex-end" gap="xs" wrap="nowrap">
           <Tooltip label="Test with one row">
@@ -166,7 +186,7 @@ export function ModelsPage() {
           description="Add the address of a model server and the model's name on it. Then score records with a Predict node."
           action={{ label: 'Add model', onClick: () => setDialog({ kind: 'form' }) }} />
       ) : (
-        <Table.ScrollContainer minWidth={760}>
+        <Table.ScrollContainer minWidth={880}>
           <Table verticalSpacing="sm" horizontalSpacing="lg">
             <Table.Thead>
               <Table.Tr>
@@ -174,6 +194,7 @@ export function ModelsPage() {
                 <Table.Th>Protocol</Table.Th>
                 <Table.Th>Served from</Table.Th>
                 <Table.Th>Serving</Table.Th>
+                <Table.Th>Expose to MCP</Table.Th>
                 <Table.Th style={{ textAlign: 'right' }}>Actions</Table.Th>
               </Table.Tr>
             </Table.Thead>
@@ -227,6 +248,12 @@ export function ModelsPage() {
           </Alert>
         )}
 
+        {expose.error && (
+          <Alert color="red" icon={<IconAlertCircle size="1rem" />} title="MCP exposure was not changed">
+            {(expose.error as Error).message}
+          </Alert>
+        )}
+
         {remove.error && (
           <Alert color="red" icon={<IconAlertCircle size="1rem" />} title="The model was not deleted">
             {(remove.error as Error).message}
@@ -243,6 +270,7 @@ export function ModelsPage() {
               <Stack gap="lg">
                 {modelsTable}
                 <DatasetsPanel vhost={vhost} />
+                <QuotasPanel vhost={vhost} canEdit={role === 'Administrator'} />
               </Stack>
             </Tabs.Panel>
             <Tabs.Panel value="scripts">
@@ -253,6 +281,7 @@ export function ModelsPage() {
           <>
             {modelsTable}
             {vhost && canTrain && <DatasetsPanel vhost={vhost} />}
+            {vhost && <QuotasPanel vhost={vhost} canEdit={role === 'Administrator'} />}
           </>
         )}
       </Stack>

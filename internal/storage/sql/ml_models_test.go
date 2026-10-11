@@ -290,6 +290,37 @@ func TestDeletingAVHostDeletesItsModels(t *testing.T) {
 	}
 }
 
+// The MCP flag and the feature types are part of the definition: they round
+// trip, and a new model is not exposed until someone says so.
+func TestMLModelKeepsItsMCPFlagAndFeatureTypes(t *testing.T) {
+	st := mlModelStore(t)
+	ctx := t.Context()
+	m := churnModel("v")
+	if err := st.PutMLModel(ctx, m); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := st.GetMLModel(ctx, "v", "churn"); got.MCPExposed {
+		t.Fatal("a new model is exposed to MCP before anyone said so")
+	}
+
+	m.MCPExposed = true
+	m.FeatureTypes = map[string]string{"age": "number", "tenure": "number"}
+	if err := st.PutMLModel(ctx, m); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.GetMLModel(ctx, "v", "churn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.MCPExposed || got.FeatureTypes["age"] != "number" || len(got.FeatureTypes) != 2 {
+		t.Errorf("round trip lost the MCP flag or the feature types: %+v", got)
+	}
+	list, _ := st.ListMLModels(ctx, "v")
+	if len(list) != 1 || !list[0].MCPExposed {
+		t.Errorf("the list does not carry the MCP flag: %+v", list)
+	}
+}
+
 // Nor its logged predictions, which hold what its models were sent.
 func TestDeletingAVHostDeletesItsPredictionLogs(t *testing.T) {
 	withKey(t, "ml-model-test-key")

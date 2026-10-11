@@ -20,21 +20,23 @@ const mlModelsCollection = "ml_models"
 // mlModelDoc is the stored form. _id is vhost + "/" + name, as for
 // vhost_secrets: a model name cannot hold a slash.
 type mlModelDoc struct {
-	ID             string   `bson:"_id"`
-	VHost          string   `bson:"vhost"`
-	Name           string   `bson:"name"`
-	Description    string   `bson:"description,omitempty"`
-	Backend        string   `bson:"backend"`
-	URL            string   `bson:"url"`
-	RemoteModel    string   `bson:"remote_model,omitempty"`
-	RemoteVersion  string   `bson:"remote_version,omitempty"`
-	TokenSecret    string   `bson:"token_secret,omitempty"`
-	InputName      string   `bson:"input_name,omitempty"`
-	Features       []string `bson:"features,omitempty"`
-	TimeoutMs      int      `bson:"timeout_ms,omitempty"`
-	Monitoring     mlMonDoc `bson:"monitoring"`
-	ServingKeyHash string   `bson:"serving_key_hash,omitempty"`
-	UpdatedBy      string   `bson:"updated_by"`
+	ID             string            `bson:"_id"`
+	VHost          string            `bson:"vhost"`
+	Name           string            `bson:"name"`
+	Description    string            `bson:"description,omitempty"`
+	Backend        string            `bson:"backend"`
+	URL            string            `bson:"url"`
+	RemoteModel    string            `bson:"remote_model,omitempty"`
+	RemoteVersion  string            `bson:"remote_version,omitempty"`
+	TokenSecret    string            `bson:"token_secret,omitempty"`
+	InputName      string            `bson:"input_name,omitempty"`
+	Features       []string          `bson:"features,omitempty"`
+	FeatureTypes   map[string]string `bson:"feature_types,omitempty"`
+	TimeoutMs      int               `bson:"timeout_ms,omitempty"`
+	MCPExposed     bool              `bson:"mcp_exposed,omitempty"`
+	Monitoring     mlMonDoc          `bson:"monitoring"`
+	ServingKeyHash string            `bson:"serving_key_hash,omitempty"`
+	UpdatedBy      string            `bson:"updated_by"`
 	// PutMLModel sets none of these, so saving a definition leaves them as
 	// they are.
 	Retrain       *storage.MLRetrainPolicy `bson:"retrain,omitempty"`
@@ -77,6 +79,7 @@ func (d mlModelDoc) model() storage.MLModel {
 		VHost: d.VHost, Name: d.Name, Description: d.Description,
 		Backend: inference.Backend(d.Backend), URL: d.URL, RemoteModel: d.RemoteModel, RemoteVersion: d.RemoteVersion,
 		TokenSecret: d.TokenSecret, InputName: d.InputName, Features: d.Features, TimeoutMs: d.TimeoutMs,
+		FeatureTypes: d.FeatureTypes, MCPExposed: d.MCPExposed,
 		ServingKeyHash: d.ServingKeyHash, Serving: d.ServingKeyHash != "", Monitoring: d.Monitoring.monitoring(),
 		Retrain: d.Retrain, RetrainStatus: d.RetrainStatus,
 		UpdatedBy: d.UpdatedBy, CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
@@ -126,6 +129,7 @@ func (s *mongoStorage) PutMLModel(ctx context.Context, m storage.MLModel) error 
 				"description": m.Description, "backend": string(m.Backend), "url": m.URL,
 				"remote_model": m.RemoteModel, "remote_version": m.RemoteVersion, "token_secret": m.TokenSecret,
 				"input_name": m.InputName, "features": m.Features, "timeout_ms": m.TimeoutMs,
+				"feature_types": m.FeatureTypes, "mcp_exposed": m.MCPExposed,
 				"monitoring": monDoc(m.Monitoring), "updated_by": m.UpdatedBy, "updated_at": now,
 			},
 			"$setOnInsert": bson.M{"vhost": m.VHost, "name": m.Name, "created_at": now},
