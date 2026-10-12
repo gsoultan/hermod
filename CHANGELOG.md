@@ -32,8 +32,8 @@ every 30 days; last order 41 days ago"), and a `recommendation_id`, which
 every recommendation answer now carries. Business rules (filter, exclude,
 boost, diversity, capacity, pin, block) are kept with the version and may be
 tightened, never loosened, per call; a loosening rule is a 400. Up to 1000
-customers per call. `respond: "async"` and `callback_url` are refused as not
-available yet.
+customers per call. Scenario recommendations can be answered asynchronously
+as a job, with a callback when it ends, like predict.
 
 Feedback (`shown`, `accepted`, `dismissed`, `visited`, `ordered`) is posted
 per `recommendation_id` and summarised per model, with an acceptance-rate
@@ -41,8 +41,8 @@ gauge. Datasets can refresh themselves from a database query on a cron
 schedule, and a model can build its answers for every salesman, customer or
 product into a table on a schedule (or from the new **Build recommendations**
 workflow node); both are claimed so each run happens once across servers.
-gRPC gains `InferenceService/RecommendScenario` and `recommendation_id` on
-`Recommend`; the MCP `recommend_<model>` tool and the Predict node's Recommend
+gRPC gains `InferenceService/RecommendScenario`, `recommendation_id` on
+`Recommend` and a job's `recommend_scenario_result`; the MCP `recommend_<model>` tool and the Predict node's Recommend
 mode take scenario calls. See "Recommendation scenarios" in docs/ml.md and the
 plain-language docs/ml-recommendations-data-guide.md.
 

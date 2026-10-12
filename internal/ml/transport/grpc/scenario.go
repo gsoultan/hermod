@@ -36,10 +36,16 @@ func (s *Server) RecommendScenario(ctx context.Context, req *proto.RecommendScen
 	if err != nil {
 		return nil, recommendStatus(err)
 	}
-	resp := &proto.RecommendScenarioResponse{Model: req.GetModel(), RecommendationId: out.RecommendationID,
+	return scenarioResponse(req.GetModel(), out)
+}
+
+// scenarioResponse is a scenario answer of model as the wire carries it.
+func scenarioResponse(model string, out ml.ScenarioAnswer) (*proto.RecommendScenarioResponse, error) {
+	resp := &proto.RecommendScenarioResponse{Model: model, RecommendationId: out.RecommendationID,
 		Results: make([]*proto.ScenarioResult, len(out.Results))}
 	for i, r := range out.Results {
 		res := &proto.ScenarioResult{Subject: r.For}
+		var err error
 		if res.Items, err = picks(r.Items); err != nil {
 			return nil, err
 		}

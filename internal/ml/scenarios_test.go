@@ -72,8 +72,8 @@ func TestRecommendScenarioRefusesWhatItCannotAnswer(t *testing.T) {
 		want    string
 		is      error
 	}{
-		{"visits", ScenarioRequest{For: ScenarioFor{Salesman: "R01"}, Respond: "async"}, "not available yet", ErrBadRecommendRequest},
-		{"visits", ScenarioRequest{For: ScenarioFor{Salesman: "R01"}, CallbackURL: "https://example.com/cb"}, "not available yet", ErrBadRecommendRequest},
+		{"visits", ScenarioRequest{For: ScenarioFor{Salesman: "R01"}, Respond: "async"}, "synchronously", ErrBadRecommendRequest},
+		{"visits", ScenarioRequest{For: ScenarioFor{Salesman: "R01"}, CallbackURL: "https://example.com/cb"}, "synchronously", ErrBadRecommendRequest},
 		{"visits", ScenarioRequest{For: ScenarioFor{Salesman: "R01"}, Respond: "later"}, "respond", ErrBadRecommendRequest},
 		{"visits", ScenarioRequest{For: ScenarioFor{Customer: "C0001"}}, "salesman", ErrBadRecommendRequest},
 		{"visits", ScenarioRequest{For: ScenarioFor{Salesman: "R01"}, K: recommend.MaxPlan + 1}, "k", ErrBadRecommendRequest},

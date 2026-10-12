@@ -948,8 +948,14 @@ curl -X POST https://hermod.example.com/api/ml/serve/default/visit-plan/recommen
   a salesman's reorders. Over that is a 400.
 - `exclude_seen` (true by default) leaves out products the customer already
   bought.
-- `respond: "async"` and `callback_url` are refused with a 400 ("not
-  available yet"); every answer is synchronous.
+- `"respond": "async"` (or the header `Prefer: respond-async`) runs the call
+  as a [job](#asynchronous-jobs), as for predict: the answer is `202` with
+  `job_id` and `status_url`, the job's `result` is the answer above, and a
+  `callback_url` is posted the finished job. The ids, `k` and the period's
+  dates are checked before the job is queued; what depends on the model's
+  scenario (a subject it does not take, a rule) fails the job with the
+  reason. Sent sync, a call is held to the
+  [sync time limit](#the-sync-time-limit).
 
 Each item has `id`, `score` (compares within one list only), `rank` from 1,
 `reasons`, the `fields` the model has for it, and for `reorder` a `due_date`.
@@ -1234,8 +1240,9 @@ model, send it as a [job](#asynchronous-jobs).
 A call that may take a while — many rows, a slow model, a training — can run
 as a **job**: Hermod answers at once with where to read it, runs it in the
 background, and keeps the answer for 7 days. Predict, recommend (the serving
-endpoint and `POST /api/vhosts/{vhost}/ml/models/{name}/predict`) and train
-take it. Ask for it with `"respond": "async"` in the body, or the header
+endpoint and `POST /api/vhosts/{vhost}/ml/models/{name}/predict`), scenario
+recommendations (`POST /api/ml/serve/{vhost}/{name}/recommend` and
+`POST /api/vhosts/{vhost}/ml/models/{name}/recommend`) and train take it. Ask for it with `"respond": "async"` in the body, or the header
 `Prefer: respond-async`; a `"respond"` in the body wins over the header, and
 anything but `"sync"` or `"async"` there is a 400.
 
@@ -1377,6 +1384,10 @@ grpcurl -import-path pkg/ml/proto -proto inference.proto -H 'x-api-key: hml_…'
 ```
 
 A job's id, read with a key other than the one for its model, is `NOT_FOUND`.
+A scenario recommendation sent async over REST with a serving key is read
+with `GetJob` too; its answer is in `recommend_scenario_result`, as
+`RecommendScenario` gives it. `SubmitJob` does not take a scenario call, and
+`RecommendScenario` over gRPC answers sync without the time limit.
 
 ### The sync time limit
 

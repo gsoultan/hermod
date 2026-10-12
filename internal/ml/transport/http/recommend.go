@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -17,11 +18,12 @@ import (
 // RecommendScenario answers a scenario call from the UI, as an Editor of the
 // model's vhost.
 func (h *Handler) RecommendScenario(w http.ResponseWriter, r *http.Request) {
-	vhost, _, ok := h.access(w, r, true)
+	vhost, user, ok := h.access(w, r, true)
 	if !ok {
 		return
 	}
-	h.recommendScenario(w, r.WithContext(ml.WithCaller(r.Context(), storage.MLCallerUI, "")), vhost, r.PathValue("name"))
+	h.recommendScenario(w, r.WithContext(ml.WithCaller(r.Context(), storage.MLCallerUI, "")), vhost, r.PathValue("name"),
+		storage.MLCallerUI, user.Username)
 }
 
 // ServeRecommend is RecommendScenario for an application, with the model's
@@ -36,17 +38,43 @@ func (h *Handler) ServeRecommend(w http.ResponseWriter, r *http.Request) {
 		h.JsonError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	h.recommendScenario(w, r.WithContext(ml.WithCaller(r.Context(), storage.MLCallerREST, "")), vhost, name)
+	h.recommendScenario(w, r.WithContext(ml.WithCaller(r.Context(), storage.MLCallerREST, "")), vhost, name, storage.MLCallerREST, "")
 }
 
-func (h *Handler) recommendScenario(w http.ResponseWriter, r *http.Request, vhost, name string) {
+// recommendScenario answers a scenario call as predict answers its calls: at
+// once, within the sync time limit, or as a job when the caller asks for one
+// with "respond": "async" or Prefer: respond-async. callerKind and by say who
+// is calling, for a job.
+func (h *Handler) recommendScenario(w http.ResponseWriter, r *http.Request, vhost, name, callerKind, by string) {
 	var req ml.ScenarioRequest
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxPredictBody))
 	if err := dec.Decode(&req); err != nil {
 		h.JsonError(w, `the request body must be JSON: {"for": {"customer": "..."}, "k": 10}`, http.StatusBadRequest)
 		return
 	}
-	out, err := h.service().RecommendScenario(r.Context(), vhost, name, req)
+	async, err := asyncWanted(r, req.Respond)
+	if err != nil {
+		h.JsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !async && req.CallbackURL != "" {
+		h.JsonError(w, `"callback_url" applies to a call sent with "respond": "async"`, http.StatusBadRequest)
+		return
+	}
+	callback := req.CallbackURL
+	req.Respond, req.CallbackURL = "", ""
+	if async {
+		h.submitJob(w, r, ml.JobSubmission{VHost: vhost, Model: name, Kind: storage.MLJobRecommend, Scenario: &req,
+			CallbackURL: callback, CallerKind: callerKind, CreatedBy: by})
+		return
+	}
+	svc := h.service()
+	var out ml.ScenarioAnswer
+	err = svc.Sync(r.Context(), vhost, name, func(ctx context.Context) error {
+		var err error
+		out, err = svc.RecommendScenario(ctx, vhost, name, req)
+		return err
+	})
 	if err != nil {
 		h.fail(w, err)
 		return

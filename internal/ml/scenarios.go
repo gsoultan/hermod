@@ -120,8 +120,9 @@ type ScenarioPeriod struct {
 }
 
 // ScenarioRequest is one call of POST .../recommend. Respond and
-// CallbackURL are reserved for asynchronous answers, which are not available
-// yet: "async" or a callback is refused.
+// CallbackURL ask for an asynchronous answer, which the REST API gives by
+// queueing the call as a job; RecommendScenario itself answers at once, and
+// refuses them.
 type ScenarioRequest struct {
 	For         ScenarioFor      `json:"for"`
 	Territory   any              `json:"territory,omitempty"`
@@ -172,19 +173,35 @@ func (r ScenarioRequest) query(scenario string, today time.Time) (recommend.Quer
 	return q, rows, nil
 }
 
-// checkRespond refuses the asynchronous answers that are not available yet.
+// checkRespond refuses an asynchronous answer: one is asked for on POST
+// .../recommend, which queues the call as a job, and this call answers at
+// once.
 func (r ScenarioRequest) checkRespond() error {
 	switch r.Respond {
 	case "", "sync":
 	case "async":
-		return badRecommend(`"respond": "async" is not available yet; leave it out for a synchronous answer`)
+		return badRecommend(`"respond": "async" is for POST .../recommend, which runs the call as a job; this call answers synchronously`)
 	default:
-		return badRecommend(`"respond" is "sync" (asynchronous answers are not available yet)`)
+		return badRecommend(`"respond" is "sync" or "async"`)
 	}
 	if r.CallbackURL != "" {
-		return badRecommend(`"callback_url" is not available yet: answers are synchronous`)
+		return badRecommend(`"callback_url" goes with "respond": "async" on POST .../recommend; this call answers synchronously`)
 	}
 	return nil
+}
+
+// check reads what of the request does not depend on the model's scenario
+// (the ids, k up to the largest any scenario takes, and the period's dates),
+// so a job is refused for it before it is queued. query reads the rest.
+func (r ScenarioRequest) check() error {
+	var q recommend.Query
+	if err := r.subjects(&q); err != nil {
+		return err
+	}
+	if limit := max(recommend.MaxK, recommend.MaxPlan); r.K < 0 || r.K > limit {
+		return badRecommend(`"k" is how many results, 1 to %d`, limit)
+	}
+	return r.period(recommend.ScenarioVisits, &q)
 }
 
 // scenarioID reads one id of "for": "" when it is not given.

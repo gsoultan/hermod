@@ -4,13 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/gsoultan/hermod/internal/ml"
 	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/pkg/ml/worker"
 )
 
 // The feedback and schedules of modelAPIStore, in memory.
@@ -122,8 +125,8 @@ func TestRecommendAnswersAScenario(t *testing.T) {
 	}
 
 	for body, want := range map[string]string{
-		`{"for":{"salesman":"R03"},"respond":"async"}`:                    "not available yet",
-		`{"for":{"salesman":"R03"},"callback_url":"https://example.com"}`: "not available yet",
+		`{"for":{"salesman":"R03"},"callback_url":"https://example.com"}`: "async",
+		`{"for":{"salesman":"R03"},"respond":"later"}`:                    "respond",
 		`{"for":{"customer":"C0001"}}`:                                    "salesman",
 		`{"for":{"salesman":"R03"},"rules":[{"kind":"pin"}]}`:             "ids",
 		`not json`: "JSON",
@@ -246,5 +249,149 @@ func TestDatasetRefreshAndModelBuildSchedules(t *testing.T) {
 	}
 	if w := do(h.DeleteModelBuild, editorA, http.MethodDelete, "/x", nil, model); w.Code != http.StatusNoContent {
 		t.Fatalf("delete build: %d %s", w.Code, w.Body)
+	}
+}
+
+// scenarioJobsAPI is newJobsAPI with the visits scenario fixture as model
+// "plan" of tenant-a, on a worker stub.
+func scenarioJobsAPI(t *testing.T) *Handler {
+	t.Helper()
+	h, st := newJobsAPI(t)
+	h.noEnvWorker = false
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "pkg", "ml", "recommend", "testdata", "scenario", "visits.rec"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stub := &workerStub{rec: raw}
+	h.worker = stub.start(t)
+	if err := st.(storage.MLModelStore).PutMLModel(t.Context(), storage.MLModel{VHost: "tenant-a", Name: "plan",
+		Backend: storage.MLBackendWorker, RemoteVersion: "1", Task: storage.MLTaskRecommendation}); err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+// scenarioAnswer is a scenario call's answer, as far as these tests read it.
+type scenarioAnswer struct {
+	RecommendationID string `json:"recommendation_id"`
+	Results          []struct {
+		For   string            `json:"for"`
+		Items []json.RawMessage `json:"items"`
+		Plan  []struct {
+			Date string `json:"date"`
+		} `json:"plan"`
+	} `json:"results"`
+}
+
+func TestAsyncScenarioRecommendAnswers202AndTheJobHoldsTheAnswer(t *testing.T) {
+	h := scenarioJobsAPI(t)
+	body := `{"for":{"salesman":"R03"},"period":{"from":"2026-10-05","to":"2026-10-09"},"k":4,"respond":"async"}`
+	w := call(h.RecommendScenario, editorA, http.MethodPost, "tenant-a", "plan", body)
+	a := acceptedOf(t, w)
+	if a.Status != storage.MLJobQueued || a.StatusURL != "/api/vhosts/tenant-a/ml/jobs/"+a.JobID {
+		t.Fatalf("accepted = %+v", a)
+	}
+	if w.Header().Get("Preference-Applied") != "respond-async" {
+		t.Errorf("Preference-Applied = %q", w.Header().Get("Preference-Applied"))
+	}
+	runJobs(t, h)
+
+	path := map[string]string{"vhost": "tenant-a", "id": a.JobID}
+	j := jobOf(t, do(h.GetJob, editorA, http.MethodGet, a.StatusURL, nil, path))
+	var out scenarioAnswer
+	if err := json.Unmarshal(j.Result, &out); err != nil || j.Status != storage.MLJobSucceeded || j.Kind != storage.MLJobRecommend {
+		t.Fatalf("job = %+v result %s", j.MLJob, j.Result)
+	}
+	if !strings.HasPrefix(out.RecommendationID, "rec_") || len(out.Results) != 1 || out.Results[0].For != "R03" ||
+		len(out.Results[0].Items) != 4 || out.Results[0].Plan[0].Date != "2026-10-05" {
+		t.Errorf("result = %s", j.Result)
+	}
+
+	// The sync call's answer has the same shape.
+	sync := call(h.RecommendScenario, editorA, http.MethodPost, "tenant-a", "plan", strings.Replace(body, `"respond":"async"`, `"respond":"sync"`, 1))
+	var keys, jobKeys map[string]json.RawMessage
+	if err := json.Unmarshal(sync.Body.Bytes(), &keys); err != nil || sync.Code != http.StatusOK {
+		t.Fatalf("sync = %d %s", sync.Code, sync.Body)
+	}
+	_ = json.Unmarshal(j.Result, &jobKeys)
+	if len(keys) != len(jobKeys) || keys["results"] == nil || jobKeys["results"] == nil {
+		t.Errorf("sync %s, job %s", sync.Body, j.Result)
+	}
+}
+
+func TestAsyncScenarioRecommendIsAskedForAsPredictIs(t *testing.T) {
+	h := scenarioJobsAPI(t)
+	acceptedOf(t, call(h.RecommendScenario, editorA, http.MethodPost, "tenant-a", "plan", `{"for":{"salesman":"R03"}}`,
+		"Prefer", "respond-async"))
+	// "respond": "sync" in the body wins over the header.
+	if w := call(h.RecommendScenario, editorA, http.MethodPost, "tenant-a", "plan", `{"for":{"salesman":"R03"},"respond":"sync"}`,
+		"Prefer", "respond-async"); w.Code != http.StatusOK {
+		t.Errorf(`"respond": "sync" with Prefer: respond-async = %d %s`, w.Code, w.Body)
+	}
+	// What can be told before the job runs is refused at once.
+	for body, want := range map[string]string{
+		`{"for":{"customer":{}},"respond":"async"}`:                                  "id",
+		`{"for":{"salesman":"R03"},"k":-1,"respond":"async"}`:                        "k",
+		`{"for":{"salesman":"R03"},"period":{"from":"5/10/2026"},"respond":"async"}`: "period",
+	} {
+		if w := call(h.RecommendScenario, editorA, http.MethodPost, "tenant-a", "plan", body); w.Code != http.StatusBadRequest ||
+			!strings.Contains(w.Body.String(), want) {
+			t.Errorf("%s: %d %s, want 400 mentioning %q", body, w.Code, w.Body, want)
+		}
+	}
+	if w := call(h.RecommendScenario, editorA, http.MethodPost, "tenant-a", "double", `{"for":{"salesman":"R03"},"respond":"async"}`); w.Code != http.StatusBadRequest {
+		t.Errorf("an async scenario call of a model that predicts rows = %d %s", w.Code, w.Body)
+	}
+	// A callback needs the vhost's signing secret, as for predict.
+	if w := call(h.RecommendScenario, editorA, http.MethodPost, "tenant-a", "plan",
+		`{"for":{"salesman":"R03"},"respond":"async","callback_url":"https://hooks.example.com/done"}`); w.Code != http.StatusBadRequest ||
+		!strings.Contains(w.Body.String(), ml.CallbackSecretName) {
+		t.Errorf("a callback without the signing secret = %d %s", w.Code, w.Body)
+	}
+}
+
+func TestAsyncScenarioRecommendWithAServingKey(t *testing.T) {
+	h := scenarioJobsAPI(t)
+	key := rotateKey(t, h, "plan")
+	a := acceptedOf(t, call(h.ServeRecommend, nil, http.MethodPost, "tenant-a", "plan", `{"for":{"salesman":"R03"},"respond":"async"}`,
+		"X-API-Key", key))
+	if a.StatusURL != "/api/ml/serve/tenant-a/jobs/"+a.JobID {
+		t.Fatalf("status_url = %q", a.StatusURL)
+	}
+	if w := call(h.ServeRecommend, nil, http.MethodPost, "tenant-a", "plan", `{"for":{"salesman":"R03"},"respond":"async"}`,
+		"X-API-Key", "hml_wrong"); w.Code != http.StatusUnauthorized {
+		t.Errorf("a wrong key queued a job: %d", w.Code)
+	}
+	runJobs(t, h)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, a.StatusURL, nil)
+	r.SetPathValue("vhost", "tenant-a")
+	r.SetPathValue("id", a.JobID)
+	r.Header.Set("X-API-Key", key)
+	w := httptest.NewRecorder()
+	h.ServeJob(w, r)
+	j := jobOf(t, w)
+	var out scenarioAnswer
+	if err := json.Unmarshal(j.Result, &out); err != nil || j.Status != storage.MLJobSucceeded || len(out.Results) != 1 ||
+		j.CallerKind != storage.MLCallerREST {
+		t.Errorf("job = %+v result %s", j.MLJob, j.Result)
+	}
+}
+
+func TestSyncScenarioRecommendOverTheTimeLimitIsToldToUseAsync(t *testing.T) {
+	h := scenarioJobsAPI(t)
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(500 * time.Millisecond):
+		case <-r.Context().Done():
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(slow.Close)
+	h.worker = worker.New(slow.URL, "", nil)
+	limit := 50 * time.Millisecond
+	h.syncTimeout = &limit
+	w := call(h.RecommendScenario, editorA, http.MethodPost, "tenant-a", "plan", `{"for":{"salesman":"R03"}}`)
+	if w.Code != http.StatusRequestTimeout || !strings.Contains(w.Body.String(), "respond-async") {
+		t.Errorf("a slow sync call = %d %s, want 408 pointing at async", w.Code, w.Body)
 	}
 }

@@ -150,10 +150,13 @@ message Job {
   // When the job and its result are removed.
   google.protobuf.Timestamp expires_at = 13;
   // The answer of a succeeded job: what Predict or Recommend would have
-  // returned. Unset until then.
+  // returned, or RecommendScenario for a scenario call sent with
+  // "respond": "async" to POST /api/ml/serve/{vhost}/{name}/recommend.
+  // Unset until then.
   oneof result {
     PredictResponse predict_result = 14;
     RecommendResponse recommend_result = 15;
+    RecommendScenarioResponse recommend_scenario_result = 16;
   }
 }
 

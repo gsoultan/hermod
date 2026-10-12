@@ -482,12 +482,15 @@ type Job struct {
 	// When the job and its result are removed.
 	ExpiresAt *timestamppb.Timestamp `protobuf:"bytes,13,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
 	// The answer of a succeeded job: what Predict or Recommend would have
-	// returned. Unset until then.
+	// returned, or RecommendScenario for a scenario call sent with
+	// "respond": "async" to POST /api/ml/serve/{vhost}/{name}/recommend.
+	// Unset until then.
 	//
 	// Types that are valid to be assigned to Result:
 	//
 	//	*Job_PredictResult
 	//	*Job_RecommendResult
+	//	*Job_RecommendScenarioResult
 	Result        isJob_Result `protobuf_oneof:"result"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -639,6 +642,15 @@ func (x *Job) GetRecommendResult() *RecommendResponse {
 	return nil
 }
 
+func (x *Job) GetRecommendScenarioResult() *RecommendScenarioResponse {
+	if x != nil {
+		if x, ok := x.Result.(*Job_RecommendScenarioResult); ok {
+			return x.RecommendScenarioResult
+		}
+	}
+	return nil
+}
+
 type isJob_Result interface {
 	isJob_Result()
 }
@@ -651,9 +663,15 @@ type Job_RecommendResult struct {
 	RecommendResult *RecommendResponse `protobuf:"bytes,15,opt,name=recommend_result,json=recommendResult,proto3,oneof"`
 }
 
+type Job_RecommendScenarioResult struct {
+	RecommendScenarioResult *RecommendScenarioResponse `protobuf:"bytes,16,opt,name=recommend_scenario_result,json=recommendScenarioResult,proto3,oneof"`
+}
+
 func (*Job_PredictResult) isJob_Result() {}
 
 func (*Job_RecommendResult) isJob_Result() {}
+
+func (*Job_RecommendScenarioResult) isJob_Result() {}
 
 type RecommendScenarioRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1561,7 +1579,7 @@ const file_inference_proto_rawDesc = "" +
 	"\x05vhost\x18\x01 \x01(\tR\x05vhost\x12\x15\n" +
 	"\x06job_id\x18\x02 \x01(\tR\x05jobId\"7\n" +
 	"\x10WatchJobResponse\x12#\n" +
-	"\x03job\x18\x01 \x01(\v2\x11.hermod.ml.v1.JobR\x03job\"\x83\x05\n" +
+	"\x03job\x18\x01 \x01(\v2\x11.hermod.ml.v1.JobR\x03job\"\xea\x05\n" +
 	"\x03Job\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05vhost\x18\x02 \x01(\tR\x05vhost\x12\x14\n" +
@@ -1582,7 +1600,8 @@ const file_inference_proto_rawDesc = "" +
 	"\n" +
 	"expires_at\x18\r \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12F\n" +
 	"\x0epredict_result\x18\x0e \x01(\v2\x1d.hermod.ml.v1.PredictResponseH\x00R\rpredictResult\x12L\n" +
-	"\x10recommend_result\x18\x0f \x01(\v2\x1f.hermod.ml.v1.RecommendResponseH\x00R\x0frecommendResultB\b\n" +
+	"\x10recommend_result\x18\x0f \x01(\v2\x1f.hermod.ml.v1.RecommendResponseH\x00R\x0frecommendResult\x12e\n" +
+	"\x19recommend_scenario_result\x18\x10 \x01(\v2'.hermod.ml.v1.RecommendScenarioResponseH\x00R\x17recommendScenarioResultB\b\n" +
 	"\x06result\"\xb3\x02\n" +
 	"\x18RecommendScenarioRequest\x12\x14\n" +
 	"\x05vhost\x18\x01 \x01(\tR\x05vhost\x12\x14\n" +
@@ -1706,36 +1725,37 @@ var file_inference_proto_depIdxs = []int32{
 	21, // 9: hermod.ml.v1.Job.expires_at:type_name -> google.protobuf.Timestamp
 	20, // 10: hermod.ml.v1.Job.predict_result:type_name -> hermod.ml.v1.PredictResponse
 	17, // 11: hermod.ml.v1.Job.recommend_result:type_name -> hermod.ml.v1.RecommendResponse
-	10, // 12: hermod.ml.v1.RecommendScenarioRequest.subject:type_name -> hermod.ml.v1.ScenarioSubject
-	22, // 13: hermod.ml.v1.RecommendScenarioRequest.rules:type_name -> google.protobuf.Struct
-	12, // 14: hermod.ml.v1.RecommendScenarioResponse.results:type_name -> hermod.ml.v1.ScenarioResult
-	13, // 15: hermod.ml.v1.ScenarioResult.items:type_name -> hermod.ml.v1.ScenarioPick
-	15, // 16: hermod.ml.v1.ScenarioResult.plan:type_name -> hermod.ml.v1.PlanDay
-	14, // 17: hermod.ml.v1.ScenarioPick.reasons:type_name -> hermod.ml.v1.Reason
-	22, // 18: hermod.ml.v1.ScenarioPick.fields:type_name -> google.protobuf.Struct
-	13, // 19: hermod.ml.v1.PlanDay.items:type_name -> hermod.ml.v1.ScenarioPick
-	18, // 20: hermod.ml.v1.RecommendResponse.items:type_name -> hermod.ml.v1.RecommendedItem
-	22, // 21: hermod.ml.v1.PredictRequest.instances:type_name -> google.protobuf.Struct
-	22, // 22: hermod.ml.v1.PredictResponse.predictions:type_name -> google.protobuf.Struct
-	19, // 23: hermod.ml.v1.InferenceService.Predict:input_type -> hermod.ml.v1.PredictRequest
-	16, // 24: hermod.ml.v1.InferenceService.Recommend:input_type -> hermod.ml.v1.RecommendRequest
-	9,  // 25: hermod.ml.v1.InferenceService.RecommendScenario:input_type -> hermod.ml.v1.RecommendScenarioRequest
-	0,  // 26: hermod.ml.v1.InferenceService.SubmitJob:input_type -> hermod.ml.v1.SubmitJobRequest
-	2,  // 27: hermod.ml.v1.InferenceService.GetJob:input_type -> hermod.ml.v1.GetJobRequest
-	4,  // 28: hermod.ml.v1.InferenceService.CancelJob:input_type -> hermod.ml.v1.CancelJobRequest
-	6,  // 29: hermod.ml.v1.InferenceService.WatchJob:input_type -> hermod.ml.v1.WatchJobRequest
-	20, // 30: hermod.ml.v1.InferenceService.Predict:output_type -> hermod.ml.v1.PredictResponse
-	17, // 31: hermod.ml.v1.InferenceService.Recommend:output_type -> hermod.ml.v1.RecommendResponse
-	11, // 32: hermod.ml.v1.InferenceService.RecommendScenario:output_type -> hermod.ml.v1.RecommendScenarioResponse
-	1,  // 33: hermod.ml.v1.InferenceService.SubmitJob:output_type -> hermod.ml.v1.SubmitJobResponse
-	3,  // 34: hermod.ml.v1.InferenceService.GetJob:output_type -> hermod.ml.v1.GetJobResponse
-	5,  // 35: hermod.ml.v1.InferenceService.CancelJob:output_type -> hermod.ml.v1.CancelJobResponse
-	7,  // 36: hermod.ml.v1.InferenceService.WatchJob:output_type -> hermod.ml.v1.WatchJobResponse
-	30, // [30:37] is the sub-list for method output_type
-	23, // [23:30] is the sub-list for method input_type
-	23, // [23:23] is the sub-list for extension type_name
-	23, // [23:23] is the sub-list for extension extendee
-	0,  // [0:23] is the sub-list for field type_name
+	11, // 12: hermod.ml.v1.Job.recommend_scenario_result:type_name -> hermod.ml.v1.RecommendScenarioResponse
+	10, // 13: hermod.ml.v1.RecommendScenarioRequest.subject:type_name -> hermod.ml.v1.ScenarioSubject
+	22, // 14: hermod.ml.v1.RecommendScenarioRequest.rules:type_name -> google.protobuf.Struct
+	12, // 15: hermod.ml.v1.RecommendScenarioResponse.results:type_name -> hermod.ml.v1.ScenarioResult
+	13, // 16: hermod.ml.v1.ScenarioResult.items:type_name -> hermod.ml.v1.ScenarioPick
+	15, // 17: hermod.ml.v1.ScenarioResult.plan:type_name -> hermod.ml.v1.PlanDay
+	14, // 18: hermod.ml.v1.ScenarioPick.reasons:type_name -> hermod.ml.v1.Reason
+	22, // 19: hermod.ml.v1.ScenarioPick.fields:type_name -> google.protobuf.Struct
+	13, // 20: hermod.ml.v1.PlanDay.items:type_name -> hermod.ml.v1.ScenarioPick
+	18, // 21: hermod.ml.v1.RecommendResponse.items:type_name -> hermod.ml.v1.RecommendedItem
+	22, // 22: hermod.ml.v1.PredictRequest.instances:type_name -> google.protobuf.Struct
+	22, // 23: hermod.ml.v1.PredictResponse.predictions:type_name -> google.protobuf.Struct
+	19, // 24: hermod.ml.v1.InferenceService.Predict:input_type -> hermod.ml.v1.PredictRequest
+	16, // 25: hermod.ml.v1.InferenceService.Recommend:input_type -> hermod.ml.v1.RecommendRequest
+	9,  // 26: hermod.ml.v1.InferenceService.RecommendScenario:input_type -> hermod.ml.v1.RecommendScenarioRequest
+	0,  // 27: hermod.ml.v1.InferenceService.SubmitJob:input_type -> hermod.ml.v1.SubmitJobRequest
+	2,  // 28: hermod.ml.v1.InferenceService.GetJob:input_type -> hermod.ml.v1.GetJobRequest
+	4,  // 29: hermod.ml.v1.InferenceService.CancelJob:input_type -> hermod.ml.v1.CancelJobRequest
+	6,  // 30: hermod.ml.v1.InferenceService.WatchJob:input_type -> hermod.ml.v1.WatchJobRequest
+	20, // 31: hermod.ml.v1.InferenceService.Predict:output_type -> hermod.ml.v1.PredictResponse
+	17, // 32: hermod.ml.v1.InferenceService.Recommend:output_type -> hermod.ml.v1.RecommendResponse
+	11, // 33: hermod.ml.v1.InferenceService.RecommendScenario:output_type -> hermod.ml.v1.RecommendScenarioResponse
+	1,  // 34: hermod.ml.v1.InferenceService.SubmitJob:output_type -> hermod.ml.v1.SubmitJobResponse
+	3,  // 35: hermod.ml.v1.InferenceService.GetJob:output_type -> hermod.ml.v1.GetJobResponse
+	5,  // 36: hermod.ml.v1.InferenceService.CancelJob:output_type -> hermod.ml.v1.CancelJobResponse
+	7,  // 37: hermod.ml.v1.InferenceService.WatchJob:output_type -> hermod.ml.v1.WatchJobResponse
+	31, // [31:38] is the sub-list for method output_type
+	24, // [24:31] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_inference_proto_init() }
@@ -1750,6 +1770,7 @@ func file_inference_proto_init() {
 	file_inference_proto_msgTypes[8].OneofWrappers = []any{
 		(*Job_PredictResult)(nil),
 		(*Job_RecommendResult)(nil),
+		(*Job_RecommendScenarioResult)(nil),
 	}
 	file_inference_proto_msgTypes[9].OneofWrappers = []any{}
 	file_inference_proto_msgTypes[16].OneofWrappers = []any{

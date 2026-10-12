@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
 
+	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/ml/proto"
 )
 
@@ -89,5 +90,35 @@ func TestRecommendScenarioServesAFormat1ModelAsProducts(t *testing.T) {
 		Subject: &proto.ScenarioSubject{Salesman: "R1"}})
 	if status.Code(err) != codes.InvalidArgument {
 		t.Errorf("a salesman: %v", err)
+	}
+}
+
+// A scenario call sent async over REST with a serving key is read over gRPC
+// too, with GetJob: its result is the RecommendScenario answer, and a
+// recommendation job's carries its recommendation_id.
+func TestARecommendationJobIsReadAsTheCallItStandsFor(t *testing.T) {
+	pj := &proto.Job{Kind: storage.MLJobRecommend, Model: "plan"}
+	raw := `{"recommendation_id":"rec_a","results":[{"for":"R03",` +
+		`"items":[{"id":"C1","score":0.5,"rank":1,"reasons":[{"code":"overdue","text":"Overdue"}],"fields":{"name":"Customer 1"}}],` +
+		`"plan":[{"date":"2026-10-05","items":[{"id":"C1","score":0.5,"rank":1}]}]}]}`
+	if err := setResult(pj, []byte(raw)); err != nil {
+		t.Fatal(err)
+	}
+	got := pj.GetRecommendScenarioResult()
+	if got.GetModel() != "plan" || got.GetRecommendationId() != "rec_a" || len(got.GetResults()) != 1 {
+		t.Fatalf("result = %v", pj.GetResult())
+	}
+	res := got.GetResults()[0]
+	if res.GetSubject() != "R03" || len(res.GetItems()) != 1 || res.GetItems()[0].GetReasons()[0].GetCode() != "overdue" ||
+		res.GetItems()[0].GetFields().AsMap()["name"] != "Customer 1" || res.GetPlan()[0].GetDate() != "2026-10-05" {
+		t.Errorf("result = %v", res)
+	}
+
+	pj = &proto.Job{Kind: storage.MLJobRecommend, Model: "recs"}
+	if err := setResult(pj, []byte(`{"model":"recs","items":[{"item":"S1","score":1}],"recommendation_id":"rec_b"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if r := pj.GetRecommendResult(); len(r.GetItems()) != 1 || r.GetRecommendationId() != "rec_b" {
+		t.Errorf("result = %v", pj.GetResult())
 	}
 }
