@@ -221,6 +221,9 @@ func TestATrainingIsRefusedWhenItsPoolIsMissingOrOff(t *testing.T) {
 		{"unknown script", allPools, worker.TrainSpec{Algorithm: "custom:nope"}, ErrScriptNotFound},
 		{"unknown device", allPools, worker.TrainSpec{Device: "tpu"}, ErrBadTraining},
 		{"custom script on a gpu", allPools, worker.TrainSpec{Algorithm: "custom:trees", Device: DeviceGPU}, ErrBadTraining},
+		{"a preset with an explicit algorithm", allPools, worker.TrainSpec{Algorithm: "linear", Preset: "quick"}, ErrBadTraining},
+		{"a preset with a custom script", allPools, worker.TrainSpec{Algorithm: "custom:trees", Preset: "best"}, ErrBadTraining},
+		{"an unknown preset", allPools, worker.TrainSpec{Preset: "fastest"}, ErrBadTraining},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ps := newPoolSetup(t, tc.pools)

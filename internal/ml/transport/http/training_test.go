@@ -26,8 +26,9 @@ type workerStub struct {
 	busy     bool
 	// onnx is the graph every version serves (scoring_test.go).
 	onnx []byte
-	// trained is the last training spec the worker was sent.
-	trained string
+	// trained is the last training spec the worker was sent, and checked
+	// the last pre-flight check's.
+	trained, checked string
 	// capabilities answers /v1/capabilities; empty answers 404, like a
 	// worker from before that route.
 	capabilities string
@@ -55,6 +56,17 @@ func (s *workerStub) start(t *testing.T) *worker.Client {
 			_, _ = io.WriteString(w, `{"name":"customers","rows":2,"columns":[],"updated_at":"2026-10-10T00:00:00Z"}`)
 		case r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodPost && p == "/v1/train-check/tenant-a":
+			b, _ := io.ReadAll(r.Body)
+			s.checked = string(b)
+			if strings.Contains(s.checked, `"dataset":"missing"`) {
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = io.WriteString(w, `{"error":"Dataset 'missing' does not exist in vhost 'tenant-a'."}`)
+				return
+			}
+			_, _ = io.WriteString(w, `{"task":"classification","target_kind":"yes_no","classes":2,"rows":3,"usable_rows":3,`+
+				`"columns":[{"name":"id","type":"number","role":"id_like","note":"like an ID"}],`+
+				`"warnings":[{"code":"few_rows","message":"Only 3 rows","column":"churned"}],"ok":false}`)
 		case strings.HasSuffix(p, "/train"):
 			if s.busy {
 				w.WriteHeader(http.StatusTooManyRequests)
@@ -276,4 +288,80 @@ func hasAudit(s *modelAPIStore, fragment string) bool {
 		}
 	}
 	return false
+}
+
+func TestTrainCheckProxiesThePreflightCheck(t *testing.T) {
+	h, store, stub := newTrainingAPI(t)
+	vals := map[string]string{"vhost": "tenant-a"}
+	body := `{"dataset":"customers","target":"churned","preset":"quick","name":"churn","go_live":{"mode":"always"}}`
+	w := do(h.TrainCheck, editorA, http.MethodPost, "/x", strings.NewReader(body), vals)
+	if w.Code != http.StatusOK {
+		t.Fatalf("train-check = %d %s", w.Code, w.Body)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"task", "target_kind", "classes", "rows", "usable_rows", "columns", "warnings", "ok"} {
+		if _, ok := got[key]; !ok {
+			t.Errorf("answer has no %q: %s", key, w.Body)
+		}
+	}
+	if got["ok"] != false || got["target_kind"] != "yes_no" {
+		t.Errorf("answer = %s", w.Body)
+	}
+	if !strings.Contains(stub.checked, `"preset":"quick"`) || strings.Contains(stub.checked, "go_live") {
+		t.Errorf("worker got %s", stub.checked)
+	}
+	for _, c := range stub.calls {
+		if strings.HasSuffix(c, "/train") {
+			t.Errorf("a check trained: %v", stub.calls)
+		}
+	}
+	if len(store.models) != 0 {
+		t.Errorf("a check registered a model: %v", store.models)
+	}
+}
+
+func TestTrainCheckErrorsAreTrainingErrors(t *testing.T) {
+	h, _, _ := newTrainingAPI(t)
+	vals := map[string]string{"vhost": "tenant-a"}
+	for _, tc := range []struct {
+		name string
+		user *storage.User
+		body string
+		code int
+	}{
+		{"a viewer", viewerA, `{"dataset":"customers","target":"churned"}`, http.StatusForbidden},
+		{"not JSON", editorA, `{`, http.StatusBadRequest},
+		{"no target", editorA, `{"dataset":"customers"}`, http.StatusBadRequest},
+		{"a preset with an explicit algorithm", editorA, `{"dataset":"customers","target":"churned","algorithm":"linear","preset":"best"}`, http.StatusBadRequest},
+		{"an unknown preset", editorA, `{"dataset":"customers","target":"churned","preset":"fastest"}`, http.StatusBadRequest},
+		{"an unknown dataset", editorA, `{"dataset":"missing","target":"churned"}`, http.StatusNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := do(h.TrainCheck, tc.user, http.MethodPost, "/x", strings.NewReader(tc.body), vals)
+			if w.Code != tc.code {
+				t.Errorf("code = %d %s, want %d", w.Code, w.Body, tc.code)
+			}
+		})
+	}
+
+	h.worker, h.noEnvWorker = nil, true
+	w := do(h.TrainCheck, editorA, http.MethodPost, "/x", strings.NewReader(`{"dataset":"d","target":"y"}`), vals)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("without a worker = %d %s", w.Code, w.Body)
+	}
+}
+
+func TestTrainRefusesAPresetWithAnExplicitAlgorithm(t *testing.T) {
+	h, _, stub := newTrainingAPI(t)
+	body := `{"dataset":"customers","target":"churned","algorithm":"xgboost","preset":"best"}`
+	w := do(h.TrainModel, editorA, http.MethodPost, "/x", strings.NewReader(body), map[string]string{"vhost": "tenant-a", "name": "churn"})
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "preset") {
+		t.Errorf("train = %d %s", w.Code, w.Body)
+	}
+	if stub.trained != "" {
+		t.Errorf("the worker trained: %s", stub.trained)
+	}
 }

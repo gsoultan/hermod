@@ -69,7 +69,7 @@ func ValidateRetrainPolicy(p storage.MLRetrainPolicy) error {
 	}
 	// The spec is a training's, device and custom script included; whether
 	// their pools exist is checked when it trains, as for a training by hand.
-	if err := checkDevice(p.Spec); err != nil {
+	if err := checkSpec(p.Spec); err != nil {
 		return err
 	}
 	return GoLive(p.GoLive).Validate()

@@ -32,7 +32,7 @@ func TestARetrainPolicyRoundTripsAndSurvivesAnEdit(t *testing.T) {
 	minScore := 0.8
 	policy := &storage.MLRetrainPolicy{
 		Schedule: "0 3 * * *", NewRows: 500,
-		Spec:      worker.TrainSpec{Dataset: "customers", Target: "churned", Features: []string{"age"}, Algorithm: "xgboost"},
+		Spec:      worker.TrainSpec{Dataset: "customers", Target: "churned", Features: []string{"age"}, Algorithm: "auto", Preset: "best"},
 		GoLive:    storage.MLGoLive{Mode: "if", Metric: "f1", Min: &minScore},
 		UpdatedBy: "ada",
 	}
@@ -55,7 +55,7 @@ func TestARetrainPolicyRoundTripsAndSurvivesAnEdit(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got.Retrain == nil || got.Retrain.Schedule != "0 3 * * *" || got.Retrain.NewRows != 500 ||
-		got.Retrain.Spec.Target != "churned" || got.Retrain.Spec.Algorithm != "xgboost" ||
+		got.Retrain.Spec.Target != "churned" || got.Retrain.Spec.Algorithm != "auto" || got.Retrain.Spec.Preset != "best" ||
 		got.Retrain.GoLive.Min == nil || *got.Retrain.GoLive.Min != 0.8 || got.Retrain.GoLive.Metric != "f1" {
 		t.Errorf("policy after an edit = %+v", got.Retrain)
 	}

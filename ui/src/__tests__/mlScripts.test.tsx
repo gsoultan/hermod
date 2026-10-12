@@ -102,8 +102,11 @@ function renderPage(role = 'Editor') {
   )
 }
 
+// Hidden inputs count: jsdom never ends the Advanced section's opening
+// transition, so what it holds stays aria-hidden there although a person sees it.
 async function pick(user: ReturnType<typeof userEvent.setup>, scope: HTMLElement, label: RegExp, option: string) {
-  const input = within(scope).queryByRole('combobox', { name: label }) ?? within(scope).getByRole('textbox', { name: label })
+  const input = within(scope).queryByRole('combobox', { name: label, hidden: true })
+    ?? within(scope).getByRole('textbox', { name: label, hidden: true })
   await user.click(input)
   await waitFor(() => expect(document.getElementById(input.getAttribute('aria-controls') ?? '')).toBeTruthy())
   const list = document.getElementById(input.getAttribute('aria-controls') as string) as HTMLElement
@@ -112,7 +115,8 @@ async function pick(user: ReturnType<typeof userEvent.setup>, scope: HTMLElement
 
 /** The options a Select offers, by their visible text. */
 async function optionsOf(user: ReturnType<typeof userEvent.setup>, scope: HTMLElement, label: RegExp) {
-  const input = within(scope).queryByRole('combobox', { name: label }) ?? within(scope).getByRole('textbox', { name: label })
+  const input = within(scope).queryByRole('combobox', { name: label, hidden: true })
+    ?? within(scope).getByRole('textbox', { name: label, hidden: true })
   await user.click(input)
   await waitFor(() => expect(document.getElementById(input.getAttribute('aria-controls') ?? '')).toBeTruthy())
   const list = document.getElementById(input.getAttribute('aria-controls') as string) as HTMLElement
@@ -121,13 +125,24 @@ async function optionsOf(user: ReturnType<typeof userEvent.setup>, scope: HTMLEl
   return names
 }
 
+/** Opens the Train dialog and walks it to "How careful", with Advanced open. */
 async function openTrain(user: ReturnType<typeof userEvent.setup>) {
   await user.click(await screen.findByRole('button', { name: /train a model/i }))
   const dialog = await screen.findByRole('dialog')
   await user.type(within(dialog).getByRole('textbox', { name: /model name/i }), 'churn')
   await pick(user, dialog, /^dataset/i, 'customers')
+  await user.click(within(dialog).getByRole('button', { name: /^next$/i }))
   await pick(user, dialog, /column to predict/i, 'churned')
+  await user.click(within(dialog).getByRole('button', { name: /^next$/i }))
+  await user.click(within(dialog).getByRole('button', { name: /advanced/i }))
+  await within(dialog).findAllByLabelText(/^algorithm/i)
   return dialog
+}
+
+/** From "How careful" to the Train step, and trains. */
+async function trainNow(user: ReturnType<typeof userEvent.setup>, dialog: HTMLElement) {
+  await user.click(within(dialog).getByRole('button', { name: /^next$/i }))
+  await user.click(within(dialog).getByRole('button', { name: /^train$/i }))
 }
 
 describe('Custom training scripts on the Models page', () => {
@@ -138,8 +153,8 @@ describe('Custom training scripts on the Models page', () => {
     const dialog = await openTrain(user)
     expect(screen.queryByRole('tab', { name: /scripts/i })).not.toBeInTheDocument()
     expect((await optionsOf(user, dialog, /^algorithm/i)).join('|')).not.toMatch(/custom/i)
-    expect(within(dialog).queryByRole('textbox', { name: /^device/i })).not.toBeInTheDocument()
-    expect(within(dialog).queryByRole('combobox', { name: /^device/i })).not.toBeInTheDocument()
+    expect(within(dialog).queryByRole('textbox', { name: /^device/i, hidden: true })).not.toBeInTheDocument()
+    expect(within(dialog).queryByRole('combobox', { name: /^device/i, hidden: true })).not.toBeInTheDocument()
   })
 
   it('lets an Administrator save a new script and delete one', async () => {
@@ -186,7 +201,7 @@ describe('Custom training scripts on the Models page', () => {
     const user = userEvent.setup()
     const dialog = await openTrain(user)
     await pick(user, dialog, /^algorithm/i, 'Script: tabnet')
-    await user.click(within(dialog).getByRole('button', { name: /^train$/i }))
+    await trainNow(user, dialog)
     await waitFor(() => expect(writes.find((w) => w.method === 'TRAIN')).toBeTruthy())
     expect(writes.find((w) => w.method === 'TRAIN')!.body).toMatchObject({ algorithm: 'custom:tabnet' })
     expect(writes.find((w) => w.method === 'TRAIN')!.body.device).toBeUndefined()
@@ -208,7 +223,7 @@ describe('GPU pool', () => {
     const user = userEvent.setup()
     const dialog = await openTrain(user)
     await pick(user, dialog, /^device/i, 'GPU')
-    await user.click(within(dialog).getByRole('button', { name: /^train$/i }))
+    await trainNow(user, dialog)
     await waitFor(() => expect(writes.find((w) => w.method === 'TRAIN')).toBeTruthy())
     expect(writes.find((w) => w.method === 'TRAIN')!.body).toMatchObject({ device: 'gpu', algorithm: 'auto' })
   })
@@ -279,6 +294,7 @@ describe('Train Model node', () => {
       </MantineProvider>,
     )
     const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: /advanced/i }))
     // The device picker waits for the worker status.
     await screen.findByText(/^Device/)
     await pick(user, document.body, /^device/i, 'GPU')
@@ -286,7 +302,7 @@ describe('Train Model node', () => {
     // A script runs on its own pool, so picking one drops the device.
     await pick(user, document.body, /^algorithm/i, 'Script: tabnet')
     await waitFor(() => expect(last).toMatchObject({ algorithm: 'custom:tabnet', device: '' }))
-    expect(screen.queryByRole('textbox', { name: /^device/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: /^device/i, hidden: true })).not.toBeInTheDocument()
   })
 
   it('offers neither when the server does not', async () => {
@@ -302,9 +318,10 @@ describe('Train Model node', () => {
       </MantineProvider>,
     )
     const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: /advanced/i }))
     await screen.findByText(/^Algorithm/)
     expect((await optionsOf(user, document.body, /^algorithm/i)).join('|')).not.toMatch(/script/i)
-    expect(screen.queryByRole('textbox', { name: /^device/i })).not.toBeInTheDocument()
-    expect(screen.queryByRole('combobox', { name: /^device/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: /^device/i, hidden: true })).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: /^device/i, hidden: true })).not.toBeInTheDocument()
   })
 })

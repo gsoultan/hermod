@@ -1,0 +1,349 @@
+[
+ {
+  "predictions": [
+   {
+    "label": "no",
+    "probability": 0.7799999713897705
+   },
+   {
+    "label": "no",
+    "probability": 0.5200002193450928
+   },
+   {
+    "label": "no",
+    "probability": 0.8799999952316284
+   },
+   {
+    "label": "yes",
+    "probability": 0.9799993634223938
+   },
+   {
+    "label": "no",
+    "probability": 0.5400002002716064
+   },
+   {
+    "label": "yes",
+    "probability": 0.7999995350837708
+   },
+   {
+    "label": "no",
+    "probability": 0.5200002193450928
+   },
+   {
+    "label": "yes",
+    "probability": 0.9999993443489075
+   },
+   {
+    "label": "no",
+    "probability": 0.7799999713897705
+   },
+   {
+    "label": "no",
+    "probability": 0.5800001621246338
+   },
+   {
+    "label": "yes",
+    "probability": 0.9999993443489075
+   },
+   {
+    "label": "no",
+    "probability": 0.8799999952316284
+   },
+   {
+    "label": "yes",
+    "probability": 0.8299995064735413
+   },
+   {
+    "label": "yes",
+    "probability": 0.7199996113777161
+   },
+   {
+    "label": "no",
+    "probability": 0.6400001049041748
+   },
+   {
+    "label": "yes",
+    "probability": 0.5599997639656067
+   },
+   {
+    "label": "no",
+    "probability": 0.7699999809265137
+   },
+   {
+    "label": "yes",
+    "probability": 0.5899997353553772
+   },
+   {
+    "label": "no",
+    "probability": 0.6700000762939453
+   },
+   {
+    "label": "yes",
+    "probability": 0.9799993634223938
+   },
+   {
+    "label": "yes",
+    "probability": 0.9999993443489075
+   },
+   {
+    "label": "yes",
+    "probability": 0.7399995923042297
+   },
+   {
+    "label": "no",
+    "probability": 0.8799999952316284
+   },
+   {
+    "label": "no",
+    "probability": 0.8799999952316284
+   },
+   {
+    "label": "yes",
+    "probability": 0.9999993443489075
+   }
+  ],
+  "rows": [
+   {
+    "city": "Tromso",
+    "flag": true,
+    "id": 0,
+    "x1": -0.768,
+    "x2": 2
+   },
+   {
+    "city": "Oslo",
+    "flag": true,
+    "id": 1,
+    "x1": -2.013,
+    "x2": 11
+   },
+   {
+    "city": "Tromso",
+    "flag": false,
+    "id": 2,
+    "x1": -0.935,
+    "x2": 9
+   },
+   {
+    "city": "Oslo",
+    "flag": true,
+    "id": 3,
+    "x1": 3.507,
+    "x2": 6
+   },
+   {
+    "city": "Bergen",
+    "flag": false,
+    "id": 4,
+    "x1": 0.906,
+    "x2": 2
+   },
+   {
+    "city": "Oslo",
+    "flag": true,
+    "id": 5,
+    "x1": 2.892,
+    "x2": 2
+   },
+   {
+    "city": "Bergen",
+    "flag": true,
+    "id": 6,
+    "x1": -2.568,
+    "x2": 8
+   },
+   {
+    "city": "Oslo",
+    "flag": true,
+    "id": 7,
+    "x1": 1.733,
+    "x2": 9
+   },
+   {
+    "city": "Tromso",
+    "flag": true,
+    "id": 8,
+    "x1": -0.779,
+    "x2": 3
+   },
+   {
+    "city": "Oslo",
+    "flag": true,
+    "id": 9,
+    "x1": -2.37,
+    "x2": 7
+   },
+   {
+    "city": "Bergen",
+    "flag": false,
+    "id": 10,
+    "x1": 3.202,
+    "x2": 8
+   },
+   {
+    "city": "Tromso",
+    "flag": true,
+    "id": 11,
+    "x1": -1.14,
+    "x2": 2
+   },
+   {
+    "city": "Oslo",
+    "flag": false,
+    "id": 12,
+    "x1": 2.335,
+    "x2": 8
+   },
+   {
+    "city": "Oslo",
+    "flag": true,
+    "id": 13,
+    "x1": 1.282,
+    "x2": -1
+   },
+   {
+    "city": "Oslo",
+    "flag": false,
+    "id": 14,
+    "x1": -0.21,
+    "x2": 5
+   },
+   {
+    "city": "Bergen",
+    "flag": false,
+    "id": 15,
+    "x1": 1.056,
+    "x2": 1
+   },
+   {
+    "city": "Tromso",
+    "flag": true,
+    "id": 16,
+    "x1": -0.952,
+    "x2": 1
+   },
+   {
+    "city": "Tromso",
+    "flag": true,
+    "id": 17,
+    "x1": 3.2,
+    "x2": -1
+   },
+   {
+    "city": "Oslo",
+    "flag": true,
+    "id": 18,
+    "x1": -1.939,
+    "x2": 5
+   },
+   {
+    "city": "Oslo",
+    "flag": false,
+    "id": 19,
+    "x1": 1.56,
+    "x2": -1
+   },
+   {
+    "city": "Tromso",
+    "flag": true,
+    "id": 20,
+    "x1": 1.747,
+    "x2": 11
+   },
+   {
+    "city": "Oslo",
+    "flag": true,
+    "id": 21,
+    "x1": 3.53,
+    "x2": 0
+   },
+   {
+    "city": "Bergen",
+    "flag": true,
+    "id": 22,
+    "x1": -1.632,
+    "x2": 1
+   },
+   {
+    "city": "Bergen",
+    "flag": false,
+    "id": 23,
+    "x1": -2.339,
+    "x2": 7
+   },
+   {
+    "city": "Oslo",
+    "flag": false,
+    "id": 24,
+    "x1": 2.384,
+    "x2": 3
+   }
+  ]
+ },
+ {
+  "predictions": [
+   {
+    "label": "yes",
+    "probability": 0.7699995636940002
+   },
+   {
+    "label": "yes",
+    "probability": 0.7799995541572571
+   },
+   {
+    "label": "no",
+    "probability": 0.9900000095367432
+   },
+   {
+    "label": "no",
+    "probability": 0.75
+   },
+   {
+    "label": "no",
+    "probability": 0.6600000858306885
+   },
+   {
+    "label": "yes",
+    "probability": 0.8799994587898254
+   }
+  ],
+  "rows": [
+   {
+    "city": "Oslo",
+    "flag": true,
+    "x1": null,
+    "x2": 3
+   },
+   {
+    "city": null,
+    "flag": false,
+    "x1": "1.25",
+    "x2": "7"
+   },
+   {
+    "city": "Paris",
+    "flag": 1,
+    "x1": " -2.5e0 ",
+    "x2": 0
+   },
+   {
+    "city": "",
+    "flag": null,
+    "x1": 0.1,
+    "x2": null
+   },
+   {
+    "city": 7,
+    "flag": "0",
+    "x2": 4.5
+   },
+   {
+    "city": true,
+    "extra": "ignored",
+    "flag": 0,
+    "x1": 2,
+    "x2": 9
+   }
+  ]
+ }
+]

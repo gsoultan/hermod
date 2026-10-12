@@ -10,9 +10,19 @@ function sampleRow(model: MLModel): string {
   return JSON.stringify(row, null, 2)
 }
 
-/** Sends one row to the model and shows what it answered. */
-export function ModelTestModal({ vhost, model, onClose }: { vhost: string; model: MLModel; onClose: () => void }) {
-  const [row, setRow] = useState(() => sampleRow(model))
+/**
+ * Sends one row to the model and shows what it answered. `initialRow`, such as
+ * a row of the dataset it was trained on, replaces the row of zeros to start from.
+ */
+export function ModelTestModal({
+  vhost, model, initialRow, onClose,
+}: {
+  vhost: string
+  model: MLModel
+  initialRow?: Record<string, unknown>
+  onClose: () => void
+}) {
+  const [row, setRow] = useState(() => (initialRow ? JSON.stringify(initialRow, null, 2) : sampleRow(model)))
   const [parseError, setParseError] = useState<string | null>(null)
   const run = useMutation({ mutationFn: (instance: Record<string, unknown>) => predict(vhost, model.name, [instance]) })
 

@@ -61,7 +61,7 @@ export function DeepParamsFields({
   const d = DEFAULT_TRAIN_PARAMS
   return (
     <Stack gap="xs">
-      <Divider label="Advanced" labelPosition="left" />
+      <Divider label="Neural network" labelPosition="left" />
       <TextInput label="Hidden layers" description="Units per layer, first to last." placeholder={d.hidden_layers}
         value={value.hiddenLayers ?? ''} error={errors.hiddenLayers}
         onChange={(e) => onChange({ hiddenLayers: e.currentTarget.value })} />

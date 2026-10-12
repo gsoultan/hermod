@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  ActionIcon, Alert, Button, Group, Loader, Modal, NumberInput, Paper, ScrollArea, Select, Stack, Table, Text,
+  ActionIcon, Alert, Button, Group, Loader, Modal, NumberInput, Paper, Select, Stack, Table, Text,
   TextInput, Textarea, Title, Tooltip,
 } from '@mantine/core'
 import { IconAlertCircle, IconDatabase, IconEye, IconTable, IconTrash, IconUpload } from '@tabler/icons-react'
@@ -11,6 +11,7 @@ import {
   DATASET_NAME_PATTERN, datasetFromQuery, datasetsKey, deleteDataset, listSQLSources, uploadDataset, useDataset,
   useVHostDatasets,
 } from '@/lib/mlModels'
+import { DatasetPreview } from './datasetPreview'
 
 type Dialog = { kind: 'upload' } | { kind: 'query' } | { kind: 'view'; name: string }
 
@@ -222,16 +223,7 @@ function SampleModal({ vhost, name, onClose }: { vhost: string; name: string; on
       ) : (
         <Stack gap="xs">
           <Text size="sm" c="dimmed">{data?.rows.toLocaleString()} rows; {cols.map((c) => `${c.name} (${c.type})`).join(', ')}</Text>
-          <ScrollArea>
-            <Table striped fz="xs" withTableBorder>
-              <Table.Thead><Table.Tr>{cols.map((c) => <Table.Th key={c.name}>{c.name}</Table.Th>)}</Table.Tr></Table.Thead>
-              <Table.Tbody>
-                {(data?.sample ?? []).map((row, i) => (
-                  <Table.Tr key={i}>{cols.map((c) => <Table.Td key={c.name}>{String(row[c.name] ?? '')}</Table.Td>)}</Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-          </ScrollArea>
+          {data && <DatasetPreview info={data} />}
         </Stack>
       )}
     </Modal>

@@ -60,6 +60,7 @@ Errors are always `{"error": "<sentence>"}` with 400, 401, 404, 413, 429 or 500.
 | GET | `/v1/datasets/{vhost}/{name}` | Dataset info plus a 20-row sample |
 | DELETE | `/v1/datasets/{vhost}/{name}` | Delete a dataset |
 | POST | `/v1/models/{vhost}/{name}/train` | Train a new version (synchronous) |
+| POST | `/v1/train-check/{vhost}` | Pre-flight check of a train body: task, target kind, column roles, warnings; trains nothing (`hermod_ml/precheck.py`) |
 | POST | `/v1/models/{vhost}/{name}/train-custom` | Train with a custom script (`script: {name, sha256, source}`); 403 unless `HERMOD_ML_CUSTOM_SCRIPTS` |
 | GET | `/v1/datasets/{vhost}/{name}/export` | The dataset as Parquet, to copy it to a pool |
 | PUT | `/v1/datasets/{vhost}/{name}/import` | Replace a dataset with Parquet from `export` |
@@ -74,8 +75,11 @@ Errors are always `{"error": "<sentence>"}` with 400, 401, 404, 413, 429 or 500.
 
 | GET | `/v1/capabilities` | `{"tasks", "algorithms", "unavailable": {algorithm: reason}}`: what this image can train |
 
-Algorithms: `random_forest` (default), `gradient_boosting`, `linear` and
-`xgboost` (200 trees, depth 6, `hist`; exported to ONNX via `onnxmltools`).
+Algorithms: `auto` (default), `random_forest`, `extra_trees`,
+`hist_gradient_boosting`, `gradient_boosting`, `linear` and `xgboost` (200
+trees, depth 6, `hist`; exported to ONNX via `onnxmltools`). `auto` picks one
+by cross-validation on the training split (`hermod_ml/selection.py`); the
+request's `preset` (`quick`, `balanced`, `best`) sets how hard it tries.
 The image uses `xgboost-cpu`, which has the same API as `xgboost` without
 the CUDA/NCCL dependency.
 

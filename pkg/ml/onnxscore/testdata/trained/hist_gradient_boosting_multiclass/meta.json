@@ -1,0 +1,170 @@
+{
+  "algorithm": "hist_gradient_boosting",
+  "baseline": {
+    "accuracy": 0.5,
+    "balanced_accuracy": 0.3333333333333333,
+    "f1": 0.2222222222222222,
+    "score": 0.5
+  },
+  "created_at": "2026-01-01T00:00:00Z",
+  "dataset": "multiclass",
+  "feature_stats": {
+    "city": {
+      "count": 32,
+      "kind": "categorical",
+      "null_fraction": 0.0625,
+      "other_fraction": 0.0,
+      "top": [
+        {
+          "fraction": 0.43333333333333335,
+          "value": "Bergen"
+        },
+        {
+          "fraction": 0.3,
+          "value": "Tromso"
+        },
+        {
+          "fraction": 0.26666666666666666,
+          "value": "Oslo"
+        }
+      ]
+    },
+    "flag": {
+      "count": 32,
+      "edges": [
+        0.0,
+        1.0
+      ],
+      "fractions": [
+        0.53125,
+        0.46875,
+        0.0
+      ],
+      "kind": "numeric",
+      "max": 1.0,
+      "mean": 0.46875,
+      "min": 0.0,
+      "null_fraction": 0.0,
+      "std": 0.4990224819584785
+    },
+    "x1": {
+      "count": 32,
+      "edges": [
+        -1.884000015258789,
+        -1.3959999799728393,
+        -0.6760000109672546,
+        0.13799999654293071,
+        0.4399999976158142,
+        0.5340000152587892,
+        0.6620000004768373,
+        1.436000037193299,
+        2.13799991607666
+      ],
+      "fractions": [
+        0.10344827586206896,
+        0.10344827586206896,
+        0.10344827586206896,
+        0.10344827586206896,
+        0.10344827586206896,
+        0.06896551724137931,
+        0.10344827586206896,
+        0.10344827586206896,
+        0.10344827586206896,
+        0.10344827586206896
+      ],
+      "kind": "numeric",
+      "max": 2.75,
+      "mean": 0.11413793856727666,
+      "min": -2.7799999713897705,
+      "null_fraction": 0.09375,
+      "std": 1.4672129692410405
+    },
+    "x2": {
+      "count": 32,
+      "edges": [
+        1.1,
+        2.2,
+        3.3000000000000007,
+        4.0,
+        5.0,
+        6.700000000000003,
+        7.800000000000001,
+        8.900000000000002
+      ],
+      "fractions": [
+        0.125,
+        0.09375,
+        0.09375,
+        0.15625,
+        0.15625,
+        0.0625,
+        0.09375,
+        0.09375,
+        0.125
+      ],
+      "kind": "numeric",
+      "max": 9.0,
+      "mean": 4.8125,
+      "min": 0.0,
+      "null_fraction": 0.0,
+      "std": 2.7321866242992994
+    }
+  },
+  "feature_types": {
+    "city": "string",
+    "flag": "number",
+    "x1": "number",
+    "x2": "number"
+  },
+  "features": [
+    "x1",
+    "x2",
+    "city",
+    "flag"
+  ],
+  "fill": {
+    "flag": 0.0,
+    "x1": 0.4399999976158142,
+    "x2": 5.0
+  },
+  "importance": [
+    {
+      "feature": "x1",
+      "weight": 0.48148148148148157
+    },
+    {
+      "feature": "flag",
+      "weight": 0.29629629629629634
+    },
+    {
+      "feature": "x2",
+      "weight": 0.22222222222222218
+    },
+    {
+      "feature": "city",
+      "weight": 0.0
+    }
+  ],
+  "labels": [
+    0,
+    1,
+    2
+  ],
+  "metrics": {
+    "accuracy": 0.625,
+    "balanced_accuracy": 0.6666666666666666,
+    "f1": 0.6238095238095238,
+    "score": 0.625
+  },
+  "model": "hist_gradient_boosting_multiclass",
+  "rows": {
+    "test": 8,
+    "train": 32
+  },
+  "target": "y",
+  "task": "classification",
+  "version": "1",
+  "warnings": [
+    "Only 40 rows have a value in 'y'. A model learned from so few is rough; more rows give better results."
+  ]
+}

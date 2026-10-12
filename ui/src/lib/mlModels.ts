@@ -228,8 +228,11 @@ export interface DatasetInfo {
 export type TrainTask = 'auto' | 'classification' | 'regression'
 /** A built-in algorithm, or `custom:<script>` for one of the vhost's training scripts. */
 export type TrainAlgorithm =
-  | 'auto' | 'random_forest' | 'gradient_boosting' | 'linear' | 'xgboost' | 'pytorch_mlp' | 'keras_mlp' | `custom:${string}`
+  | 'auto' | 'random_forest' | 'gradient_boosting' | 'extra_trees' | 'hist_gradient_boosting' | 'linear' | 'xgboost'
+  | 'pytorch_mlp' | 'keras_mlp' | `custom:${string}`
 export type TrainDevice = 'cpu' | 'gpu'
+/** How much effort "auto" spends trying algorithms; the worker refuses it with any other algorithm. */
+export type TrainPreset = 'quick' | 'balanced' | 'best'
 
 /** The neural-network algorithms: they take TrainParams and need the worker's "-dl" image. */
 export const DEEP_ALGORITHMS: readonly TrainAlgorithm[] = ['pytorch_mlp', 'keras_mlp']
@@ -278,7 +281,27 @@ export interface TrainSpec {
   device?: TrainDevice
   /** Only for pytorch_mlp and keras_mlp; the worker refuses it otherwise. */
   params?: TrainParams
+  /** Only with algorithm "auto"; the server takes "balanced" when it is absent. */
+  preset?: TrainPreset
   go_live: GoLive
+}
+
+/** One algorithm "auto" tried, scored by cross-validation on the training split. */
+export interface LeaderboardEntry {
+  algorithm: string
+  score: number
+  /** "balanced_accuracy" to classify, "r2" for numbers. */
+  metric: string
+  folds: number
+  seconds: number
+  /** The one the version was trained with. */
+  chosen: boolean
+}
+
+/** How much a feature mattered on the held-out rows; the weights sum to 1. */
+export interface FeatureImportance {
+  feature: string
+  weight: number
 }
 
 export interface ModelVersion {
@@ -296,6 +319,16 @@ export interface ModelVersion {
   script?: { name: string; sha256: string }
   /** Per-feature statistics of the training split, the baseline drift is measured against. */
   feature_stats?: Record<string, FeatureStats>
+  /** The quality an "auto" training used. Absent from older servers, as are the fields below. */
+  preset?: TrainPreset
+  /** What "auto" tried, best first. */
+  leaderboard?: LeaderboardEntry[]
+  /** The top features by importance, most important first. */
+  importance?: FeatureImportance[]
+  /** The metrics of a model that always guesses the most common class, or the mean. */
+  baseline?: Record<string, number>
+  /** Notes about the data found while training, in plain words. */
+  warnings?: string[]
 }
 
 /** One feature of a training split (pkg/ml/worker FeatureStats). */
@@ -366,14 +399,37 @@ export const TASK_OPTIONS: Array<{ value: TrainTask; label: string }> = [
 ]
 
 export const ALGORITHM_OPTIONS: Array<{ value: TrainAlgorithm; label: string }> = [
-  { value: 'auto', label: 'Auto (random forest)' },
+  { value: 'auto', label: 'Auto (tries several and keeps the best)' },
   { value: 'random_forest', label: 'Random forest' },
   { value: 'gradient_boosting', label: 'Gradient boosting' },
+  { value: 'extra_trees', label: 'Extra trees' },
+  { value: 'hist_gradient_boosting', label: 'Histogram gradient boosting' },
   { value: 'linear', label: 'Linear / logistic regression' },
   { value: 'xgboost', label: 'XGBoost' },
   { value: 'pytorch_mlp', label: 'PyTorch MLP (neural network)' },
   { value: 'keras_mlp', label: 'Keras MLP (neural network)' },
 ]
+
+/** An algorithm's name for people: its option label, or the name itself. */
+export function algorithmLabel(algorithm: string): string {
+  if (algorithm === 'auto') return 'Auto'
+  return ALGORITHM_OPTIONS.find((o) => o.value === algorithm)?.label ?? algorithm
+}
+
+/** The qualities "auto" trains at, with what each costs, for the pickers. */
+export const PRESET_OPTIONS: Array<{ value: TrainPreset; label: string; description: string; time: string }> = [
+  { value: 'quick', label: 'Quick', description: 'Tries one or two fast methods. Good for a first look.', time: 'About a minute' },
+  {
+    value: 'balanced', label: 'Balanced', description: 'Tries four methods, checks each three times, and keeps the best.',
+    time: 'A few minutes',
+  },
+  {
+    value: 'best', label: 'Best quality', description: 'Tries every method it has and tunes them. Worth it before going live.',
+    time: '10 minutes or more',
+  },
+]
+
+export const DEFAULT_PRESET: TrainPreset = 'balanced'
 
 export const DEVICE_OPTIONS: Array<{ value: TrainDevice; label: string }> = [
   { value: 'cpu', label: 'CPU' },
@@ -460,6 +516,47 @@ export async function trainModel(vhost: string, name: string, spec: TrainSpec): 
     silent: true,
   })
   return (await res.json()) as TrainResult
+}
+
+/** What the pre-flight check says about a target column (POST .../ml/train-check). */
+export type TargetKind = 'yes_no' | 'category' | 'number'
+export type ColumnRole = 'use' | 'id_like' | 'constant' | 'mostly_empty' | 'leak_suspect' | 'target'
+
+/** The roles of columns that are left out of training unless a person puts them back. */
+export const LEAVE_OUT_ROLES: readonly ColumnRole[] = ['id_like', 'constant', 'mostly_empty', 'leak_suspect']
+
+export interface TrainCheck {
+  task: 'classification' | 'regression'
+  target_kind: TargetKind
+  /** Only to classify. */
+  classes?: number
+  rows: number
+  usable_rows: number
+  columns: Array<{ name: string; type: string; role: ColumnRole; note?: string }>
+  warnings: Array<{ code: string; message: string; column?: string }>
+  /** False only when training would be refused; the warnings say why. */
+  ok: boolean
+}
+
+/**
+ * Checks a training before it runs: reads the dataset and trains nothing.
+ * Answers null from a server older than the check, which has no such route.
+ */
+export async function trainCheck(vhost: string, spec: TrainSpec, signal?: AbortSignal): Promise<TrainCheck | null> {
+  try {
+    const res = await apiFetch(`/api/vhosts/${encodeURIComponent(vhost)}/ml/train-check`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(spec),
+      signal,
+      silent: true,
+    })
+    return (await res.json()) as TrainCheck
+  } catch (error) {
+    const status = (error as { status?: number }).status
+    if (status === 404 || status === 405 || status === 501) return null
+    throw error
+  }
 }
 
 export async function listVersions(vhost: string, name: string, signal?: AbortSignal): Promise<ModelVersion[]> {
