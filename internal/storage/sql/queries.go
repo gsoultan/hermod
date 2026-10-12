@@ -29,6 +29,7 @@ const (
 	QueryInitVHostSecretsTable       = "InitVHostSecretsTable"
 	QueryInitMLModelsTable           = "InitMLModelsTable"
 	QueryInitMLScriptsTable          = "InitMLScriptsTable"
+	QueryInitMLBlobsTable            = "InitMLBlobsTable"
 	QueryInitMLQuotasTable           = "InitMLQuotasTable"
 	QueryInitMLPredictionLogsTable   = "InitMLPredictionLogsTable"
 	QueryInitMLSchedulesTable        = "InitMLSchedulesTable"
@@ -162,6 +163,16 @@ const (
 	QueryInsertMLScript          = "InsertMLScript"
 	QueryDeleteMLScript          = "DeleteMLScript"
 	QueryDeleteMLScriptsOfVHost  = "DeleteMLScriptsOfVHost"
+
+	// The built-in ML engine's blobs
+	QueryInsertMLBlobChunk = "InsertMLBlobChunk"
+	QueryDeleteMLBlob      = "DeleteMLBlob"
+	QueryCountMLBlob       = "CountMLBlob"
+	QueryGetMLBlob         = "GetMLBlob"
+	QueryListMLBlobs       = "ListMLBlobs"
+	QueryListMLBlobsData   = "ListMLBlobsData"
+	QueryCountMLBlobs      = "CountMLBlobs"
+	QueryDeleteMLBlobs     = "DeleteMLBlobs"
 
 	// ML jobs
 	QueryInsertMLJob             = "InsertMLJob"
@@ -408,6 +419,21 @@ var commonQueries = map[string]string{
 			description TEXT,
 			created_by TEXT,
 			created_at TIMESTAMP
+		)`,
+	// The built-in ML engine's datasets and model versions
+	// (storage.MLBlobStore), one row per chunk of at most
+	// storage.MLBlobChunkBytes. id is vhost + "/" + key + "#" + chunk; every
+	// chunk of a blob carries how many there are and the blob's size, and
+	// listings read chunk 0.
+	QueryInitMLBlobsTable: `CREATE TABLE IF NOT EXISTS ml_blobs (
+			id TEXT PRIMARY KEY,
+			vhost TEXT NOT NULL,
+			blob_key TEXT NOT NULL,
+			chunk INTEGER NOT NULL,
+			chunks INTEGER NOT NULL,
+			size BIGINT NOT NULL,
+			data BLOB,
+			updated_at TIMESTAMP NOT NULL
 		)`,
 	// One row per asynchronous ML job. request and result are JSON; a result
 	// too large for the row goes to ml_job_results and result_ref says so.
@@ -858,6 +884,15 @@ var commonQueries = map[string]string{
 	QueryInsertMLScript:         "INSERT INTO ml_scripts (id, vhost, name, version, sha256, source, description, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 	QueryDeleteMLScript:         "DELETE FROM ml_scripts WHERE vhost = ? AND name = ?",
 	QueryDeleteMLScriptsOfVHost: "DELETE FROM ml_scripts WHERE vhost = ?",
+
+	QueryInsertMLBlobChunk: "INSERT INTO ml_blobs (id, vhost, blob_key, chunk, chunks, size, data, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryDeleteMLBlob:      "DELETE FROM ml_blobs WHERE vhost = ? AND blob_key = ?",
+	QueryCountMLBlob:       "SELECT COUNT(*) FROM ml_blobs WHERE vhost = ? AND blob_key = ? AND chunk = 0",
+	QueryGetMLBlob:         "SELECT chunk, chunks, data FROM ml_blobs WHERE vhost = ? AND blob_key = ? ORDER BY chunk",
+	QueryListMLBlobs:       "SELECT blob_key, size, updated_at FROM ml_blobs WHERE vhost = ? AND chunk = 0 AND blob_key LIKE ? ESCAPE '!'",
+	QueryListMLBlobsData:   "SELECT blob_key, chunk, chunks, size, updated_at, data FROM ml_blobs WHERE vhost = ? AND blob_key LIKE ? ESCAPE '!' ORDER BY blob_key, chunk",
+	QueryCountMLBlobs:      "SELECT COUNT(*) FROM ml_blobs WHERE vhost = ? AND chunk = 0 AND blob_key LIKE ? ESCAPE '!'",
+	QueryDeleteMLBlobs:     "DELETE FROM ml_blobs WHERE vhost = ? AND blob_key LIKE ? ESCAPE '!'",
 
 	// A job is claimable when it is queued, or running under a claim that
 	// expired: the Hermod running it stopped. The candidates are read first and

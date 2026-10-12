@@ -30,7 +30,20 @@ import (
 // is computed from the DDL itself, so changing the schema fails this test and
 // forces the question to be asked out loud.
 //
-// Last moved by: adding the ml_schedules table (scheduled dataset refreshes
+// Last moved by: adding the ml_blobs table, the built-in ML engine's datasets
+// and model versions, chunked. currentSchemaVersion was left alone
+// deliberately, for the reasons the ml_scripts note below gives: it is a
+// standalone table no earlier code path reads or writes, and nothing existing
+// changed shape. The previous release has no built-in engine, so a rollback
+// costs the models it trained — they cannot be scored or retrained, and their
+// datasets are not listed — until the newer binary returns and finds them
+// intact. As with the other ML tables, the previous release's DeleteVHost
+// does not remove a vhost's blobs, so a vhost deleted during a rollback leaves
+// them for a later vhost of the same name. Unlike the others they hold the
+// old vhost's dataset rows, so an Administrator who deletes a vhost during a
+// rollback should delete its datasets and models first.
+//
+// The note before that: adding the ml_schedules table (scheduled dataset refreshes
 // and recommendation builds, one row each, claimed across servers like a
 // training) and the ml_feedback table (what happened to recommended items).
 // currentSchemaVersion was left alone deliberately, for the reasons the
@@ -209,7 +222,7 @@ import (
 // unpopulated — a gap in a chart that fills itself in when the newer binary
 // returns — so bumping the version would buy nothing and cost a refused
 // start-up during exactly the rollback it was supposed to make safe.
-const knownSchemaFingerprint = "304fa20a05f9a52d86833b4cd5858765672c65a1bc496493e08ed73d454ec078"
+const knownSchemaFingerprint = "d53d56c09173fa35cb74f7ebda2bc82fbbe7a1cc85a5c6f936ef0e5e94103a12"
 
 func TestSchemaVersionIsReconsideredWhenTheSchemaChanges(t *testing.T) {
 	if got := SchemaFingerprint(); got != knownSchemaFingerprint {

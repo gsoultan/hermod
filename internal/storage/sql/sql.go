@@ -203,6 +203,7 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		s.queries.get(QueryInitVHostSecretsTable),
 		s.queries.get(QueryInitMLModelsTable),
 		s.queries.get(QueryInitMLScriptsTable),
+		s.queries.get(QueryInitMLBlobsTable),
 		s.queries.get(QueryInitMLQuotasTable),
 		s.queries.get(QueryInitMLPredictionLogsTable),
 		s.queries.get(QueryInitMLSchedulesTable),
@@ -355,6 +356,8 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		"CREATE INDEX IF NOT EXISTS idx_sinks_name ON sinks(name)",
 		// Workers
 		"CREATE INDEX IF NOT EXISTS idx_workers_last_seen ON workers(last_seen)",
+		// The built-in ML engine reads its blobs by vhost and key prefix.
+		"CREATE INDEX IF NOT EXISTS idx_ml_blobs_key ON ml_blobs(vhost, blob_key, chunk)",
 		// Dashboard history. Every read is "this vhost, newer than X, newest
 		// first", so the composite covers the filter and the sort together and
 		// the purge sweep can range-scan the same index.
@@ -1534,6 +1537,9 @@ func (s *sqlStorage) DeleteVHost(ctx context.Context, id string) error {
 			return err
 		}
 		if err := s.DeleteMLScripts(ctx, vhost.Name); err != nil {
+			return err
+		}
+		if _, err := s.DeleteMLBlobs(ctx, vhost.Name, ""); err != nil {
 			return err
 		}
 		if err := s.DeleteMLJobs(ctx, vhost.Name); err != nil {
