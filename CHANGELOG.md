@@ -7,6 +7,45 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — Recommendation scenarios for sales teams
+
+A recommendation model can now be trained for one of five **scenarios** from
+sales lines plus optional customer, product, visit and salesman tables:
+**visits** (which customers a salesman should visit, as a day-by-day plan
+within their visits per day and working days, each day ordered by distance
+when customers have coordinates), **products** (what to offer a customer),
+**reorder** (when each customer is due to order each product), **audience**
+(who to offer a product to) and **similar** (products like a product).
+Training holds the last period back and reports scenario metrics next to
+named rules of thumb (`most_overdue`, `biggest`, `popular`); on a generated
+B2B history the visit plan's `ordered_in_period@k` was 0.44 against 0.32 to
+0.41 for them. `POST .../ml/recommend-check` reports data problems
+(few customers, short history, unmatched ids, ...) as green, amber or red
+with a fix before anything is trained. Existing recommendation models keep
+working and answer as the products scenario.
+
+`POST .../ml/models/{name}/recommend` (and the same body on
+`/api/ml/serve/{vhost}/{name}/recommend` with a serving key) answers
+`{"for": {"salesman" | "customer" | "customers" | "product"}, "period", "k",
+"rules"}` with ranked items, each with reasons in plain words ("Usually orders
+every 30 days; last order 41 days ago"), and a `recommendation_id`, which
+every recommendation answer now carries. Business rules (filter, exclude,
+boost, diversity, capacity, pin, block) are kept with the version and may be
+tightened, never loosened, per call; a loosening rule is a 400. Up to 1000
+customers per call. `respond: "async"` and `callback_url` are refused as not
+available yet.
+
+Feedback (`shown`, `accepted`, `dismissed`, `visited`, `ordered`) is posted
+per `recommendation_id` and summarised per model, with an acceptance-rate
+gauge. Datasets can refresh themselves from a database query on a cron
+schedule, and a model can build its answers for every salesman, customer or
+product into a table on a schedule (or from the new **Build recommendations**
+workflow node); both are claimed so each run happens once across servers.
+gRPC gains `InferenceService/RecommendScenario` and `recommendation_id` on
+`Recommend`; the MCP `recommend_<model>` tool and the Predict node's Recommend
+mode take scenario calls. See "Recommendation scenarios" in docs/ml.md and the
+plain-language docs/ml-recommendations-data-guide.md.
+
 ### Added — Recommendation models
 
 The ML worker trains a new kind of model, **recommendation**, from who-had-what

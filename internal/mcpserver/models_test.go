@@ -162,10 +162,18 @@ func TestNoModelSourceMeansNoModelTools(t *testing.T) {
 }
 
 // Recommend answers the popular items with the request it was given recorded.
-func (f *fakeModels) Recommend(_ context.Context, vhost, name string, req mcpserver.RecommendArgs) ([]recommend.Item, error) {
+func (f *fakeModels) Recommend(_ context.Context, vhost, name string, req mcpserver.RecommendArgs) ([]recommend.Item, string, error) {
 	f.calls = append(f.calls, vhost+"/"+name)
 	f.recs = append(f.recs, req)
-	return []recommend.Item{{Item: "sku-1", Score: 3, Reason: recommend.ReasonPopular}}, nil
+	return []recommend.Item{{Item: "sku-1", Score: 3, Reason: recommend.ReasonPopular}}, "rec_1", nil
+}
+
+// RecommendScenario answers one result for the salesman, recording the call.
+func (f *fakeModels) RecommendScenario(_ context.Context, vhost, name string, req mcpserver.RecommendArgs) (mcpserver.ScenarioAnswer, error) {
+	f.calls = append(f.calls, vhost+"/"+name)
+	f.recs = append(f.recs, req)
+	return mcpserver.ScenarioAnswer{RecommendationID: "rec_2", Results: []recommend.Result{{For: "R1",
+		Items: []recommend.Pick{{ID: "C1", Score: 1, Rank: 1, Reasons: []recommend.Reason{{Code: "overdue", Text: "Overdue"}}}}}}}, nil
 }
 
 func recs(vhost string) storage.MLModel {
@@ -189,7 +197,7 @@ func TestARecommenderIsARecommendTool(t *testing.T) {
 		t.Fatalf("tools = %v", byName)
 	}
 	props, _ := tool.InputSchema["properties"].(map[string]any)
-	for _, p := range []string{"user", "item", "k", "exclude_seen"} {
+	for _, p := range []string{"user", "item", "for", "period", "rules", "territory", "k", "exclude_seen"} {
 		if _, ok := props[p]; !ok {
 			t.Errorf("schema has no %q: %v", p, tool.InputSchema)
 		}
@@ -202,7 +210,8 @@ func TestARecommenderIsARecommendTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Model != "recs" || res.VHost != "tenant-a" || len(res.Items) != 1 || res.Items[0].Reason != recommend.ReasonPopular {
+	if res.Model != "recs" || res.VHost != "tenant-a" || len(res.Items) != 1 || res.Items[0].Reason != recommend.ReasonPopular ||
+		res.RecommendationID != "rec_1" {
 		t.Errorf("result = %+v", res)
 	}
 	got := models.recs[0]
@@ -215,6 +224,9 @@ func TestARecommenderIsARecommendTool(t *testing.T) {
 		"an object":     `[1]`,
 		"unknown field": `{"user": "1", "amount": 3}`,
 		"fractional k":  `{"item": "a", "k": 2.5}`,
+		"user and for":  `{"user": "1", "for": {"salesman": "R1"}}`,
+		"rules, no for": `{"user": "1", "rules": [{"kind": "pin", "ids": ["a"]}]}`,
+		"unknown for":   `{"for": {"region": "N"}}`,
 	} {
 		if _, err := svc.RecommendTool(t.Context(), caller, tool, json.RawMessage(args)); err == nil {
 			t.Errorf("%s: the call was not refused", name)
@@ -223,6 +235,21 @@ func TestARecommenderIsARecommendTool(t *testing.T) {
 	if len(models.calls) != 1 {
 		t.Errorf("a refused call reached the model: %v", models.calls)
 	}
+
+	res, err = svc.RecommendTool(t.Context(), caller, tool, json.RawMessage(
+		`{"for": {"salesman": "R1"}, "period": {"from": "2026-10-05"}, "k": 8, "rules": [{"kind": "capacity", "per_day": 4}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.RecommendationID != "rec_2" || len(res.Results) != 1 || res.Results[0].Items[0].Reasons[0].Code != "overdue" || res.Items != nil {
+		t.Errorf("scenario result = %+v", res)
+	}
+	sc := models.recs[1]
+	if sc.For == nil || sc.For.Salesman != "R1" || sc.Period == nil || sc.Period.From != "2026-10-05" || sc.K != 8 ||
+		len(sc.Rules) != 1 || sc.Rules[0].PerDay != 4 {
+		t.Errorf("scenario request = %+v", sc)
+	}
+	models.calls = models.calls[:1]
 	if _, err := svc.RecommendTool(t.Context(), editorOf("tenant-b"), tool, json.RawMessage(`{"user":"1"}`)); !errors.Is(err, mcpserver.ErrModelNotFound) {
 		t.Errorf("a caller without the vhost: err = %v", err)
 	}

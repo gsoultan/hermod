@@ -205,6 +205,8 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		s.queries.get(QueryInitMLScriptsTable),
 		s.queries.get(QueryInitMLQuotasTable),
 		s.queries.get(QueryInitMLPredictionLogsTable),
+		s.queries.get(QueryInitMLSchedulesTable),
+		s.queries.get(QueryInitMLFeedbackTable),
 		s.queries.get(QueryInitAIBudgetsTable),
 		s.queries.get(QueryInitAIUsageTable),
 		s.queries.get(QueryInitWorkersTable),
@@ -362,6 +364,9 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		// A model's prediction log is read newest first and purged by age,
 		// always within one model of one vhost.
 		"CREATE INDEX IF NOT EXISTS idx_ml_prediction_logs_model_ts ON ml_prediction_logs(vhost, model, timestamp DESC)",
+		// A model's feedback is counted by outcome since a day, always within
+		// one model of one vhost.
+		"CREATE INDEX IF NOT EXISTS idx_ml_feedback_model_ts ON ml_feedback(vhost, model, created_at)",
 	}
 
 	for _, q := range indexQueries {
@@ -1522,6 +1527,12 @@ func (s *sqlStorage) DeleteVHost(ctx context.Context, id string) error {
 			return err
 		}
 		if err := s.DeleteMLQuotas(ctx, vhost.Name); err != nil {
+			return err
+		}
+		if err := s.DeleteMLSchedules(ctx, vhost.Name); err != nil {
+			return err
+		}
+		if err := s.DeleteMLFeedback(ctx, vhost.Name, ""); err != nil {
 			return err
 		}
 		if err := s.DeleteAIBudgets(ctx, vhost.Name); err != nil {

@@ -130,7 +130,7 @@ func TestParseRefusesAMalformedArtifact(t *testing.T) {
 		want   string
 	}{
 		{"wrong magic", func(b *built) { b.magic = "ONNX" }, "magic"},
-		{"newer format", func(b *built) { b.version = 2 }, "format 2"},
+		{"newer format", func(b *built) { b.version = 3 }, "format 3"},
 		{"header not JSON", func(b *built) { b.rawHead = []byte("{not json") }, "header"},
 		{"header longer than the file", func(b *built) { b.rawHead = nil; b.header["users"] = []string{"u1", "u2", "u3"} }, ""},
 		{"unknown algorithm", func(b *built) { b.header["algorithm"] = "svd" }, "algorithm"},

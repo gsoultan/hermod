@@ -85,6 +85,12 @@ func (r RecommendRequest) check() (forUser bool, id string, k int, excludeSeen b
 // empty. Every call counts as one row against the vhost's
 // predictions-per-second quota, and is logged and monitored as a prediction.
 func (s *Service) Recommend(ctx context.Context, vhost, name string, req RecommendRequest) ([]recommend.Item, error) {
+	return s.recommend(ctx, vhost, name, req, newRecommendationID())
+}
+
+// recommend is Recommend with the recommendation_id its answer is logged
+// with.
+func (s *Service) recommend(ctx context.Context, vhost, name string, req RecommendRequest, id string) ([]recommend.Item, error) {
 	m, err := s.Model(ctx, vhost, name)
 	if err != nil {
 		return nil, err
@@ -92,7 +98,7 @@ func (s *Service) Recommend(ctx context.Context, vhost, name string, req Recomme
 	if !m.IsRecommender() {
 		return nil, fmt.Errorf("model %q: %w", name, ErrNotRecommender)
 	}
-	forUser, id, k, excludeSeen, err := req.check()
+	forUser, subject, k, excludeSeen, err := req.check()
 	if err != nil {
 		return nil, err
 	}
@@ -112,13 +118,13 @@ func (s *Service) Recommend(ctx context.Context, vhost, name string, req Recomme
 	}
 	var items []recommend.Item
 	var known bool
-	input := inference.Row{"k": k}
+	input := inference.Row{"k": k, "recommendation_id": id}
 	if forUser {
-		items, known = rec.ForUser(id, k, excludeSeen)
-		input["user"], input["exclude_seen"] = id, excludeSeen
+		items, known = rec.ForUser(subject, k, excludeSeen)
+		input["user"], input["exclude_seen"] = subject, excludeSeen
 	} else {
-		items, known = rec.Similar(id, k)
-		input["item"] = id
+		items, known = rec.Similar(subject, k)
+		input["item"] = subject
 	}
 	took := time.Since(start)
 	observe(vhost, name, 1, took, nil)
@@ -184,10 +190,17 @@ func (s *Service) recommender(ctx context.Context, m storage.MLModel) (*recommen
 // effort to choose, and the worker refuses one rather than ignore it.
 func checkRecommendSpec(spec worker.TrainSpec) error {
 	if spec.Task != worker.TaskRecommendation {
-		if spec.Recommend != nil {
+		switch {
+		case spec.Recommend != nil:
 			return fmt.Errorf("%w: recommend applies only to task %q", ErrBadTraining, worker.TaskRecommendation)
+		case spec.Scenario != "" || spec.Data != nil || spec.Rules != nil || spec.Weights != nil:
+			return fmt.Errorf("%w: scenario, data, weights and rules apply only to task %q", ErrBadTraining, worker.TaskRecommendation)
 		}
 		return nil
+	}
+	if isScenario(spec) {
+		_, err := scenarioSpec(spec)
+		return err
 	}
 	switch {
 	case spec.Recommend == nil || spec.Recommend.User == "" || spec.Recommend.Item == "":
@@ -204,6 +217,9 @@ func checkRecommendSpec(spec worker.TrainSpec) error {
 
 // describe is a new trained model's description.
 func describe(v worker.Version) string {
+	if v.Task == worker.TaskRecommendation && v.Scenario != "" && v.Recommend == nil {
+		return fmt.Sprintf("Recommendation scenario %q, from dataset %s", v.Scenario, v.Dataset)
+	}
 	if v.Task == worker.TaskRecommendation && v.Recommend != nil {
 		return fmt.Sprintf("Recommends %s to each %s, from dataset %s", v.Recommend.Item, v.Recommend.User, v.Dataset)
 	}

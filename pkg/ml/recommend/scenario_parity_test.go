@@ -1,0 +1,112 @@
+package recommend
+
+import (
+	"encoding/json"
+	"fmt"
+	"math"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+// The fixtures under testdata/scenario are written by
+// testdata/gen_scenario_fixtures.py, which trains each scenario with the
+// worker's own code and records what its scoring functions answered.
+
+type scenarioCase struct {
+	Today       string `json:"today"`
+	Salesman    string `json:"salesman"`
+	Customer    string `json:"customer"`
+	Product     string `json:"product"`
+	K           int    `json:"k"`
+	ExcludeSeen bool   `json:"exclude_seen"`
+	Items       []Pick `json:"items"`
+}
+
+func scenarioFixture(t testing.TB, name string) (*Model, []scenarioCase) {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", "scenario", name+".rec"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := Parse(raw)
+	if err != nil {
+		t.Fatalf("Parse(%s): %v", name, err)
+	}
+	cj, err := os.ReadFile(filepath.Join("testdata", "scenario", name+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []scenarioCase
+	if err := json.Unmarshal(cj, &cases); err != nil {
+		t.Fatal(err)
+	}
+	return m, cases
+}
+
+func samePick(got, want Pick) error {
+	if got.ID != want.ID || got.Rank != want.Rank || got.DueDate != want.DueDate {
+		return fmt.Errorf("got %s #%d due %q, want %s #%d due %q", got.ID, got.Rank, got.DueDate, want.ID, want.Rank, want.DueDate)
+	}
+	if math.Abs(got.Score-want.Score) > tolerance*math.Max(1, math.Abs(want.Score)) {
+		return fmt.Errorf("%s: score %v, want %v", got.ID, got.Score, want.Score)
+	}
+	g, _ := json.Marshal(got.Reasons)
+	w, _ := json.Marshal(want.Reasons)
+	if string(g) != string(w) {
+		return fmt.Errorf("%s: reasons %s, want %s", got.ID, g, w)
+	}
+	g, _ = json.Marshal(got.Fields)
+	w, _ = json.Marshal(want.Fields)
+	if string(g) != string(w) {
+		return fmt.Errorf("%s: fields %s, want %s", got.ID, g, w)
+	}
+	return nil
+}
+
+func TestScenariosServeWhatTheWorkerScored(t *testing.T) {
+	for _, name := range []string{"visits", "products", "products_als", "reorder", "audience", "audience_als", "similar"} {
+		t.Run(name, func(t *testing.T) {
+			m, cases := scenarioFixture(t, name)
+			if len(cases) == 0 {
+				t.Fatal("no cases")
+			}
+			for _, c := range cases {
+				today, err := time.Parse(time.DateOnly, c.Today)
+				if err != nil {
+					t.Fatal(err)
+				}
+				q := Query{Today: today, Salesman: c.Salesman, Customer: c.Customer, Product: c.Product, K: c.K, ExcludeSeen: c.ExcludeSeen}
+				if m.Scenario() == ScenarioReorder && c.Salesman != "" {
+					q.K = MaxPlan
+				}
+				res, err := m.Answer(q)
+				if err != nil {
+					t.Fatalf("%+v: %v", q, err)
+				}
+				if len(res) != 1 {
+					t.Fatalf("%d results", len(res))
+				}
+				got := res[0].Items
+				want := c.Items
+				// A visit plan lists what fits in the period's capacity: the
+				// best of the worker's ranking.
+				if m.Scenario() == ScenarioVisits {
+					if len(got) == 0 || len(got) > len(want) {
+						t.Fatalf("salesman %s: %d planned of %d", c.Salesman, len(got), len(want))
+					}
+					want = want[:len(got)]
+				}
+				if len(got) != len(want) {
+					t.Fatalf("%s %s%s%s: %d items, want %d", name, c.Salesman, c.Customer, c.Product, len(got), len(want))
+				}
+				for i := range got {
+					if err := samePick(got[i], want[i]); err != nil {
+						t.Errorf("%s %s%s%s: rank %d: %v", name, c.Salesman, c.Customer, c.Product, i+1, err)
+					}
+				}
+			}
+		})
+	}
+}

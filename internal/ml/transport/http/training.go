@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gsoultan/hermod/internal/ml"
+	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/ml/worker"
 )
 
@@ -61,8 +62,9 @@ func (h *Handler) ListDatasets(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"data": list, "total": len(list)})
 }
 
-// GetDataset shows a dataset with a sample of its rows. Rows are data, so
-// reading them needs the Editor role, as reading a workflow's samples does.
+// GetDataset shows a dataset with a sample of its rows, and its scheduled
+// refresh ("refresh": null for none). Rows are data, so reading them needs
+// the Editor role, as reading a workflow's samples does.
 func (h *Handler) GetDataset(w http.ResponseWriter, r *http.Request) {
 	vhost, _, ok := h.access(w, r, true)
 	if !ok {
@@ -78,7 +80,15 @@ func (h *Handler) GetDataset(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	writeJSON(w, info)
+	_, refresh, err := h.service().Schedule(r.Context(), vhost, storage.MLScheduleDatasetRefresh, r.PathValue("name"))
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	writeJSON(w, struct {
+		worker.DatasetInfo
+		Refresh *ml.ScheduleStatus `json:"refresh"`
+	}{info, refresh})
 }
 
 // UploadDataset replaces a dataset with a CSV or Excel file sent as the body.
@@ -161,6 +171,38 @@ func (h *Handler) DeleteDataset(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// namesItsData reports whether a training body names what it learns from: a
+// dataset and a target, a recommendation's dataset, or a scenario's data
+// roles (whose transactions dataset is the training's dataset).
+func namesItsData(spec worker.TrainSpec) bool {
+	if spec.Task == worker.TaskRecommendation {
+		return spec.Dataset != "" || len(spec.Data) > 0
+	}
+	return spec.Dataset != "" && spec.Target != ""
+}
+
+// RecommendCheck is a recommendation scenario's data health check: the
+// train body without name and rules; it trains nothing. A body that is not a
+// recommendation scenario's is refused with 400. Like training, it reads
+// rows, so it needs the Editor role.
+func (h *Handler) RecommendCheck(w http.ResponseWriter, r *http.Request) {
+	vhost, _, ok := h.access(w, r, true)
+	if !ok {
+		return
+	}
+	var req trainBody
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxModelBody)).Decode(&req); err != nil {
+		h.JsonError(w, "the request body must be a JSON training spec", http.StatusBadRequest)
+		return
+	}
+	res, err := h.service().RecommendCheck(r.Context(), vhost, req.TrainSpec)
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	writeJSON(w, res)
+}
+
 // trainBody is a training asked for from the UI or the API.
 type trainBody struct {
 	worker.TrainSpec
@@ -178,8 +220,8 @@ func (h *Handler) TrainModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A recommendation model has no target: its columns are in recommend,
-	// which the service checks.
-	if req.Dataset == "" || (req.Target == "" && req.Task != worker.TaskRecommendation) {
+	// or a scenario's in data, which the service checks.
+	if !namesItsData(req.TrainSpec) {
 		h.JsonError(w, "name the dataset to train on and the target column to predict", http.StatusBadRequest)
 		return
 	}
@@ -217,7 +259,7 @@ func (h *Handler) TrainCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A recommendation body has no target; the service says why it is refused.
-	if req.Dataset == "" || (req.Target == "" && req.Task != worker.TaskRecommendation) {
+	if !namesItsData(req.TrainSpec) {
 		h.JsonError(w, "name the dataset to train on and the target column to predict", http.StatusBadRequest)
 		return
 	}

@@ -32,6 +32,95 @@ service InferenceService {
   // rows; RESOURCE_EXHAUSTED over the vhost's quota; UNAVAILABLE when the
   // model could not be loaded.
   rpc Recommend(RecommendRequest) returns (RecommendResponse);
+
+  // RecommendScenario asks a scenario recommendation model (visits,
+  // products, reorder, audience or similar) for its answer: the gRPC twin of
+  // POST /api/ml/serve/{vhost}/{name}/recommend, with the same fields. Each
+  // answer carries a recommendation_id to send feedback with.
+  //
+  // Errors: UNAUTHENTICATED as for Predict; INVALID_ARGUMENT for a subject
+  // the scenario does not take, a bad period, k or rule, a rule that loosens
+  // the model's own rules, more than 1000 customers, or a model without a
+  // scenario; RESOURCE_EXHAUSTED over the vhost's quota; UNAVAILABLE when the
+  // model could not be loaded.
+  rpc RecommendScenario(RecommendScenarioRequest) returns (RecommendScenarioResponse);
+}
+
+message RecommendScenarioRequest {
+  // The vhost the model belongs to.
+  string vhost = 1;
+  // The model's name in that vhost.
+  string model = 2;
+  // Who or what the answer is for: the JSON call's "for". Set the one the
+  // model's scenario takes: salesman for visits, customer (or customers) for
+  // products and reorder, product for audience and similar.
+  ScenarioSubject subject = 3;
+  // A visit plan's first day, YYYY-MM-DD; today when empty.
+  string period_from = 4;
+  // A visit plan's last day, YYYY-MM-DD; the model's period from
+  // period_from when empty.
+  string period_to = 5;
+  // Results per subject: the model's default when 0.
+  int32 k = 6;
+  // Rules for this call, each as JSON gives it ({"kind": "exclude", ...}).
+  // They may only tighten the model's own rules.
+  repeated google.protobuf.Struct rules = 7;
+  // Whether to leave out products the customer already bought; the model's
+  // default when unset.
+  optional bool exclude_seen = 8;
+}
+
+message ScenarioSubject {
+  string customer = 1;
+  // Up to 1000 customers in one call: one result each.
+  repeated string customers = 2;
+  string product = 3;
+  string salesman = 4;
+  // The territory a rule's from_request "territory" binds to.
+  string territory = 5;
+}
+
+message RecommendScenarioResponse {
+  // The model that answered.
+  string model = 1;
+  // The id feedback on this answer is sent with.
+  string recommendation_id = 2;
+  // One result per subject, in the order asked.
+  repeated ScenarioResult results = 3;
+}
+
+message ScenarioResult {
+  // The subject's id: the JSON answer's "for".
+  string subject = 1;
+  // Best first.
+  repeated ScenarioPick items = 2;
+  // A visit plan's days, in order; empty for other scenarios.
+  repeated PlanDay plan = 3;
+}
+
+message ScenarioPick {
+  string id = 1;
+  double score = 2;
+  int32 rank = 3;
+  repeated Reason reasons = 4;
+  // The item's own fields from the model's data (name, territory, ...).
+  google.protobuf.Struct fields = 5;
+  // For reorder: when the customer is due to order it, YYYY-MM-DD.
+  string due_date = 6;
+}
+
+message Reason {
+  // A stable code, such as "overdue" or "bought_together".
+  string code = 1;
+  // The reason in words.
+  string text = 2;
+}
+
+message PlanDay {
+  // YYYY-MM-DD.
+  string date = 1;
+  // That day's visits, in route order.
+  repeated ScenarioPick items = 2;
 }
 
 message RecommendRequest {
@@ -59,6 +148,8 @@ message RecommendResponse {
   string model = 1;
   // Best first.
   repeated RecommendedItem items = 2;
+  // The id feedback on this answer is sent with.
+  string recommendation_id = 3;
 }
 
 message RecommendedItem {

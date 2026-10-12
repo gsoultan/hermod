@@ -30,7 +30,22 @@ import (
 // is computed from the DDL itself, so changing the schema fails this test and
 // forces the question to be asked out loud.
 //
-// Last moved by: adding scoring to ml_models, whether a trained model is
+// Last moved by: adding the ml_schedules table (scheduled dataset refreshes
+// and recommendation builds, one row each, claimed across servers like a
+// training) and the ml_feedback table (what happened to recommended items).
+// currentSchemaVersion was left alone deliberately, for the reasons the
+// ml_scripts and ml_quotas notes below give: both are standalone tables no
+// earlier code path reads or writes, and nothing existing changed shape. A
+// rollback costs the features — schedules stop running, feedback is not
+// recorded — not a misread of live data, and the rows are there again when the
+// newer binary returns. As with ml_scripts, the previous release's DeleteVHost
+// does not remove a vhost's schedules or feedback, so a vhost deleted during a
+// rollback leaves them for a later vhost of the same name: a schedule names a
+// database source by id, which that vhost's sources must still match before
+// anything runs (internal/ml checks it on every run), and feedback holds ids
+// and outcomes, never a secret.
+//
+// The note before that: adding scoring to ml_models, whether a trained model is
 // scored by the ML worker or in-process. currentSchemaVersion was left alone
 // deliberately, for the reason the retrain note below gives: the column is
 // nullable, and the previous release names its ml_models columns in both
@@ -182,7 +197,7 @@ import (
 // unpopulated — a gap in a chart that fills itself in when the newer binary
 // returns — so bumping the version would buy nothing and cost a refused
 // start-up during exactly the rollback it was supposed to make safe.
-const knownSchemaFingerprint = "8fb90bc8b887879da9584deb702f541df8c50adc0e5d7cc76f89e0998befce11"
+const knownSchemaFingerprint = "ea3ebc85eaccad4fb645dfd7154f130161e0f099e5e59522d341b2767b3ad080"
 
 func TestSchemaVersionIsReconsideredWhenTheSchemaChanges(t *testing.T) {
 	if got := SchemaFingerprint(); got != knownSchemaFingerprint {

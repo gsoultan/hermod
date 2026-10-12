@@ -886,6 +886,12 @@ func (s *mongoStorage) DeleteVHost(ctx context.Context, id string) error {
 		if err := s.DeleteMLQuotas(ctx, vhost.Name); err != nil {
 			return err
 		}
+		if err := s.DeleteMLSchedules(ctx, vhost.Name); err != nil {
+			return err
+		}
+		if err := s.DeleteMLFeedback(ctx, vhost.Name, ""); err != nil {
+			return err
+		}
 		if err := s.DeleteAIBudgets(ctx, vhost.Name); err != nil {
 			return err
 		}

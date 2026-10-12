@@ -19,17 +19,49 @@ import (
 type ModelSource interface {
 	ListModels(ctx context.Context, vhost string) ([]storage.MLModel, error)
 	Predict(ctx context.Context, vhost, name string, rows []map[string]any) ([]map[string]any, error)
-	// Recommend calls a recommendation model, on the same path as REST.
-	Recommend(ctx context.Context, vhost, name string, req RecommendArgs) ([]recommend.Item, error)
+	// Recommend calls a recommendation model, on the same path as REST, and
+	// returns the answer's recommendation_id with it.
+	Recommend(ctx context.Context, vhost, name string, req RecommendArgs) ([]recommend.Item, string, error)
+	// RecommendScenario is a scenario call ("for", "period", "rules"), on
+	// the path of POST .../recommend.
+	RecommendScenario(ctx context.Context, vhost, name string, req RecommendArgs) (ScenarioAnswer, error)
 }
 
 // RecommendArgs are a recommend tool's arguments: "user" for a person's
-// items or "item" for items like it, "k" and, for a user, "exclude_seen".
+// items or "item" for items like it, "k" and, for a user, "exclude_seen"; or
+// a scenario call's "for", "territory", "period", "k", "rules" and
+// "exclude_seen", as POST .../recommend takes them.
 type RecommendArgs struct {
-	User        any   `json:"user,omitempty"`
-	Item        any   `json:"item,omitempty"`
-	K           int   `json:"k,omitempty"`
-	ExcludeSeen *bool `json:"exclude_seen,omitempty"`
+	User        any              `json:"user,omitempty"`
+	Item        any              `json:"item,omitempty"`
+	For         *ScenarioFor     `json:"for,omitempty"`
+	Territory   any              `json:"territory,omitempty"`
+	Period      *ScenarioPeriod  `json:"period,omitempty"`
+	K           int              `json:"k,omitempty"`
+	Rules       []recommend.Rule `json:"rules,omitempty"`
+	ExcludeSeen *bool            `json:"exclude_seen,omitempty"`
+}
+
+// ScenarioFor is who or what a scenario call is for: one of customer,
+// customers, product or salesman, and the territory a rule binds to.
+type ScenarioFor struct {
+	Customer  any   `json:"customer,omitempty"`
+	Customers []any `json:"customers,omitempty"`
+	Product   any   `json:"product,omitempty"`
+	Salesman  any   `json:"salesman,omitempty"`
+	Territory any   `json:"territory,omitempty"`
+}
+
+// ScenarioPeriod is a visit plan's days, YYYY-MM-DD, both included.
+type ScenarioPeriod struct {
+	From string `json:"from"`
+	To   string `json:"to,omitempty"`
+}
+
+// ScenarioAnswer is a scenario call's answer.
+type ScenarioAnswer struct {
+	RecommendationID string
+	Results          []recommend.Result
 }
 
 // ErrModelNotFound is returned for a model tool the caller may not use.
@@ -73,11 +105,15 @@ type PredictResult struct {
 	Prediction map[string]any `json:"prediction"`
 }
 
-// RecommendResult is what a recommend tool answers: items best first.
+// RecommendResult is what a recommend tool answers: items best first for a
+// user or an item, or a scenario call's results; and the recommendation_id
+// feedback on it is sent with.
 type RecommendResult struct {
-	Model string           `json:"model"`
-	VHost string           `json:"vhost"`
-	Items []recommend.Item `json:"items"`
+	Model            string             `json:"model"`
+	VHost            string             `json:"vhost"`
+	RecommendationID string             `json:"recommendation_id"`
+	Items            []recommend.Item   `json:"items,omitempty"`
+	Results          []recommend.Result `json:"results,omitempty"`
 }
 
 // ModelTools returns a tool for every model exposed to MCP in the vhosts
@@ -160,9 +196,12 @@ func modelTool(m storage.MLModel) ModelTool {
 // recommendTool is a recommendation model's tool: a user or an item in, the
 // recommended items out.
 func recommendTool(m storage.MLModel) ModelTool {
-	desc := fmt.Sprintf("Asks Hermod recommendation model %q of vhost %q for a person's top items (give \"user\") "+
-		"or the items most like one item (give \"item\"). An id the model never saw gets the most popular items, "+
-		"marked reason \"popular\".", m.Name, m.VHost)
+	desc := fmt.Sprintf("Asks Hermod recommendation model %q of vhost %q. A scenario model takes \"for\": "+
+		"{\"salesman\"} for a visit plan (with \"period\"), {\"customer\"} or {\"customers\"} for products to offer "+
+		"or reorders due, {\"product\"} for the customers to offer it to or similar products; each result item "+
+		"carries its reasons. A model of a person's items takes \"user\" for their top items or \"item\" for the "+
+		"items most like one item; an id it never saw gets the most popular items, marked reason \"popular\".",
+		m.Name, m.VHost)
 	if d := strings.TrimSpace(m.Description); d != "" {
 		desc = d + " " + desc
 	}
@@ -172,9 +211,28 @@ func recommendTool(m storage.MLModel) ModelTool {
 		"properties": map[string]any{
 			"user": mergeDesc(id, "The person's id, as in the training data."),
 			"item": mergeDesc(id, "An item's id: answers the items most like it."),
-			"k":    map[string]any{"type": "integer", "minimum": 1, "maximum": recommend.MaxK, "description": "How many items; 10 by default."},
+			"for": map[string]any{"type": "object", "additionalProperties": false,
+				"description": "A scenario model's subject: give one of customer, customers, product or salesman.",
+				"properties": map[string]any{
+					"customer":  mergeDesc(id, "A customer's id."),
+					"customers": map[string]any{"type": "array", "items": id, "maxItems": recommend.MaxBatch, "description": "Several customers: one result each."},
+					"product":   mergeDesc(id, "A product's id."),
+					"salesman":  mergeDesc(id, "A salesman's id: their visit plan, or their customers' reorders."),
+					"territory": mergeDesc(id, "The territory a rule's from_request \"territory\" binds to."),
+				}},
+			"territory": mergeDesc(id, "The territory a rule's from_request \"territory\" binds to."),
+			"period": map[string]any{"type": "object", "additionalProperties": false, "required": []any{"from"},
+				"description": "A visit plan's days, both included; today and the model's period by default.",
+				"properties": map[string]any{
+					"from": map[string]any{"type": "string", "format": "date"},
+					"to":   map[string]any{"type": "string", "format": "date"},
+				}},
+			"rules": map[string]any{"type": "array", "items": map[string]any{"type": "object"},
+				"description": "Rules for this call (filter, exclude, boost, diversity, pin, block, capacity); they may only tighten the model's own."},
+			"k": map[string]any{"type": "integer", "minimum": 1, "maximum": recommend.MaxPlan,
+				"description": "How many results per subject; the model's default when left out."},
 			"exclude_seen": map[string]any{"type": "boolean",
-				"description": "For a user: leave out items they already had. True by default."},
+				"description": "Leave out items the person or customer already had. True by default."},
 		},
 		"additionalProperties": false,
 	}
@@ -203,16 +261,32 @@ func (s *Service) RecommendTool(ctx context.Context, c Caller, t ModelTool, args
 	dec := json.NewDecoder(bytes.NewReader(args))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
-		return RecommendResult{}, fmt.Errorf(`the arguments must be a JSON object of "user" or "item", "k" and "exclude_seen": %w`, err)
+		return RecommendResult{}, fmt.Errorf(`the arguments must be a JSON object of "for", "user" or "item", "k" and "exclude_seen": %w`, err)
 	}
-	if (req.User == nil) == (req.Item == nil) {
-		return RecommendResult{}, errors.New(`give "user" for a person's items, or "item" for items like it`)
+	given := 0
+	for _, set := range []bool{req.User != nil, req.Item != nil, req.For != nil} {
+		if set {
+			given++
+		}
 	}
-	items, err := s.Models.Recommend(ctx, t.VHost, t.Model, req)
+	if given != 1 {
+		return RecommendResult{}, errors.New(`give "for" for a scenario model, or "user" for a person's items, or "item" for items like it`)
+	}
+	if req.For == nil {
+		if req.Territory != nil || req.Period != nil || len(req.Rules) > 0 {
+			return RecommendResult{}, errors.New(`"territory", "period" and "rules" go with "for", a scenario call`)
+		}
+		items, id, err := s.Models.Recommend(ctx, t.VHost, t.Model, req)
+		if err != nil {
+			return RecommendResult{}, err
+		}
+		return RecommendResult{Model: t.Model, VHost: t.VHost, RecommendationID: id, Items: items}, nil
+	}
+	ans, err := s.Models.RecommendScenario(ctx, t.VHost, t.Model, req)
 	if err != nil {
 		return RecommendResult{}, err
 	}
-	return RecommendResult{Model: t.Model, VHost: t.VHost, Items: items}, nil
+	return RecommendResult{Model: t.Model, VHost: t.VHost, RecommendationID: ans.RecommendationID, Results: ans.Results}, nil
 }
 
 // jsonType is the JSON Schema type of a dataset column type.

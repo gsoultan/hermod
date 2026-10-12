@@ -61,6 +61,8 @@ func startAPI(ctx context.Context, o *Options, reg *registry.Registry, store, lo
 	// is claimed in storage before it is trained, so each retraining happens
 	// once across them.
 	go ml.NewRetrainer(reg.MLService, logger).Run(ctx)
+	// Dataset refreshes and recommendation builds, claimed the same way.
+	go ml.NewScheduler(reg.MLService, reg, logger).Run(ctx)
 
 	// Go's http.Server has no timeouts by default, and this one had none set.
 	// A connection that opens and then dribbles its request headers one byte at

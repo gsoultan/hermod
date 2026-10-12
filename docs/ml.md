@@ -743,7 +743,8 @@ writes the items, `[{"item", "score", "reason"?}]`, to `outputField`
 
 To an MCP client an exposed recommendation model is the tool
 `recommend_<model>`, which takes `user` or `item`, `k` and `exclude_seen`, and
-answers `{"model", "vhost", "items"}`.
+answers `{"model", "vhost", "recommendation_id", "items"}` (or a scenario
+call, see [Recommendation scenarios](#recommendation-scenarios)).
 
 ### Watching one
 
@@ -782,6 +783,275 @@ They are exported as `hermod_ml_recommendation_coverage` and
 4. In a workflow fed by new orders, add **Predict** with model `recs`, mode
    Recommend, id field `customer_id`, and send `recommendations` on to an
    email or a cache.
+
+## Recommendation scenarios
+
+A recommendation model can also answer the questions a sales team asks,
+from the same order history plus what Hermod knows about customers,
+products, visits and salesmen. Each model is trained for one **scenario**:
+
+| Scenario | Answers | Called with |
+|---|---|---|
+| `visits` | Which customers a salesman should visit in a period, as a day-by-day plan. | `{"salesman"}` |
+| `products` | Which products to offer a customer. | `{"customer"}` or `{"customers": [...]}` |
+| `reorder` | When each customer will order each product again. | `{"customer"}`, `{"customers"}` or `{"salesman"}` (their customers) |
+| `audience` | Which customers are likely to want a product. | `{"product"}` |
+| `similar` | Which products are like a product. | `{"product"}` |
+
+A model trained as in [Recommendations](#recommendations), with `recommend`
+and no `scenario`, is a `products` model and keeps answering as before; it
+can also be called with the scenario body below. A plain-language guide for
+the people who own the data is in
+[ml-recommendations-data-guide.md](ml-recommendations-data-guide.md).
+
+### Training a scenario
+
+Each kind of data is a **role**: a dataset and which of its columns mean
+what. Send `task: "recommendation"` with `scenario` and `data`:
+
+```json
+{
+  "task": "recommendation",
+  "scenario": "visits",
+  "data": {
+    "transactions": {"dataset": "orders", "customer": "cust_id", "product": "sku", "date": "order_date", "quantity": "qty", "amount": "total"},
+    "customers":    {"dataset": "customers", "id": "cust_id", "salesman": "rep", "territory": "region", "segment": "tier", "lat": "lat", "lon": "lon", "blocked": "credit_hold"},
+    "products":     {"dataset": "items", "id": "sku", "category": "cat", "price": "price", "margin": "margin", "active": "active"},
+    "visits":       {"dataset": "visits", "customer": "cust_id", "date": "visit_date", "salesman": "rep", "outcome": "result"},
+    "salesmen":     {"dataset": "reps", "id": "rep", "visits_per_day": "cap", "working_days": "days"}
+  },
+  "weights": {"reorder_due": 0.35, "churn_risk": 0.2, "value": 0.2, "opportunity": 0.1, "neglect": 0.15},
+  "rules": [{"kind": "exclude", "days": 7}],
+  "period_days": 7,
+  "algorithm": "auto"
+}
+```
+
+- `transactions` (customer and date) is required for every scenario;
+  `products`, `audience` and `similar` also need `transactions.product`, and
+  `visits` needs `customers.salesman`. Every other role and column is
+  optional and makes the answers better: amounts make "value" mean money,
+  visits stop a customer being sent to twice, coordinates order each day's
+  route.
+- `weights` apply to `visits`: how much a customer being due to order, at
+  risk of leaving, valuable, likely to buy more, and not visited lately
+  count. Each is between 0 and 1; they are rescaled to add up to 1.
+- `rules` are kept with the version and apply to every call (see Rules).
+- `period_days` is the plan length a visit plan is evaluated and answered
+  for, 7 by default.
+- `dataset` and `target` may be sent (the UI sends the transactions dataset
+  and `""`); they are ignored, as the roles name the data.
+- `features`, `params`, `preset`, `device: "gpu"` and custom scripts are
+  refused for a scenario.
+
+The version keeps `scenario`, `roles` (as sent), `weights` and
+`applied_weights`, `rules`, `metrics` and `baseline`, `baselines_named`,
+`evaluation`, `health` and up to three `samples`, each a result in the shape
+below.
+
+**How good is it.** The last period of history is held back. The model
+answers as of the day before it, and the answer is checked against what
+really happened, next to simple rules of thumb:
+
+| Scenario | Metrics | Compared with |
+|---|---|---|
+| visits | `ordered_in_period@k` (share of planned customers who ordered in the period), `revenue_share@k` (share of the period's revenue they brought) | `most_overdue`, `biggest`, `popular` |
+| products, audience, similar | `hit_rate@10`, `ndcg@10`, `coverage` | `popular` |
+| reorder | `mae_days` (how many days the due date was off), `on_time_share` | `popular` (everyone's usual gap) |
+
+A model worth using beats its baselines. On a generated B2B history of 80
+customers, 4 salesmen and 60 products, the visit plan reached
+`ordered_in_period@k` 0.44 against 0.32 (most overdue first), 0.39 (biggest
+customers first) and 0.41 (most frequent buyers first).
+
+### Data health check
+
+`POST /api/vhosts/{vhost}/ml/recommend-check` takes the training body (the
+rules are not needed) and reads the datasets without training:
+
+```json
+{"ok": true,
+ "checks": [{"code": "short_history", "status": "amber",
+             "message": "4 months of orders; 12 make seasonal patterns visible",
+             "fix": "Load older orders into the dataset."}],
+ "stats": {"customers": 812, "products": 340, "transactions": 20311, "months_of_history": 4, "tx_per_customer": 25.0}}
+```
+
+The codes are `few_customers`, `few_transactions_per_customer`,
+`short_history`, `too_many_products`, `duplicates`, `future_dates`,
+`negative_quantities`, `unmatched_ids` (the role is named in the message),
+`missing_role` and `bad_column_type`; each is `green`, `amber` or `red`. `ok`
+is false only when training would be refused. A body with no `scenario` and no
+`recommend` is a 400.
+
+### Rules
+
+A rule is one object; `kind` says which fields it takes:
+
+| Kind | Does | Fields |
+|---|---|---|
+| `filter` | Keeps only the results that match. | `field`, `op`, `value` or `from_request` |
+| `exclude` | Drops anything bought (or, for a visit plan, visited) in the last `days` days, or ever when `days` is 0. | `days` |
+| `boost` | Adds `weight` × the field scaled 0 to 1; with `op`, a flat `weight` to what matches; or a flat `weight` to the `ids` listed. Adds reason `boosted`. | `field` (and `op`, `value`) or `ids`, `weight` |
+| `diversity` | At most `max_per` results per value of `field`. | `field`, `max_per` |
+| `capacity` | Visits only: `per_day` visits, on the working days in `value` (`["mon", "tue", ...]`). | `per_day`, `value` |
+| `pin` | Always lists `ids` (reason `pinned`). | `ids` |
+| `block` | Never lists `ids`. | `ids` |
+
+`field` is a role and column: `customers.territory`, `customers.segment`,
+`products.category`, `products.margin`, and so on. `op` is `eq`, `neq`, `in`,
+`nin`, `gt` or `lt`. `from_request` takes the value from the call instead:
+`"salesman"` or `"territory"`, so one rule `{"kind": "filter", "field":
+"customers.salesman", "op": "eq", "from_request": "salesman"}` keeps each
+salesman to their own customers. A rule bound to a value the call did not
+give is skipped.
+
+The version's rules apply to every call. A call's own `rules` are added to
+them and may only **tighten** them: a call that raises the version's
+capacity or adds a working day, raises a diversity cap, or pins an id the
+version's rules block, filter out or exclude is refused with a 400 that says
+which rule. A salesman's capacity comes, in order, from a capacity rule,
+the `salesmen` role (`visits_per_day`, `working_days`), or 8 a day Monday to
+Friday.
+
+### Calling a scenario
+
+`POST /api/vhosts/{vhost}/ml/models/{name}/recommend` (an Editor), or the same
+body on `POST /api/ml/serve/{vhost}/{name}/recommend` with the model's
+serving key:
+
+```bash
+curl -X POST https://hermod.example.com/api/ml/serve/default/visit-plan/recommend \
+  -H "X-API-Key: hml_…" \
+  -d '{"for": {"salesman": "rep7"}, "period": {"from": "2026-10-13", "to": "2026-10-17"}, "k": 30}'
+```
+
+```json
+{"recommendation_id": "rec_k3x…",
+ "results": [{"for": "rep7",
+   "items": [{"id": "c-118", "score": 0.82, "rank": 1,
+              "reasons": [{"code": "reorder_due", "text": "Usually orders every 30 days; last order 41 days ago"},
+                          {"code": "high_value", "text": "Top 8% of customers by revenue"}],
+              "fields": {"name": "Toko Maju", "territory": "North"}}, …],
+   "plan": [{"date": "2026-10-13", "items": [ … ]}, {"date": "2026-10-14", "items": [ … ]}]}]}
+```
+
+- `for` takes exactly one of `customer`, `customers` (up to 1000: one result
+  each, in order), `product` or `salesman`, as the table above allows; ids are
+  strings or numbers. `territory` (in `for` or at the top) only feeds
+  `from_request`.
+- `period` is for visits: `from` (today when left out) and `to` (the model's
+  period from `from` when left out). The plan fills each working day with up
+  to the salesman's capacity, most urgent first, and orders each day by
+  distance when customers have coordinates.
+- `k` is the results per subject: up to 100, and up to 500 for a visit plan or
+  a salesman's reorders. Over that is a 400.
+- `exclude_seen` (true by default) leaves out products the customer already
+  bought.
+- `respond: "async"` and `callback_url` are refused with a 400 ("not
+  available yet"); every answer is synchronous.
+
+Each item has `id`, `score` (compares within one list only), `rank` from 1,
+`reasons`, the `fields` the model has for it, and for `reorder` a `due_date`.
+The reason codes are `reorder_due`, `churn_risk`, `high_value`, `whitespace`
+(similar customers buy it), `not_visited`, `similar_customers`,
+`bought_together`, `popular`, `boosted` and `pinned`; the text is plain
+English with the numbers behind it.
+
+Each call is logged like a prediction with its `recommendation_id`, and every
+subject (each customer of a batch) counts as one row against
+`max_predictions_per_second`. The legacy predict and serve answers carry a
+`recommendation_id` too.
+
+**gRPC:** `hermod.ml.v1.InferenceService/RecommendScenario` takes the same
+call with `subject` for `for`, `period_from` and `period_to`, and each rule as
+a `google.protobuf.Struct`; each result names its subject in `subject`.
+`Recommend` answers carry `recommendation_id`.
+
+**MCP:** the `recommend_<model>` tool also takes `for`, `territory`,
+`period`, `k`, `rules` and `exclude_seen`, and answers `{"model", "vhost",
+"recommendation_id", "results"}`.
+
+**Workflows:** the **Predict** node's Recommend mode takes `recommendFor`
+`salesman`, `customer` or `product` (and `user` or `item` as before),
+`periodDays` (a visit plan from today), `rules` (a JSON list), `idField`, `k`,
+`excludeSeen` and `outputField`. It writes the first result's items to
+`outputField`, each with `id`, `score`, `rank`, `reasons`, `fields`, the
+call's `recommendation_id`, and `plan_date` or `due_date` where set.
+
+### Feedback
+
+Tell the model what happened to its suggestions:
+
+```bash
+curl -X POST https://hermod.example.com/api/vhosts/default/ml/models/visit-plan/feedback \
+  -H "Authorization: Bearer …" \
+  -d '{"recommendation_id": "rec_k3x…",
+       "events": [{"id": "c-118", "outcome": "visited"}, {"id": "c-204", "outcome": "dismissed", "at": "2026-10-14T09:12:00Z"}]}'
+```
+
+`outcome` is `shown`, `accepted`, `dismissed`, `visited` or `ordered`; `at`
+is now when left out. Up to 1000 events per call; the answer is 204.
+`GET .../feedback/summary?days=30` (1 to 365, 30 by default) counts them:
+
+```json
+{"days": 30, "shown": 240, "accepted": 61, "dismissed": 40, "visited": 55, "ordered": 22, "acceptance_rate": 0.254}
+```
+
+`acceptance_rate` is accepted ÷ shown, or accepted ÷ (accepted + dismissed)
+when nothing was reported shown. It is exported per model as
+`hermod_ml_recommendation_acceptance_rate`, refreshed when feedback arrives.
+Feedback is kept with the vhost and removed with it.
+
+### Keeping datasets fresh
+
+A dataset read from a database can refill itself on a schedule, so a
+retrain policy or a build always sees current data:
+
+```bash
+curl -X PUT https://hermod.example.com/api/vhosts/default/ml/datasets/orders/refresh \
+  -H "Authorization: Bearer …" \
+  -d '{"schedule": "0 2 * * *", "source_id": "erp-db", "query": "SELECT cust_id, sku, order_date, qty, total FROM order_lines", "max_rows": 1000000}'
+```
+
+`schedule` is a cron expression (five fields, or `@daily` and the like). Each
+run replaces the dataset's rows with the query's, as **Datasets → From a
+database** does. `GET .../datasets/{name}` gains `refresh: {"schedule",
+"last_run", "last_rows", "last_error", "next_run"}` (`null` with no schedule);
+`DELETE .../refresh` stops it.
+
+### Build recommendations
+
+A model can write its answers for everyone to a table on a schedule, so a
+CRM, a report or a mobile app can read today's plan without calling Hermod:
+
+```bash
+curl -X PUT https://hermod.example.com/api/vhosts/default/ml/models/visit-plan/build \
+  -H "Authorization: Bearer …" \
+  -d '{"schedule": "0 5 * * 1", "for": "all_salesmen", "period_days": 5, "k": 40,
+       "target": {"source_id": "erp-db", "table": "visit_plan", "mode": "replace"}}'
+```
+
+`for` is `all_salesmen` (visits, reorder), `all_customers` (products,
+reorder) or `all_products` (audience, similar, products). The table must
+exist with the columns `model, version, recommendation_id, for_id, item_id,
+rank, score, plan_date, reasons_text, built_at` (`plan_date` NULL outside a
+visit plan; `reasons_text` the reasons joined with `; `). `replace` deletes
+the model's earlier rows in the same transaction; `append` keeps them. A
+build of more than 1,000,000 rows is refused. `GET .../build` shows it with
+its status, `DELETE .../build` stops it. Builds are not counted against the
+per-second quota.
+
+The **Build recommendations** workflow node (`ml_recommend_build`) does the
+same from a workflow: `model`, `for`, `periodDays`, `k`, and optionally
+`targetSourceId`, `targetTable`, `targetMode` and `maxRows` (10,000 by
+default). It emits one message per row, with the row's fields on the
+incoming record, after writing them when a target is set; more rows than
+`maxRows` fails the record before anything is written.
+
+Dataset refreshes and builds are checked every minute by every Hermod serving
+the API; each run is claimed in storage first, so it happens once across
+them.
 
 ## Feature engineering nodes
 
@@ -1077,9 +1347,12 @@ Hermod registers one yet.
 - `hermod_ml_quota_refusals_total{vhost,quota}`
 - `hermod_ml_feature_drift{vhost,model,feature}`
 - `hermod_ml_recommendations_total{vhost,model,kind,source}`: recommendation
-  calls, `kind` `user` or `item`, `source` `model` or `popular` (the fallback)
+  calls, `kind` `user` or `item` (`scenario_<scenario>` for a scenario call),
+  `source` `model` or `popular` (the fallback)
 - `hermod_ml_recommendation_coverage{vhost,model}` and
   `hermod_ml_recommendation_popular_share{vhost,model}`: the last judged window
+- `hermod_ml_recommendation_acceptance_rate{vhost,model}`: accepted over shown
+  in the last 30 days of feedback
 - `hermod_ml_prediction_logs_written_total{vhost,model}`
 - `hermod_ml_prediction_logs_dropped_total{vhost,model,reason}`
 - `hermod_ml_monitor_dropped_total{vhost,model,reason}`

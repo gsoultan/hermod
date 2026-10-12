@@ -31,6 +31,8 @@ const (
 	QueryInitMLScriptsTable          = "InitMLScriptsTable"
 	QueryInitMLQuotasTable           = "InitMLQuotasTable"
 	QueryInitMLPredictionLogsTable   = "InitMLPredictionLogsTable"
+	QueryInitMLSchedulesTable        = "InitMLSchedulesTable"
+	QueryInitMLFeedbackTable         = "InitMLFeedbackTable"
 	QueryInitAIBudgetsTable          = "InitAIBudgetsTable"
 	QueryInitAIUsageTable            = "InitAIUsageTable"
 	QueryInitWorkersTable            = "InitWorkersTable"
@@ -112,6 +114,20 @@ const (
 	QueryInsertMLQuotas = "InsertMLQuotas"
 	QueryUpdateMLQuotas = "UpdateMLQuotas"
 	QueryDeleteMLQuotas = "DeleteMLQuotas"
+
+	QueryListMLSchedules          = "ListMLSchedules"
+	QueryGetMLSchedule            = "GetMLSchedule"
+	QueryInsertMLSchedule         = "InsertMLSchedule"
+	QueryUpdateMLSchedule         = "UpdateMLSchedule"
+	QueryDeleteMLSchedule         = "DeleteMLSchedule"
+	QuerySetMLScheduleRun         = "SetMLScheduleRun"
+	QueryClaimMLSchedule          = "ClaimMLSchedule"
+	QueryReleaseMLSchedule        = "ReleaseMLSchedule"
+	QueryDeleteMLSchedulesOfVHost = "DeleteMLSchedulesOfVHost"
+	QueryInsertMLFeedback         = "InsertMLFeedback"
+	QueryCountMLFeedback          = "CountMLFeedback"
+	QueryDeleteMLFeedbackOfModel  = "DeleteMLFeedbackOfModel"
+	QueryDeleteMLFeedbackOfVHost  = "DeleteMLFeedbackOfVHost"
 
 	QueryInsertMLPredictionLog         = "InsertMLPredictionLog"
 	QueryListMLPredictionLogs          = "ListMLPredictionLogs"
@@ -373,6 +389,35 @@ var commonQueries = map[string]string{
 			spec TEXT,
 			updated_by TEXT,
 			updated_at TIMESTAMP
+		)`,
+	// One row per scheduled dataset refresh or model build. id is vhost + "/"
+	// + kind + "/" + name; spec is the kind's definition as JSON, so a new
+	// option is not a schema change. owner and owner_until claim a run across
+	// servers, as ml_models' training_owner does a training.
+	QueryInitMLSchedulesTable: `CREATE TABLE IF NOT EXISTS ml_schedules (
+			id TEXT PRIMARY KEY,
+			vhost TEXT,
+			kind TEXT,
+			name TEXT,
+			schedule TEXT,
+			spec TEXT,
+			last_run TIMESTAMP,
+			last_rows INTEGER,
+			last_error TEXT,
+			updated_by TEXT,
+			updated_at TIMESTAMP,
+			owner TEXT,
+			owner_until TIMESTAMP
+		)`,
+	// One row per feedback event on a recommendation. Every read is "this
+	// model of this vhost, since", which idx_ml_feedback_model_ts covers.
+	QueryInitMLFeedbackTable: `CREATE TABLE IF NOT EXISTS ml_feedback (
+			vhost TEXT NOT NULL DEFAULT '',
+			model TEXT NOT NULL DEFAULT '',
+			recommendation_id TEXT,
+			item_id TEXT,
+			outcome TEXT,
+			created_at TIMESTAMP NOT NULL
 		)`,
 	// One row per logged prediction. inputs and outputs are JSON; inputs are
 	// masked before they are written. Every read and every purge is "this
@@ -748,6 +793,20 @@ var commonQueries = map[string]string{
 	QueryInsertMLQuotas: "INSERT INTO ml_quotas (vhost, spec, updated_by, updated_at) VALUES (?, ?, ?, ?)",
 	QueryUpdateMLQuotas: "UPDATE ml_quotas SET spec = ?, updated_by = ?, updated_at = ? WHERE vhost = ?",
 	QueryDeleteMLQuotas: "DELETE FROM ml_quotas WHERE vhost = ?",
+
+	QueryListMLSchedules:          "SELECT vhost, kind, name, schedule, spec, last_run, last_rows, last_error, updated_by, updated_at FROM ml_schedules ORDER BY id",
+	QueryGetMLSchedule:            "SELECT vhost, kind, name, schedule, spec, last_run, last_rows, last_error, updated_by, updated_at FROM ml_schedules WHERE id = ?",
+	QueryInsertMLSchedule:         "INSERT INTO ml_schedules (id, vhost, kind, name, schedule, spec, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryUpdateMLSchedule:         "UPDATE ml_schedules SET schedule = ?, spec = ?, updated_by = ?, updated_at = ? WHERE id = ?",
+	QueryDeleteMLSchedule:         "DELETE FROM ml_schedules WHERE id = ?",
+	QuerySetMLScheduleRun:         "UPDATE ml_schedules SET last_run = ?, last_rows = ?, last_error = ? WHERE id = ?",
+	QueryClaimMLSchedule:          "UPDATE ml_schedules SET owner = ?, owner_until = ? WHERE id = ? AND (owner IS NULL OR owner_until IS NULL OR owner_until < ? OR owner = ?)",
+	QueryReleaseMLSchedule:        "UPDATE ml_schedules SET owner = NULL, owner_until = NULL WHERE id = ? AND owner = ?",
+	QueryDeleteMLSchedulesOfVHost: "DELETE FROM ml_schedules WHERE vhost = ?",
+	QueryInsertMLFeedback:         "INSERT INTO ml_feedback (vhost, model, recommendation_id, item_id, outcome, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+	QueryCountMLFeedback:          "SELECT outcome, COUNT(*) FROM ml_feedback WHERE vhost = ? AND model = ? AND created_at >= ? GROUP BY outcome",
+	QueryDeleteMLFeedbackOfModel:  "DELETE FROM ml_feedback WHERE vhost = ? AND model = ?",
+	QueryDeleteMLFeedbackOfVHost:  "DELETE FROM ml_feedback WHERE vhost = ?",
 
 	QueryGetAIBudget:             "SELECT spec, updated_by, updated_at FROM ai_budgets WHERE vhost = ?",
 	QueryInsertAIBudget:          "INSERT INTO ai_budgets (vhost, spec, updated_by, updated_at) VALUES (?, ?, ?, ?)",

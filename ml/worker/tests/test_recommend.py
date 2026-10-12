@@ -204,7 +204,7 @@ def test_the_artifact_round_trips_and_serves_what_training_scored(orders, tmp_pa
     [
         (b"", "not a recommendation artifact"),
         (b"ONNX" + bytes(20), "not a recommendation artifact"),
-        (b"HREC" + (2).to_bytes(4, "little") + (2).to_bytes(4, "little") + b"{}", "format 2"),
+        (b"HREC" + (3).to_bytes(4, "little") + (2).to_bytes(4, "little") + b"{}", "format 3"),
     ],
 )
 def test_decode_refuses_what_is_not_an_artifact(raw, fragment):

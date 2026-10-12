@@ -90,18 +90,12 @@ func (s *Server) Recommend(ctx context.Context, req *proto.RecommendRequest) (*p
 	case *proto.RecommendRequest_Item:
 		call.Item = subject.Item
 	}
-	items, err := svc.Recommend(ml.WithCaller(ctx, storage.MLCallerGRPC, ""), req.GetVhost(), req.GetModel(), call)
+	items, id, err := svc.RecommendWithID(ml.WithCaller(ctx, storage.MLCallerGRPC, ""), req.GetVhost(), req.GetModel(), call)
 	if err != nil {
-		switch {
-		case errors.Is(err, ml.ErrBadRecommendRequest), errors.Is(err, ml.ErrNotRecommender):
-			return nil, status.Error(codes.InvalidArgument, err.Error())
-		case errors.Is(err, ml.ErrQuotaExceeded):
-			return nil, status.Error(codes.ResourceExhausted, err.Error())
-		}
-		return nil, status.Error(codes.Unavailable, err.Error())
+		return nil, recommendStatus(err)
 	}
 
-	resp := &proto.RecommendResponse{Model: req.GetModel(), Items: make([]*proto.RecommendedItem, len(items))}
+	resp := &proto.RecommendResponse{Model: req.GetModel(), RecommendationId: id, Items: make([]*proto.RecommendedItem, len(items))}
 	for i, it := range items {
 		resp.Items[i] = &proto.RecommendedItem{Item: it.Item, Score: it.Score, Reason: it.Reason}
 	}

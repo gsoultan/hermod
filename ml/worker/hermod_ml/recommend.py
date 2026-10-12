@@ -45,6 +45,26 @@ in-process (pkg/ml/recommend), little-endian throughout:
 
 Nothing follows the last section. Exactly one of factors and neighbors is
 non-zero. Nothing is pickled.
+
+Format 2 (scenarios.py) keeps every format 1 section, in the same order, and
+adds what serving a scenario needs. Its header also holds
+customer_neighbors, and everything in `Model.extra`: the scenario, as_of,
+the feature and attribute names and values, the salesmen, weights and rules.
+Its algorithm may be "none" (factors and neighbors both 0, items possibly
+empty) for a scenario that needs no products. After popular scores come:
+
+    customer neighbors       uint32  [users x customer_neighbors]  when > 0
+                             (EMPTY for an unused slot)
+    customer neighbor scores float32 [users x customer_neighbors]  when > 0
+    seen last day            uint32  [seen], days since 1970-01-01 of the
+                             latest interaction of each seen pair, or EMPTY
+    seen gap                 float32 [seen], median days between a pair's
+                             orders, NaN when it has fewer than two
+    customer features        float32 [users x customer_features], NaN unknown
+    item features            float32 [items x item_features], NaN unknown
+
+Hermod reads both formats; the worker writes format 1 for a model trained with
+the `recommend` shape and format 2 for a scenario.
 """
 
 from __future__ import annotations
@@ -70,9 +90,14 @@ ARTIFACT = "model.rec"
 
 MAGIC = b"HREC"
 FORMAT_VERSION = 1
+# The format a scenario's artifact is written in (see the module docstring).
+FORMAT_VERSION_SCENARIO = 2
 EMPTY = 0xFFFFFFFF
-# The largest artifact saved; Hermod refuses a larger one too.
-MAX_ARTIFACT_BYTES = 64 << 20
+# The largest artifact saved; Hermod refuses a larger one too. A scenario's
+# artifact carries per-customer features and neighbours besides the model.
+MAX_ARTIFACT_BYTES = 128 << 20
+# The header keys of format 1; anything else in a format 2 header is extra.
+_V1_KEYS = ("algorithm", "users", "items", "factors", "neighbors", "seen", "popular")
 
 K = 10
 MIN_INTERACTIONS = 10
@@ -301,6 +326,14 @@ class Model:
     item_factors: np.ndarray | None = None  # float32 [items, factors]
     neighbor_items: np.ndarray | None = None  # uint32 [items, neighbors]
     neighbor_scores: np.ndarray | None = None  # float32 [items, neighbors]
+    # Format 2 only (scenarios.py); extra is None for a format 1 model.
+    extra: dict[str, Any] | None = None
+    customer_neighbors: np.ndarray | None = None  # uint32 [users, n]
+    customer_neighbor_scores: np.ndarray | None = None  # float32 [users, n]
+    seen_last_day: np.ndarray | None = None  # uint32 [seen]
+    seen_gap: np.ndarray | None = None  # float32 [seen]
+    customer_features: np.ndarray | None = None  # float32 [users, features]
+    item_features: np.ndarray | None = None  # float32 [items, features]
 
 
 def _popular(matrix: sp.csr_matrix) -> tuple[np.ndarray, np.ndarray]:
@@ -524,10 +557,11 @@ def evaluate(model: Model, truth: dict[int, set[int]]) -> tuple[dict[str, float]
 
 
 def encode(model: Model) -> bytes:
-    """The model as the artifact Hermod serves (see the module docstring)."""
+    """The model as the artifact Hermod serves (see the module docstring):
+    format 2 when it carries `extra`, format 1 otherwise."""
     factors = 0 if model.user_factors is None else int(model.user_factors.shape[1])
     neighbors = 0 if model.neighbor_items is None else int(model.neighbor_items.shape[1])
-    header = {
+    header: dict[str, Any] = {
         "algorithm": model.algorithm,
         "users": model.users,
         "items": model.items,
@@ -536,8 +570,15 @@ def encode(model: Model) -> bytes:
         "seen": int(model.seen.nnz),
         "popular": int(len(model.popular)),
     }
-    head = json.dumps(header, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    parts = [MAGIC, struct.pack("<II", FORMAT_VERSION, len(head)), head]
+    v2 = model.extra is not None
+    customer_neighbors = 0
+    if v2:
+        customer_neighbors = 0 if model.customer_neighbors is None else int(model.customer_neighbors.shape[1])
+        header["customer_neighbors"] = customer_neighbors
+        header.update(model.extra)
+    head = json.dumps(header, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+    version = FORMAT_VERSION_SCENARIO if v2 else FORMAT_VERSION
+    parts = [MAGIC, struct.pack("<II", version, len(head)), head]
     if factors:
         parts += [np.ascontiguousarray(model.user_factors, _F32).tobytes(), np.ascontiguousarray(model.item_factors, _F32).tobytes()]
     if neighbors:
@@ -548,16 +589,27 @@ def encode(model: Model) -> bytes:
         np.asarray(model.popular, _U32).tobytes(),
         np.asarray(model.popular_scores, _F32).tobytes(),
     ]
+    if v2:
+        if customer_neighbors:
+            parts += [np.ascontiguousarray(model.customer_neighbors, _U32).tobytes(),
+                      np.ascontiguousarray(model.customer_neighbor_scores, _F32).tobytes()]
+        parts += [
+            np.ascontiguousarray(model.seen_last_day, _U32).tobytes(),
+            np.ascontiguousarray(model.seen_gap, _F32).tobytes(),
+            np.ascontiguousarray(model.customer_features, _F32).tobytes(),
+            np.ascontiguousarray(model.item_features, _F32).tobytes(),
+        ]
     return b"".join(parts)
 
 
 def decode(raw: bytes) -> Model:
-    """Read an artifact back; raise ValueError when it is not one."""
+    """Read an artifact of either format back; raise ValueError when it is
+    not one."""
     if len(raw) < 12 or raw[:4] != MAGIC:
         raise ValueError("not a recommendation artifact")
     version, size = struct.unpack_from("<II", raw, 4)
-    if version != FORMAT_VERSION:
-        raise ValueError(f"artifact format {version} is not {FORMAT_VERSION}")
+    if version not in (FORMAT_VERSION, FORMAT_VERSION_SCENARIO):
+        raise ValueError(f"artifact format {version} is not {FORMAT_VERSION} or {FORMAT_VERSION_SCENARIO}")
     header = json.loads(raw[12 : 12 + size].decode("utf-8"))
     n_users, n_items = len(header["users"]), len(header["items"])
     f, nb = header["factors"], header["neighbors"]
@@ -584,6 +636,17 @@ def decode(raw: bytes) -> Model:
     model.seen = sp.csr_matrix((np.ones(len(indices), dtype=np.float32), indices, indptr), shape=(n_users, n_items))
     model.popular = take(_U32, header["popular"])
     model.popular_scores = take(_F32, header["popular"])
+    if version == FORMAT_VERSION_SCENARIO:
+        cn = header["customer_neighbors"]
+        model.extra = {k: v for k, v in header.items() if k not in _V1_KEYS and k != "customer_neighbors"}
+        if cn:
+            model.customer_neighbors = take(_U32, n_users * cn).reshape(n_users, cn)
+            model.customer_neighbor_scores = take(_F32, n_users * cn).reshape(n_users, cn)
+        model.seen_last_day = take(_U32, header["seen"])
+        model.seen_gap = take(_F32, header["seen"])
+        cf, itf = len(header["customer_features"]), len(header["item_features"])
+        model.customer_features = take(_F32, n_users * cf).reshape(n_users, cf)
+        model.item_features = take(_F32, n_items * itf).reshape(n_items, itf)
     if offset != len(raw):
         raise ValueError("artifact has bytes after its last section")
     return model

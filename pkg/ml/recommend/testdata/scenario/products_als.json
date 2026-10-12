@@ -1,0 +1,709 @@
+[
+ {
+  "today": "2026-10-01",
+  "customer": "C0001",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "S057",
+    "score": 0.8016666769981384,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 9 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Paper item 6",
+     "category": "paper"
+    }
+   },
+   {
+    "id": "S033",
+    "score": 0.6366397142410278,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Dairy item 4",
+     "category": "dairy"
+    }
+   },
+   {
+    "id": "S049",
+    "score": 0.6176041960716248,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 5",
+     "category": "spices"
+    }
+   },
+   {
+    "id": "S056",
+    "score": 0.5736508369445801,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 6",
+     "category": "cleaning"
+    }
+   },
+   {
+    "id": "S024",
+    "score": 0.5440881848335266,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Frozen item 3",
+     "category": "frozen"
+    }
+   },
+   {
+    "id": "S016",
+    "score": 0.3941931128501892,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 2",
+     "category": "cleaning"
+    }
+   },
+   {
+    "id": "S003",
+    "score": 0.37776994705200195,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Dairy item 1",
+     "category": "dairy"
+    }
+   },
+   {
+    "id": "S001",
+    "score": 0.3674294054508209,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Beverages item 1",
+     "category": "beverages"
+    }
+   },
+   {
+    "id": "S048",
+    "score": 0.3636939227581024,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 6 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Canned item 5",
+     "category": "canned"
+    }
+   },
+   {
+    "id": "S050",
+    "score": 0.35231688618659973,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Personal item 5",
+     "category": "personal"
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "customer": "C0004",
+  "k": 5,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "S056",
+    "score": 0.7599999904632568,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 6 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 6",
+     "category": "cleaning"
+    }
+   },
+   {
+    "id": "S016",
+    "score": 0.511494517326355,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 2",
+     "category": "cleaning"
+    }
+   },
+   {
+    "id": "S003",
+    "score": 0.26120731234550476,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Dairy item 1",
+     "category": "dairy"
+    }
+   },
+   {
+    "id": "S034",
+    "score": 0.22217486798763275,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 5 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Frozen item 4",
+     "category": "frozen"
+    }
+   },
+   {
+    "id": "S020",
+    "score": 0.2207328975200653,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Personal item 2",
+     "category": "personal"
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "customer": "C0012",
+  "k": 10,
+  "exclude_seen": false,
+  "items": [
+   {
+    "id": "S046",
+    "score": 0.8773583173751831,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 13 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 5",
+     "category": "cleaning"
+    }
+   },
+   {
+    "id": "S056",
+    "score": 0.8650000095367432,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 13 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 6",
+     "category": "cleaning"
+    }
+   },
+   {
+    "id": "S036",
+    "score": 0.8335708975791931,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 15 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 4",
+     "category": "cleaning"
+    }
+   },
+   {
+    "id": "S039",
+    "score": 0.7412296533584595,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 4",
+     "category": "spices"
+    }
+   },
+   {
+    "id": "S026",
+    "score": 0.7246643900871277,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 8 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 3",
+     "category": "cleaning"
+    }
+   },
+   {
+    "id": "S029",
+    "score": 0.7063196897506714,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 5 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 3",
+     "category": "spices"
+    }
+   },
+   {
+    "id": "S006",
+    "score": 0.45405012369155884,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 13 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 1",
+     "category": "cleaning"
+    }
+   },
+   {
+    "id": "S043",
+    "score": 0.38367563486099243,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Dairy item 5",
+     "category": "dairy"
+    }
+   },
+   {
+    "id": "S016",
+    "score": 0.3835482895374298,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 11 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 2",
+     "category": "cleaning"
+    }
+   },
+   {
+    "id": "S041",
+    "score": 0.29140299558639526,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Beverages item 5",
+     "category": "beverages"
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "customer": "C0041",
+  "k": 20,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "S056",
+    "score": 0.6599526405334473,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 6",
+     "category": "cleaning"
+    }
+   },
+   {
+    "id": "S022",
+    "score": 0.6583333611488342,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Snacks item 3",
+     "category": "snacks"
+    }
+   },
+   {
+    "id": "S029",
+    "score": 0.3673816919326782,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 3",
+     "category": "spices"
+    }
+   },
+   {
+    "id": "S017",
+    "score": 0.3282098174095154,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 7 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Paper item 2",
+     "category": "paper"
+    }
+   },
+   {
+    "id": "S046",
+    "score": 0.2839716374874115,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 5",
+     "category": "cleaning"
+    }
+   },
+   {
+    "id": "S053",
+    "score": 0.26412346959114075,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Dairy item 6",
+     "category": "dairy"
+    }
+   },
+   {
+    "id": "S024",
+    "score": 0.25091880559921265,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 10 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Frozen item 3",
+     "category": "frozen"
+    }
+   },
+   {
+    "id": "S059",
+    "score": 0.2465503215789795,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 6",
+     "category": "spices"
+    }
+   },
+   {
+    "id": "S009",
+    "score": 0.23168466985225677,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 1",
+     "category": "spices"
+    }
+   },
+   {
+    "id": "S003",
+    "score": 0.2228708267211914,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Dairy item 1",
+     "category": "dairy"
+    }
+   },
+   {
+    "id": "S010",
+    "score": 0.2146376669406891,
+    "rank": 11,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Personal item 1",
+     "category": "personal"
+    }
+   },
+   {
+    "id": "S001",
+    "score": 0.1992582380771637,
+    "rank": 12,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Beverages item 1",
+     "category": "beverages"
+    }
+   },
+   {
+    "id": "S040",
+    "score": 0.18986676633358002,
+    "rank": 13,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Personal item 4",
+     "category": "personal"
+    }
+   },
+   {
+    "id": "S016",
+    "score": 0.1875038743019104,
+    "rank": 14,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 2",
+     "category": "cleaning"
+    }
+   },
+   {
+    "id": "S025",
+    "score": 0.1852729767560959,
+    "rank": 15,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Bakery item 3",
+     "category": "bakery"
+    }
+   },
+   {
+    "id": "S042",
+    "score": 0.17060819268226624,
+    "rank": 16,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Snacks item 5",
+     "category": "snacks"
+    }
+   },
+   {
+    "id": "S041",
+    "score": 0.17051957547664642,
+    "rank": 17,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Beverages item 5",
+     "category": "beverages"
+    }
+   },
+   {
+    "id": "S052",
+    "score": 0.16968929767608643,
+    "rank": 18,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Snacks item 6",
+     "category": "snacks"
+    }
+   },
+   {
+    "id": "S023",
+    "score": 0.16230911016464233,
+    "rank": 19,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Dairy item 3",
+     "category": "dairy"
+    }
+   },
+   {
+    "id": "S005",
+    "score": 0.15624800324440002,
+    "rank": 20,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Bakery item 1",
+     "category": "bakery"
+    }
+   }
+  ]
+ }
+]

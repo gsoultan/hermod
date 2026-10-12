@@ -19,6 +19,22 @@
 //	popular items     uint32  [popular], most popular first
 //	popular scores    float32 [popular]
 //
+// Format 2 is a recommendation scenario's (ml/worker/hermod_ml/scenarios.py):
+// the same sections, then what serving the scenario needs. Its header adds
+// scenario, as_of, period_days, customer_neighbors, the names of the
+// customer and item features, customer_attrs and item_attrs (one value or
+// null per customer or item), salesmen, weights, rules, global_gap,
+// global_visit_gap, has_visits and has_margin. Its algorithm may be "none",
+// with neither factors nor neighbors, for a scenario that needs no products.
+// After popular scores come:
+//
+//	customer neighbors     uint32  [users x customer_neighbors] when > 0
+//	customer nbr scores    float32 [users x customer_neighbors] when > 0
+//	seen last day          uint32  [seen], days since 1970-01-01, or empty
+//	seen gap               float32 [seen], median days between orders, or NaN
+//	customer features      float32 [users x customer features], NaN unknown
+//	item features          float32 [items x item features], NaN unknown
+//
 // An artifact comes from the worker's model store, so it is parsed as input
 // that may be wrong: every count is checked against the bytes that back it
 // before anything is allocated for it, every index against what it indexes,
@@ -35,19 +51,27 @@ import (
 	"math"
 )
 
-// Limits of an artifact. MaxArtifactBytes matches the worker's own limit.
+// Limits of an artifact. MaxArtifactBytes matches the worker's own limit: a
+// scenario's artifact carries per-customer features and neighbours besides
+// the model, so it is 128 MiB, twice format 1's original 64.
 const (
-	FormatVersion    = 1
-	MaxArtifactBytes = 64 << 20
-	MaxFactors       = 1024
-	MaxNeighbors     = 1024
-	MaxPopular       = 1000
+	FormatVersion         = 1
+	FormatVersionScenario = 2
+	MaxArtifactBytes      = 128 << 20
+	MaxFactors            = 1024
+	MaxNeighbors          = 1024
+	MaxPopular            = 1000
+	MaxCustomerNeighbors  = 1024
+	MaxFeatures           = 64
 )
 
-// The algorithms an artifact may hold.
+// The algorithms an artifact may hold. AlgorithmNone is a format 2
+// scenario's that needs no products (a visit plan or reorder dates without
+// a product column).
 const (
 	AlgorithmALS            = "als"
 	AlgorithmItemSimilarity = "item_similarity"
+	AlgorithmNone           = "none"
 )
 
 const (
@@ -75,6 +99,31 @@ type header struct {
 	Neighbors int64    `json:"neighbors"`
 	Seen      int64    `json:"seen"`
 	Popular   int64    `json:"popular"`
+
+	// version is the artifact's format; the rest is format 2's.
+	version           uint32
+	CustomerNeighbors int64                   `json:"customer_neighbors"`
+	Scenario          string                  `json:"scenario"`
+	AsOf              string                  `json:"as_of"`
+	PeriodDays        int64                   `json:"period_days"`
+	CustomerFeatures  []string                `json:"customer_features"`
+	ItemFeatures      []string                `json:"item_features"`
+	CustomerAttrs     map[string][]*string    `json:"customer_attrs"`
+	ItemAttrs         map[string][]*string    `json:"item_attrs"`
+	Salesmen          map[string]SalesmanInfo `json:"salesmen"`
+	Weights           map[string]float64      `json:"weights"`
+	Rules             []Rule                  `json:"rules"`
+	GlobalGap         float64                 `json:"global_gap"`
+	GlobalVisitGap    float64                 `json:"global_visit_gap"`
+	HasVisits         bool                    `json:"has_visits"`
+	HasMargin         bool                    `json:"has_margin"`
+}
+
+// SalesmanInfo is a salesman's capacity as the salesmen table gave it; a nil
+// or empty field was not given.
+type SalesmanInfo struct {
+	VisitsPerDay *float64 `json:"visits_per_day"`
+	WorkingDays  []string `json:"working_days"`
 }
 
 // Model is a parsed artifact. It is immutable, so one Model serves every
@@ -102,6 +151,36 @@ type Model struct {
 
 	popular       []uint32
 	popularScores []float32
+
+	// sc is what a format 2 artifact adds; nil for format 1.
+	sc *scenarioData
+}
+
+// scenarioData is a format 2 artifact's scenario, features and attributes.
+type scenarioData struct {
+	scenario   string
+	asOf       int // days since 1970-01-01
+	periodDays int
+
+	cnb        int
+	cNbrs      []uint32
+	cNbrScores []float32
+
+	seenLast []uint32
+	seenGap  []float32
+
+	cFeatNames, iFeatNames []string
+	cFeatIndex, iFeatIndex map[string]int
+	cFeat, iFeat           []float32
+
+	// cAttrs and iAttrs hold one value per customer or item, "" for none.
+	cAttrs, iAttrs map[string][]string
+	salesmen       map[string]SalesmanInfo
+	weights        map[string]float64
+	rules          []Rule
+
+	globalGap, globalVisitGap float64
+	hasVisits, hasMargin      bool
 }
 
 // Algorithm is the algorithm that trained the model.
@@ -149,6 +228,25 @@ func (r *reader) floats(n int64, what string) []float32 {
 	return out
 }
 
+// floatsOrNaN is floats that may hold NaN, which a format 2 section uses for
+// "unknown"; an infinity is still refused.
+func (r *reader) floatsOrNaN(n int64, what string) []float32 {
+	raw := r.take(n, what)
+	if r.err != nil {
+		return nil
+	}
+	out := make([]float32, n)
+	for i := range out {
+		f := math.Float32frombits(binary.LittleEndian.Uint32(raw[4*i:]))
+		if math.IsInf(float64(f), 0) {
+			r.err = invalid("%s holds an infinite value", what)
+			return nil
+		}
+		out[i] = f
+	}
+	return out
+}
+
 func (r *reader) uints(n int64, what string) []uint32 {
 	raw := r.take(n, what)
 	if r.err != nil {
@@ -169,14 +267,15 @@ func Parse(raw []byte) (*Model, error) {
 	if len(raw) < prefixSize || string(raw[:4]) != magic {
 		return nil, invalid("it does not start with the %q magic", magic)
 	}
-	if v := binary.LittleEndian.Uint32(raw[4:]); v != FormatVersion {
-		return nil, invalid("artifact format %d is not format %d", v, FormatVersion)
+	v := binary.LittleEndian.Uint32(raw[4:])
+	if v != FormatVersion && v != FormatVersionScenario {
+		return nil, invalid("artifact format %d is not format %d or %d", v, FormatVersion, FormatVersionScenario)
 	}
 	size := int64(binary.LittleEndian.Uint32(raw[8:]))
 	if size > int64(len(raw)-prefixSize) {
 		return nil, invalid("its header is %d bytes; the artifact has %d after the prefix", size, len(raw)-prefixSize)
 	}
-	var h header
+	h := header{version: v}
 	if err := json.Unmarshal(raw[prefixSize:prefixSize+size], &h); err != nil {
 		return nil, invalid("its header is not valid JSON: %v", err)
 	}
@@ -197,6 +296,11 @@ func Parse(raw []byte) (*Model, error) {
 	}
 	if err := m.checkSections(h.Seen); err != nil {
 		return nil, err
+	}
+	if m.sc != nil {
+		if err := m.checkScenarioSections(); err != nil {
+			return nil, err
+		}
 	}
 	m.normalize()
 	return m, nil
@@ -219,6 +323,9 @@ func (m *Model) readSections(buf []byte, h header) error {
 	m.seenItems = r.uints(h.Seen, "seen items")
 	m.popular = r.uints(h.Popular, "popular items")
 	m.popularScores = r.floats(h.Popular, "popular scores")
+	if h.version == FormatVersionScenario {
+		m.readScenario(r, h)
+	}
 	if r.err != nil {
 		return r.err
 	}
@@ -248,24 +355,29 @@ func (m *Model) normalize() {
 // check bounds the header's counts. The ids' count is bounded by the header's
 // own size; the section counts are bounded again by the bytes in take.
 func (h header) check() error {
+	none := h.version == FormatVersionScenario && h.Algorithm == AlgorithmNone
 	switch {
-	case h.Algorithm != AlgorithmALS && h.Algorithm != AlgorithmItemSimilarity:
+	case h.Algorithm != AlgorithmALS && h.Algorithm != AlgorithmItemSimilarity && !none:
 		return invalid("algorithm %q is not %q or %q", h.Algorithm, AlgorithmALS, AlgorithmItemSimilarity)
 	case len(h.Users) == 0:
 		return invalid("it knows no people")
-	case len(h.Items) == 0:
+	case len(h.Items) == 0 && !none:
 		return invalid("it has no items")
 	case h.Factors < 0 || h.Factors > MaxFactors:
 		return invalid("factors %d is not between 0 and %d", h.Factors, MaxFactors)
 	case h.Neighbors < 0 || h.Neighbors > MaxNeighbors:
 		return invalid("neighbors %d is not between 0 and %d", h.Neighbors, MaxNeighbors)
-	case (h.Factors > 0) == (h.Neighbors > 0),
-		(h.Factors > 0) != (h.Algorithm == AlgorithmALS):
+	case none && (h.Factors > 0 || h.Neighbors > 0):
+		return invalid("algorithm none holds neither factors nor neighbors")
+	case !none && ((h.Factors > 0) == (h.Neighbors > 0) || (h.Factors > 0) != (h.Algorithm == AlgorithmALS)):
 		return invalid("it must hold exactly one of factors (als) and neighbors (item_similarity)")
 	case h.Seen < 0 || h.Seen > MaxArtifactBytes/4:
 		return invalid("seen %d is out of range", h.Seen)
 	case h.Popular < 0 || h.Popular > int64(len(h.Items)) || h.Popular > MaxPopular:
 		return invalid("popular %d is not between 0 and its %d items (at most %d)", h.Popular, len(h.Items), MaxPopular)
+	}
+	if h.version == FormatVersionScenario {
+		return h.checkScenario()
 	}
 	return nil
 }

@@ -199,6 +199,14 @@ def create_app(settings: Settings, sandbox: SandboxSettings | None = None) -> Fa
         body = await read_json_object(request, limit)
         return await run_in_threadpool(trainer.check, vhost, body)
 
+    @api.post("/v1/recommend-check/{vhost}")
+    async def recommend_check(vhost: str, request: Request) -> dict[str, Any]:
+        """The data health check of a recommendation scenario: the same body
+        as train, nothing trained."""
+        validate_name(vhost, "vhost")
+        body = await read_json_object(request, limit)
+        return await run_in_threadpool(trainer.recommend_check, vhost, body)
+
     @api.post("/v1/models/{vhost}/{name}/train-custom")
     async def train_custom(vhost: str, name: str, request: Request) -> dict[str, Any]:
         validate_name(vhost, "vhost")
