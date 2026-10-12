@@ -50,17 +50,18 @@ import (
 // Anything else is a gap. Adding an entry here is a security decision.
 var unguardedMutatingRoutes = map[string]string{
 	// pre-auth
-	"POST /api/login":                   "issues the session; cannot require one",
-	"POST /api/auth/2fa/login":          "second factor of that same login",
-	"POST /api/auth/2fa/setup/pending":  "enrolment during login, before a session exists",
-	"POST /api/auth/2fa/verify/pending": "enrolment during login, before a session exists",
-	"POST /api/forgot-password":         "unauthenticated by nature",
-	"POST /api/config/setup":            "first-run wizard; no admin exists yet to authorize it",
-	"POST /api/config/database":         "first-run wizard; guarded by IsFirstRun instead",
-	"POST /api/webhooks/{path...}":      "public ingestion endpoint; authenticated by its own token",
-	"POST /api/forms/{path...}":         "public form submission",
-	"POST /api/ml/serve/{vhost}/{name}": "public model serving; authenticated by the model's own serving key",
-	"POST /api/chat/{path...}":          "public chat endpoint; authenticated by the source's API key, widget key and origin, or Slack/Telegram signature",
+	"POST /api/login":                             "issues the session; cannot require one",
+	"POST /api/auth/2fa/login":                    "second factor of that same login",
+	"POST /api/auth/2fa/setup/pending":            "enrolment during login, before a session exists",
+	"POST /api/auth/2fa/verify/pending":           "enrolment during login, before a session exists",
+	"POST /api/forgot-password":                   "unauthenticated by nature",
+	"POST /api/config/setup":                      "first-run wizard; no admin exists yet to authorize it",
+	"POST /api/config/database":                   "first-run wizard; guarded by IsFirstRun instead",
+	"POST /api/webhooks/{path...}":                "public ingestion endpoint; authenticated by its own token",
+	"POST /api/forms/{path...}":                   "public form submission",
+	"POST /api/ml/serve/{vhost}/{name}":           "public model serving; authenticated by the model's own serving key",
+	"POST /api/ml/serve/{vhost}/{name}/recommend": "public recommendation serving; authenticated by the model's own serving key",
+	"POST /api/chat/{path...}":                    "public chat endpoint; authenticated by the source's API key, widget key and origin, or Slack/Telegram signature",
 
 	// self-service: the handler checks caller identity, not role
 	"PUT /api/me":                      "a user editing their own profile",
