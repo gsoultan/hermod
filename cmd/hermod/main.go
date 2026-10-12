@@ -126,6 +126,7 @@ func runApp(svcCtx context.Context, o *Options) int {
 	}
 
 	reg, cfg := setupRegistry(store, logStore, logger, o)
+	setupMLEngine(logger)
 	ctx, cancel := setupSignalHandler(svcCtx, logger, reg, store, logStore)
 	defer cancel()
 	runtimetune.StartScavenger(ctx)

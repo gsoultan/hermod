@@ -154,6 +154,10 @@ func (s *Service) Predict(ctx context.Context, vhost, name string, rows []infere
 	if err := allowPredictions(vhost, q.MaxPredictionsPerSecond, len(rows), s.now()); err != nil {
 		return nil, err
 	}
+	if l := s.local(); l != nil && m.Backend == storage.MLBackendWorker {
+		// The in-process engine scores its own models, always in-process.
+		return s.predictLocal(ctx, l, m, rows)
+	}
 	if m.Backend == storage.MLBackendWorker && m.Scoring == storage.MLScoringInProcess && len(rows) > 0 {
 		start := time.Now()
 		if out, ok := s.predictInProcess(ctx, m, rows); ok {

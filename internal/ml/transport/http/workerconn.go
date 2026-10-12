@@ -156,9 +156,12 @@ func (h *Handler) failConnection(w http.ResponseWriter, err error) {
 	}
 }
 
-// workerSource says where the worker wk in force was configured: the
-// environment when it names wk, else the console.
+// workerSource says where the worker wk in force was configured: Hermod's
+// built-in engine, the environment when it names wk, else the console.
 func (h *Handler) workerSource(wk *worker.Client) worker.Source {
+	if wk.Local() != nil {
+		return worker.SourceBuiltin
+	}
 	if env := h.workerProvider().Env(); env != nil && env.URL == wk.URL {
 		return worker.SourceEnvironment
 	}
