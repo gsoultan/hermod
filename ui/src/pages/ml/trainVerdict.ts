@@ -61,3 +61,26 @@ export const VERDICT_TEXT: Record<Verdict, { label: string; color: string; meani
     meaning: 'Barely better than guessing. More rows, or columns that say more about the answer, usually help.',
   },
 }
+
+/**
+ * Good, fair or weak for a recommender: how its hit rate (a person's top 10
+ * held something they really picked next) compares with recommending everyone
+ * the most popular items. Good at half as many hits again, fair at a tenth
+ * more, weak below that; a hit rate can rarely approach 1, so the gap-closed
+ * reading of verdict() would undersell it. Null without the popular baseline.
+ */
+export function recommendVerdict(v: ModelVersion): Verdict | null {
+  const hits = v.metrics?.['hit_rate@10']
+  const base = v.metrics?.['baseline_hit_rate@10']
+  if (!isNumber(hits) || !isNumber(base)) return null
+  if (hits <= base) return 'weak'
+  if (base === 0 || hits >= base * 1.5) return 'good'
+  return hits >= base * 1.1 ? 'fair' : 'weak'
+}
+
+/** What a recommender's verdict means, next to recommending the most popular items. */
+export const RECOMMEND_VERDICT_TEXT: Record<Verdict, string> = {
+  good: 'Much better than recommending everyone the most popular items.',
+  fair: 'Better than recommending everyone the most popular items, with room to improve.',
+  weak: 'Barely better than recommending everyone the most popular items. More rows for each person usually help.',
+}

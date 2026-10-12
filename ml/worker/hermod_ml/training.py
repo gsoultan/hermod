@@ -656,7 +656,12 @@ class Trainer:
     def check(self, vhost: str, body: dict[str, Any]) -> dict[str, Any]:
         """The pre-flight check (precheck.py) for a train request. It takes
         no training slot: it reads the dataset and measures, nothing more.
-        What only a training uses (name, go_live, params) is ignored."""
+        What only a training uses (name, go_live, params) is ignored. A
+        recommender has no column to predict, so there is nothing to check."""
+        if body.get("task") == recommend.TASK:
+            raise bad_request(
+                "The pre-flight check is for a model that predicts a column; a recommendation model has none to check, so train it directly."
+            )
         request = parse_request({k: v for k, v in body.items() if k not in ("name", "go_live", "params")})
         frame, types = self._datasets.load(vhost, request.dataset)
         features = self._features(frame, types, request)

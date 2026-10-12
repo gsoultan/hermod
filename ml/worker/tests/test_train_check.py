@@ -147,6 +147,17 @@ def test_bad_requests(client, body, status, fragment):
     assert fragment in resp.json()["error"]
 
 
+def test_a_recommendation_body_is_400_in_words(client):
+    # The check screens a column to predict; a recommender has none, so it is
+    # refused with what to do instead rather than "'target' is required".
+    load(client, "orders", classification_rows())
+    resp = check(client, dataset="orders", task="recommendation", recommend={"user": "id", "item": "city"})
+    assert resp.status_code == 400, resp.text
+    error = resp.json()["error"]
+    assert "recommendation model" in error
+    assert "train it directly" in error
+
+
 def test_bad_vhost_is_400(client):
     assert check(client, vhost="..", dataset="orders", target="y").status_code in (400, 404)
 

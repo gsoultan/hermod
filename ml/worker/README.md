@@ -88,7 +88,8 @@ Task `recommendation` (`hermod_ml/recommend.py`) takes `"recommend": {"user",
 "item", "strength"?, "time"?}` instead of a target and features, and trains
 `als` (implicit ALS, 32 factors), `item_similarity` (item-item cosine, 50
 neighbours) or `auto` (both, keeping the better NDCG@10), with numpy and scipy
-only. It saves `model.rec` rather than `model.onnx`: `HREC`, a uint32 format
+only. It refuses `preset` (there is nothing for Auto to choose between beyond
+the two), and `/v1/train-check` refuses a recommendation body. It saves `model.rec` rather than `model.onnx`: `HREC`, a uint32 format
 version and header length, a JSON header, then little-endian float32/uint32
 sections (factors or neighbours, each person's seen items, the popular items),
 at most 64 MiB. The OIP routes and export refuse a recommendation version;

@@ -216,7 +216,8 @@ func (h *Handler) TrainCheck(w http.ResponseWriter, r *http.Request) {
 		h.JsonError(w, "the request body must be a JSON training spec", http.StatusBadRequest)
 		return
 	}
-	if req.Dataset == "" || req.Target == "" {
+	// A recommendation body has no target; the service says why it is refused.
+	if req.Dataset == "" || (req.Target == "" && req.Task != worker.TaskRecommendation) {
 		h.JsonError(w, "name the dataset to train on and the target column to predict", http.StatusBadRequest)
 		return
 	}

@@ -185,7 +185,11 @@ describe('Guided training', () => {
     expect(within(dialog).getByText(/1,200 rows/)).toBeInTheDocument()
     await next(user, dialog)
 
-    // 2. What to predict: the check runs and says what the target is in words.
+    // 2. What to do: predicting a column is the default, next to recommending items.
+    expect(within(dialog).getByText('What do you want to do?')).toBeInTheDocument()
+    expect(within(dialog).getByRole('radio', { name: /predict a column/i })).toBeChecked()
+    expect(within(dialog).getByRole('radio', { name: /recommend items to people/i })).not.toBeChecked()
+    // The check runs and says what the target is in words.
     await pick(user, dialog, /column to predict/i, 'churned')
     expect(await within(dialog).findByText(/yes\/no question/i)).toBeInTheDocument()
     await waitFor(() => expect(writes.find((w) => w.method === 'CHECK')?.body).toMatchObject({ dataset: 'customers', target: 'churned' }))

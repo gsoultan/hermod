@@ -201,8 +201,13 @@ func (s *Service) train(ctx context.Context, vhost, name string, spec worker.Tra
 // nothing trained. A spec a training would refuse in itself is refused here
 // the same way. The check runs on the main worker whatever the spec's device
 // or algorithm, since it holds the datasets and only measures them; it takes
-// neither the model's claim nor a training slot.
+// neither the model's claim nor a training slot. A recommender has no column
+// to predict, so it is refused with what to do instead.
 func (s *Service) TrainCheck(ctx context.Context, vhost string, spec worker.TrainSpec) (worker.TrainCheck, error) {
+	if spec.Task == worker.TaskRecommendation {
+		return worker.TrainCheck{}, fmt.Errorf("%w: the pre-flight check is for a model that predicts a column; "+
+			"a recommendation model has none to check, so train it directly", ErrBadTraining)
+	}
 	if err := checkSpec(spec); err != nil {
 		return worker.TrainCheck{}, err
 	}

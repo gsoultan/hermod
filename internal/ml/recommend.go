@@ -179,7 +179,9 @@ func (s *Service) recommender(ctx context.Context, m storage.MLModel) (*recommen
 
 // checkRecommendSpec refuses a recommendation training Hermod cannot run:
 // one without its columns, or bound for a worker pool. A recommender trains
-// on the main worker, which serves its artifact; no pool hands one back.
+// on the main worker, which serves its artifact; no pool hands one back. It
+// takes no preset either: auto always tries both methods, so there is no
+// effort to choose, and the worker refuses one rather than ignore it.
 func checkRecommendSpec(spec worker.TrainSpec) error {
 	if spec.Task != worker.TaskRecommendation {
 		if spec.Recommend != nil {
@@ -194,6 +196,8 @@ func checkRecommendSpec(spec worker.TrainSpec) error {
 		return fmt.Errorf("%w: a recommendation model trains on the CPU of the main worker", ErrBadTraining)
 	case strings.HasPrefix(spec.Algorithm, CustomPrefix):
 		return fmt.Errorf("%w: a recommendation model trains with als, item_similarity or auto, not a script", ErrBadTraining)
+	case spec.Preset != "":
+		return fmt.Errorf("%w: a preset does not apply to a recommendation model; auto always tries als and item_similarity", ErrBadTraining)
 	}
 	return nil
 }

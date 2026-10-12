@@ -363,6 +363,21 @@ func TestTrainCheckErrorsAreTrainingErrors(t *testing.T) {
 	}
 }
 
+// A recommender has no column to predict, so the check refuses it in words
+// that say what to do, rather than asking for a target.
+func TestTrainCheckRefusesARecommender(t *testing.T) {
+	h, _, stub := newTrainingAPI(t)
+	body := `{"dataset":"orders","task":"recommendation","recommend":{"user":"customer","item":"sku"}}`
+	w := do(h.TrainCheck, editorA, http.MethodPost, "/x", strings.NewReader(body), map[string]string{"vhost": "tenant-a"})
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "recommendation model") ||
+		!strings.Contains(w.Body.String(), "train it directly") {
+		t.Errorf("code = %d %s, want 400 saying to train it directly", w.Code, w.Body)
+	}
+	if stub.checked != "" {
+		t.Errorf("the worker was asked: %s", stub.checked)
+	}
+}
+
 func TestTrainRefusesAPresetWithAnExplicitAlgorithm(t *testing.T) {
 	h, _, stub := newTrainingAPI(t)
 	body := `{"dataset":"customers","target":"churned","algorithm":"xgboost","preset":"best"}`

@@ -127,6 +127,9 @@ def test_strength_must_be_numeric_and_drops_rows_without_one(client):
         ({"target": "sku"}, "'target' does not apply"),
         ({"features": ["qty"]}, "'features' does not apply"),
         ({"params": {"epochs": 3}}, "'params' does not apply"),
+        # Auto always tries both methods; a preset has nothing to choose.
+        ({"preset": "quick"}, "'preset' does not apply"),
+        ({"algorithm": "als", "preset": "best"}, "'preset' does not apply"),
         ({"algorithm": "random_forest"}, "must be one of auto, als, item_similarity"),
         ({"test_size": 0}, "test_size"),
         ({"recommend": {"user": "nobody", "item": "sku"}}, "'nobody' is not in dataset"),

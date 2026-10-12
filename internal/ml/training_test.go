@@ -315,6 +315,8 @@ func TestTrainCheckRefusesWhatATrainingWould(t *testing.T) {
 		{Dataset: "d", Target: "y", Algorithm: "linear", Preset: "best"},
 		{Dataset: "d", Target: "y", Preset: "fastest"},
 		{Dataset: "d", Target: "y", Device: "tpu"},
+		// A recommender has no column to predict, so nothing to check.
+		{Dataset: "orders", Task: worker.TaskRecommendation, Recommend: &worker.RecommendSpec{User: "u", Item: "i"}},
 	} {
 		if _, err := svc.TrainCheck(t.Context(), "tenant-a", spec); !errors.Is(err, ErrBadTraining) {
 			t.Errorf("%+v: err = %v, want ErrBadTraining", spec, err)

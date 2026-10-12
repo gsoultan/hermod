@@ -111,6 +111,8 @@ func TestValidateRetrainPolicy(t *testing.T) {
 			Task: worker.TaskRecommendation, Recommend: &worker.RecommendSpec{User: "u", Item: "i"}}}, ""},
 		{"a recommender without its columns", storage.MLRetrainPolicy{Schedule: "@daily", Spec: worker.TrainSpec{Dataset: "orders",
 			Task: worker.TaskRecommendation}}, "recommend.user"},
+		{"a recommender with a preset", storage.MLRetrainPolicy{Schedule: "@daily", Spec: worker.TrainSpec{Dataset: "orders",
+			Task: worker.TaskRecommendation, Recommend: &worker.RecommendSpec{User: "u", Item: "i"}, Preset: "quick"}}, "preset"},
 		{"auto with a preset", storage.MLRetrainPolicy{Schedule: "@daily",
 			Spec: worker.TrainSpec{Dataset: "d", Target: "y", Algorithm: "auto", Preset: "best"}}, ""},
 		{"a preset with an explicit algorithm", storage.MLRetrainPolicy{Schedule: "@daily",

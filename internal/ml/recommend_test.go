@@ -239,6 +239,7 @@ func TestTrainingARecommenderKeepsItsTaskAndRunsOnTheMainWorker(t *testing.T) {
 		"gpu":                      {Dataset: "orders", Task: worker.TaskRecommendation, Recommend: spec.Recommend, Device: DeviceGPU},
 		"script":                   {Dataset: "orders", Task: worker.TaskRecommendation, Recommend: spec.Recommend, Algorithm: CustomPrefix + "mine"},
 		"no columns":               {Dataset: "orders", Task: worker.TaskRecommendation},
+		"a preset":                 {Dataset: "orders", Task: worker.TaskRecommendation, Recommend: spec.Recommend, Preset: "best"},
 		"columns without the task": {Dataset: "orders", Target: "sku", Recommend: spec.Recommend},
 	} {
 		if _, err := svc.Train(t.Context(), "v", "recs", bad, GoLive{}, "ada"); !errors.Is(err, ErrBadTraining) {

@@ -18,6 +18,16 @@ NDCG at 10 and catalog coverage, next to what recommending the most popular
 items would score; the Models page says it in words ("For 34 of 100 people, one
 of their top 10 was something they really picked next").
 
+In the guided **Train a model** dialog it is the second answer to "What do you
+want to do?": it asks which column is the person and which the item, and
+optionally how much they liked it and when; skips the pre-flight check and the
+quality cards (Auto always tries both methods; the method sits under
+Advanced); and reads the result as good, fair or weak against recommending the
+most popular items, with sample recommendations, Try it, Make it live and the
+API call for a person's top 10. Training a recommender again opens on that
+path, filled in. A `preset`, and a pre-flight check, are refused for a
+recommendation model with a 400 that says why.
+
 A recommendation model is called on the existing predict and serve routes with
 `{"user", "k", "exclude_seen"}` for a person's top items or `{"item", "k"}` for
 similar items, and answers `{"items": [{"item", "score", "reason"}]}`; an

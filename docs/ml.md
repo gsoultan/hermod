@@ -162,7 +162,8 @@ A fifth of the rows are held back to score the model:
 algorithms by cross-validation on the training rows only, and trains the best
 on all of them. The held-out rows are never used to choose, so the version's
 metrics are not flattered by the choice. `preset` (auto only; any other
-algorithm with a preset is a 400) says how hard it tries:
+algorithm with a preset is a 400, and so is a recommendation model, whose Auto
+always tries both of its methods) says how hard it tries:
 
 | Preset | Candidates | Scored on | Time budget |
 |---|---|---|---|
@@ -213,7 +214,9 @@ Warning codes: `few_rows` (under 100 usable rows, or under the minimum),
 `imbalanced`, `many_classes` (more than 20 classes), and the column roles
 above. The worker runs the check at `POST /v1/train-check/{vhost}`; Hermod
 always asks the main worker, which holds the datasets, whatever the spec's
-device or algorithm, and maps its errors as for a training.
+device or algorithm, and maps its errors as for a training. The check is for a
+column to predict: a body with `task: "recommendation"` is a 400 that says to
+train the recommender directly.
 
 Every training makes a new, immutable version. Whether it goes live is your
 rule: **only when I put it live**, **always**, or **if it scores at least** a
@@ -226,7 +229,10 @@ the model lists them all and puts any one live, which is also how you roll back.
 learning knowledge is needed:
 
 1. **Your data.** Name the model, pick a dataset, and check its first rows.
-2. **What to predict.** Pick the column. Hermod runs a pre-flight check
+2. **What to do.** "What do you want to do?": **Predict a column** (the
+   default) or **Recommend items to people**, which asks four questions in its
+   place (see [Recommendations](#recommendations)). To predict a column, pick
+   it. Hermod runs a pre-flight check
    (`POST /api/vhosts/{vhost}/ml/train-check`, the train body, nothing trained)
    and says what the column is: a yes/no question, a category, or a number.
    Columns that would spoil the model are unticked for you: ID-like columns,
@@ -238,7 +244,9 @@ learning knowledge is needed:
    few minutes) or **Best quality** (10 minutes or more) is sent as `preset`
    and sets how much Auto tries. **Advanced** holds the task, algorithm, device
    and neural-network settings; picking an algorithm there trains only that
-   one, and no preset is sent.
+   one, and no preset is sent. A recommender has no quality to pick: Hermod
+   tries both of its methods and keeps the better one, and **Advanced** holds
+   the method.
 4. **Train.** One button; leave the window open while it runs.
 5. **Result.** A headline such as "Right 87 of 100 times on rows it never
    saw" (classification, from `accuracy`) or "Typically off by 12.4" (numbers,
@@ -248,10 +256,12 @@ learning knowledge is needed:
    least a fifth fair. Then **What mattered most** (`importance`), **What Auto
    tried** (`leaderboard`) and the next steps: **Try it** with a row of the
    dataset, **Make it live**, **Copy API call**, or use it from a Predict node.
-   The raw metrics are under **Details**.
+   The raw metrics are under **Details**. A recommender's result reads
+   differently; see [How good is it](#how-good-is-it).
 
 Training a model again opens on step 2 with the last version's dataset, target
-and columns. Every one of these fields is optional: against a server without
+and columns; a recommender's opens on the recommend path with its columns
+filled in. Every one of these fields is optional: against a server without
 the check or the new result fields, the dialog learns from every other column
 and shows the headline and metrics as before. The Train Model node has the same
 quality picker, saved as `preset`, with the expert fields under **Advanced**.
@@ -603,8 +613,12 @@ served, logged and held to quotas like any model trained in Hermod.
 
 ### Training one
 
-On the Models page choose **Train a model → Recommend items to people**, or
-send `task: "recommendation"` with a `recommend` object instead of a target:
+On the Models page choose **Train a model**, pick the dataset, and at
+**What do you want to do?** choose **Recommend items to people**. It asks which
+column is the person, which is the item, optionally how much they liked it
+(a rating, quantity or count) and when it happened, and needs no pre-flight
+check. Over the API, send `task: "recommendation"` with a `recommend` object
+instead of a target:
 
 | Column | Required | Means |
 |---|---|---|
@@ -634,9 +648,10 @@ needs at least 10 usable rows; a model is at most 64 MB (people × factors plus
 items × factors for ALS, items × 50 neighbours for item similarity), and a
 larger one is refused with how many people and items it had.
 
-`target`, `features`, `params` and `device: "gpu"` are refused for a
-recommendation model, as are `recommend` and the two algorithms above for any
-other task. Custom scripts cannot train one.
+`target`, `features`, `params`, `preset` and `device: "gpu"` are refused for
+a recommendation model (a 400 rather than ignored), as are `recommend` and the
+two algorithms above for any other task. Custom scripts cannot train one, and
+the pre-flight check does not take one.
 
 ### How good is it
 
@@ -655,7 +670,15 @@ Each metric also has a `baseline_` twin: what recommending everyone the most
 popular items scores on the same people. A model worth having beats it. The
 Models page puts it in words: *"For 34 of 100 people, one of their top 10 was
 something they really picked next. Recommending everyone the most popular
-items would find it for 12 of 100."* At most 5000 people are scored, chosen
+items would find it for 12 of 100."* Next to it, a **good / fair / weak**
+badge reads `hit_rate@10` against `baseline_hit_rate@10`: good at one and a
+half times the popular items' hit rate or more (or any hit when they find
+none), fair at a tenth more, weak below that. A hit rate seldom gets near 1,
+so it is read as a ratio rather than as the share of the gap to a perfect
+score that a column model uses. The result then shows a few **Sample
+recommendations**, what Auto tried, and the next steps: **Try it** (a person's
+top 10, or items like an item), **Make it live**, and **Copy API call** with
+`{"user": "…", "k": 10}`. At most 5000 people are scored, chosen
 with the seed. The version also keeps `catalog` (how many people and items it
 knows) and three `samples` of the test: what a person was recommended and what
 they picked.
@@ -742,8 +765,9 @@ They are exported as `hermod_ml_recommendation_coverage` and
 1. Read the orders into a dataset (**Datasets → From a database**):
    `SELECT customer_id, product_id, quantity, ordered_at FROM order_lines`
    into `order-lines`.
-2. Train: **Train a model → Recommend items to people**, Who `customer_id`,
-   What they picked `product_id`, How much `quantity`, When `ordered_at`. Or:
+2. Train: **Train a model**, dataset `order-lines`, then **Recommend items to
+   people** with person `customer_id`, item `product_id`, how much
+   `quantity` and when `ordered_at`. Or:
 
    ```bash
    curl -X POST https://hermod.example.com/api/vhosts/default/ml/models/recs/train \

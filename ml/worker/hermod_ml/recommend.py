@@ -127,6 +127,8 @@ def parse_request(body: dict[str, Any], test_size: float, seed: int) -> Recommen
         raise bad_request("'features' does not apply to a recommendation model; it learns from 'recommend' columns only.")
     if body.get("params") is not None:
         raise bad_request("'params' does not apply to a recommendation model.")
+    if body.get("preset") not in (None, ""):
+        raise bad_request("'preset' does not apply to a recommendation model; auto always tries als and item_similarity.")
 
     spec = body.get("recommend")
     if not isinstance(spec, dict):
