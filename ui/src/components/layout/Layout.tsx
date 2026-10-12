@@ -603,7 +603,7 @@ export function Layout({ children }: LayoutProps) {
               <SideLink to="/secrets" label="Secrets" icon={IconKey} desktopOpened={desktopOpened} />
             )}
             {canEdit && (
-              <SideLink to="/ml/models" label="Models" icon={IconBrain} desktopOpened={desktopOpened} />
+              <SideLink to="/ml/models" label="Machine Learning" icon={IconBrain} desktopOpened={desktopOpened} />
             )}
             <SideLink to="/ai/budget" label="AI Budget" icon={IconCoin} desktopOpened={desktopOpened} />
             <SideLink to="/lineage" label="Data Lineage" icon={IconGitMerge} desktopOpened={desktopOpened} />

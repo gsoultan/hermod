@@ -7,6 +7,26 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Changed — Machine Learning page with a Getting started guide
+
+The sidebar link **Models** is now **Machine Learning** (same page, same
+`/ml/models` address, still for Editors and Administrators). The page opens
+with **Getting started**: four steps — connect the training worker, add your
+data, train a model, use it — each marked done or to do for the vhost, with
+one button that moves it on. A setup guide explains what the `hermod-ml`
+worker is, gives the Docker and Helm commands to copy, says how to get
+TensorFlow and PyTorch (the `-dl` image), has its own checks for a worker that
+is configured but not answering, and a **Check again** button. The guide can
+be hidden once every step is done.
+
+Nothing disappears any more when the worker is missing: **Train a model**, the
+Datasets panel, **Train again** and **Retrain automatically** stay on the page,
+disabled, with the reason beside them. In the Algorithm lists, PyTorch MLP and
+Keras MLP — now labelled "Keras MLP — TensorFlow (neural network)" — stay
+listed on a slim worker, disabled, saying they need the deep-learning worker
+image. The Train dialog's Dataset, Task and Algorithm fields gained one-line
+help. See [docs/ml.md](docs/ml.md#in-the-console).
+
 ## [1.18.0] — 2026-10-12
 
 AI automation and machine learning. Workflows can call LLM providers, retrieve

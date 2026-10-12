@@ -6,6 +6,7 @@ import { http, HttpResponse } from 'msw'
 import { useEffect, useState } from 'react'
 import { describe, expect, it } from 'vitest'
 import { server, signInAs } from '../test/setupTests'
+import { findEnabledButton } from '../test/buttons'
 import { VHostProvider, useVHost } from '@/context/VHostContext'
 import { ConfirmProvider } from '@/components/common/ConfirmProvider'
 import { ModelsPage } from '@/pages/ml/ModelsPage'
@@ -117,7 +118,7 @@ describe('Retraining on the Models page', () => {
     const writes = retrainApi([trained()])
     renderPage()
     const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: /retrain churn automatically/i }))
+    await user.click(await findEnabledButton(/retrain churn automatically/i))
     const dialog = await screen.findByRole('dialog')
     await user.type(within(dialog).getByRole('textbox', { name: /schedule/i }), '0 3 * * *')
     await user.type(within(dialog).getByRole('textbox', { name: /new rows/i }), '1000')
@@ -139,7 +140,7 @@ describe('Retraining on the Models page', () => {
     const writes = retrainApi([trained()])
     renderPage()
     const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: /retrain churn automatically/i }))
+    await user.click(await findEnabledButton(/retrain churn automatically/i))
     const dialog = await screen.findByRole('dialog')
     await pick(user, dialog, /dataset/i, 'customers')
     await pick(user, dialog, /column to predict/i, 'churned')
@@ -151,7 +152,7 @@ describe('Retraining on the Models page', () => {
     const writes = retrainApi([trained({ retrain: policy })])
     renderPage()
     const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: /retrain churn automatically/i }))
+    await user.click(await findEnabledButton(/retrain churn automatically/i))
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByRole('textbox', { name: /schedule/i })).toHaveValue('@daily')
     expect(within(dialog).getByRole('textbox', { name: /new rows/i })).toHaveValue('500')

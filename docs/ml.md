@@ -37,6 +37,33 @@ flowchart LR
   B2 --- C2
 ```
 
+## In the console
+
+Open **Machine Learning** in the sidebar (Editors and Administrators; the
+page is at `/ml/models`). **Getting started**, at the top, walks through the
+four steps from nothing to a model in use, and shows which are done for the
+vhost you are on:
+
+1. **Connect the training worker**: whether Hermod has a worker address
+   (`HERMOD_ML_WORKER_URL`), whether the worker answers, and whether it can
+   train the neural networks (the `-dl` image). **Set up the worker** opens a
+   setup guide: what `hermod-ml` is, the Docker and Helm commands to copy (the
+   ones under [Train a model](#train-a-model)), how to add deep learning, what
+   to check when a configured worker does not answer, and **Check again**,
+   which asks Hermod again without reloading the page.
+2. **Add your data**: done once the vhost has a dataset; **Go to Datasets**
+   moves to the [Datasets](#datasets) panel.
+3. **Train a model**: done once the vhost has a model trained here; **Start
+   training** opens the Train dialog.
+4. **Use it**: done once a trained model has a live version; it offers
+   **Make it live** (the model's versions) or **Try your model** (one row).
+
+Once all four are done the guide can be hidden; that is remembered per user in
+the browser. Until the worker is ready, **Train a model**, the Datasets
+buttons, and a trained model's **Train again** and **Retrain automatically**
+stay on the page, disabled, with the reason beside them. Models served
+elsewhere work without the worker.
+
 ## Train a model
 
 Training runs in **hermod-ml**, a Python worker beside Hermod (scikit-learn,
@@ -78,7 +105,9 @@ With Helm, choose it with `--set mlWorker.image.variant=dl` (the chart appends
 The slim image refuses `pytorch_mlp` and `keras_mlp` with a 400 that says they
 are "not available in this image". The worker's `GET /v1/capabilities` lists
 what it can train; Hermod passes the list on (`GET /api/ml/worker`), and the
-Train dialog and the Train Model node offer only those algorithms.
+Train dialog, the retrain policy and the Train Model node offer those
+algorithms. On a slim worker the two networks stay in the Algorithm list,
+disabled, with the image they need ("Keras MLP — TensorFlow" is the Keras one).
 
 **Resources.** The libraries load on the first deep-learning training and stay
 loaded: PyTorch, TensorFlow and tf2onnx add about 650 MiB to the worker
@@ -91,7 +120,7 @@ still bounds it on Hermod's side.
 
 ### Datasets
 
-On the **Models** page, under **Datasets**:
+On the **Machine Learning** page, under **Datasets**:
 
 - **Upload a file**: CSV, or Excel `.xlsx` (first sheet, header row), up to 200 MB.
 - **From a database**: a `SELECT` on one of the vhost's database sources
@@ -315,7 +344,7 @@ algorithm) and the go-live rule, as **Train a model** does. Hermod checks every
 minute. A model is claimed in the database before it trains, so with several
 Hermod servers each retraining runs once, and never while another training of
 the same model, manual or not, is running (a manual training then gets 409).
-The Models page shows the policy and the last retraining: the version it made
+The Machine Learning page shows the policy and the last retraining: the version it made
 and whether it went live, or its error. A failed retraining is tried again
 after 15 minutes; a worker that is busy is asked again on the next check.
 
@@ -334,7 +363,7 @@ refused when the policy is saved.
 ### In-process scoring
 
 By default every prediction of a model trained in Hermod is an HTTP call to
-the worker. **Scoring** on the Models page can set a trained model to
+the worker. **Scoring** on the Machine Learning page can set a trained model to
 **in-process** instead: Hermod fetches the live version's ONNX graph from the
 worker once and scores it itself, in pure Go (`pkg/ml/onnxscore`), with no
 round trip.
@@ -448,7 +477,7 @@ ONNX does not match the rules above.
 
 ### Saving scripts
 
-The **Scripts** tab of the Models page appears when the server has custom
+The **Scripts** tab of the Machine Learning page appears when the server has custom
 scripts on. Scripts are stored per vhost in Hermod's database (SQL or MongoDB),
 with every version kept: saving new source adds a version named by the SHA-256
 of the source, and saving the same source again adds nothing. Deleting a script
@@ -579,7 +608,7 @@ The main worker can itself run on GPU nodes: add `nvidia.com/gpu` to
 
 ## Register a model served elsewhere
 
-Open **Models** in the sidebar (Editor or Admin) and add a model:
+Open **Machine Learning** in the sidebar (Editor or Admin) and add a model:
 
 | Field | Meaning |
 |---|---|
@@ -613,7 +642,7 @@ served, logged and held to quotas like any model trained in Hermod.
 
 ### Training one
 
-On the Models page choose **Train a model**, pick the dataset, and at
+On the Machine Learning page choose **Train a model**, pick the dataset, and at
 **What do you want to do?** choose **Recommend items to people**. It asks which
 column is the person, which is the item, optionally how much they liked it
 (a rating, quantity or count) and when it happened, and needs no pre-flight
@@ -668,7 +697,7 @@ training), and the answer is checked against what they really picked next:
 
 Each metric also has a `baseline_` twin: what recommending everyone the most
 popular items scores on the same people. A model worth having beats it. The
-Models page puts it in words: *"For 34 of 100 people, one of their top 10 was
+Machine Learning page puts it in words: *"For 34 of 100 people, one of their top 10 was
 something they really picked next. Recommending everyone the most popular
 items would find it for 12 of 100."* Next to it, a **good / fair / weak**
 badge reads `hit_rate@10` against `baseline_hit_rate@10`: good at one and a
@@ -1293,7 +1322,7 @@ and answers it as it is.
 log records the queueing, and the job's result is the usual training result
 (`model`, `version`, `live`, `reason`). The **Train a model** dialog trains
 this way: the Train step shows the job's progress and can stop it, and closing
-the dialog leaves the training running. **Jobs** on the Models page lists the
+the dialog leaves the training running. **Jobs** on the Machine Learning page lists the
 vhost's jobs with their status, progress and, for one that failed, why; an
 Editor can stop one there. The **Copy API call** and **Copy async call**
 buttons under a trained version give both forms of the call.
@@ -1404,7 +1433,7 @@ sync waits for the training, as before.
 A model can be offered to AI assistants and other MCP clients as a tool on
 Hermod's MCP server (`/api/mcp`, see [ai-automation.md](ai-automation.md#mcp-server)).
 It is off for every model until an Editor turns on **Expose to MCP** on the
-Models page (`PUT /api/vhosts/{vhost}/ml/models/{name}/mcp` with
+Machine Learning page (`PUT /api/vhosts/{vhost}/ml/models/{name}/mcp` with
 `{"exposed": true}`). Editing the model keeps the setting.
 
 An exposed model is the tool `predict_<model>`, listed only to a caller who may
@@ -1458,13 +1487,13 @@ when it passes either quota.
 | `GET /api/vhosts/{vhost}/ml/quotas` | Any role on the vhost. Answers the vhost's own quotas (`quotas`, null where unset), the server `defaults` and the limits in force (`effective`). |
 | `PUT /api/vhosts/{vhost}/ml/quotas` | Administrator. Replaces the vhost's quotas; a quota left out or null falls back to the server default. |
 
-The Models page shows the quotas under **ML quotas**, editable by an
+The Machine Learning page shows the quotas under **ML quotas**, editable by an
 Administrator. Quotas are kept in the `ml_quotas` table (SQL) or collection
 (MongoDB) and removed with the vhost.
 
 ## Monitoring
 
-**Monitoring** on a model's row on the Models page shows its prediction log,
+**Monitoring** on a model's row on the Machine Learning page shows its prediction log,
 its drift report and, for an Editor, the setting behind both. The setting is
 kept with the model (`monitoring` in its JSON); saving the model's address
 leaves it as it was.
@@ -1484,7 +1513,7 @@ kept, from 0 to 1 (`0.1` keeps one in ten). Each kept row holds the vhost,
 model, version, time, the row's inputs and outputs, how long the call took,
 and who called: `workflow` (with the workflow's id, from a Predict node),
 `rest` (the serving endpoint), `grpc`, `mcp` (a `predict_<model>` tool, with
-the user's name), or `ui` (Test on the Models page).
+the user's name), or `ui` (Test on the Machine Learning page).
 
 `log_mask_fields` lists the input or output fields masked before the row is
 written, as dotted paths (`customer.phone`); `*` masks every text value. A

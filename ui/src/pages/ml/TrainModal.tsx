@@ -15,6 +15,7 @@ import {
   DEFAULT_WEIGHTS, ROLES, defaultRuleChoices, isScenarioVersion, rulesFromChoices, scenarioLabel, scenariosSupported,
   type RecommendData, type RoleKey, type Scenario, type ScenarioTrainSpec, type ScenarioVersion, type Weights,
 } from '@/lib/mlRecommend'
+import { algorithmDescription, algorithmOptionRenderer } from './algorithmOption'
 import { DatasetPreview } from './datasetPreview'
 import { DeepParamsFields, readDeepParams, type DeepParamsText } from './deepParams'
 import { GoLiveField } from './goLive'
@@ -123,6 +124,7 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
   const columns = (info?.columns ?? []).map((c) => c.name)
   const caps = worker?.capabilities
   const { data: scripts = [] } = useVHostScripts(vhost, !!caps?.custom_scripts)
+  const algorithms = algorithmOptions(worker, scripts)
   const custom = isCustomAlgorithm(algorithm)
   // A script trains on its own pool; the device applies to built-in algorithms.
   const showDevice = !!caps?.gpu && !custom
@@ -244,7 +246,7 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
     }
   }
   // Training runs as a job: it goes on if this window closes, and the Jobs
-  // list on the Models page follows it there.
+  // list on the Machine Learning page follows it there.
   const trainedName = name.trim()
   const onTrained = useCallback((res: TrainResult) => {
     setAt('result')
@@ -311,7 +313,9 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
                   onChange={(e) => { setName(e.currentTarget.value); setNameError(null) }} error={nameError} data-autofocus />
               )}
               <Select label="Dataset" placeholder={datasets.length ? 'Choose a dataset' : 'No datasets yet'} required searchable
-                description={datasets.length ? undefined : 'Add one under Datasets on the Models page: a CSV or Excel file, or rows from a database.'}
+                description={datasets.length
+                  ? 'The table of rows Hermod learns from. Each row is one example, such as one customer.'
+                  : 'Add one under Datasets on the Machine Learning page: a CSV or Excel file, or rows from a database.'}
                 data={datasets.map((d) => ({ value: d.name, label: d.name }))} value={dataset}
                 onChange={pickDataset} nothingFoundMessage="No dataset by that name" />
               {info && (
@@ -468,9 +472,11 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
                   <Accordion.Panel>
                     <Stack gap="sm">
                       <FormRow cols={showDevice ? 3 : 2}>
-                        <Select label="Task" data={TASK_OPTIONS} value={task} allowDeselect={false}
+                        <Select label="Task" description="Leave it to decide from the target unless it guesses wrong."
+                          data={TASK_OPTIONS} value={task} allowDeselect={false}
                           onChange={(v) => setTask((v ?? 'auto') as TrainTask)} />
-                        <Select label="Algorithm" data={algorithmOptions(worker, scripts)} value={algorithm} allowDeselect={false}
+                        <Select label="Algorithm" description={algorithmDescription(algorithms)} data={algorithms}
+                          renderOption={algorithmOptionRenderer(algorithms)} value={algorithm} allowDeselect={false}
                           onChange={(v) => setAlgorithm((v ?? 'auto') as TrainAlgorithm)} />
                         {showDevice && (
                           <Select label="Device" description="GPU trains on the GPU worker pool." data={DEVICE_OPTIONS} value={device}

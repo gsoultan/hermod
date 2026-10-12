@@ -45,7 +45,7 @@ function textFrom(rows: Row[]): string {
 /**
  * The Predict node: run each record through one of the vhost's models.
  *
- * The model is chosen from the workflow vhost's registry (the Models page).
+ * The model is chosen from the workflow vhost's registry (the Machine Learning page).
  * Features are mapped to record fields; with no mapping the whole record is
  * sent. The answer lands in one field: the value itself for a model with one
  * output, an object for a model with several.
@@ -116,7 +116,7 @@ export function MLPredictConfig({ config, updateNodeConfig, nodeId, fieldPaths =
       />
       {!isLoading && models.length === 0 && (
         <Alert color="blue" icon={<IconInfoCircle size="1rem" />} title={`No models in ${vhost} yet`}>
-          Register one on the <Anchor href="/ml/models">Models</Anchor> page: the address of a model
+          Register one on the <Anchor href="/ml/models">Machine Learning</Anchor> page: the address of a model
           server (hermod-ml, KServe, Triton, MLServer or MLflow) and the model's name on it.
         </Alert>
       )}

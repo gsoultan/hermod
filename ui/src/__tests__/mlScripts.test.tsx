@@ -6,6 +6,7 @@ import { http, HttpResponse } from 'msw'
 import { useEffect, useState } from 'react'
 import { describe, expect, it } from 'vitest'
 import { server, signInAs } from '../test/setupTests'
+import { findEnabledButton } from '../test/buttons'
 import { VHostProvider, useVHost } from '@/context/VHostContext'
 import { ConfirmProvider } from '@/components/common/ConfirmProvider'
 import { ModelsPage } from '@/pages/ml/ModelsPage'
@@ -127,7 +128,7 @@ async function optionsOf(user: ReturnType<typeof userEvent.setup>, scope: HTMLEl
 
 /** Opens the Train dialog and walks it to "How careful", with Advanced open. */
 async function openTrain(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(await screen.findByRole('button', { name: /train a model/i }))
+  await user.click(await findEnabledButton(/train a model/i))
   const dialog = await screen.findByRole('dialog')
   await user.type(within(dialog).getByRole('textbox', { name: /model name/i }), 'churn')
   await pick(user, dialog, /^dataset/i, 'customers')
@@ -236,7 +237,7 @@ describe('Retraining', () => {
     const writes = api({ custom_scripts: true, scripts_enabled: true, gpu: true }, [trained])
     renderPage()
     const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: /retrain churn automatically/i }))
+    await user.click(await findEnabledButton(/retrain churn automatically/i))
     const dialog = await screen.findByRole('dialog')
     await user.type(within(dialog).getByRole('textbox', { name: /schedule/i }), '@daily')
     await pick(user, dialog, /^dataset/i, 'customers')
@@ -253,7 +254,7 @@ describe('Retraining', () => {
     const writes = api({ gpu: true }, [trained])
     renderPage()
     const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: /retrain churn automatically/i }))
+    await user.click(await findEnabledButton(/retrain churn automatically/i))
     const dialog = await screen.findByRole('dialog')
     await user.type(within(dialog).getByRole('textbox', { name: /schedule/i }), '@daily')
     await pick(user, dialog, /^dataset/i, 'customers')

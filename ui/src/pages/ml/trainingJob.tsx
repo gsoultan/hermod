@@ -99,7 +99,7 @@ export function TrainingProgress({ job, about, cancelling, onCancel }: {
       </Group>
       <Progress value={job ? Math.max(percent, 2) : 2} animated aria-label="Training progress" />
       <Text size="xs" c="dimmed">
-        {about}You can close this window: the training goes on, and the Jobs list on the Models page shows how it went.
+        {about}You can close this window: the training goes on, and the Jobs list on the Machine Learning page shows how it went.
       </Text>
       {job && (
         <Group>
