@@ -44,3 +44,13 @@ export function persistedSnapshot(state: any): string {
     })),
   });
 }
+
+/**
+ * hasUnsavedChanges reports whether the canvas differs from what was last
+ * loaded from or saved to the server. It compares content, not history, so an
+ * edit that was undone is not a change. Before anything has loaded there is
+ * no baseline and nothing to lose.
+ */
+export function hasUnsavedChanges(state: any): boolean {
+  return state.persistedBaseline != null && persistedSnapshot(state) !== state.persistedBaseline;
+}

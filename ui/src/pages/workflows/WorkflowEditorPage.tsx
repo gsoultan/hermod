@@ -40,6 +40,7 @@ import { useWorkflowEvents } from './WorkflowEditor/hooks/useWorkflowEvents';
 import { useWorkflowHotkeys } from './WorkflowEditor/hooks/useWorkflowHotkeys';
 import { WorkflowModals } from './WorkflowEditor/components/WorkflowModals';
 import { WorkflowNodeSettingsModal } from './WorkflowEditor/components/WorkflowNodeSettingsModal';
+import { UnsavedChangesGuard } from './WorkflowEditor/components/UnsavedChangesGuard';
 
 const API_BASE = '/api';
 
@@ -387,6 +388,11 @@ function EditorInner() {
           setAIFixModalData={setAIFixModalData}
           saveConfirmOpened={saveConfirmOpened}
           setSaveConfirmOpened={setSaveConfirmOpened}
+        />
+
+        <UnsavedChangesGuard
+          onSave={() => saveMutation.mutateAsync({ leaving: true })}
+          restartsOnSave={!isNew && active}
         />
       </Box>
     </WorkflowContext.Provider>
