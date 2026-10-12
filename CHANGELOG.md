@@ -46,6 +46,30 @@ gRPC gains `InferenceService/RecommendScenario` and `recommendation_id` on
 mode take scenario calls. See "Recommendation scenarios" in docs/ml.md and the
 plain-language docs/ml-recommendations-data-guide.md.
 
+### Added — Recommendation scenarios in the console
+
+The guided **Train a model** dialog asks what to recommend with five cards
+(customers to visit or call, products to offer a customer, when will they buy
+again, who will want this product, similar products), each with a real
+example, and a **How to prepare your data** guide. **What data you need** lists
+the tables each card needs, required and optional, with example rows and a CSV
+template made in the browser; each table points at a dataset or an upload, and
+its columns are guessed from their names and types for the person to confirm.
+**Data health** shows the server's checks in green, amber or red with their
+fixes and stops at red. **Rules** turns sentences into the contract's rules
+(own customers, recently visited or bought, credit hold, active products,
+promotions, margin, per-category limits, visits per day and working days), and
+visit planning adds the five weights as sliders with a reset. The result is a
+sentence against the simple lists ("62% ordered — the 'most overdue first' list
+got 48%"), good, fair or weak, with the data summary, samples and, for visits,
+a salesman's plan by day. **Try it** asks in the scenario's terms and posts
+useful / not useful feedback; the result copies the sync and async calls and
+saves a weekly build into a table. Monitoring shows the acceptance rate,
+**Datasets** gets a refresh schedule with its last run and error, **Predict**
+asks scenario models for a salesman, customer or product, and the palette gets
+**Build Recommendations** (`ml_recommend_build`). A server without the
+scenario routes keeps the one-table recommender.
+
 ### Added — Recommendation models
 
 The ML worker trains a new kind of model, **recommendation**, from who-had-what

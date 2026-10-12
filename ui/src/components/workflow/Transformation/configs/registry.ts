@@ -37,6 +37,7 @@ import { AIAgentConfig } from './ai-agent/AIAgentConfig'
 // machine learning
 import { MLPredictConfig } from './ml/MLPredictConfig'
 import { MLTrainConfig } from './ml/MLTrainConfig'
+import { MLRecommendBuildConfig } from './ml/MLRecommendBuildConfig'
 // feature engineering
 import { ScaleConfig } from './features/ScaleConfig'
 import { EncodeConfig } from './features/EncodeConfig'
@@ -172,6 +173,7 @@ export const TRANSFORM_CONFIGS: Record<string, ConfigComponent> = {
   // machine learning
   ml_predict: MLPredictConfig,
   ml_train: MLTrainConfig,
+  ml_recommend_build: MLRecommendBuildConfig,
   // feature engineering (pkg/comm/transformer/features)
   scale: ScaleConfig,
   encode: EncodeConfig,

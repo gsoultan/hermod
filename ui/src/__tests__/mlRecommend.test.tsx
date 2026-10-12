@@ -50,6 +50,8 @@ function api() {
     http.get('/api/vhosts/:vhost/ml/datasets/:name', () => HttpResponse.json(orders)),
     http.get('/api/vhosts/:vhost/ml/models', () => HttpResponse.json({ data: [recModel], total: 1 })),
     http.get('/api/vhosts/:vhost/ml/models/:name/versions', () => HttpResponse.json({ data: [recVersion], total: 1 })),
+    // A server from before recommendation scenarios: the one-table recommender.
+    http.post('/api/vhosts/:vhost/ml/recommend-check', () => HttpResponse.json({ error: 'not found' }, { status: 404 })),
     http.post('/api/vhosts/:vhost/ml/train-check', async ({ params, request }) => {
       calls.push({ path: `check ${params.vhost}`, body: await request.json() })
       return HttpResponse.json({ error: 'a recommendation model has none to check' }, { status: 400 })
@@ -262,7 +264,7 @@ describe('Testing a recommender', () => {
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).queryByRole('textbox', { name: /^row/i })).not.toBeInTheDocument()
 
-    await user.type(within(dialog).getByRole('textbox', { name: /person/i }), 'c-1')
+    await user.type(await within(dialog).findByRole('textbox', { name: /person/i }), 'c-1')
     await user.click(within(dialog).getByRole('button', { name: /recommend/i }))
     await waitFor(() => expect(calls).toHaveLength(1))
     expect(calls[0]).toEqual({ path: 'predict tenant-a/recs', body: { user: 'c-1', k: 10, exclude_seen: true } })
