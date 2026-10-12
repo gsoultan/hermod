@@ -37,15 +37,17 @@ type modelTrainer interface {
 //   - features: the columns to learn from, as a JSON list or comma-separated;
 //     empty means every column but the target.
 //   - task: auto, classification or regression. algorithm: auto,
-//     random_forest, gradient_boosting, linear, xgboost, extra_trees,
-//     hist_gradient_boosting, pytorch_mlp or keras_mlp (the last two need the
-//     worker's "-dl" image), or custom:NAME for one of the vhost's custom
-//     training scripts.
+//     random_forest, gradient_boosting, linear, mlp (the built-in engine's
+//     neural network), xgboost, extra_trees, hist_gradient_boosting,
+//     pytorch_mlp or keras_mlp (the last two need the worker's "-dl" image),
+//     or custom:NAME for one of the vhost's custom training scripts. Without
+//     a hermod-ml worker only auto, random_forest, gradient_boosting, linear
+//     and mlp train.
 //   - preset: quick, balanced (the default) or best: how hard auto tries.
 //     It is ignored for any other algorithm.
 //   - hiddenLayers ("64, 32"), epochs, batchSize, learningRate, patience:
-//     optional hyperparameters for pytorch_mlp and keras_mlp; unset ones use
-//     the worker's defaults.
+//     optional hyperparameters for mlp, pytorch_mlp and keras_mlp; unset ones
+//     use the engine's defaults.
 //   - device: cpu (the default) or gpu, which trains on the GPU worker pool.
 //   - goLive: never (the default), always, or if; goLiveMetric (default
 //     "score"), goLiveMin and goLiveMax bound "if".
@@ -163,9 +165,9 @@ var deepParamKeys = []struct{ setting, param string }{
 	{"epochs", "epochs"}, {"batchSize", "batch_size"}, {"patience", "patience"},
 }
 
-// deepParams reads the pytorch_mlp / keras_mlp settings the node sets. Unset
-// ones are left out so the worker's defaults apply; the worker checks the
-// bounds.
+// deepParams reads the mlp / pytorch_mlp / keras_mlp settings the node sets.
+// Unset ones are left out so the engine's defaults apply; the engine checks
+// the bounds.
 func deepParams(config map[string]any) (map[string]any, error) {
 	params := map[string]any{}
 	layers, err := parseLayers(config["hiddenLayers"])

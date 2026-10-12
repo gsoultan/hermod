@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gsoultan/hermod/pkg/ml/inference"
+	"github.com/gsoultan/hermod/pkg/ml/worker"
 )
 
 // MLModel is a model a vhost can call: where it is served and how to send it
@@ -221,10 +222,14 @@ func validateWorkerModel(m MLModel) error {
 	return nil
 }
 
-// validVersion accepts the worker's version numbers.
+// validVersion accepts the worker's version numbers (1, 2, …) and the
+// built-in engine's (b1, b2, …).
 func validVersion(v string) bool {
 	if v == "" || len(v) > 12 {
 		return false
+	}
+	if worker.IsBuiltinVersion(v) {
+		return true
 	}
 	for _, c := range v {
 		if c < '0' || c > '9' {

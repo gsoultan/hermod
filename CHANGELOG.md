@@ -7,6 +7,49 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — Built-in Go ML engine: train models with no hermod-ml worker
+
+Hermod now trains machine-learning models itself. Its built-in engine (pure
+Go, in the Hermod process) is always in force; with no worker configured the
+worker status says `"source": "builtin"`: upload a dataset, train, go live and
+serve with nothing else running. It trains `auto` (quick, balanced, best),
+ridge/logistic `linear`, `random_forest`, `gradient_boosting`, a small neural
+network `mlp` (**Neural network (built-in)**, tuned with the same hidden
+layers, epochs, batch size, learning rate and patience as the worker's), and
+recommendations (`als`, `item_similarity`, `auto`). It reads files, prepares
+features and names metrics as the worker does, repeats exactly for a seed,
+bounds its memory and CPU, and is cancelled by `HERMOD_ML_TRAIN_TIMEOUT`.
+Models are scored in-process; a recommender writes the same `model.rec` the
+worker does.
+
+The hermod-ml worker stays the way to TensorFlow, PyTorch, Keras, XGBoost,
+extra trees, histogram gradient boosting, custom training scripts,
+recommendation scenarios and version export/import, and runs beside the
+built-in engine rather than replacing it: connecting or disconnecting the
+worker never breaks a model. Each version is served by the engine that
+trained it (built-in versions are numbered `b1`, `b2`, …, and versions say
+`"engine": "builtin"` or `"worker"`); built-in algorithms train in-process
+even with a worker connected, while `auto` (with a worker), the worker's own
+algorithms, scripts and scenarios train on the worker, which is sent the
+dataset's rows first. Without the worker, only models whose live version the
+worker trained are refused, with `503` saying they need the hermod-ml worker.
+The worker status reports both engines under `engines`.
+
+The built-in engine keeps its datasets and versions in Hermod's metadata
+database (SQLite, PostgreSQL or MongoDB; new `ml_blobs` table or collection,
+256 MB per blob), so every replica serves every model and nothing depends on
+a server's disk. Rolling back to a binary without the table leaves it unused.
+
+Without a worker, the worker-only algorithms stay in the console's pickers,
+off, with **Needs the hermod-ml worker.**, and the API answers `503` with the
+same reason. Getting started's first step becomes **Optional: connect the
+hermod-ml worker for TensorFlow/PyTorch**, done once a worker answers.
+Settings: `HERMOD_ML_BUILTIN` (`false` turns it off), `HERMOD_ML_BUILTIN_DIR`
+(only for a store that cannot keep the data), `HERMOD_ML_BUILTIN_MAX_TRAININGS`,
+`HERMOD_ML_BUILTIN_MAX_ROWS`, `HERMOD_ML_BUILTIN_THREADS`. See
+[Machine learning: the built-in engine](docs/ml.md#the-built-in-engine),
+including where it deliberately differs from the worker.
+
 ### Changed — Machine Learning page with a Getting started guide
 
 The sidebar link **Models** is now **Machine Learning** (same page, same

@@ -155,6 +155,9 @@ func (s *Service) train(ctx context.Context, vhost, name string, spec worker.Tra
 	if err := checkRecommendSpec(spec); err != nil {
 		return TrainResult{}, err
 	}
+	if err := s.checkEngine(ctx, spec); err != nil {
+		return TrainResult{}, err
+	}
 	if isScenario(spec) {
 		// Fills Dataset with the transactions dataset, which the rows
 		// count below and the model's listing read.

@@ -18,6 +18,16 @@ func TestAWorkerModelNeedsNoURLAndTakesNone(t *testing.T) {
 	if err := ValidateMLModel(m); err != nil {
 		t.Fatalf("a trained model with version 3 live was refused: %v", err)
 	}
+	m.RemoteVersion = "b12" // the built-in engine's
+	if err := ValidateMLModel(m); err != nil {
+		t.Fatalf("a trained model with the built-in engine's version b12 live was refused: %v", err)
+	}
+	for _, v := range []string{"b", "b0", "b01", "bx", "B1", "1b"} {
+		m.RemoteVersion = v
+		if err := ValidateMLModel(m); err == nil {
+			t.Errorf("version %q was accepted", v)
+		}
+	}
 
 	m.URL = "http://elsewhere:8080"
 	if err := ValidateMLModel(m); err == nil || !strings.Contains(err.Error(), "URL") {

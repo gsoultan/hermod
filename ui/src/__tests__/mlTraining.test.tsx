@@ -233,6 +233,47 @@ describe('Training on the Models page', () => {
     expect(within(dialog).getByText(/neural networks \(pytorch, tensorflow\) need the deep-learning worker image/i)).toBeInTheDocument()
   })
 
+  it('on the built-in engine, offers its network and shows the worker-only algorithms as off, saying why', async () => {
+    const writes = trainingApi()
+    const unavailable = Object.fromEntries(['xgboost', 'extra_trees', 'hist_gradient_boosting', 'pytorch_mlp', 'keras_mlp']
+      .map((a) => [a, 'needs the hermod-ml worker']))
+    server.use(http.get('/api/ml/worker', () => HttpResponse.json({
+      configured: true, ready: true, source: 'builtin',
+      algorithms: ['auto', 'random_forest', 'gradient_boosting', 'linear', 'mlp', 'als', 'item_similarity'], unavailable,
+    })))
+    renderPage()
+    const user = userEvent.setup()
+    const dialog = await toAdvanced(user, 'net')
+    const input = within(dialog).queryByRole('combobox', { name: /^algorithm/i, hidden: true })
+      ?? within(dialog).getByRole('textbox', { name: /^algorithm/i, hidden: true })
+    // The picker's help, which describes its input, names what the worker adds.
+    expect(input).toHaveAccessibleDescription(/these need the hermod-ml worker: .*xgboost.*pytorch mlp/i)
+    const list = await openOptions(user, dialog, /algorithm/i)
+    const xgboost = within(list).getByRole('option', { name: /xgboost/i, hidden: true })
+    expect(xgboost).toHaveAttribute('data-combobox-disabled')
+    expect(xgboost).toHaveTextContent(/needs the hermod-ml worker/i)
+    expect(within(list).getByRole('option', { name: /keras mlp — tensorflow/i, hidden: true })).toHaveAttribute('data-combobox-disabled')
+    const network = within(list).getByRole('option', { name: 'Neural network (built-in)', hidden: true })
+    expect(network).not.toHaveAttribute('data-combobox-disabled')
+    await user.click(network)
+    await user.type(field(dialog, /hidden layers/i), '16')
+    await user.click(within(dialog).getByRole('button', { name: /^next$/i }))
+    await user.click(within(dialog).getByRole('button', { name: /^train$/i }))
+
+    await waitFor(() => expect(writes.find((w) => w.method === 'TRAIN')).toBeTruthy())
+    expect(writes.find((w) => w.method === 'TRAIN')!.body).toMatchObject({ algorithm: 'mlp', params: { hidden_layers: [16] } })
+  })
+
+  it('does not offer the built-in network on a worker', async () => {
+    trainingApi()
+    renderPage()
+    const user = userEvent.setup()
+    const dialog = await toAdvanced(user, 'nonet')
+    const list = await openOptions(user, dialog, /algorithm/i)
+    expect(await within(list).findByRole('option', { name: 'XGBoost', hidden: true })).toBeInTheDocument()
+    expect(within(list).queryByRole('option', { name: /built-in/i, hidden: true })).not.toBeInTheDocument()
+  })
+
   it('trains a PyTorch model with the hyperparameters from Advanced', async () => {
     const writes = trainingApi()
     renderPage()
@@ -273,6 +314,23 @@ describe('Training on the Models page', () => {
     const dialog = await screen.findByRole('dialog')
     await user.click(await within(dialog).findByRole('button', { name: 'Put version 2 live' }))
     await waitFor(() => expect(writes.find((w) => w.method === 'PROMOTE')?.path).toBe('tenant-a/churn/2'))
+  })
+
+  it('says which engine trained each version, and serves it', async () => {
+    trainingApi()
+    server.use(http.get('/api/vhosts/:vhost/ml/models/:name/versions', () => HttpResponse.json({
+      data: [{ ...version('b1', 0.8), engine: 'builtin' }, { ...version('1', 0.9), engine: 'worker' }], total: 2,
+    })))
+    renderPage()
+    const user = userEvent.setup()
+    await user.click(await modelAction(user, 'churn', 'Versions and going live'))
+    const dialog = await screen.findByRole('dialog')
+    const rows = await within(dialog).findAllByRole('row')
+    const b1 = rows.find((r) => within(r).queryByText('b1'))!
+    expect(within(b1).getByText('Built-in')).toBeInTheDocument()
+    const v1 = rows.find((r) => within(r).queryByText('1'))!
+    expect(within(v1).getByText('Worker')).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Put version b1 live' })).toBeEnabled()
   })
 })
 

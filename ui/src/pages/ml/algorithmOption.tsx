@@ -1,5 +1,5 @@
 import { Stack, Text, type SelectProps } from '@mantine/core'
-import { DEEP_IMAGE_REASON, type AlgorithmOption } from '@/lib/mlModels'
+import { BUILTIN_OFF_REASON, DEEP_IMAGE_REASON, type AlgorithmOption } from '@/lib/mlModels'
 
 /**
  * Draws an Algorithm picker's choices: a disabled one says, under its name,
@@ -20,9 +20,16 @@ export function algorithmOptionRenderer(options: AlgorithmOption[]): SelectProps
   }
 }
 
-/** The Algorithm picker's help: what Auto does, and what the neural networks need when they are off. */
+/**
+ * The Algorithm picker's help, which the picker's input is described by
+ * (aria-describedby): what Auto does, and what the choices that are off need.
+ */
 export function algorithmDescription(options: AlgorithmOption[]): string {
   const auto = 'Auto tries several and keeps the best; pick one only if you need it.'
+  const workerOnly = options.filter((o) => o.disabled && o.description === BUILTIN_OFF_REASON)
+  if (workerOnly.length) {
+    return `${auto} These need the hermod-ml worker: ${workerOnly.map((o) => o.label).join(', ')}.`
+  }
   const deepOff = options.some((o) => o.disabled && o.description === DEEP_IMAGE_REASON)
   return deepOff
     ? `${auto} Neural networks (PyTorch, TensorFlow) need the deep-learning worker image (hermod-ml:…-dl).`

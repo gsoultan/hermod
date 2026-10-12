@@ -1,7 +1,7 @@
 import { Accordion, Alert, Divider, MultiSelect, Select, Stack, Text, TextInput, Textarea } from '@mantine/core'
 import { IconInfoCircle } from '@tabler/icons-react'
 import {
-  CUSTOM_PREFIX, DEVICE_OPTIONS, SQL_SOURCE_TYPES, TASK_OPTIONS, algorithmOptions, isCustomAlgorithm, isDeepAlgorithm, useDataset, useVHostDatasets,
+  CUSTOM_PREFIX, DEVICE_OPTIONS, SQL_SOURCE_TYPES, TASK_OPTIONS, algorithmOptions, isCustomAlgorithm, takesTrainParams, useDataset, useVHostDatasets,
   useVHostScripts, useWorkerStatus, type GoLive, type TrainPreset,
 } from '@/lib/mlModels'
 import { FormRow } from '@/components/common/FormRow'
@@ -129,7 +129,7 @@ export function MLTrainConfig({ config, updateNodeConfig, nodeId, sources = [] }
                     allowDeselect={false} onChange={(v) => set({ device: v === 'gpu' ? 'gpu' : '' })} />
                 )}
               </FormRow>
-              {isDeepAlgorithm(config.algorithm) && (
+              {takesTrainParams(config.algorithm) && (
                 <DeepParamsFields value={deepText} errors={readDeepParams(deepText).errors} onChange={(patch) => set({ ...patch })} />
               )}
             </Stack>

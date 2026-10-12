@@ -72,6 +72,8 @@ type Client struct {
 	TrainTimeout time.Duration
 
 	http *http.Client
+	// local is the in-process engine the client calls (NewLocal), or nil.
+	local Local
 }
 
 // New returns a client for the worker at baseURL. hc may be nil for Hermod's
@@ -112,6 +114,9 @@ type DatasetInfo struct {
 	Columns   []Column         `json:"columns"`
 	UpdatedAt time.Time        `json:"updated_at"`
 	Sample    []map[string]any `json:"sample,omitempty"`
+	// Engine holds the dataset: EngineBuiltin (Hermod's metadata store) or
+	// EngineWorker, for one only a connected hermod-ml worker has.
+	Engine string `json:"engine,omitempty"`
 }
 
 // TaskRecommendation is the task of a model that recommends items to people
@@ -131,9 +136,10 @@ type TrainSpec struct {
 	// Recommend names a recommendation model's columns. The worker refuses
 	// it for any other task, and Target, Features and Params for this one.
 	Recommend *RecommendSpec `json:"recommend,omitempty"`
-	// Algorithm is auto, random_forest, gradient_boosting, linear, xgboost,
-	// extra_trees, hist_gradient_boosting, pytorch_mlp or keras_mlp; for a
-	// recommendation model, auto, als or item_similarity.
+	// Algorithm is auto, random_forest, gradient_boosting, linear, mlp (the
+	// built-in engine only), xgboost, extra_trees, hist_gradient_boosting,
+	// pytorch_mlp or keras_mlp; for a recommendation model, auto, als or
+	// item_similarity.
 	Algorithm string `json:"algorithm,omitempty"`
 	// Preset is how hard auto tries: quick, balanced (the worker's default)
 	// or best. Only an auto training takes one.
@@ -143,8 +149,8 @@ type TrainSpec struct {
 	// Device is cpu (the default) or gpu. Hermod routes a gpu training to its
 	// GPU worker pool; the worker reads it as a hint for its own networks.
 	Device string `json:"device,omitempty"`
-	// Params tunes pytorch_mlp and keras_mlp; the worker refuses it for any
-	// other algorithm.
+	// Params tunes pytorch_mlp and keras_mlp (mlp on the built-in engine);
+	// the engine refuses it for any other algorithm.
 	Params *TrainParams `json:"params,omitempty"`
 
 	// A recommendation scenario's training (ml/worker/hermod_ml/scenarios.py)
@@ -237,8 +243,11 @@ type Capabilities struct {
 // Version is one trained, immutable model version and how it scored on the
 // rows held back from training.
 type Version struct {
-	Model        string             `json:"model"`
-	Version      string             `json:"version"`
+	Model   string `json:"model"`
+	Version string `json:"version"`
+	// Engine is the engine that trained it and scores it: EngineBuiltin or
+	// EngineWorker (engines.go).
+	Engine       string             `json:"engine,omitempty"`
 	Task         string             `json:"task"`
 	Algorithm    string             `json:"algorithm"`
 	Dataset      string             `json:"dataset"`

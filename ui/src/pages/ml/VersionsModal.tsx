@@ -45,7 +45,17 @@ export function VersionsModal({ vhost, model, onClose }: { vhost: string; model:
             <Table.Tbody>
               {versions.map((v) => (
                 <Table.Tr key={v.version}>
-                  <Table.Td ff="var(--mantine-font-family-monospace)">{v.version}</Table.Td>
+                  <Table.Td>
+                    <Group gap={6} wrap="nowrap">
+                      <Text size="sm" ff="var(--mantine-font-family-monospace)">{v.version}</Text>
+                      {v.engine && (
+                        <Badge size="xs" variant="outline" color="gray" tt="none"
+                          title={v.engine === 'builtin' ? 'Trained and served by Hermod\'s built-in engine' : 'Trained and served by the hermod-ml worker'}>
+                          {v.engine === 'builtin' ? 'Built-in' : 'Worker'}
+                        </Badge>
+                      )}
+                    </Group>
+                  </Table.Td>
                   <Table.Td><Text size="sm">{new Date(v.created_at).toLocaleString()}</Text></Table.Td>
                   <Table.Td><Text size="sm">{v.dataset} → {v.target}</Text></Table.Td>
                   <Table.Td ff="var(--mantine-font-family-monospace)">{v.metrics.score !== undefined ? formatMetric(v.metrics.score) : '—'}</Table.Td>

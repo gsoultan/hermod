@@ -50,6 +50,18 @@ func (f *fakeWorker) server(t *testing.T) *httptest.Server {
 				return
 			}
 			_ = json.NewEncoder(w).Encode(worker.DatasetInfo{Name: parts[3], Rows: n})
+		case r.Method == http.MethodPost && len(parts) == 5 && parts[1] == "datasets" && parts[4] == "rows":
+			var body struct {
+				Rows    []map[string]any `json:"rows"`
+				Replace bool             `json:"replace"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			key := parts[2] + "/" + parts[3]
+			if body.Replace {
+				f.rows[key] = 0
+			}
+			f.rows[key] += len(body.Rows)
+			_ = json.NewEncoder(w).Encode(map[string]any{"name": parts[3], "rows": f.rows[key]})
 		case r.Method == http.MethodPost && len(parts) == 3 && parts[1] == "train-check":
 			_ = json.NewDecoder(r.Body).Decode(&f.checked)
 			two := 2

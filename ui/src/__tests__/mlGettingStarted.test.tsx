@@ -30,6 +30,29 @@ const off = { configured: false, ready: false }
 const down = { configured: true, ready: false, error: 'the ML worker does not answer' }
 const slim = { configured: true, ready: true, algorithms: ['auto', 'random_forest', 'gradient_boosting', 'linear', 'xgboost'] }
 const withDL = { ...slim, algorithms: [...slim.algorithms, 'pytorch_mlp', 'keras_mlp'] }
+/** Hermod's built-in engine, in force when no worker is configured (pkg/ml/builtin). */
+const builtin = {
+  configured: true, ready: true, source: 'builtin',
+  algorithms: ['auto', 'random_forest', 'gradient_boosting', 'linear', 'mlp', 'als', 'item_similarity'],
+  unavailable: Object.fromEntries(['xgboost', 'extra_trees', 'hist_gradient_boosting', 'pytorch_mlp', 'keras_mlp']
+    .map((a) => [a, 'needs the hermod-ml worker'])),
+}
+/** The built-in engine and a connected worker at once (internal/ml/transport/http WorkerStatus). */
+const both = {
+  configured: true, ready: true, source: 'saved',
+  algorithms: [...builtin.algorithms, 'xgboost', 'extra_trees', 'hist_gradient_boosting'],
+  unavailable: { pytorch_mlp: 'the torch package is not installed', keras_mlp: 'TensorFlow is not installed' },
+  engines: {
+    builtin: { available: true, algorithms: builtin.algorithms },
+    worker: { configured: true, ready: true, source: 'saved', algorithms: ['auto', 'linear', 'xgboost'] },
+  },
+}
+/** The same, with the worker down: the built-in engine trains on, and lists what needs the worker. */
+const bothWorkerDown = {
+  ...both,
+  algorithms: builtin.algorithms, unavailable: builtin.unavailable,
+  engines: { ...both.engines, worker: { configured: true, ready: false, source: 'saved', error: 'the ML worker does not answer' } },
+}
 
 const customers = {
   name: 'customers', rows: 1200, updated_at: '2026-10-10T00:00:00Z',
@@ -234,6 +257,56 @@ describe('Getting started: the setup guide', () => {
     await waitFor(() => expect(calls.worker).toBeGreaterThan(before))
     expect(await within(dialog).findByText(/the worker is connected/i)).toBeInTheDocument()
     expect(await within(worker).findByText('Done')).toBeInTheDocument()
+  })
+})
+
+describe('Getting started: the built-in engine', () => {
+  it('makes connecting the worker optional, and lets training start without it', async () => {
+    pageApi({ worker: builtin, datasets: [customers] })
+    renderPage()
+    const user = userEvent.setup()
+    const worker = await step(/optional: connect the hermod-ml worker for tensorflow\/pytorch/i)
+    expect(within(worker).getByText('Optional')).toBeInTheDocument()
+    expect(within(worker).getByText(/built-in engine/i)).toBeInTheDocument()
+    expect(within(worker).getByRole('button', { name: /set up the worker/i })).toBeEnabled()
+    const data = await step(/add your data/i)
+    expect(within(data).getByRole('button', { name: /go to datasets/i })).toBeEnabled()
+    const model = await step(/train a model/i)
+    expect(within(model).getByRole('button', { name: /start training/i })).toBeEnabled()
+    expect(await trainChoice(user)).toBeEnabled()
+  })
+
+  it('can be hidden once the other three steps are done', async () => {
+    pageApi({ worker: builtin, datasets: [customers], models: [live] })
+    renderPage()
+    const use = await step(/use it/i)
+    expect(await within(use).findByText('Done')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /hide the guide/i })).toBeInTheDocument()
+  })
+})
+
+describe('Getting started: the built-in engine beside a worker', () => {
+  it('marks the optional worker step done, and says both engines train', async () => {
+    pageApi({ worker: both, datasets: [customers] })
+    renderPage()
+    const worker = await step(/optional: connect the hermod-ml worker for tensorflow\/pytorch/i)
+    expect(await within(worker).findByText('Done')).toBeInTheDocument()
+    expect(within(worker).getByText(/both engines/i)).toBeInTheDocument()
+    const model = await step(/train a model/i)
+    expect(within(model).getByRole('button', { name: /start training/i })).toBeEnabled()
+  })
+
+  it('says a worker that is down is down, while the built-in engine keeps training', async () => {
+    pageApi({ worker: bothWorkerDown, datasets: [customers] })
+    renderPage()
+    const user = userEvent.setup()
+    const worker = await step(/optional: connect the hermod-ml worker for tensorflow\/pytorch/i)
+    expect(await within(worker).findByText(/does not answer/i)).toBeInTheDocument()
+    expect(within(worker).getByText(/built-in engine keeps training/i)).toBeInTheDocument()
+    expect(within(worker).getByRole('button', { name: /fix the connection/i })).toBeEnabled()
+    const model = await step(/train a model/i)
+    expect(within(model).getByRole('button', { name: /start training/i })).toBeEnabled()
+    expect(await trainChoice(user)).toBeEnabled()
   })
 })
 

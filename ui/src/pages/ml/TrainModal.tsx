@@ -7,7 +7,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { FormRow } from '@/components/common/FormRow'
 import {
   DEFAULT_PRESET, DEVICE_OPTIONS, LEAVE_OUT_ROLES, MODEL_NAME_PATTERN, PRESET_OPTIONS, RECOMMENDATION, RECOMMEND_ALGORITHM_OPTIONS,
-  TASK_OPTIONS, algorithmLabel, algorithmOptions, isCustomAlgorithm, isDeepAlgorithm, listVersions, mlModelsKey, modelNameRule,
+  TASK_OPTIONS, algorithmLabel, algorithmOptions, isCustomAlgorithm, takesTrainParams, listVersions, mlModelsKey, modelNameRule,
   trainCheck, useDataset, useVHostDatasets, useVHostScripts, useWorkerStatus, versionsKey, type GoLive,
   type RecommendAlgorithm, type TrainAlgorithm, type TrainCheck, type TrainResult, type TrainSpec, type TrainDevice, type TrainPreset, type TrainTask,
 } from '@/lib/mlModels'
@@ -128,7 +128,7 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
   const custom = isCustomAlgorithm(algorithm)
   // A script trains on its own pool; the device applies to built-in algorithms.
   const showDevice = !!caps?.gpu && !custom
-  const deep = isDeepAlgorithm(algorithm)
+  const deep = takesTrainParams(algorithm)
   const others = columns.filter((c) => c !== target)
   const numberColumns = (info?.columns ?? []).filter((c) => c.type === 'number').map((c) => c.name)
   const learnFrom = others.filter((c) => !left.includes(c))

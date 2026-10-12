@@ -230,8 +230,31 @@ export interface WorkerCapabilities {
   gpu: boolean
 }
 
-/** Where the worker in force was configured (pkg/ml/worker Source). */
-export type WorkerSource = 'environment' | 'saved' | 'none'
+/**
+ * Where the worker in force was configured (pkg/ml/worker Source): "builtin"
+ * is Hermod's own engine alone, when no hermod-ml worker is configured.
+ */
+export type WorkerSource = 'environment' | 'saved' | 'builtin' | 'none'
+
+/** The engine that trained, and serves, a version or holds a dataset. */
+export type MLEngine = 'builtin' | 'worker'
+
+/**
+ * Each engine in force (internal/ml/transport/http WorkerStatus): Hermod's
+ * built-in one, and the hermod-ml worker with whether it answers. Both run
+ * at once; each version is served by the engine that trained it.
+ */
+export interface WorkerEngines {
+  builtin: { available: boolean; algorithms?: TrainAlgorithm[] }
+  worker: {
+    configured: boolean
+    ready: boolean
+    source?: WorkerSource
+    error?: string
+    algorithms?: TrainAlgorithm[]
+    unavailable?: Partial<Record<TrainAlgorithm, string>>
+  }
+}
 
 export interface WorkerStatus {
   configured: boolean
@@ -247,6 +270,8 @@ export interface WorkerStatus {
   algorithms?: TrainAlgorithm[]
   /** Why each algorithm missing from `algorithms` cannot train there. */
   unavailable?: Partial<Record<TrainAlgorithm, string>>
+  /** Each engine; absent from a server older than running both at once. */
+  engines?: WorkerEngines
 }
 
 export interface DatasetColumn {
@@ -260,6 +285,8 @@ export interface DatasetInfo {
   columns: DatasetColumn[]
   updated_at: string
   sample?: Record<string, unknown>[]
+  /** The engine that holds it; absent from an older server. */
+  engine?: MLEngine
 }
 
 export type TrainTask = 'auto' | 'classification' | 'regression' | 'recommendation'
@@ -308,7 +335,7 @@ export function describeRecommendation(metrics: Record<string, number>): { hits:
 }
 /** A built-in algorithm, or `custom:<script>` for one of the vhost's training scripts. */
 export type TrainAlgorithm =
-  | 'auto' | 'random_forest' | 'gradient_boosting' | 'extra_trees' | 'hist_gradient_boosting' | 'linear' | 'xgboost'
+  | 'auto' | 'random_forest' | 'gradient_boosting' | 'extra_trees' | 'hist_gradient_boosting' | 'linear' | 'mlp' | 'xgboost'
   | 'pytorch_mlp' | 'keras_mlp' | `custom:${string}`
 export type TrainDevice = 'cpu' | 'gpu'
 /** How much effort "auto" spends trying algorithms; the worker refuses it with any other algorithm. */
@@ -319,9 +346,15 @@ export const DEEP_ALGORITHMS: readonly TrainAlgorithm[] = ['pytorch_mlp', 'keras
 
 export const isDeepAlgorithm = (a: string | null | undefined) => DEEP_ALGORITHMS.includes(a as TrainAlgorithm)
 
+/** The built-in engine's neural network: it takes TrainParams and needs no worker. */
+export const BUILTIN_MLP: TrainAlgorithm = 'mlp'
+
+/** Whether `a` is a neural network, and so takes TrainParams. */
+export const takesTrainParams = (a: string | null | undefined) => a === BUILTIN_MLP || isDeepAlgorithm(a)
+
 /**
- * Hyperparameters of pytorch_mlp and keras_mlp. An absent field takes the
- * worker's default; the worker checks the bounds.
+ * Hyperparameters of mlp, pytorch_mlp and keras_mlp. An absent field takes the
+ * engine's default; the engine checks the bounds.
  */
 export interface TrainParams {
   hidden_layers?: number[]
@@ -359,7 +392,7 @@ export interface TrainSpec {
   algorithm?: TrainAlgorithm
   /** 'gpu' trains on the GPU worker pool; empty or 'cpu' on the main worker. */
   device?: TrainDevice
-  /** Only for pytorch_mlp and keras_mlp; the worker refuses it otherwise. */
+  /** Only for mlp, pytorch_mlp and keras_mlp; the engine refuses it otherwise. */
   params?: TrainParams
   /** Only with task 'recommendation', whose target is empty. */
   recommend?: RecommendColumns
@@ -389,6 +422,8 @@ export interface FeatureImportance {
 export interface ModelVersion {
   model: string
   version: string
+  /** The engine that trained it and serves it; absent from an older server. */
+  engine?: MLEngine
   task: string
   algorithm: string
   dataset: string
@@ -495,6 +530,7 @@ export const ALGORITHM_OPTIONS: Array<{ value: TrainAlgorithm; label: string }> 
   { value: 'extra_trees', label: 'Extra trees' },
   { value: 'hist_gradient_boosting', label: 'Histogram gradient boosting' },
   { value: 'linear', label: 'Linear / logistic regression' },
+  { value: 'mlp', label: 'Neural network (built-in)' },
   { value: 'xgboost', label: 'XGBoost' },
   { value: 'pytorch_mlp', label: 'PyTorch MLP (neural network)' },
   { value: 'keras_mlp', label: 'Keras MLP — TensorFlow (neural network)' },
@@ -541,11 +577,30 @@ export interface AlgorithmOption {
   description?: string
 }
 
-/** Whether the worker can train `algorithm`: every one, when it does not say. */
+/**
+ * Whether the worker can train `algorithm`: every one, when it does not say,
+ * but the built-in engine's network only where it is listed.
+ */
 export function canTrainAlgorithm(status: WorkerStatus | undefined, algorithm: TrainAlgorithm): boolean {
   const available = status?.algorithms
-  return algorithm === 'auto' || !available || available.includes(algorithm)
+  if (algorithm === 'auto') return true
+  if (!available) return algorithm !== BUILTIN_MLP
+  return available.includes(algorithm)
 }
+
+/** Whether Hermod's built-in engine is the only engine in force. */
+export const isBuiltinEngine = (status: WorkerStatus | undefined) => status?.source === 'builtin'
+
+/** Whether Hermod's built-in engine is in force, alone or beside a worker. */
+export const hasBuiltinEngine = (status: WorkerStatus | undefined) =>
+  status?.engines?.builtin.available ?? isBuiltinEngine(status)
+
+/** The hermod-ml worker beside the built-in engine, or undefined when that is not in force. */
+export const workerBesideBuiltin = (status: WorkerStatus | undefined) =>
+  hasBuiltinEngine(status) ? status?.engines?.worker : undefined
+
+/** Why an algorithm cannot be picked on the built-in engine (pkg/ml/builtin NeedsWorker). */
+export const BUILTIN_OFF_REASON = 'Needs the hermod-ml worker.'
 
 /** Whether a ready worker can train the neural networks (PyTorch and TensorFlow). */
 export function hasDeepLearning(status: WorkerStatus | undefined): boolean {
@@ -553,15 +608,19 @@ export function hasDeepLearning(status: WorkerStatus | undefined): boolean {
 }
 
 /**
- * The algorithms a training can pick: the built-in ones the worker says it can
- * train (all of them when it does not say; "auto" always), then the vhost's
- * scripts when the server can train with them. The neural networks stay in the
- * list when the worker cannot train them, disabled and saying why, so that
+ * The algorithms a training can pick: the ones the engine says it can train
+ * (all of them when it does not say; "auto" always), then the vhost's scripts
+ * when the server can train with them. On the built-in engine, the
+ * algorithms only the hermod-ml worker trains stay in the list, disabled and
+ * saying so; on a worker, so do the neural networks it cannot train, so that
  * someone looking for TensorFlow finds what it takes.
  */
 export function algorithmOptions(status: WorkerStatus | undefined, scripts: MLScript[] = []): AlgorithmOption[] {
   const builtIn = ALGORITHM_OPTIONS.flatMap((o): AlgorithmOption[] => {
     if (canTrainAlgorithm(status, o.value)) return [o]
+    if (hasBuiltinEngine(status) && status?.unavailable?.[o.value] && !(isDeepAlgorithm(o.value) && status?.engines?.worker.ready)) {
+      return [{ ...o, disabled: true, description: BUILTIN_OFF_REASON }]
+    }
     return isDeepAlgorithm(o.value) ? [{ ...o, disabled: true, description: DEEP_IMAGE_REASON }] : []
   })
   const custom = status?.capabilities?.custom_scripts

@@ -49,7 +49,7 @@ export function readDeepParams(text: DeepParamsText): { params?: TrainParams; er
 /**
  * The "Advanced" section for the neural-network algorithms: layer sizes,
  * epochs, batch size, learning rate and early-stopping patience. Empty
- * fields use the worker's defaults, shown as placeholders.
+ * fields use the engine's defaults, shown as placeholders.
  */
 export function DeepParamsFields({
   value, onChange, errors = {},
@@ -79,7 +79,8 @@ export function DeepParamsFields({
           onChange={(e) => onChange({ patience: e.currentTarget.value })} />
       </Group>
       <Text size="xs" c="dimmed">
-        A tenth of the training rows decides when to stop. Neural networks need the worker&apos;s &quot;-dl&quot; image.
+        A tenth of the training rows decides when to stop. The built-in network needs no worker; PyTorch and Keras need
+        the worker&apos;s &quot;-dl&quot; image.
       </Text>
     </Stack>
   )

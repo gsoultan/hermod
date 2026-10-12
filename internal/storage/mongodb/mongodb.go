@@ -218,7 +218,7 @@ func (s *mongoStorage) Ping(ctx context.Context) error {
 
 func (s *mongoStorage) Init(ctx context.Context) error {
 	// Create indexes
-	collections := []string{"sources", "sinks", "users", "vhosts", "workflows", "workers", "logs", "settings", "audit_logs", "webhook_requests", "schemas", "message_traces", "workflow_versions", "ml_prediction_logs", mlJobsCollection, mlJobResultsCollection}
+	collections := []string{"sources", "sinks", "users", "vhosts", "workflows", "workers", "logs", "settings", "audit_logs", "webhook_requests", "schemas", "message_traces", "workflow_versions", "ml_prediction_logs", mlJobsCollection, mlJobResultsCollection, mlBlobsCollection}
 
 	for _, collName := range collections {
 		coll := s.db.Collection(collName)
@@ -248,6 +248,12 @@ func (s *mongoStorage) Init(ctx context.Context) error {
 				mongo.IndexModel{Keys: bson.D{{Key: "status", Value: 1}, {Key: "created_at", Value: 1}}},
 				mongo.IndexModel{Keys: bson.D{{Key: "callback_status", Value: 1}, {Key: "callback_next_at", Value: 1}}},
 				mongo.IndexModel{Keys: bson.D{{Key: "expires_at", Value: 1}}},
+			)
+		case mlBlobsCollection:
+			// Blobs are found by vhost and key prefix, a blob's chunks by
+			// its key and write.
+			indexModels = append(indexModels,
+				mongo.IndexModel{Keys: bson.D{{Key: "vhost", Value: 1}, {Key: "key", Value: 1}, {Key: "gen", Value: 1}, {Key: "chunk", Value: 1}}},
 			)
 		case mlJobResultsCollection:
 			indexModels = append(indexModels,
@@ -896,6 +902,9 @@ func (s *mongoStorage) DeleteVHost(ctx context.Context, id string) error {
 			return err
 		}
 		if err := s.DeleteMLScripts(ctx, vhost.Name); err != nil {
+			return err
+		}
+		if _, err := s.DeleteMLBlobs(ctx, vhost.Name, ""); err != nil {
 			return err
 		}
 		if err := s.DeleteMLJobs(ctx, vhost.Name); err != nil {
