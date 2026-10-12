@@ -22,7 +22,7 @@
 // slowest, and a member that cannot prepare aborts the batch for all of them.
 // Use it where a partial write is genuinely worse than a slower pipeline.
 //
-// Read the "Operational hazard" section of README.md before enabling this on
+// Read the "Operational hazard" section of docs/transactional-sink-groups.md before enabling this on
 // PostgreSQL: a prepared transaction holds locks and blocks VACUUM until it is
 // resolved.
 package txgroup

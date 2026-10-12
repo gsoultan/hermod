@@ -30,7 +30,7 @@ This document outlines the planned features, development directions, and future 
   that sweeps ones left past their deadline. It is driven by the transactional sink group
   (`pkg/comm/sink/txgroup`), wired in `internal/engine/registry/txgroup.go`, and covered by unit,
   crash-point and live-PostgreSQL tests. See
-  [Distributed transactions](./README.md#distributed-transactions-transactional-sink-groups),
+  [Distributed transactions](./docs/transactional-sink-groups.md#distributed-transactions-transactional-sink-groups),
   which also states the residual risk plainly.
 
   Two sinks implement `hermod.TwoPhaseCommit`: **PostgreSQL** (`PREPARE TRANSACTION`; YugabyteDB

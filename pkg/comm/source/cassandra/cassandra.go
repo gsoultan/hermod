@@ -160,7 +160,7 @@ func (c *CassandraSource) Read(ctx context.Context) (hermod.Message, error) {
 				// sound when idField is a clustering column inside a single
 				// restricted partition, which Hermod cannot verify from here.
 				//
-				// Tracked as an Experimental-tier limitation in README.md.
+				// Tracked as an Experimental-tier limitation in docs/connectors.md.
 				c.warnUnordered.Do(func() {
 					c.log("WARN",
 						"cassandra: incremental polling cannot be ordered in CQL; rows may be skipped unless the id field is a clustering column in a restricted partition",

@@ -29,7 +29,7 @@ import (
 //	max_prepared_age: optional, e.g. "15m" — how long a transaction may sit in
 //	                  doubt before the reaper rolls it back
 //
-// Read the operational hazard note in README.md before using this: a prepared
+// Read the operational hazard note in docs/transactional-sink-groups.md before using this: a prepared
 // PostgreSQL transaction holds locks and blocks VACUUM until it is resolved.
 func (r *Registry) createTxGroupSink(ctx context.Context, cfg factory.SinkConfig) (hermod.Sink, error) {
 	memberIDs := splitMemberIDs(cfg.Config["members"])

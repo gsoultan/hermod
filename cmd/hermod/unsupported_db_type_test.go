@@ -22,7 +22,7 @@ import (
 // InitSQLStorage (internal/infra/transport/http/infra.go:701) accepts it and
 // returns "sqlserver", while this path does not accept it at all. So the same
 // value is a working configuration through the settings API and an obscure
-// crash at start-up. README documents MSSQL as a source and a sink, never as
+// crash at start-up. The docs list MSSQL as a source and a sink, never as
 // the metadata store, and the UI's database picker offers only SQLite,
 // PostgreSQL and MySQL — so refusing it here is the behaviour that matches what
 // Hermod actually claims, and the disagreement is worth naming rather than

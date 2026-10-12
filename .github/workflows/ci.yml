@@ -1144,7 +1144,7 @@ jobs:
           # executing the whole suite in parallel sits above that, so the worker
           # refused to start the workflow under test and the failover test timed
           # out waiting for a webhook that was never going to register. 1
-          # disables the check (see README's admission knobs); shedding is
+          # disables the check (see the admission metrics in docs/observability.md); shedding is
           # covered by internal/engine/worker/admission_test.go, which sets the
           # thresholds directly rather than through the environment.
           HERMOD_ADMISSION_CPU_THRESHOLD: "1"
