@@ -20,6 +20,9 @@ const (
 	// SourceSaved is a worker connected from the console and kept in
 	// Hermod's storage.
 	SourceSaved Source = "saved"
+	// SourceBuiltin is Hermod's built-in engine (pkg/ml/builtin), in force
+	// when no worker is configured.
+	SourceBuiltin Source = "builtin"
 )
 
 // Provider answers the ML worker in force: the environment's, read once,
@@ -31,6 +34,7 @@ type Provider struct {
 
 	mu      sync.Mutex
 	saved   *Client
+	builtin *Client
 	checked time.Time
 	loading bool
 	// gen counts SetSaved calls, so a read that started before one does not
@@ -52,18 +56,37 @@ var Default = NewProvider(FromEnv)
 // Env returns the environment's worker, or nil.
 func (p *Provider) Env() *Client { return p.env() }
 
-// Current returns the worker in force and where it was configured, or nil
-// and SourceNone.
+// Current returns the worker in force and where it was configured: the
+// environment's, else the saved one, else the built-in engine, else nil and
+// SourceNone.
 func (p *Provider) Current() (*Client, Source) {
 	if c := p.env(); c != nil {
 		return c, SourceEnvironment
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.saved == nil {
-		return nil, SourceNone
+	switch {
+	case p.saved != nil:
+		return p.saved, SourceSaved
+	case p.builtin != nil:
+		return p.builtin, SourceBuiltin
 	}
-	return p.saved, SourceSaved
+	return nil, SourceNone
+}
+
+// SetBuiltin installs the built-in engine's client (NewLocal), in force
+// whenever no worker is configured; nil means Hermod has none.
+func (p *Provider) SetBuiltin(c *Client) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.builtin = c
+}
+
+// Builtin returns the built-in engine's client, or nil.
+func (p *Provider) Builtin() *Client {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.builtin
 }
 
 // SetSaved installs the saved worker; nil means none is saved. It counts as

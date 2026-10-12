@@ -72,6 +72,8 @@ type Client struct {
 	TrainTimeout time.Duration
 
 	http *http.Client
+	// local is the in-process engine the client calls (NewLocal), or nil.
+	local Local
 }
 
 // New returns a client for the worker at baseURL. hc may be nil for Hermod's
