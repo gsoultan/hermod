@@ -190,7 +190,9 @@ export function useWorkflowMutations(
   const { mutate: runSimulation, mutateAsync: runSimulationAsync } = testMutation;
 
   const saveMutation = useMutation({
-    mutationFn: async () => {
+    // leaving: the save was asked for on the way out of the editor, which
+    // continues to wherever the operator was going instead of the list.
+    mutationFn: async (_vars?: { leaving?: boolean }) => {
       const s = useWorkflowStore.getState();
       const payload = {
         name: s.name,
@@ -253,13 +255,13 @@ export function useWorkflowMutations(
       useWorkflowStore.setState({ persistedBaseline: sent });
       return res;
     },
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       notifications.show({ title: 'Success', message: 'Workflow saved successfully', color: 'green' });
       if (!isNew && active) {
         setWorkflowStatus('Restarting');
       }
       queryClient.invalidateQueries({ queryKey: ['workflows'] });
-      if (isNew) navigate({ to: '/workflows' });
+      if (isNew && !vars?.leaving) navigate({ to: '/workflows' });
     }
   });
 
