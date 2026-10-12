@@ -2,11 +2,13 @@ package mongodb
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 
+	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/internal/storage/configsecrets"
 	"github.com/gsoultan/hermod/pkg/security/crypto"
 )
@@ -61,6 +63,12 @@ func (s *mongoStorage) ReEncryptSecrets(ctx context.Context, newKey string) erro
 	if err != nil {
 		return err
 	}
+	// So are the settings that hold credentials, such as the ML worker's
+	// token.
+	settingValues, err := s.reEncryptSettings(ctx, newKey)
+	if err != nil {
+		return err
+	}
 
 	for _, u := range updates {
 		if _, err := s.db.Collection(u.collection).UpdateOne(ctx,
@@ -76,7 +84,43 @@ func (s *mongoStorage) ReEncryptSecrets(ctx context.Context, newKey string) erro
 			return fmt.Errorf("rewriting %s %s: %w", vhostSecretsCollection, id, err)
 		}
 	}
+	for key, value := range settingValues {
+		if err := s.SaveSetting(ctx, key, value); err != nil {
+			return fmt.Errorf("rewriting setting %s: %w", key, err)
+		}
+	}
 	return nil
+}
+
+// reEncryptSettings returns the new value of every setting in
+// storage.EncryptedSettingKeys that is set, keyed by its key. One value that
+// cannot be read under the current key fails the rotation before anything is
+// written.
+func (s *mongoStorage) reEncryptSettings(ctx context.Context, newKey string) (map[string]string, error) {
+	out := map[string]string{}
+	for _, key := range storage.EncryptedSettingKeys {
+		raw, err := s.GetSetting(ctx, key)
+		if err != nil {
+			return nil, fmt.Errorf("reading setting %s: %w", key, err)
+		}
+		if raw == "" {
+			continue
+		}
+		cfg := map[string]string{}
+		if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+			return nil, fmt.Errorf("setting %s is unreadable: %w", key, err)
+		}
+		next, err := configsecrets.ReEncrypt(cfg, newKey)
+		if err != nil {
+			return nil, fmt.Errorf("setting %s: %w", key, err)
+		}
+		encoded, err := json.Marshal(next)
+		if err != nil {
+			return nil, fmt.Errorf("setting %s: %w", key, err)
+		}
+		out[key] = string(encoded)
+	}
+	return out, nil
 }
 
 // reEncryptVHostSecrets returns every vhost secret's value encrypted under

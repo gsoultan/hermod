@@ -230,9 +230,14 @@ export interface WorkerCapabilities {
   gpu: boolean
 }
 
+/** Where the worker in force was configured (pkg/ml/worker Source). */
+export type WorkerSource = 'environment' | 'saved' | 'none'
+
 export interface WorkerStatus {
   configured: boolean
   ready: boolean
+  /** Absent from a server older than connecting the worker from the console. */
+  source?: WorkerSource
   error?: string
   capabilities?: WorkerCapabilities
   /**
@@ -580,6 +585,73 @@ export async function getWorkerStatus(signal?: AbortSignal): Promise<WorkerStatu
   return (await res.json()) as WorkerStatus
 }
 
+// ---------------------------------------------------------------------------
+// Connecting the worker from the console (administrators only).
+// ---------------------------------------------------------------------------
+
+/** The saved worker connection; the token never comes back, only token_set. */
+export interface WorkerConnection {
+  source: WorkerSource
+  url: string
+  token_set: boolean
+  /** False when the server's environment sets the worker, which wins. */
+  editable: boolean
+}
+
+/** What Test connection found (pkg/ml/worker ProbeReport). */
+export type ProbeResult = 'ok' | 'bad_address' | 'unreachable' | 'not_a_worker' | 'unauthorized' | 'error'
+
+export interface ProbeReport {
+  result: ProbeResult
+  message: string
+  deep_learning: boolean
+  frameworks?: string[]
+  algorithms?: string[]
+}
+
+export const workerConnectionKey = ['ml-worker-connection'] as const
+const workerConnectionUrl = '/api/ml/worker/connection'
+
+export async function getWorkerConnection(signal?: AbortSignal): Promise<WorkerConnection> {
+  const res = await apiFetch(workerConnectionUrl, { signal, silent: true })
+  return (await res.json()) as WorkerConnection
+}
+
+/** The body of a test or a save: no token keeps (or tests with) the saved one. */
+const connectionBody = (url: string, token?: string) => JSON.stringify(token === undefined ? { url } : { url, token })
+
+export async function testWorkerConnection(url: string, token?: string): Promise<ProbeReport> {
+  const res = await apiFetch(`${workerConnectionUrl}/test`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: connectionBody(url, token), silent: true,
+  })
+  return (await res.json()) as ProbeReport
+}
+
+export async function saveWorkerConnection(url: string, token?: string): Promise<WorkerConnection> {
+  const res = await apiFetch(workerConnectionUrl, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: connectionBody(url, token), silent: true,
+  })
+  return (await res.json()) as WorkerConnection
+}
+
+/**
+ * The hermod-ml image tag for this Hermod: its own release (the two are
+ * released together, .github/workflows/release.yml), or latest for a build
+ * that is not a release; "-dl" for the deep-learning image.
+ */
+export function workerImageTag(version: string | undefined, deep: boolean): string {
+  const head = (version ?? '').trim().split(/\s+/)[0]
+  const release = head.match(/^v?(\d+\.\d+\.\d+(?:-(?:rc|alpha|beta)\.\d+)?)$/)?.[1]
+  return `${release ?? 'latest'}${deep ? '-dl' : ''}`
+}
+
+/** A random worker token: 32 bytes, as hex. */
+export function generateWorkerToken(): string {
+  const bytes = new Uint8Array(32)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
 export async function listDatasets(vhost: string, signal?: AbortSignal): Promise<DatasetInfo[]> {
   const res = await apiFetch(datasetsUrl(vhost), { signal, silent: true })
   const body = await res.json()
@@ -837,7 +909,7 @@ export async function listSQLSources(vhost: string, signal?: AbortSignal): Promi
 
 /**
  * Where the training worker stands, for people: still being asked, not set up
- * (no HERMOD_ML_WORKER_URL), set up but not answering, or ready.
+ * (none connected), set up but not answering, or ready.
  */
 export type WorkerState = 'checking' | 'off' | 'down' | 'ready'
 

@@ -30,11 +30,13 @@ const (
 type Handler struct {
 	*handlers.Handler
 
-	// worker replaces the ML worker the environment names, and noEnvWorker
-	// drops it; pools replaces the worker pools, and monitor the registry's.
-	// Tests set them.
+	// worker replaces the ML worker in force, and noEnvWorker drops it;
+	// workers replaces worker.Default, the provider of the worker in force;
+	// pools replaces the worker pools, and monitor the registry's. Tests set
+	// them.
 	worker      *worker.Client
 	noEnvWorker bool
+	workers     *worker.Provider
 	pools       *ml.Pools
 	monitor     *monitor.Monitor
 	// syncTimeout replaces the sync time limit HERMOD_ML_SYNC_TIMEOUT sets.
@@ -81,6 +83,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/vhosts/{vhost}/ml/jobs/{id}/cancel", h.EditorOnly(h.CancelJob))
 
 	mux.HandleFunc("GET /api/ml/worker", h.WorkerStatus)
+	mux.Handle("GET /api/ml/worker/connection", h.AdminOnly(h.GetWorkerConnection))
+	mux.Handle("PUT /api/ml/worker/connection", h.AdminOnly(h.PutWorkerConnection))
+	mux.Handle("POST /api/ml/worker/connection/test", h.AdminOnly(h.CheckWorkerConnection))
 	mux.HandleFunc("GET /api/vhosts/{vhost}/ml/datasets", h.ListDatasets)
 	mux.Handle("GET /api/vhosts/{vhost}/ml/datasets/{name}", h.EditorOnly(h.GetDataset))
 	mux.Handle("PUT /api/vhosts/{vhost}/ml/datasets/{name}/file", h.EditorOnly(h.UploadDataset))
@@ -120,6 +125,8 @@ func (h *Handler) service() *ml.Service {
 		svc.WithWorker(h.worker)
 	case h.noEnvWorker:
 		svc.WithWorker(nil)
+	case h.workers != nil:
+		svc.WithWorkerProvider(h.workers)
 	}
 	if h.pools != nil {
 		svc.WithPools(*h.pools)

@@ -33,6 +33,9 @@ var (
 	// ErrBusy is returned when the worker is already running as many
 	// trainings as it allows.
 	ErrBusy = errors.New("the ML worker is busy training")
+	// ErrUnauthorized is returned when the worker refuses Hermod's token:
+	// it is not the worker's HERMOD_ML_TOKEN.
+	ErrUnauthorized = errors.New("the ML worker refused the token")
 )
 
 // Timeouts. A training is synchronous and can take minutes; everything else
@@ -87,11 +90,7 @@ func FromEnv() *Client {
 	if u == "" {
 		return nil
 	}
-	c := New(u, os.Getenv("HERMOD_ML_WORKER_TOKEN"), nil)
-	if d, err := time.ParseDuration(os.Getenv("HERMOD_ML_TRAIN_TIMEOUT")); err == nil && d > 0 {
-		c.TrainTimeout = d
-	}
-	return c
+	return Configure(u, os.Getenv("HERMOD_ML_WORKER_TOKEN"))
 }
 
 // ServingURL is the Open Inference Protocol base URL of a vhost's models.
@@ -588,7 +587,7 @@ func (c *Client) call(ctx context.Context, method, path, contentType string, bod
 		return nil
 	}
 	if err := json.Unmarshal(raw, out); err != nil {
-		return fmt.Errorf("the ML worker's reply is not the expected JSON: %w", err)
+		return fmt.Errorf("%w: %w", errNotJSON, err)
 	}
 	return nil
 }
@@ -643,6 +642,22 @@ func workerError(status int, raw []byte) error {
 		return fmt.Errorf("%w: %s", ErrNotFound, msg)
 	case http.StatusTooManyRequests:
 		return fmt.Errorf("%w: %s", ErrBusy, msg)
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return fmt.Errorf("%w: %s", ErrUnauthorized, msg)
 	}
-	return fmt.Errorf("the ML worker answered %d: %s", status, msg)
+	return &statusError{status: status, msg: msg}
 }
+
+// statusError is any other refusal the worker answered with.
+type statusError struct {
+	status int
+	msg    string
+}
+
+func (e *statusError) Error() string {
+	return fmt.Sprintf("the ML worker answered %d: %s", e.status, e.msg)
+}
+
+// errNotJSON is a reply that is not the JSON the route answers with: whatever
+// answered is not the worker, or not this version of it.
+var errNotJSON = errors.New("the ML worker's reply is not the expected JSON")

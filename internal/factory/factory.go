@@ -1258,8 +1258,10 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 		return stdout.NewStdoutSink(fmttr), nil
 	case "ml_dataset":
 		// Built here for callers outside the registry, such as the sink
-		// health check, on the worker the environment names.
-		return newMLDatasetSink(cfg, worker.FromEnv())
+		// health check, on the worker in force: the environment's, or the one
+		// saved from the console.
+		w, _ := worker.Default.Current()
+		return newMLDatasetSink(cfg, w)
 	case "sse":
 		stream := cfg.Config["stream"]
 		s := sse.NewSSESink(stream, fmttr)

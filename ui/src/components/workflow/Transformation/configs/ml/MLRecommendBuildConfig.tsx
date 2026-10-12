@@ -66,7 +66,7 @@ export function MLRecommendBuildConfig({ config, updateNodeConfig, nodeId, sourc
         onChange={(v) => set({ model: v ?? '', for: '' })} nothingFoundMessage="No recommendation model by that name" />
       {!isLoading && recommenders.length === 0 && (
         <Alert color="blue" icon={<IconInfoCircle size="1rem" />} title={`No recommendation models in ${vhost} yet`}>
-          Train one on the Machine Learning page: Train a model, then Recommend items to people.
+          Train one on the Machine Learning page: Add model, Train a new model from my data, then Recommend items to people.
         </Alert>
       )}
       <FormRow cols={plans ? 3 : 2}>

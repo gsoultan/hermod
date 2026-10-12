@@ -44,49 +44,152 @@ page is at `/ml/models`). **Getting started**, at the top, walks through the
 four steps from nothing to a model in use, and shows which are done for the
 vhost you are on:
 
-1. **Connect the training worker**: whether Hermod has a worker address
-   (`HERMOD_ML_WORKER_URL`), whether the worker answers, and whether it can
-   train the neural networks (the `-dl` image). **Set up the worker** opens a
-   setup guide: what `hermod-ml` is, the Docker and Helm commands to copy (the
-   ones under [Train a model](#train-a-model)), how to add deep learning, what
-   to check when a configured worker does not answer, and **Check again**,
-   which asks Hermod again without reloading the page.
+1. **Connect the training worker**: whether Hermod has a worker, whether the
+   worker answers, and whether it can train the neural networks (the `-dl`
+   image). **Set up the worker** opens a guide in three steps (see
+   [Connect the worker](#connect-the-worker)): run the worker (one command to
+   copy, for Docker, Docker Compose or Helm, with a **Generate token** button
+   and a **Deep learning** switch), paste its address and token, then **Test
+   connection** and **Save**. **Check again** asks Hermod again without
+   reloading the page.
 2. **Add your data**: done once the vhost has a dataset; **Go to Datasets**
-   moves to the [Datasets](#datasets) panel.
+   opens the **Data** tab ([Datasets](#datasets)).
 3. **Train a model**: done once the vhost has a model trained here; **Start
    training** opens the Train dialog.
 4. **Use it**: done once a trained model has a live version; it offers
    **Make it live** (the model's versions) or **Try your model** (one row).
 
 Once all four are done the guide can be hidden; that is remembered per user in
-the browser. Until the worker is ready, **Train a model**, the Datasets
+the browser.
+
+The page has one main button, **Add model**. It first asks how:
+
+- **Train a new model from my data** opens the Train dialog
+  ([Train a model](#train-a-model)).
+- **Connect a model that's already running somewhere** opens a two-step form
+  for a model on KServe, Triton, MLServer or MLflow
+  ([Register a model served elsewhere](#register-a-model-served-elsewhere)):
+  **Where it runs** (its name in Hermod, the kind of server, the server
+  address, and the model's name and version there), then **What it takes**
+  (its inputs and a description, with the access token secret, timeout and
+  single input tensor folded under **Advanced options**). Every field has one
+  line of help, and a mistake — no `http://`, a slash in a name, a token
+  pasted where a secret name goes — is reported under the field, saying how to
+  fix it, before anything is saved.
+
+Below Getting started the page has tabs, each with one line saying what it
+holds:
+
+| Tab | What it holds |
+|---|---|
+| **Models** | The vhost's models: where each runs (trained in Hermod, or the server address), its status (**Version N live**, **Not live yet**, or **Connected** for one served elsewhere), whether apps can call it (a serving key exists), and the **AI assistants (MCP)** switch. Everything else is in the row's **…** menu: **Try it with one row**, **Versions and going live**, **Serving key for apps**, **Monitoring**, **Where it is scored**, **Train again**, **Retrain automatically**, **Edit connection** (a model served elsewhere) and **Delete model**. |
+| **Data** | The [datasets](#datasets) models learn from. |
+| **Training jobs** | Trainings and background predictions, with progress ([asynchronous jobs](#asynchronous-jobs)). |
+| **Scripts** | [Custom training scripts](#custom-training-scripts); only when the server has them on. |
+| **Limits** | The vhost's [quotas](#quotas). |
+
+Until the worker is ready, **Train a new model from my data**, the Datasets
 buttons, and a trained model's **Train again** and **Retrain automatically**
-stay on the page, disabled, with the reason beside them. Models served
-elsewhere work without the worker.
+stay offered, disabled, with the reason beside them. Models served elsewhere
+work without the worker.
 
 ## Train a model
 
 Training runs in **hermod-ml**, a Python worker beside Hermod (scikit-learn,
 XGBoost, and in the `-dl` image PyTorch and Keras; every model is exported to
-ONNX and served with ONNX Runtime; it never loads a pickle). Run it and point
-Hermod at it:
+ONNX and served with ONNX Runtime; it never loads a pickle). Run it, then
+connect Hermod to it.
+
+### Run the worker
+
+One command, where Docker runs. From a checkout of Hermod:
+
+```bash
+./scripts/install-hermod-ml.sh                   # scikit-learn, XGBoost
+./scripts/install-hermod-ml.sh --deep-learning   # adds PyTorch and TensorFlow (amd64 only)
+```
+
+It checks Docker, generates a random token, runs
+`ghcr.io/gsoultan/hermod-ml` with `--restart unless-stopped` on port 8090 and a
+`hermod-ml` volume, waits until the worker answers, and prints the address and
+token to paste into Hermod. `--version X.Y.Z` runs a release (use Hermod's
+own: the two are released together) instead of `latest`; `--network NAME`
+also joins a Docker network, so a Hermod container on it reaches the worker as
+`http://hermod-ml:8090`; `--token`, `--port` and `--name` set the rest. It
+refuses rather than replaces a container that already exists, and the `-dl`
+image on an arm64 Docker.
+
+The same, by hand:
+
+```bash
+docker run -d --name hermod-ml --restart unless-stopped -p 8090:8090 -e HERMOD_ML_TOKEN=change-me \
+  -v hermod-ml:/var/lib/hermod-ml ghcr.io/gsoultan/hermod-ml:latest
+```
+
+**Docker Compose.** [`deploy/compose/compose.yaml`](../deploy/compose/compose.yaml)
+runs Hermod and the worker together with one token from a `.env` file
+(`cp .env.example .env`, set `HERMOD_ML_TOKEN`, `docker compose up -d`). It
+connects them through the environment, so the console shows the connection as
+set by the server's environment.
+
+With Helm: `--set mlWorker.enabled=true --set mlWorker.token=…` (or
+`mlWorker.existingSecret`). The chart refuses to run the worker without a
+token, and gives Hermod the worker's address and token itself.
+
+### Connect the worker
+
+On **Machine Learning**, **Getting started**, **Set up the worker**
+(Administrators): paste the worker's address and token, press **Test
+connection**, then **Save**. Saving takes effect at once, for training,
+datasets, the Collect Dataset sink and the worker status; there is nothing to
+restart. Another Hermod process on the same database (a `--mode=worker`
+process with its own database connection) picks it up within 15 seconds.
+
+The test calls the worker the way training will (its `/v2/health/ready`, then
+`/v1/capabilities` with the token) and says what it found:
+
+| Result | Means |
+|---|---|
+| Connected | The worker answered and took the token; also says whether deep learning (PyTorch, TensorFlow) is available. |
+| The worker refused the token | It is there, but the token is not its `HERMOD_ML_TOKEN`. |
+| Nothing answered at this address | Not running, wrong host or port, or not reachable from Hermod. Inside a container, `localhost` is that container: use the worker's container name on a network both share. |
+| This is not hermod-ml | Something else answered there. |
+| Not an address Hermod can call | Not an `http://` or `https://` URL with a host, or it holds a password, query or fragment. |
+
+**Save** is offered once a test has run for the address and token shown
+(**Save anyway** when the test failed). Leaving the token empty keeps the
+saved one; an empty address disconnects the worker. Others see who to ask
+instead of the form.
+
+The token is stored in Hermod's settings, encrypted with the master key like a
+connector's credentials, and rotated with them (`PUT /api/config/crypto`); it
+is never sent back to the browser, which sees only whether one is set. The
+worker is called with Hermod's data client, which reaches private addresses
+(the worker runs beside Hermod), exactly as with the environment variables.
+
+**The environment wins.** When `HERMOD_ML_WORKER_URL` is set, that worker is
+used and the console shows it read-only, as set by the server's environment;
+change it there and restart Hermod. The Helm chart and the compose example
+connect this way.
 
 | Setting | On | Meaning |
 |---|---|---|
-| `HERMOD_ML_WORKER_URL` | Hermod | The worker's address, e.g. `http://hermod-ml:8090`. Unset means training is off. |
+| `HERMOD_ML_WORKER_URL` | Hermod | Optional. The worker's address, e.g. `http://hermod-ml:8090`; when set it wins over the console. |
 | `HERMOD_ML_WORKER_TOKEN` | Hermod | Sent as a bearer token; must equal the worker's `HERMOD_ML_TOKEN`. |
-| `HERMOD_ML_TRAIN_TIMEOUT` | Hermod | How long one training may take, default `30m`. |
+| `HERMOD_ML_TRAIN_TIMEOUT` | Hermod | How long one training may take, default `30m`. Applies to a worker connected either way. |
 | `HERMOD_ML_TOKEN` | worker | Required token. Without it the worker is open: never run it so outside a private network. |
 | `HERMOD_ML_DATA_DIR` | worker | Datasets and model versions, default `/var/lib/hermod-ml`. Keep it on a volume. |
 | `HERMOD_ML_MAX_TRAININGS` | worker | Trainings at once, default 1; another gets "busy". |
 
-With Helm: `--set mlWorker.enabled=true --set mlWorker.token=…` (or
-`mlWorker.existingSecret`). The chart refuses to run the worker without a token.
+The API behind the guide, for Administrators:
 
-```bash
-docker run -d --name hermod-ml -p 8090:8090 -e HERMOD_ML_TOKEN=change-me \
-  -v hermod-ml:/var/lib/hermod-ml ghcr.io/gsoultan/hermod-ml:latest
-```
+| Route | Does |
+|---|---|
+| `GET /api/ml/worker/connection` | `{"source": "environment" \| "saved" \| "none", "url", "token_set", "editable"}`. Never the token. |
+| `PUT /api/ml/worker/connection` | `{"url", "token"}` saves and connects at once; no `token` keeps the saved one; `"url": ""` disconnects. 409 while the environment sets the worker, 400 for an address Hermod cannot call. Audited, without the token. |
+| `POST /api/ml/worker/connection/test` | `{"url", "token"}` (no `token` tests with the saved one). Always 200: `{"result": "ok" \| "unauthorized" \| "unreachable" \| "not_a_worker" \| "bad_address" \| "error", "message", "deep_learning", "frameworks"}`. |
+
+`GET /api/ml/worker`, for any signed-in user, also says the worker's `source`.
 
 ### Image variants
 
@@ -120,7 +223,7 @@ still bounds it on Hermod's side.
 
 ### Datasets
 
-On the **Machine Learning** page, under **Datasets**:
+On the **Machine Learning** page, on the **Data** tab:
 
 - **Upload a file**: CSV, or Excel `.xlsx` (first sheet, header row), up to 200 MB.
 - **From a database**: a `SELECT` on one of the vhost's database sources
@@ -132,7 +235,7 @@ Filling a dataset again replaces its rows.
 
 ### Training
 
-**Train a model** asks for a dataset, the column to predict, and optionally the
+**Train a model** (**Add model** → **Train a new model from my data**) asks for a dataset, the column to predict, and optionally the
 columns to learn from (empty means all the others). The task (classify, or
 predict a number) is chosen from the target unless you pick it. The algorithm
 is `auto` unless you pick one: Auto tries several and keeps the best (see
@@ -249,7 +352,7 @@ train the recommender directly.
 
 Every training makes a new, immutable version. Whether it goes live is your
 rule: **only when I put it live**, **always**, or **if it scores at least** a
-minimum on a metric. A version that is not put live is kept; **Versions** on
+minimum on a metric. A version that is not put live is kept; **Versions and going live** on
 the model lists them all and puts any one live, which is also how you roll back.
 
 ### Guided training
@@ -332,7 +435,7 @@ holds. Deleted records are not added.
 
 ### Retraining
 
-**Retrain automatically** on a model trained in Hermod makes it train again by
+**Retrain automatically** (in the model's **…** menu) on a model trained in Hermod makes it train again by
 itself:
 
 - on a **schedule**, a cron expression such as `0 3 * * *` or `@daily`; and/or
@@ -363,7 +466,7 @@ refused when the policy is saved.
 ### In-process scoring
 
 By default every prediction of a model trained in Hermod is an HTTP call to
-the worker. **Scoring** on the Machine Learning page can set a trained model to
+the worker. **Where it is scored**, in a trained model's **…** menu, can set it to
 **in-process** instead: Hermod fetches the live version's ONNX graph from the
 worker once and scores it itself, in pure Go (`pkg/ml/onnxscore`), with no
 round trip.
@@ -608,20 +711,23 @@ The main worker can itself run on GPU nodes: add `nvidia.com/gpu` to
 
 ## Register a model served elsewhere
 
-Open **Machine Learning** in the sidebar (Editor or Admin) and add a model:
+Open **Machine Learning** in the sidebar (Editor or Admin), press **Add model**
+and choose **Connect a model that's already running somewhere**. The form's
+labels, and the API field each one sets:
 
-| Field | Meaning |
+| Field (API) | Meaning |
 |---|---|
-| Name | How workflows and callers name it: letters, digits, `-`, `_`, `.` |
-| Backend | `oip` for the Open Inference Protocol (KServe V2: KServe, Triton, Seldon MLServer, BentoML, TorchServe's V2 API) or `mlflow` for an MLflow scoring server (`/invocations`) |
-| URL | The model server's base URL |
-| Remote model / version | The model's name and version on that server (`oip` only) |
-| Token secret | A vhost secret holding a bearer token for the server, if it needs one |
-| Input name | Send every feature as one FP32 matrix tensor of this name (`oip` only). Empty sends one tensor per feature |
-| Features | The features the model takes, in order. The Predict node offers a row for each |
-| Timeout | Per call, default 30 s |
+| Name in Hermod (`name`) | How workflows and callers name it: a letter, then letters, digits, `-` or `_` |
+| Kind of server (`backend`) | **Open Inference** = `oip`, the Open Inference Protocol (KServe V2: KServe, Triton, Seldon MLServer, BentoML, TorchServe's V2 API); **MLflow** = `mlflow`, an MLflow scoring server (`/invocations`) |
+| Server address (`url`) | The model server's base URL, `http://` or `https://` |
+| Model name on the server / Version (`remote_model`, `remote_version`) | The model's name and version on that server (`oip` only); an empty version is the server's default |
+| Inputs (`features`) | The features the model takes, in order. The Predict node offers a row for each |
+| Advanced: Access token secret (`token_secret`) | A vhost secret holding a bearer token for the server, if it needs one |
+| Advanced: Timeout (`timeout_ms`) | Per call, default 30 s |
+| Advanced: Single input tensor (`input_name`) | Send every feature as one FP32 matrix tensor of this name (`oip` only). Empty sends one tensor per feature |
 
-**Test** sends sample rows and shows the answer.
+**Try it with one row**, in the model's **…** menu, sends a sample row and
+shows the answer.
 
 ## Predict node
 
@@ -642,7 +748,7 @@ served, logged and held to quotas like any model trained in Hermod.
 
 ### Training one
 
-On the Machine Learning page choose **Train a model**, pick the dataset, and at
+On the Machine Learning page choose **Add model** → **Train a new model from my data**, pick the dataset, and at
 **What do you want to do?** choose **Recommend items to people**. It asks which
 column is the person, which is the item, optionally how much they liked it
 (a rating, quantity or count) and when it happened, and needs no pre-flight
@@ -1121,7 +1227,7 @@ enough and what the health check looks for.
    recommendations into a table** saves a weekly build (`PUT …/build`).
 
 Monitoring shows the acceptance rate of the last 30 days from the feedback.
-Under **Datasets**, the clock button refreshes a dataset from a database query
+On the **Data** tab, the clock button refreshes a dataset from a database query
 on a cron schedule and shows the last run and error. In a workflow, **Predict**
 asks a scenario model for a salesman (with the days to plan), a customer or a
 product, and **Build Recommendations** builds every list and emits one message
@@ -1322,7 +1428,7 @@ and answers it as it is.
 log records the queueing, and the job's result is the usual training result
 (`model`, `version`, `live`, `reason`). The **Train a model** dialog trains
 this way: the Train step shows the job's progress and can stop it, and closing
-the dialog leaves the training running. **Jobs** on the Machine Learning page lists the
+the dialog leaves the training running. The **Training jobs** tab of the Machine Learning page lists the
 vhost's jobs with their status, progress and, for one that failed, why; an
 Editor can stop one there. The **Copy API call** and **Copy async call**
 buttons under a trained version give both forms of the call.
@@ -1432,7 +1538,7 @@ sync waits for the training, as before.
 
 A model can be offered to AI assistants and other MCP clients as a tool on
 Hermod's MCP server (`/api/mcp`, see [ai-automation.md](ai-automation.md#mcp-server)).
-It is off for every model until an Editor turns on **Expose to MCP** on the
+It is off for every model until an Editor turns on the **AI assistants (MCP)** switch on the
 Machine Learning page (`PUT /api/vhosts/{vhost}/ml/models/{name}/mcp` with
 `{"exposed": true}`). Editing the model keeps the setting.
 
@@ -1487,13 +1593,13 @@ when it passes either quota.
 | `GET /api/vhosts/{vhost}/ml/quotas` | Any role on the vhost. Answers the vhost's own quotas (`quotas`, null where unset), the server `defaults` and the limits in force (`effective`). |
 | `PUT /api/vhosts/{vhost}/ml/quotas` | Administrator. Replaces the vhost's quotas; a quota left out or null falls back to the server default. |
 
-The Machine Learning page shows the quotas under **ML quotas**, editable by an
+The Machine Learning page shows the quotas on its **Limits** tab, editable by an
 Administrator. Quotas are kept in the `ml_quotas` table (SQL) or collection
 (MongoDB) and removed with the vhost.
 
 ## Monitoring
 
-**Monitoring** on a model's row on the Machine Learning page shows its prediction log,
+**Monitoring**, in a model's **…** menu on the Machine Learning page, shows its prediction log,
 its drift report and, for an Editor, the setting behind both. The setting is
 kept with the model (`monitoring` in its JSON); saving the model's address
 leaves it as it was.

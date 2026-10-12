@@ -10,6 +10,7 @@ import { VHostProvider, useVHost } from '@/context/VHostContext'
 import { ConfirmProvider } from '@/components/common/ConfirmProvider'
 import { Layout } from '@/components/layout/Layout'
 import { ModelsPage } from '@/pages/ml/ModelsPage'
+import { modelAction } from '../test/buttons'
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, to: _to, params: _params, ...props }: any) => <a {...props}>{children}</a>,
@@ -73,8 +74,8 @@ function SelectVHost({ vhost }: { vhost: string }) {
   return null
 }
 
-function renderPage(username = 'tester') {
-  signInAs('Editor', username)
+function renderPage(username = 'tester', role = 'Editor') {
+  signInAs(role, username)
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   return render(
     <MantineProvider>
@@ -92,6 +93,13 @@ function renderPage(username = 'tester') {
 
 const guide = () => screen.findByRole('region', { name: /getting started/i })
 const step = async (name: RegExp) => within(await guide()).findByRole('listitem', { name })
+
+/** The "Train a new model" choice behind Add model. */
+async function trainChoice(user: ReturnType<typeof userEvent.setup>) {
+  await user.click((await screen.findAllByRole('button', { name: /^add model$/i }))[0])
+  const dialog = await screen.findByRole('dialog', { name: /add a model/i })
+  return within(dialog).getByRole('button', { name: /train a new model/i })
+}
 
 afterEach(() => localStorage.clear())
 
@@ -130,17 +138,21 @@ describe('Getting started: the training worker', () => {
   it('says the worker is not set up, and keeps the actions visible but disabled with the reason', async () => {
     const calls = pageApi({ worker: off })
     renderPage()
+    const user = userEvent.setup()
     const worker = await step(/connect the training worker/i)
     expect(await within(worker).findByText(/not set up yet/i)).toBeInTheDocument()
     expect(within(worker).getByText('To do')).toBeInTheDocument()
     expect(within(worker).getByRole('button', { name: /set up the worker/i })).toBeEnabled()
 
-    const train = screen.getAllByRole('button', { name: /^train a model$/i })[0]
+    const train = await trainChoice(user)
     expect(train).toBeDisabled()
     expect(train).toHaveAccessibleDescription(/hermod-ml worker, which is not set up yet/i)
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 
-    // Datasets are on the page even without a worker, with their buttons off.
-    expect(screen.getByRole('heading', { name: 'Datasets' })).toBeInTheDocument()
+    // Datasets are on their tab even without a worker, with their buttons off.
+    await user.click(screen.getByRole('tab', { name: 'Data' }))
+    expect(await screen.findByRole('heading', { name: 'Datasets' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /upload a file/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /from a database/i })).toBeDisabled()
     expect(calls.datasets).toBe(0)
@@ -158,23 +170,27 @@ describe('Getting started: the training worker', () => {
     const user = userEvent.setup()
     const worker = await step(/connect the training worker/i)
     expect(await within(worker).findByText(/set up, but it does not answer/i)).toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: /^train a model$/i })[0]).toHaveAccessibleDescription(/set up but not answering/i)
+    expect(await trainChoice(user)).toHaveAccessibleDescription(/set up but not answering/i)
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 
     await user.click(within(worker).getByRole('button', { name: /fix the connection/i }))
     const dialog = await screen.findByRole('dialog', { name: /set up the training worker/i })
     expect(within(dialog).getByText(/hermod has a worker address but the worker does not answer/i)).toBeInTheDocument()
-    expect(within(dialog).getByText(/must equal the worker's HERMOD_ML_TOKEN/i)).toBeInTheDocument()
+    // An Editor cannot connect the worker, and is told who can.
+    expect(within(dialog).getByText(/an administrator of this hermod opens machine/i)).toBeInTheDocument()
   })
 
   it('says the worker is connected without deep learning', async () => {
     pageApi({ worker: slim })
     renderPage()
+    const user = userEvent.setup()
     const worker = await step(/connect the training worker/i)
     expect(await within(worker).findByText(/^connected/i)).toBeInTheDocument()
     expect(within(worker).getByText('Done')).toBeInTheDocument()
     expect(within(worker).getByText(/deep learning \(pytorch, tensorflow\) is not available/i)).toBeInTheDocument()
     expect(within(worker).getByRole('button', { name: /how to add deep learning/i })).toBeEnabled()
-    expect(screen.getAllByRole('button', { name: /^train a model$/i })[0]).toBeEnabled()
+    expect(await trainChoice(user)).toBeEnabled()
   })
 
   it('says the worker is connected with deep learning', async () => {
@@ -187,10 +203,14 @@ describe('Getting started: the training worker', () => {
 })
 
 describe('Getting started: the setup guide', () => {
-  it('explains hermod-ml, gives Docker and Helm commands, and checks again', async () => {
+  it('explains hermod-ml, gives Docker, Compose and Helm commands, and checks again', async () => {
     let status: any = off
     const calls = pageApi({ worker: () => status })
-    renderPage()
+    server.use(
+      http.get('/api/ml/worker/connection', () => HttpResponse.json({ source: 'none', url: '', token_set: false, editable: true })),
+      http.get('/api/version', () => HttpResponse.json({ version: 'dev (Enterprise Edition)' })),
+    )
+    renderPage('tester', 'Administrator')
     const user = userEvent.setup()
     const worker = await step(/connect the training worker/i)
     await user.click(await within(worker).findByRole('button', { name: /set up the worker/i }))
@@ -199,18 +219,13 @@ describe('Getting started: the setup guide', () => {
     expect(within(dialog).getByText(/what is hermod-ml\?/i)).toBeInTheDocument()
     expect(within(dialog).getByText(/a separate helper program that trains models/i)).toBeInTheDocument()
 
-    // Docker is the first tab: run the worker, then point Hermod at it.
-    expect(within(dialog).getByText(/docker run -d --name hermod-ml -p 8090:8090 -e HERMOD_ML_TOKEN=change-me/)).toBeInTheDocument()
+    // Docker is the first tab: one command to run the worker.
+    expect(await within(dialog).findByText(/docker run -d --name hermod-ml --restart unless-stopped -p 8090:8090 -e HERMOD_ML_TOKEN=change-me/)).toBeInTheDocument()
     expect(within(dialog).getByText(/ghcr\.io\/gsoultan\/hermod-ml:latest$/m)).toBeInTheDocument()
-    expect(within(dialog).getByText(/HERMOD_ML_WORKER_URL=http:\/\/hermod-ml:8090/)).toBeInTheDocument()
-    expect(within(dialog).getAllByRole('button', { name: /^copy/i }).length).toBeGreaterThanOrEqual(2)
-
-    // Deep learning needs the -dl image.
-    expect(within(dialog).getAllByText(/hermod-ml:latest-dl/).length).toBeGreaterThan(0)
+    expect(within(dialog).getAllByRole('button', { name: /^copy/i }).length).toBeGreaterThanOrEqual(1)
 
     await user.click(within(dialog).getByRole('tab', { name: /helm/i }))
     expect(await within(dialog).findByText(/--set mlWorker\.enabled=true --set mlWorker\.token=change-me/)).toBeInTheDocument()
-    expect(within(dialog).getByText(/mlWorker\.image\.variant=dl/)).toBeInTheDocument()
 
     // Once the worker is running, Check again asks Hermod and shows the answer.
     status = withDL
@@ -287,10 +302,11 @@ describe('Getting started: data, training and use', () => {
   it('disables Train again and Retrain on a model while the worker is missing, saying why', async () => {
     pageApi({ worker: off, models: [live] })
     renderPage()
-    const again = await screen.findByRole('button', { name: 'Train churn again' })
+    const user = userEvent.setup()
+    const again = await modelAction(user, 'churn', 'Train again')
+    await waitFor(() => expect(again).toHaveAccessibleDescription(/not set up yet/i))
     expect(again).toBeDisabled()
-    expect(again).toHaveAccessibleDescription(/not set up yet/i)
-    const retrain = screen.getByRole('button', { name: 'Retrain churn automatically' })
+    const retrain = screen.getByRole('menuitem', { name: 'Retrain automatically', hidden: true })
     expect(retrain).toBeDisabled()
     expect(retrain).toHaveAccessibleDescription(/not set up yet/i)
   })

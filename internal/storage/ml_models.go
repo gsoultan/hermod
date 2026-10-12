@@ -122,6 +122,17 @@ const maxMLFeatureTypeLen = 64
 // models.
 var ErrMLModelsUnsupported = errors.New("this storage backend cannot hold ML models")
 
+// MLWorkerSettingKey names the settings row holding the ML worker connected
+// from the console: a JSON object of strings, "url" and "token", whose token
+// is encrypted as a connector's credentials are (configsecrets).
+const MLWorkerSettingKey = "hermod.ml_worker"
+
+// EncryptedSettingKeys are the settings whose value is a JSON object of
+// strings with its credentials encrypted by configsecrets. ReEncryptSecrets
+// rewrites them with a connector's config, so rotating the master key does not
+// strand them.
+var EncryptedSettingKeys = []string{MLWorkerSettingKey}
+
 // ValidMLModelName reports whether name is a letter followed by letters,
 // digits, '_' or '-', within the length limit. It is used in URL paths, so it
 // may hold nothing that changes a path's meaning.

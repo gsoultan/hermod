@@ -12,7 +12,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/gsoultan/hermod/internal/ml/monitor"
@@ -38,7 +37,8 @@ var (
 	ErrBadServingKey = errors.New("invalid serving key")
 	// ErrNoWorker is returned for training, datasets, or a trained model's
 	// prediction when Hermod has no ML worker configured.
-	ErrNoWorker = errors.New("no ML worker is configured: set HERMOD_ML_WORKER_URL")
+	ErrNoWorker = errors.New("no ML worker is connected: connect one on the Machine Learning page, " +
+		"or set HERMOD_ML_WORKER_URL")
 	// ErrNoLiveVersion is returned for a trained model none of whose versions
 	// has been put live.
 	ErrNoLiveVersion = errors.New("no version of this model is live yet")
@@ -76,25 +76,31 @@ type Service struct {
 	checkCallback func(string) error
 }
 
-// envWorker is the worker HERMOD_ML_WORKER_URL names, read once.
-var envWorker = sync.OnceValue(worker.FromEnv)
-
 // NewService builds a Service. store is called on every use, because setup and
 // a database switch replace the store while Hermod runs. secrets answers a
 // model's token secret for its vhost; it may be nil when no model uses one.
-// client may be nil for the default.
+// client may be nil for the default. The ML worker is the one in force in
+// worker.Default when it is built.
 func NewService(store func() any, sec secrets.ScopedManager, client *inference.Client) *Service {
 	if client == nil {
 		client = inference.NewClient(nil)
 	}
-	return &Service{store: store, secrets: sec, client: client, worker: envWorker(), pools: envPools(),
+	w, _ := worker.Default.Current()
+	return &Service{store: store, secrets: sec, client: client, worker: w, pools: envPools(),
 		quotaDefaults: envQuotaDefaults(), now: time.Now,
 		syncTimeout: envSyncTimeout(), maxQueuedJobs: envMaxQueuedJobs(), checkCallback: CheckCallbackURL}
 }
 
-// WithWorker replaces the ML worker the environment names; nil means none.
+// WithWorker replaces the ML worker in force; nil means none.
 func (s *Service) WithWorker(w *worker.Client) *Service {
 	s.worker = w
+	return s
+}
+
+// WithWorkerProvider takes the ML worker in force in p instead of
+// worker.Default's.
+func (s *Service) WithWorkerProvider(p *worker.Provider) *Service {
+	s.worker, _ = p.Current()
 	return s
 }
 

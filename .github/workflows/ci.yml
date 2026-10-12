@@ -311,6 +311,11 @@ jobs:
       # it to failing closed without needing a real scan.
       - name: Vulnerability gate fails closed
         run: ./scripts/govulncheck_test.sh
+      # The one-command hermod-ml install, against a stand-in docker and
+      # curl: the image tag, the token it generates and prints, and its
+      # refusals (no daemon, an existing worker, the -dl image on arm64).
+      - name: hermod-ml install script
+        run: ./scripts/install-hermod-ml_test.sh
 
   ui-verify:
     name: Verify (UI)

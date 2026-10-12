@@ -10,6 +10,7 @@ import (
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/factory"
+	"github.com/gsoultan/hermod/internal/ml"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/comm/message"
 	"github.com/gsoultan/hermod/pkg/ml/worker"
@@ -93,5 +94,64 @@ func TestACollectDatasetSinkBatchesByDefault(t *testing.T) {
 	}
 	if cfg := parseSinkEngineConfig(factory.SinkConfig{Type: "stdout"}); cfg.BatchSize != 0 {
 		t.Errorf("another sink type got the dataset batch: %d", cfg.BatchSize)
+	}
+}
+
+// The ML worker connected from the console, from where it is configured: a
+// connection saved in storage, by this process or another sharing the
+// database, reaches a stored Collect Dataset sink without a restart.
+func TestACollectDatasetSinkReachesAWorkerSavedInStorage(t *testing.T) {
+	reg := newSimRegistry(t)
+	var mu sync.Mutex
+	var auth []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		auth = append(auth, r.Header.Get("Authorization"))
+		if r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":"no such dataset"}`))
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"rows": 1})
+	}))
+	t.Cleanup(srv.Close)
+	reg.mlWorkers = worker.NewProvider(func() *worker.Client { return nil })
+
+	store := reg.store().(storage.Storage)
+	if err := store.CreateSink(t.Context(), storage.Sink{
+		ID: "collect", Name: "collect", Type: "ml_dataset", VHost: "tenant-a",
+		Config: map[string]string{"dataset": "customers"},
+	}); err != nil {
+		t.Fatalf("CreateSink: %v", err)
+	}
+	if _, err := reg.resolveAndCreateSink(t.Context(), "collect"); err == nil {
+		t.Fatal("built a Collect Dataset sink with no worker connected")
+	}
+
+	// Saved by another process: this one's provider has not been told.
+	other := worker.NewProvider(func() *worker.Client { return nil })
+	tok := "s3cret"
+	if _, err := ml.SaveWorkerConnection(t.Context(), store, other, srv.URL, &tok); err != nil {
+		t.Fatalf("saving the connection: %v", err)
+	}
+	reg.mlWorkers = worker.NewProvider(func() *worker.Client { return nil })
+
+	snk, err := reg.resolveAndCreateSink(t.Context(), "collect")
+	if err != nil {
+		t.Fatalf("building the stored sink: %v", err)
+	}
+	t.Cleanup(func() { _ = snk.Close() })
+	msg := message.AcquireMessage()
+	msg.SetOperation(hermod.OpCreate)
+	msg.SetData("age", 30)
+	msg.SetVHost("tenant-a")
+	if err := snk.Write(t.Context(), msg); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(auth) == 0 || auth[len(auth)-1] != "Bearer s3cret" {
+		t.Errorf("worker saw Authorization %v, want the saved token", auth)
 	}
 }

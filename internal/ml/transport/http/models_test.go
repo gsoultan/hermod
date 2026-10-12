@@ -27,6 +27,8 @@ type modelAPIStore struct {
 	audits []storage.AuditLog
 	// claimedBy holds the one training claim (retrain_test.go).
 	claimedBy string
+	// settings are the store's settings (workerconn_test.go).
+	settings map[string]string
 }
 
 func (s *modelAPIStore) CreateAuditLog(_ context.Context, l storage.AuditLog) error {
@@ -81,7 +83,7 @@ func (s *modelAPIStore) DeleteMLModel(_ context.Context, vhost, name string) err
 func (s *modelAPIStore) DeleteMLModels(context.Context, string) error { return nil }
 
 func newModelAPI() (*Handler, *modelAPIStore) {
-	store := &modelAPIStore{models: map[string]storage.MLModel{}}
+	store := &modelAPIStore{models: map[string]storage.MLModel{}, settings: map[string]string{}}
 	return NewHandler(&handlers.Handler{Storage: store, LogStorage: store}), store
 }
 

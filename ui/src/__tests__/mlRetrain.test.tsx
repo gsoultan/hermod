@@ -6,7 +6,7 @@ import { http, HttpResponse } from 'msw'
 import { useEffect, useState } from 'react'
 import { describe, expect, it } from 'vitest'
 import { server, signInAs } from '../test/setupTests'
-import { findEnabledButton } from '../test/buttons'
+import { findEnabledModelAction, modelAction } from '../test/buttons'
 import { VHostProvider, useVHost } from '@/context/VHostContext'
 import { ConfirmProvider } from '@/components/common/ConfirmProvider'
 import { ModelsPage } from '@/pages/ml/ModelsPage'
@@ -118,7 +118,7 @@ describe('Retraining on the Models page', () => {
     const writes = retrainApi([trained()])
     renderPage()
     const user = userEvent.setup()
-    await user.click(await findEnabledButton(/retrain churn automatically/i))
+    await user.click(await findEnabledModelAction(user, 'churn', 'Retrain automatically'))
     const dialog = await screen.findByRole('dialog')
     await user.type(within(dialog).getByRole('textbox', { name: /schedule/i }), '0 3 * * *')
     await user.type(within(dialog).getByRole('textbox', { name: /new rows/i }), '1000')
@@ -140,7 +140,7 @@ describe('Retraining on the Models page', () => {
     const writes = retrainApi([trained()])
     renderPage()
     const user = userEvent.setup()
-    await user.click(await findEnabledButton(/retrain churn automatically/i))
+    await user.click(await findEnabledModelAction(user, 'churn', 'Retrain automatically'))
     const dialog = await screen.findByRole('dialog')
     await pick(user, dialog, /dataset/i, 'customers')
     await pick(user, dialog, /column to predict/i, 'churned')
@@ -152,7 +152,7 @@ describe('Retraining on the Models page', () => {
     const writes = retrainApi([trained({ retrain: policy })])
     renderPage()
     const user = userEvent.setup()
-    await user.click(await findEnabledButton(/retrain churn automatically/i))
+    await user.click(await findEnabledModelAction(user, 'churn', 'Retrain automatically'))
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByRole('textbox', { name: /schedule/i })).toHaveValue('@daily')
     expect(within(dialog).getByRole('textbox', { name: /new rows/i })).toHaveValue('500')
@@ -163,8 +163,9 @@ describe('Retraining on the Models page', () => {
   it('is not offered for a model served elsewhere', async () => {
     retrainApi([{ name: 'remote', backend: 'oip', url: 'http://kserve', serving: false }])
     renderPage()
-    expect(await screen.findByText('remote')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /retrain remote automatically/i })).not.toBeInTheDocument()
+    const user = userEvent.setup()
+    await modelAction(user, 'remote', 'Try it with one row')
+    expect(screen.queryByRole('menuitem', { name: /retrain automatically/i, hidden: true })).not.toBeInTheDocument()
   })
 
   it('describes a policy in words', () => {

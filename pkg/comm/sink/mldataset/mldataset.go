@@ -82,7 +82,7 @@ type Sink struct {
 // its config.
 func New(cfg map[string]string, vhost string, w Appender) (*Sink, error) {
 	if w == nil {
-		return nil, errors.New("ml_dataset sink: no ML worker is configured: set HERMOD_ML_WORKER_URL")
+		return nil, errors.New("ml_dataset sink: no ML worker is connected: connect one on the Machine Learning page, or set HERMOD_ML_WORKER_URL")
 	}
 	s := &Sink{
 		dataset: strings.TrimSpace(cfg["dataset"]), vhost: vhost, w: w,

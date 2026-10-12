@@ -1,12 +1,17 @@
 package sql
 
 import (
+	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/internal/storage/configsecrets"
 	"github.com/gsoultan/hermod/pkg/security/crypto"
 	_ "modernc.org/sqlite"
 )
@@ -212,5 +217,98 @@ func TestReEncryptUpgradesPlaintextWrittenByAnOlderRule(t *testing.T) {
 	}
 	if got.Config["ftp_password"] != "plaintext-secret" {
 		t.Errorf("ftp_password reads back as %q, want %q", got.Config["ftp_password"], "plaintext-secret")
+	}
+}
+
+// The ML worker connected from the console keeps its token in settings,
+// encrypted like a connector's credentials. A rotation that left it behind
+// would disconnect training with no word of why.
+func TestRotationKeepsTheMLWorkerTokenReadable(t *testing.T) {
+	rotateMLWorkerSetting(t, newRotationStorage(t))
+}
+
+// On Postgres the settings upsert is the dialect's own ($n placeholders, ON
+// CONFLICT), run inside the rotation's transaction. A rotation rewrites every
+// connector in the database, so this one runs in a schema of its own rather
+// than over the rows other tests share.
+func TestRotationKeepsTheMLWorkerTokenReadableOnPostgres(t *testing.T) {
+	dsn := os.Getenv("POSTGRES_DSN")
+	if os.Getenv("HERMOD_INTEGRATION") != "1" || dsn == "" {
+		t.Skip("integration: set HERMOD_INTEGRATION=1 and POSTGRES_DSN to enable")
+	}
+	admin, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("POSTGRES_DSN names a server that could not be opened: %v", err)
+	}
+	t.Cleanup(func() { _ = admin.Close() })
+	schema := fmt.Sprintf("rot_ml_worker_%d", time.Now().UnixNano())
+	if _, err := admin.ExecContext(t.Context(), "CREATE SCHEMA "+schema); err != nil {
+		t.Fatalf("creating schema: %v", err)
+	}
+	t.Cleanup(func() { _, _ = admin.ExecContext(context.Background(), "DROP SCHEMA "+schema+" CASCADE") })
+
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	db, err := sql.Open("pgx", dsn+sep+"search_path="+schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	s := NewSQLStorage(db, "pgx").(*sqlStorage)
+	if err := s.Init(t.Context()); err != nil {
+		t.Fatalf("POSTGRES_DSN names a server that could not be initialised: %v", err)
+	}
+	rotateMLWorkerSetting(t, s)
+}
+
+func rotateMLWorkerSetting(t *testing.T, s *sqlStorage) {
+	t.Helper()
+	const oldKey = "old-master-key-at-least-16"
+	const newKey = "new-master-key-at-least-16"
+	ctx := t.Context()
+	withKey(t, oldKey)
+
+	stored, _ := json.Marshal(configsecrets.Encrypt(map[string]string{"url": "http://hermod-ml:8090", "token": "s3cret"}))
+	if err := s.SaveSetting(ctx, storage.MLWorkerSettingKey, string(stored)); err != nil {
+		t.Fatalf("SaveSetting: %v", err)
+	}
+	raw, err := s.GetSetting(ctx, storage.MLWorkerSettingKey)
+	if err != nil || raw != string(stored) {
+		t.Fatalf("GetSetting = %q, %v; want what was saved", raw, err)
+	}
+
+	if err := s.ReEncryptSecrets(ctx, newKey); err != nil {
+		t.Fatalf("ReEncryptSecrets: %v", err)
+	}
+	crypto.SetMasterKey(newKey)
+
+	raw, err = s.GetSetting(ctx, storage.MLWorkerSettingKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]string
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatalf("setting after rotation %q: %v", raw, err)
+	}
+	if strings.Contains(raw, "s3cret") {
+		t.Errorf("rotation wrote the token in the clear: %s", raw)
+	}
+	if plain := configsecrets.Decrypt(got); plain["token"] != "s3cret" || plain["url"] != "http://hermod-ml:8090" {
+		t.Errorf("after rotation the connection reads %v", plain)
+	}
+}
+
+// No ML worker saved: rotation has nothing to rewrite and must not create one.
+func TestRotationWithoutAnMLWorkerLeavesNoSetting(t *testing.T) {
+	ctx := t.Context()
+	s := newRotationStorage(t)
+	withKey(t, "old-master-key-at-least-16")
+	if err := s.ReEncryptSecrets(ctx, "new-master-key-at-least-16"); err != nil {
+		t.Fatalf("ReEncryptSecrets: %v", err)
+	}
+	if raw, _ := s.GetSetting(ctx, storage.MLWorkerSettingKey); raw != "" {
+		t.Errorf("rotation created %q", raw)
 	}
 }

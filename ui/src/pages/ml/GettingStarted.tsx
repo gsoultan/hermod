@@ -133,8 +133,8 @@ export function GettingStarted({ worker, datasets, models, username, onSetup, on
             {state === 'checking' && <Text size="sm" c="dimmed">Checking whether Hermod can reach the training worker…</Text>}
             {state === 'off' && (
               <Text size="sm" c="dimmed">
-                Not set up yet. Training runs in hermod-ml, a helper program beside Hermod: run it, then set
-                HERMOD_ML_WORKER_URL and HERMOD_ML_WORKER_TOKEN on Hermod.
+                Not set up yet. Training runs in hermod-ml, a helper program beside Hermod: run it with one command,
+                then connect it here. No restart needed.
               </Text>
             )}
             {state === 'down' && (

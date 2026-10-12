@@ -13,11 +13,34 @@ The sidebar link **Models** is now **Machine Learning** (same page, same
 `/ml/models` address, still for Editors and Administrators). The page opens
 with **Getting started**: four steps — connect the training worker, add your
 data, train a model, use it — each marked done or to do for the vhost, with
-one button that moves it on. A setup guide explains what the `hermod-ml`
-worker is, gives the Docker and Helm commands to copy, says how to get
-TensorFlow and PyTorch (the `-dl` image), has its own checks for a worker that
-is configured but not answering, and a **Check again** button. The guide can
-be hidden once every step is done.
+one button that moves it on. The guide can be hidden once every step is done.
+
+**The training worker connects from the console, with no environment
+variables and no restart.** The setup guide is three numbered steps: run the
+worker (one command to copy for Docker, Docker Compose or Helm, with a
+**Generate token** button that puts the same token in the command and the
+form, and a **Deep learning** switch for the TensorFlow/PyTorch `-dl` image,
+tagged to match Hermod's release); paste its address and token (with a
+reminder that inside Docker `localhost` is Hermod's own container); then
+**Test connection**, which says in plain words whether the worker answered,
+refused the token, was not there, or was something else, and whether it has
+deep learning, and **Save**. Saving takes effect at once for training,
+datasets, the Collect Dataset sink and Getting started; another Hermod process
+on the same database follows within 15 seconds. Only Administrators connect
+it; others are told whom to ask. The token is stored encrypted with the
+master key, re-encrypted on key rotation, and never sent back to the browser.
+`HERMOD_ML_WORKER_URL`, when set, still wins, and the console shows it
+read-only as set by the server's environment. New routes, Administrators only:
+`GET`/`PUT /api/ml/worker/connection` and `POST
+/api/ml/worker/connection/test`; `GET /api/ml/worker` also says the worker's
+`source`.
+
+`scripts/install-hermod-ml.sh` installs the worker in one command: it checks
+Docker, generates a token, runs `ghcr.io/gsoultan/hermod-ml` (`--deep-learning`
+for the `-dl` image, `--version` for a release) with `--restart
+unless-stopped` on port 8090, waits for it to answer, and prints the address
+and token to paste. `deploy/compose/compose.yaml` runs Hermod and the worker
+together with one token from a `.env` file.
 
 Nothing disappears any more when the worker is missing: **Train a model**, the
 Datasets panel, **Train again** and **Retrain automatically** stay on the page,
@@ -25,7 +48,29 @@ disabled, with the reason beside them. In the Algorithm lists, PyTorch MLP and
 Keras MLP — now labelled "Keras MLP — TensorFlow (neural network)" — stay
 listed on a slim worker, disabled, saying they need the deep-learning worker
 image. The Train dialog's Dataset, Task and Algorithm fields gained one-line
-help. See [docs/ml.md](docs/ml.md#in-the-console).
+help. See [docs/ml.md](docs/ml.md#in-the-console) and
+[Connect the worker](docs/ml.md#connect-the-worker).
+
+The page is also tidier. It has one main button, **Add model**, which first
+asks how: **Train a new model from my data** (the Train dialog, off with the
+reason while the worker is missing) or **Connect a model that's already
+running somewhere**. Connecting is now two short steps — **Where it runs**,
+then **What it takes** — with plain labels (Name in Hermod, Kind of server,
+Server address, Model name on the server, Inputs), one line of help under
+every field, examples as placeholders, the access token secret, timeout and
+single input tensor folded under **Advanced options**, and mistakes (no
+`http://`, a slash in a name, a token pasted where a secret name goes)
+reported under the field with how to fix them before anything is sent. The
+fields and the saved model are unchanged. The models list shows a plain status
+(**Version N live**, **Not live yet**, **Connected**) and puts each model's
+other actions in one **…** menu with descriptive names — **Try it with one
+row**, **Versions and going live**, **Serving key for apps**, **Monitoring**,
+**Where it is scored**, **Train again**, **Retrain automatically**, **Edit
+connection**, **Delete model** — instead of a row of icons. An empty list says
+what a model is in one sentence and points at **Add model**. Datasets, jobs,
+scripts and quotas moved from panels stacked under the list to the **Data**,
+**Training jobs**, **Scripts** and **Limits** tabs, each with one line saying
+what it holds.
 
 ## [1.18.0] — 2026-10-12
 

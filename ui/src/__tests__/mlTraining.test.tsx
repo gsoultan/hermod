@@ -6,7 +6,7 @@ import { http, HttpResponse } from 'msw'
 import { useEffect, useState } from 'react'
 import { describe, expect, it } from 'vitest'
 import { server, signInAs } from '../test/setupTests'
-import { findEnabledButton } from '../test/buttons'
+import { modelAction, openTraining } from '../test/buttons'
 import { VHostProvider, useVHost } from '@/context/VHostContext'
 import { ConfirmProvider } from '@/components/common/ConfirmProvider'
 import { ModelsPage } from '@/pages/ml/ModelsPage'
@@ -121,7 +121,7 @@ async function openOptions(user: ReturnType<typeof userEvent.setup>, scope: HTML
 
 /** Opens the Train dialog for a new model and walks it to "How careful", with Advanced open. */
 async function toAdvanced(user: ReturnType<typeof userEvent.setup>, model: string) {
-  await user.click(await findEnabledButton(/train a model/i))
+  await openTraining(user)
   const dialog = await screen.findByRole('dialog')
   await user.type(within(dialog).getByRole('textbox', { name: /model name/i }), model)
   await pick(user, dialog, /^dataset/i, 'customers')
@@ -139,24 +139,29 @@ describe('Training on the Models page', () => {
   it('lists the datasets and shows a trained model with its live version', async () => {
     trainingApi()
     renderPage()
-    expect(await screen.findByText('customers')).toBeInTheDocument()
+    const user = userEvent.setup()
     expect(await screen.findByText(/version 1 live/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /train a model/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^add model$/i })).toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: 'Data' }))
+    expect(await screen.findByText('customers')).toBeInTheDocument()
   })
 
   it('says how to turn training on when no worker is configured', async () => {
     trainingApi({ ready: false })
     renderPage()
-    expect(await screen.findByText(/HERMOD_ML_WORKER_URL/)).toBeInTheDocument()
-    // Train a model stays on the page, off, rather than vanishing: people
-    // took a missing button for a missing feature.
-    expect(screen.getByRole('button', { name: /^train a model$/i })).toBeDisabled()
+    const user = userEvent.setup()
+    expect(await screen.findByText(/run it with one command,\s+then connect it here/i)).toBeInTheDocument()
+    // Training stays offered, off, rather than vanishing: people took a
+    // missing button for a missing feature.
+    await user.click(screen.getByRole('button', { name: /^add model$/i }))
+    expect(await screen.findByRole('button', { name: /train a new model/i })).toBeDisabled()
   })
 
   it('uploads a CSV file as a dataset', async () => {
     const writes = trainingApi()
     renderPage()
     const user = userEvent.setup()
+    await user.click(await screen.findByRole('tab', { name: 'Data' }))
     await user.click(await screen.findByRole('button', { name: /upload a file/i }))
     const dialog = await screen.findByRole('dialog')
     await user.type(within(dialog).getByRole('textbox', { name: /dataset name/i }), 'sales')
@@ -173,6 +178,7 @@ describe('Training on the Models page', () => {
     const writes = trainingApi()
     renderPage()
     const user = userEvent.setup()
+    await user.click(await screen.findByRole('tab', { name: 'Data' }))
     await user.click(await screen.findByRole('button', { name: /from a database/i }))
     const dialog = await screen.findByRole('dialog')
     await user.type(within(dialog).getByRole('textbox', { name: /dataset name/i }), 'orders')
@@ -188,7 +194,7 @@ describe('Training on the Models page', () => {
     const writes = trainingApi()
     renderPage()
     const user = userEvent.setup()
-    await user.click(await findEnabledButton(/train a model/i))
+    await openTraining(user)
     const dialog = await screen.findByRole('dialog')
     await user.type(within(dialog).getByRole('textbox', { name: /model name/i }), 'churn2')
     await pick(user, dialog, /^dataset/i, 'customers')
@@ -263,7 +269,7 @@ describe('Training on the Models page', () => {
     const writes = trainingApi()
     renderPage()
     const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: 'Versions of churn' }))
+    await user.click(await modelAction(user, 'churn', 'Versions and going live'))
     const dialog = await screen.findByRole('dialog')
     await user.click(await within(dialog).findByRole('button', { name: 'Put version 2 live' }))
     await waitFor(() => expect(writes.find((w) => w.method === 'PROMOTE')?.path).toBe('tenant-a/churn/2'))

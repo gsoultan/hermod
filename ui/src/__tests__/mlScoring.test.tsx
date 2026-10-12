@@ -9,6 +9,7 @@ import { server, signInAs } from '../test/setupTests'
 import { VHostProvider, useVHost } from '@/context/VHostContext'
 import { ConfirmProvider } from '@/components/common/ConfirmProvider'
 import { ModelsPage } from '@/pages/ml/ModelsPage'
+import { modelAction } from '../test/buttons'
 
 /**
  * In-process scoring: a trained model can be scored inside Hermod instead of
@@ -70,7 +71,7 @@ describe('Scoring on the Models page', () => {
       { scoring: 'in_process', in_process: true, version: '2', ops: ['Concat', 'LinearClassifier', 'Scaler'] })
     renderPage()
     const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: /scoring of churn/i }))
+    await user.click(await modelAction(user, 'churn', 'Where it is scored'))
     const dialog = await screen.findByRole('dialog')
     expect(await within(dialog).findByText(/scored by the ML worker/i)).toBeInTheDocument()
 
@@ -88,7 +89,7 @@ describe('Scoring on the Models page', () => {
     })
     renderPage()
     const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: /scoring of churn/i }))
+    await user.click(await modelAction(user, 'churn', 'Where it is scored'))
     const dialog = await screen.findByRole('dialog')
     expect(await within(dialog).findByText(/falls back to the ML worker/i)).toBeInTheDocument()
     expect(within(dialog).getByText(/SVMClassifier are not supported/)).toBeInTheDocument()
@@ -97,7 +98,8 @@ describe('Scoring on the Models page', () => {
   it('offers no scoring setting for a model served elsewhere', async () => {
     scoringApi([{ name: 'fraud', backend: 'oip', url: 'http://ml:8080', serving: false }], { scoring: 'worker', in_process: false })
     renderPage()
-    expect(await screen.findByText('fraud')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /scoring of fraud/i })).not.toBeInTheDocument()
+    const user = userEvent.setup()
+    await modelAction(user, 'fraud', 'Try it with one row')
+    expect(screen.queryByRole('menuitem', { name: /where it is scored/i, hidden: true })).not.toBeInTheDocument()
   })
 })
