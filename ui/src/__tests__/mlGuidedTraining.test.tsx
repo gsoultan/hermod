@@ -6,7 +6,7 @@ import { http, HttpResponse } from 'msw'
 import { useEffect, useState } from 'react'
 import { describe, expect, it } from 'vitest'
 import { server, signInAs } from '../test/setupTests'
-import { findEnabledButton } from '../test/buttons'
+import { findEnabledModelAction, openTraining } from '../test/buttons'
 import { VHostProvider, useVHost } from '@/context/VHostContext'
 import { ConfirmProvider } from '@/components/common/ConfirmProvider'
 import { ModelsPage } from '@/pages/ml/ModelsPage'
@@ -153,7 +153,7 @@ const next = (user: ReturnType<typeof userEvent.setup>, dialog: HTMLElement) =>
 
 /** Opens the dialog for a new model and walks it to "What to predict" with churned picked. */
 async function toTarget(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(await findEnabledButton(/train a model/i))
+  await openTraining(user)
   const dialog = await screen.findByRole('dialog')
   await user.type(within(dialog).getByRole('textbox', { name: /model name/i }), 'churn')
   await pick(user, dialog, /^dataset/i, 'customers')
@@ -175,7 +175,7 @@ describe('Guided training', () => {
     const writes = guidedApi()
     renderPage()
     const user = userEvent.setup()
-    await user.click(await findEnabledButton(/train a model/i))
+    await openTraining(user)
     const dialog = await screen.findByRole('dialog')
 
     // 1. Your data: nothing to go on until a dataset is picked, then its first rows.
@@ -349,7 +349,7 @@ describe('Guided training', () => {
     const writes = guidedApi({ models: [{ name: 'churn', backend: 'hermod-ml', url: '', remote_version: '1', serving: false }] })
     renderPage()
     const user = userEvent.setup()
-    await user.click(await findEnabledButton('Train churn again'))
+    await user.click(await findEnabledModelAction(user, 'churn', 'Train again'))
     const dialog = await screen.findByRole('dialog')
     // It opens on "What to predict", with the last version's choices.
     await waitFor(() => expect(within(dialog).getByRole('combobox', { name: /column to predict/i })).toHaveValue('churned'))

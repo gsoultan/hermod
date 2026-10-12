@@ -51,6 +51,27 @@ image. The Train dialog's Dataset, Task and Algorithm fields gained one-line
 help. See [docs/ml.md](docs/ml.md#in-the-console) and
 [Connect the worker](docs/ml.md#connect-the-worker).
 
+The page is also tidier. It has one main button, **Add model**, which first
+asks how: **Train a new model from my data** (the Train dialog, off with the
+reason while the worker is missing) or **Connect a model that's already
+running somewhere**. Connecting is now two short steps — **Where it runs**,
+then **What it takes** — with plain labels (Name in Hermod, Kind of server,
+Server address, Model name on the server, Inputs), one line of help under
+every field, examples as placeholders, the access token secret, timeout and
+single input tensor folded under **Advanced options**, and mistakes (no
+`http://`, a slash in a name, a token pasted where a secret name goes)
+reported under the field with how to fix them before anything is sent. The
+fields and the saved model are unchanged. The models list shows a plain status
+(**Version N live**, **Not live yet**, **Connected**) and puts each model's
+other actions in one **…** menu with descriptive names — **Try it with one
+row**, **Versions and going live**, **Serving key for apps**, **Monitoring**,
+**Where it is scored**, **Train again**, **Retrain automatically**, **Edit
+connection**, **Delete model** — instead of a row of icons. An empty list says
+what a model is in one sentence and points at **Add model**. Datasets, jobs,
+scripts and quotas moved from panels stacked under the list to the **Data**,
+**Training jobs**, **Scripts** and **Limits** tabs, each with one line saying
+what it holds.
+
 ## [1.18.0] — 2026-10-12
 
 AI automation and machine learning. Workflows can call LLM providers, retrieve

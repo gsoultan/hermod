@@ -58,7 +58,7 @@ export function JobsPanel({ vhost, canEdit }: { vhost: string; canEdit: boolean 
           <div>
             <Title order={4}>Jobs</Title>
             <Text size="sm" c="dimmed">
-              Trainings, and predictions sent with &quot;respond&quot;: &quot;async&quot;. A job and its result are kept for 7 days.
+              Trainings, and predictions an application asked to run in the background. Each is kept for 7 days.
             </Text>
           </div>
           <Select label="Status" placeholder="Any" clearable size="xs" w={160}

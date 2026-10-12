@@ -6,7 +6,7 @@ import { http, HttpResponse } from 'msw'
 import { useEffect } from 'react'
 import { describe, expect, it } from 'vitest'
 import { server, signInAs } from '../test/setupTests'
-import { findEnabledButton } from '../test/buttons'
+import { openTraining } from '../test/buttons'
 import { VHostProvider, useVHost } from '@/context/VHostContext'
 import { ConfirmProvider } from '@/components/common/ConfirmProvider'
 import { ModelsPage } from '@/pages/ml/ModelsPage'
@@ -118,7 +118,7 @@ async function pick(user: ReturnType<typeof userEvent.setup>, scope: HTMLElement
 
 /** Walks the Train dialog for model churn2 to its Train button and clicks it. */
 async function train(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(await findEnabledButton(/train a model/i))
+  await openTraining(user)
   const dialog = await screen.findByRole('dialog')
   await user.type(within(dialog).getByRole('textbox', { name: /model name/i }), 'churn2')
   await pick(user, dialog, /^dataset/i, 'customers')
@@ -182,6 +182,8 @@ describe('Jobs list on the Models page', () => {
   it('lists jobs with status, progress and why one failed, and filters by status', async () => {
     const calls = jobsApi({ jobs: listed })
     renderPage()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('tab', { name: 'Training jobs' }))
     const table = await screen.findByRole('table', { name: /jobs/i })
     expect(within(table).getByText('2,500 of 5,000 rows')).toBeInTheDocument()
     expect(within(table).getByText('the model server did not answer in 30s')).toBeInTheDocument()
@@ -190,7 +192,6 @@ describe('Jobs list on the Models page', () => {
     expect(within(table).getByText('Failed')).toBeInTheDocument()
     expect(within(table).getByRole('progressbar', { name: /progress of double/i })).toBeInTheDocument()
 
-    const user = userEvent.setup()
     await pick(user, document.body, /^status/i, 'Failed')
     await waitFor(() => expect(calls.some((c) => c.method === 'LIST' && c.path.includes('status=failed'))).toBe(true))
     await waitFor(() => expect(screen.queryByText('2,500 of 5,000 rows')).not.toBeInTheDocument())
@@ -200,6 +201,7 @@ describe('Jobs list on the Models page', () => {
     const calls = jobsApi({ jobs: listed })
     renderPage()
     const user = userEvent.setup()
+    await user.click(await screen.findByRole('tab', { name: 'Training jobs' }))
     await screen.findByRole('table', { name: /jobs/i })
     expect(screen.queryByRole('button', { name: /stop job job_b/i })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /stop job job_a/i }))
@@ -209,6 +211,8 @@ describe('Jobs list on the Models page', () => {
   it('shows no Stop button to a Viewer', async () => {
     jobsApi({ jobs: listed })
     renderPage('Viewer')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('tab', { name: 'Training jobs' }))
     await screen.findByRole('table', { name: /jobs/i })
     expect(screen.queryByRole('button', { name: /stop job/i })).not.toBeInTheDocument()
   })

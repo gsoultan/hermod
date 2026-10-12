@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  ActionIcon, Alert, Badge, Box, Button, Group, Loader, Paper, Select, Stack, Switch, Table, Tabs, Text, Title, Tooltip,
+  Alert, Badge, Box, Button, Group, Loader, Paper, Select, Stack, Switch, Table, Tabs, Text, Title, Tooltip, VisuallyHidden,
 } from '@mantine/core'
 import {
-  IconActivityHeartbeat, IconAlertCircle, IconBrain, IconCode, IconCpu, IconHistory, IconKey, IconPencil, IconPlayerPlay, IconPlus, IconRepeat, IconSchool, IconTrash,
+  IconAlertCircle, IconBrain, IconCode, IconDatabase, IconGauge, IconListCheck, IconPlus,
 } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useVHost } from '@/context/VHostContext'
@@ -14,9 +14,11 @@ import {
   deleteModel, isModelVHost, isTrainedModel, listModels, mlModelsKey, setMCPExposure, trainBlockedReason, useVHostDatasets, useWorkerStatus,
   workerState, type MLModel,
 } from '@/lib/mlModels'
+import { AddModelModal } from './AddModelModal'
 import { DATASETS_HEADING_ID, DatasetsPanel } from './DatasetsPanel'
 import { GettingStarted } from './GettingStarted'
 import { JobsPanel } from './JobsPanel'
+import { ModelActionsMenu, type ModelAction } from './ModelActionsMenu'
 import { ScriptsPanel } from './ScriptsPanel'
 import { ModelFormModal } from './ModelFormModal'
 import { ModelTestModal } from './ModelTestModal'
@@ -30,15 +32,33 @@ import { TrainModal } from './TrainModal'
 import { VersionsModal } from './VersionsModal'
 import { WorkerSetupModal } from './WorkerSetupModal'
 
-const BACKEND_LABEL: Record<string, string> = { oip: 'Open Inference', mlflow: 'MLflow', 'hermod-ml': 'Trained in Hermod' }
+const SERVER_LABEL: Record<string, string> = { oip: 'On an Open Inference server', mlflow: 'On an MLflow server' }
 
-/** Where a model is served, in words. */
-function servedFrom(m: MLModel): string {
-  if (isTrainedModel(m)) return m.remote_version ? `hermod-ml, version ${m.remote_version} live` : 'hermod-ml, no version live yet'
-  return `${m.url}${m.remote_model ? ` → ${m.remote_model}${m.remote_version ? `:${m.remote_version}` : ''}` : ''}`
+/** Where a model runs, in words, and the address of one served elsewhere. */
+function WhereItRuns({ m }: { m: MLModel }) {
+  if (isTrainedModel(m)) return <Text size="sm">Trained in Hermod</Text>
+  const target = `${m.url}${m.remote_model ? ` → ${m.remote_model}${m.remote_version ? `:${m.remote_version}` : ''}` : ''}`
+  return (
+    <>
+      <Text size="sm">{SERVER_LABEL[m.backend] ?? m.backend}</Text>
+      <Text size="xs" c="dimmed" ff="var(--mantine-font-family-monospace)" style={{ wordBreak: 'break-all' }}>{target}</Text>
+    </>
+  )
+}
+
+/** Whether a model answers predictions now, in one badge. */
+function StatusBadge({ m }: { m: MLModel }) {
+  if (!isTrainedModel(m)) return <Badge color="blue" variant="light" tt="none">Connected</Badge>
+  if (m.remote_version) return <Badge color="green" variant="light" tt="none">Version {m.remote_version} live</Badge>
+  return (
+    <Tooltip label="Open … → Versions and going live to put a version live.">
+      <Badge color="yellow" variant="light" tt="none">Not live yet</Badge>
+    </Tooltip>
+  )
 }
 
 type Dialog =
+  | { kind: 'add' }
   | { kind: 'form'; model?: MLModel }
   | { kind: 'test'; model: MLModel }
   | { kind: 'key'; model: MLModel }
@@ -49,16 +69,26 @@ type Dialog =
   | { kind: 'scoring'; model: MLModel }
   | { kind: 'setup' }
 
-/** The sentence that says why training is off; buttons it disables point at it. */
-const TRAIN_BLOCKED_ID = 'ml-train-blocked'
+/** The page's tabs, each with the one line that says what it holds. */
+const TABS = [
+  { value: 'models', label: 'Models', icon: IconBrain, help: 'The models this vhost can use, and what you can do with each.' },
+  { value: 'data', label: 'Data', icon: IconDatabase, help: 'The rows models learn from: upload a spreadsheet or read them from a database.' },
+  { value: 'jobs', label: 'Training jobs', icon: IconListCheck, help: 'Trainings and other long tasks, running or finished, with their progress.' },
+  { value: 'scripts', label: 'Scripts', icon: IconCode, help: 'Your own Python training code, for experts. Most people never need it.' },
+  { value: 'limits', label: 'Limits', icon: IconGauge, help: 'How much this vhost may store and run at once.' },
+] as const
+
+const tabHelpId = (value: string) => `ml-tab-help-${value}`
 
 /**
- * Machine Learning: the models a vhost can call. Each is trained here on a
+ * Machine Learning: the models a vhost can use. Each is trained here on a
  * dataset, or is the address of a model on a model server; workflows call it
  * from a Predict node, and applications through the serving endpoint with the
  * model's own key. Getting started at the top walks a newcomer through the
- * worker, data, training and use; an action that cannot run yet stays on the
- * page, off, and says why.
+ * worker, data, training and use. The page has one primary action, Add model,
+ * which asks whether to train or connect; each model's other actions sit in
+ * its "…" menu, and datasets, jobs, scripts and limits have their own tabs.
+ * An action that cannot run yet stays offered, off, and says why.
  */
 export function ModelsPage() {
   const confirm = useConfirm()
@@ -74,15 +104,15 @@ export function ModelsPage() {
   const { data: worker } = useWorkerStatus()
   const canTrain = !!worker?.ready
   const blockedReason = trainBlockedReason(worker)
-  const blockedBy = canTrain ? undefined : TRAIN_BLOCKED_ID
   const { data: datasets } = useVHostDatasets(vhost ?? undefined, canTrain)
   // The Scripts tab exists only where the server has custom scripts on.
   const showScripts = canTrain && !!worker?.capabilities?.scripts_enabled
+  const tabs = TABS.filter((t) => t.value !== 'scripts' || showScripts)
   const [tab, setTab] = useState<string | null>('models')
   const role = useSessionStore((s) => s.user?.role)
   const username = useSessionStore((s) => s.user?.username) ?? ''
-  // Getting started's "Go to Datasets": show the Models tab, then move focus
-  // to the Datasets heading once it is on the page.
+  // Getting started's "Go to Datasets": show the Data tab, then move focus to
+  // the Datasets heading once it is on the page.
   const [toDatasets, setToDatasets] = useState(0)
   useEffect(() => {
     if (!toDatasets) return
@@ -91,11 +121,13 @@ export function ModelsPage() {
     heading?.focus({ preventScroll: true })
   }, [toDatasets])
   const goToDatasets = () => {
-    setTab('models')
+    setTab('data')
     setToDatasets((n) => n + 1)
   }
   const openSetup = () => setDialog({ kind: 'setup' })
   const canEdit = role === 'Administrator' || role === 'Editor'
+  // While the worker status is still arriving there is nothing to set up yet.
+  const setupFromAdd = blockedReason && workerState(worker) !== 'checking' ? openSetup : undefined
 
   const { data: models, isLoading, error } = useQuery({
     queryKey: mlModelsKey(vhost ?? ''),
@@ -125,6 +157,16 @@ export function ModelsPage() {
     if (ok) remove.mutate(name)
   }
 
+  const act = (m: MLModel, action: ModelAction) => {
+    switch (action) {
+      case 'delete': return void askDelete(m.name)
+      case 'edit': return setDialog({ kind: 'form', model: m })
+      case 'train': return setDialog({ kind: 'train', modelName: m.name, task: m.task })
+      case 'test': case 'key': case 'versions': case 'monitoring': case 'retrain': case 'scoring':
+        return setDialog({ kind: action, model: m })
+    }
+  }
+
   const rows = (models ?? []).map((m) => (
     <Table.Tr key={m.name}>
       <Table.Td>
@@ -132,74 +174,20 @@ export function ModelsPage() {
         {m.description && <Text size="xs" c="dimmed">{m.description}</Text>}
         <RetrainStatusLine model={m} />
       </Table.Td>
-      <Table.Td><Badge variant="light" tt="none">{BACKEND_LABEL[m.backend] ?? m.backend}</Badge></Table.Td>
-      <Table.Td><Text size="sm" ff="var(--mantine-font-family-monospace)">{servedFrom(m)}</Text></Table.Td>
-      <Table.Td>{m.serving ? <Badge color="green" variant="light">On</Badge> : <Badge color="gray" variant="light">Off</Badge>}</Table.Td>
+      <Table.Td><WhereItRuns m={m} /></Table.Td>
+      <Table.Td><StatusBadge m={m} /></Table.Td>
+      <Table.Td>{m.serving ? <Badge color="green" variant="light" tt="none">Yes</Badge> : <Text size="sm" c="dimmed">No key yet</Text>}</Table.Td>
       <Table.Td>
         {canEdit ? (
-          <Tooltip label={`Offer as the predict_${m.name} tool on Hermod's MCP server`}>
+          <Tooltip label={`Offer it to AI assistants as the predict_${m.name} tool on Hermod's MCP server`}>
             <Switch aria-label={`Expose ${m.name} to MCP`} checked={!!m.mcp_exposed}
               disabled={expose.isPending && expose.variables?.name === m.name}
               onChange={(e) => expose.mutate({ name: m.name, exposed: e.currentTarget.checked })} />
           </Tooltip>
-        ) : m.mcp_exposed ? <Badge color="grape" variant="light">Exposed</Badge> : <Text size="sm" c="dimmed">No</Text>}
+        ) : m.mcp_exposed ? <Badge color="grape" variant="light" tt="none">Offered</Badge> : <Text size="sm" c="dimmed">No</Text>}
       </Table.Td>
-      <Table.Td>
-        <Group justify="flex-end" gap="xs" wrap="nowrap">
-          <Tooltip label="Test with one row">
-            <ActionIcon variant="light" radius="md" aria-label={`Test ${m.name}`} onClick={() => setDialog({ kind: 'test', model: m })}>
-              <IconPlayerPlay size="1.1rem" />
-            </ActionIcon>
-          </Tooltip>
-          <Tooltip label="Serving key">
-            <ActionIcon variant="light" color="teal" radius="md" aria-label={`Serving key for ${m.name}`} onClick={() => setDialog({ kind: 'key', model: m })}>
-              <IconKey size="1.1rem" />
-            </ActionIcon>
-          </Tooltip>
-          <Tooltip label="Monitoring">
-            <ActionIcon variant="light" color="orange" radius="md" aria-label={`Monitoring of ${m.name}`} onClick={() => setDialog({ kind: 'monitoring', model: m })}>
-              <IconActivityHeartbeat size="1.1rem" />
-            </ActionIcon>
-          </Tooltip>
-          {isTrainedModel(m) ? (
-            <>
-              <Tooltip label="Versions">
-                <ActionIcon variant="light" color="grape" radius="md" aria-label={`Versions of ${m.name}`} onClick={() => setDialog({ kind: 'versions', model: m })}>
-                  <IconHistory size="1.1rem" />
-                </ActionIcon>
-              </Tooltip>
-              <Tooltip label={m.scoring === 'in_process' ? 'Scoring: in-process' : 'Scoring: ML worker'}>
-                <ActionIcon variant={m.scoring === 'in_process' ? 'filled' : 'light'} color="cyan" radius="md" aria-label={`Scoring of ${m.name}`}
-                  onClick={() => setDialog({ kind: 'scoring', model: m })}>
-                  <IconCpu size="1.1rem" />
-                </ActionIcon>
-              </Tooltip>
-              <Tooltip label={canTrain ? 'Train again' : `Train again: ${blockedReason}`}>
-                <ActionIcon variant="light" color="blue" radius="md" aria-label={`Train ${m.name} again`} disabled={!canTrain}
-                  aria-describedby={blockedBy} onClick={() => setDialog({ kind: 'train', modelName: m.name, task: m.task })}>
-                  <IconSchool size="1.1rem" />
-                </ActionIcon>
-              </Tooltip>
-              <Tooltip label={canTrain ? 'Retrain automatically' : `Retrain automatically: ${blockedReason}`}>
-                <ActionIcon variant={m.retrain ? 'filled' : 'light'} color="indigo" radius="md" aria-label={`Retrain ${m.name} automatically`}
-                  disabled={!canTrain} aria-describedby={blockedBy} onClick={() => setDialog({ kind: 'retrain', model: m })}>
-                  <IconRepeat size="1.1rem" />
-                </ActionIcon>
-              </Tooltip>
-            </>
-          ) : (
-            <Tooltip label="Edit">
-              <ActionIcon variant="light" color="blue" radius="md" aria-label={`Edit ${m.name}`} onClick={() => setDialog({ kind: 'form', model: m })}>
-                <IconPencil size="1.1rem" />
-              </ActionIcon>
-            </Tooltip>
-          )}
-          <Tooltip label="Delete">
-            <ActionIcon variant="light" color="red" radius="md" aria-label={`Delete ${m.name}`} onClick={() => askDelete(m.name)}>
-              <IconTrash size="1.1rem" />
-            </ActionIcon>
-          </Tooltip>
-        </Group>
+      <Table.Td style={{ textAlign: 'right' }}>
+        <ModelActionsMenu model={m} trainBlocked={blockedReason} onAction={(a) => act(m, a)} />
       </Table.Td>
     </Table.Tr>
   ))
@@ -217,19 +205,19 @@ export function ModelsPage() {
         </Alert>
       ) : rows.length === 0 ? (
         <EmptyState compact icon={<IconBrain size="1.3rem" />} title={`No models in ${vhost} yet`}
-          description="Train one with the steps in Getting started above, or add the address of a model already running on a model server."
-          action={{ label: 'Add model', onClick: () => setDialog({ kind: 'form' }) }} />
+          description="A model learns from past examples, such as old orders, to predict something new, such as whether a customer will order again. Press Add model to train one or to connect one you already have."
+          action={{ label: 'Add model', onClick: () => setDialog({ kind: 'add' }) }} />
       ) : (
-        <Table.ScrollContainer minWidth={880}>
-          <Table verticalSpacing="sm" horizontalSpacing="lg">
+        <Table.ScrollContainer minWidth={760}>
+          <Table verticalSpacing="sm" horizontalSpacing="lg" aria-label="Models">
             <Table.Thead>
               <Table.Tr>
-                <Table.Th>Name</Table.Th>
-                <Table.Th>Protocol</Table.Th>
-                <Table.Th>Served from</Table.Th>
-                <Table.Th>Serving</Table.Th>
-                <Table.Th>Expose to MCP</Table.Th>
-                <Table.Th style={{ textAlign: 'right' }}>Actions</Table.Th>
+                <Table.Th>Model</Table.Th>
+                <Table.Th>Where it runs</Table.Th>
+                <Table.Th>Status</Table.Th>
+                <Table.Th>Apps can call it</Table.Th>
+                <Table.Th>AI assistants (MCP)</Table.Th>
+                <Table.Th><VisuallyHidden>Actions</VisuallyHidden></Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>{rows}</Table.Tbody>
@@ -252,27 +240,14 @@ export function ModelsPage() {
                   {vhost && <Badge variant="light" size="lg" radius="sm" tt="none" aria-label="VHost shown">{vhost}</Badge>}
                 </Group>
                 <Text size="sm" c="dimmed">
-                  Machine-learning models this vhost can call: trained here on a dataset, or running on a model server
-                  (KServe, Triton, MLServer or MLflow). Workflows call them from the Predict node, and applications
-                  over REST and gRPC.
+                  Models predict things from your data, such as which customers may leave. Workflows use them in a
+                  Predict node, and applications call them with a key.
                 </Text>
               </Box>
               {vhost && (
-                <Group gap="xs">
-                  <Button leftSection={<IconSchool size="1.2rem" />} disabled={!canTrain} aria-describedby={blockedBy}
-                    onClick={() => setDialog({ kind: 'train' })}>Train a model</Button>
-                  <Button variant="light" leftSection={<IconPlus size="1.2rem" />} onClick={() => setDialog({ kind: 'form' })}>Add model</Button>
-                </Group>
+                <Button leftSection={<IconPlus size="1.2rem" />} onClick={() => setDialog({ kind: 'add' })}>Add model</Button>
               )}
             </Group>
-            {vhost && blockedReason && (
-              <Group gap="xs" justify="flex-end">
-                <Text size="sm" c="dimmed" id={TRAIN_BLOCKED_ID}>{blockedReason}</Text>
-                {workerState(worker) !== 'checking' && (
-                  <Button size="compact-sm" variant="subtle" onClick={openSetup}>How to set it up</Button>
-                )}
-              </Group>
-            )}
             {!isModelVHost(selectedVHost) && (
               <Select label="VHost" description="A model belongs to one vhost." placeholder="Select one"
                 data={vhostOptions} value={chosen} onChange={setChosen} allowDeselect={false} maw={360} />
@@ -298,34 +273,43 @@ export function ModelsPage() {
           </Alert>
         )}
 
-        {showScripts && vhost ? (
+        {vhost ? (
           <Tabs value={tab} onChange={setTab} keepMounted={false}>
-            <Tabs.List mb="md">
-              <Tabs.Tab value="models" leftSection={<IconBrain size="1rem" />}>Models</Tabs.Tab>
-              <Tabs.Tab value="scripts" leftSection={<IconCode size="1rem" />}>Scripts</Tabs.Tab>
+            <Tabs.List>
+              {tabs.map((t) => (
+                <Tabs.Tab key={t.value} value={t.value} leftSection={<t.icon size="1rem" />} aria-describedby={tabHelpId(t.value)}>
+                  {t.label}
+                </Tabs.Tab>
+              ))}
             </Tabs.List>
-            <Tabs.Panel value="models">
-              <Stack gap="lg">
-                {modelsTable}
-                <JobsPanel vhost={vhost} canEdit={canEdit} />
-                <DatasetsPanel vhost={vhost} blockedReason={blockedReason} onSetup={openSetup} />
-                <QuotasPanel vhost={vhost} canEdit={role === 'Administrator'} />
-              </Stack>
+            {tabs.map((t) => (
+              <Text key={t.value} id={tabHelpId(t.value)} size="sm" c="dimmed" mt="xs" mb="md" hidden={tab !== t.value}>
+                {t.help}
+              </Text>
+            ))}
+            <Tabs.Panel value="models">{modelsTable}</Tabs.Panel>
+            <Tabs.Panel value="data">
+              <DatasetsPanel vhost={vhost} blockedReason={blockedReason} onSetup={openSetup} />
             </Tabs.Panel>
-            <Tabs.Panel value="scripts">
-              <ScriptsPanel vhost={vhost} capabilities={worker?.capabilities} />
+            <Tabs.Panel value="jobs">
+              <JobsPanel vhost={vhost} canEdit={canEdit} />
+            </Tabs.Panel>
+            {showScripts && (
+              <Tabs.Panel value="scripts">
+                <ScriptsPanel vhost={vhost} capabilities={worker?.capabilities} />
+              </Tabs.Panel>
+            )}
+            <Tabs.Panel value="limits">
+              <QuotasPanel vhost={vhost} canEdit={role === 'Administrator'} />
             </Tabs.Panel>
           </Tabs>
-        ) : (
-          <>
-            {modelsTable}
-            {vhost && <JobsPanel vhost={vhost} canEdit={canEdit} />}
-            {vhost && <DatasetsPanel vhost={vhost} blockedReason={blockedReason} onSetup={openSetup} />}
-            {vhost && <QuotasPanel vhost={vhost} canEdit={role === 'Administrator'} />}
-          </>
-        )}
+        ) : modelsTable}
       </Stack>
 
+      {vhost && dialog?.kind === 'add' && (
+        <AddModelModal trainBlocked={blockedReason} onSetup={setupFromAdd} onTrain={() => setDialog({ kind: 'train' })}
+          onConnect={() => setDialog({ kind: 'form' })} onClose={() => setDialog(undefined)} />
+      )}
       {vhost && dialog?.kind === 'train' && <TrainModal vhost={vhost} modelName={dialog.modelName} task={dialog.task} onClose={() => setDialog(undefined)} />}
       {vhost && dialog?.kind === 'retrain' && <RetrainModal vhost={vhost} model={dialog.model} onClose={() => setDialog(undefined)} />}
       {vhost && dialog?.kind === 'scoring' && <ScoringModal vhost={vhost} model={dialog.model} onClose={() => setDialog(undefined)} />}
