@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/gsoultan/hermod/internal/ml"
 	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/pkg/ml/builtin"
 	"github.com/gsoultan/hermod/pkg/ml/worker"
 )
 
@@ -15,19 +17,24 @@ import (
 // the worker, never held here; the worker applies its own limit too.
 const maxDatasetFile = 200 << 20
 
-// WorkerStatus says whether training is available: a worker is configured,
-// and it answers. Any signed-in user may ask; the UI uses it to show or hide
-// training, and offers only the algorithms listed here when the worker says.
-// A worker that cannot say (one older than its capabilities route) leaves
-// the list out.
+// WorkerStatus says whether training is available: an engine is in force
+// (Hermod's built-in one, a hermod-ml worker, or both), and it answers. Any
+// signed-in user may ask; the UI uses it to show or hide training, and
+// offers only the algorithms listed here when the engines say. A worker that
+// cannot say (one older than its capabilities route) leaves the list out.
+// "engines" reports each engine: the built-in one, and the worker with
+// whether it answers, so a worker that is down is seen while the built-in
+// engine goes on training.
 func (h *Handler) WorkerStatus(w http.ResponseWriter, r *http.Request) {
 	svc := h.service()
 	wk, err := svc.Worker()
 	if err != nil {
-		writeJSON(w, map[string]any{"configured": false, "ready": false, "source": worker.SourceNone, "capabilities": svc.Capabilities()})
+		writeJSON(w, map[string]any{"configured": false, "ready": false, "source": worker.SourceNone, "capabilities": svc.Capabilities(),
+			"engines": map[string]any{"builtin": builtinStatus(nil), "worker": map[string]any{"configured": false, "ready": false}}})
 		return
 	}
-	status := map[string]any{"configured": true, "ready": true, "source": h.workerSource(wk), "capabilities": svc.Capabilities()}
+	status := map[string]any{"configured": true, "ready": true, "source": h.workerSource(wk), "capabilities": svc.Capabilities(),
+		"engines": map[string]any{"builtin": builtinStatus(wk), "worker": h.remoteStatus(r.Context(), wk.Remote())}}
 	if err := wk.Ready(r.Context()); err != nil {
 		status["ready"] = false
 		status["error"] = "the ML worker does not answer"
@@ -39,6 +46,33 @@ func (h *Handler) WorkerStatus(w http.ResponseWriter, r *http.Request) {
 		status["unavailable"] = caps.Unavailable
 	}
 	writeJSON(w, status)
+}
+
+// builtinStatus reports Hermod's built-in engine: available when it is in
+// force, with what it trains by itself.
+func builtinStatus(wk *worker.Client) map[string]any {
+	if wk == nil || wk.Local() == nil {
+		return map[string]any{"available": false}
+	}
+	caps := builtin.Capabilities()
+	return map[string]any{"available": true, "algorithms": caps.Algorithms}
+}
+
+// remoteStatus reports the hermod-ml worker: whether one is connected, where
+// it was configured, whether it answers, and what it trains.
+func (h *Handler) remoteStatus(ctx context.Context, remote *worker.Client) map[string]any {
+	if remote == nil {
+		return map[string]any{"configured": false, "ready": false}
+	}
+	st := map[string]any{"configured": true, "ready": true, "source": h.remoteSource(remote)}
+	if err := remote.Ready(ctx); err != nil {
+		st["ready"], st["error"] = false, "the ML worker does not answer"
+		return st
+	}
+	if caps, err := remote.Capabilities(ctx); err == nil {
+		st["algorithms"], st["unavailable"] = caps.Algorithms, caps.Unavailable
+	}
+	return st
 }
 
 func (h *Handler) ListDatasets(w http.ResponseWriter, r *http.Request) {

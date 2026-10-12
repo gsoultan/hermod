@@ -78,9 +78,9 @@ func (s *Service) Scoring(ctx context.Context, vhost, name string) (ScoringStatu
 		return ScoringStatus{}, err
 	}
 	st := ScoringStatus{Scoring: storage.MLScoringWorker, Version: m.RemoteVersion}
-	if m.IsRecommender() || (s.local() != nil && m.Backend == storage.MLBackendWorker) {
+	if m.IsRecommender() || s.inProcessVersion(m) {
 		// Always served in-process: a recommender from its artifact
-		// (recommend.go), a model of the in-process engine by that engine.
+		// (recommend.go), a version of the in-process engine by that engine.
 		st.Scoring, st.InProcess = storage.MLScoringInProcess, m.RemoteVersion != ""
 		return st, nil
 	}

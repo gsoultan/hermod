@@ -154,9 +154,9 @@ func (s *Service) Predict(ctx context.Context, vhost, name string, rows []infere
 	if err := allowPredictions(vhost, q.MaxPredictionsPerSecond, len(rows), s.now()); err != nil {
 		return nil, err
 	}
-	if l := s.local(); l != nil && m.Backend == storage.MLBackendWorker {
-		// The in-process engine scores its own models, always in-process.
-		return s.predictLocal(ctx, l, m, rows)
+	if s.inProcessVersion(m) {
+		// The in-process engine scores its own versions, always in-process.
+		return s.predictLocal(ctx, s.local(), m, rows)
 	}
 	if m.Backend == storage.MLBackendWorker && m.Scoring == storage.MLScoringInProcess && len(rows) > 0 {
 		start := time.Now()
@@ -247,9 +247,13 @@ func (s *Service) target(ctx context.Context, m storage.MLModel) (inference.Targ
 	if m.RemoteVersion == "" {
 		return inference.Target{}, fmt.Errorf("model %q: %w", m.Name, ErrNoLiveVersion)
 	}
+	remote := s.remote()
+	if remote == nil {
+		return inference.Target{}, needsWorker(m)
+	}
 	return inference.Target{
-		Backend: inference.BackendOIP, URL: s.worker.ServingURL(m.VHost),
-		Model: m.Name, Version: m.RemoteVersion, Token: s.worker.Token,
+		Backend: inference.BackendOIP, URL: remote.ServingURL(m.VHost),
+		Model: m.Name, Version: m.RemoteVersion, Token: remote.Token,
 		Features: m.Features, Timeout: time.Duration(m.TimeoutMs) * time.Millisecond,
 	}, nil
 }

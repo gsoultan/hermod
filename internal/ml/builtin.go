@@ -10,8 +10,8 @@ import (
 	"github.com/gsoultan/hermod/pkg/ml/worker"
 )
 
-// local is the in-process engine in force (Hermod's built-in one, when no
-// hermod-ml worker is configured), or nil.
+// local is the in-process engine in force (Hermod's built-in one, beside
+// any hermod-ml worker), or nil.
 func (s *Service) local() worker.Local {
 	if s.worker == nil {
 		return nil
@@ -19,12 +19,33 @@ func (s *Service) local() worker.Local {
 	return s.worker.Local()
 }
 
-// checkEngine refuses, before anything is reserved, a training the
-// in-process engine cannot run: an algorithm or a recommendation scenario
-// only the hermod-ml worker trains. It is ErrNoWorker, since connecting a
-// worker is the way to run it.
+// remote is the hermod-ml worker in force, or nil when none is connected.
+func (s *Service) remote() *worker.Client {
+	if s.worker == nil {
+		return nil
+	}
+	return s.worker.Remote()
+}
+
+// inProcessVersion reports whether the model's live version is one the
+// in-process engine trained, and so scores: the engine that trained a
+// version always serves it, whichever engines are connected now.
+func (s *Service) inProcessVersion(m storage.MLModel) bool {
+	return s.local() != nil && m.Backend == storage.MLBackendWorker && worker.IsBuiltinVersion(m.RemoteVersion)
+}
+
+// needsWorker is the refusal of a model whose live version the hermod-ml
+// worker trained, while no worker is connected: that model only.
+func needsWorker(m storage.MLModel) error {
+	return fmt.Errorf("model %q: version %s needs the hermod-ml worker, which trained it: %w", m.Name, m.RemoteVersion, ErrNoWorker)
+}
+
+// checkEngine refuses, before anything is reserved, a training no engine in
+// force can run: an algorithm or a recommendation scenario only the
+// hermod-ml worker trains, while only the in-process engine is connected.
+// It is ErrNoWorker, since connecting a worker is the way to run it.
 func (s *Service) checkEngine(ctx context.Context, spec worker.TrainSpec) error {
-	if s.local() == nil {
+	if s.local() == nil || s.remote() != nil {
 		return nil
 	}
 	if isScenario(spec) && (spec.Data != nil || spec.Scenario != "products") {

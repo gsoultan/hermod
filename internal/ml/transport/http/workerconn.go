@@ -156,13 +156,21 @@ func (h *Handler) failConnection(w http.ResponseWriter, err error) {
 	}
 }
 
-// workerSource says where the worker wk in force was configured: Hermod's
-// built-in engine, the environment when it names wk, else the console.
+// workerSource says where the worker among the engines wk in force was
+// configured: nowhere when only Hermod's built-in engine is (builtin), else
+// as remoteSource says.
 func (h *Handler) workerSource(wk *worker.Client) worker.Source {
-	if wk.Local() != nil {
+	remote := wk.Remote()
+	if remote == nil {
 		return worker.SourceBuiltin
 	}
-	if env := h.workerProvider().Env(); env != nil && env.URL == wk.URL {
+	return h.remoteSource(remote)
+}
+
+// remoteSource says where the worker remote was configured: the environment
+// when it names remote, else the console.
+func (h *Handler) remoteSource(remote *worker.Client) worker.Source {
+	if env := h.workerProvider().Env(); env != nil && env.URL == remote.URL {
 		return worker.SourceEnvironment
 	}
 	return worker.SourceSaved

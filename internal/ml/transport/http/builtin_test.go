@@ -4,11 +4,91 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/gsoultan/hermod/pkg/ml/builtin"
+	"github.com/gsoultan/hermod/pkg/ml/worker"
 )
+
+// engineStatus is the worker status's report of each engine.
+type engineStatus struct {
+	Builtin struct {
+		Available  bool     `json:"available"`
+		Algorithms []string `json:"algorithms"`
+	} `json:"builtin"`
+	Worker struct {
+		Configured  bool              `json:"configured"`
+		Ready       bool              `json:"ready"`
+		Source      string            `json:"source"`
+		Error       string            `json:"error"`
+		Algorithms  []string          `json:"algorithms"`
+		Unavailable map[string]string `json:"unavailable"`
+	} `json:"worker"`
+}
+
+func engines(t *testing.T, body []byte) engineStatus {
+	t.Helper()
+	var s struct {
+		Engines engineStatus `json:"engines"`
+	}
+	if err := json.Unmarshal(body, &s); err != nil {
+		t.Fatal(err)
+	}
+	return s.Engines
+}
+
+func TestWorkerStatusReportsBothEngines(t *testing.T) {
+	h, _ := newModelAPI()
+	e, err := builtin.New(builtin.Config{Dir: t.TempDir(), Workers: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v2/health/ready":
+			_, _ = w.Write([]byte(`{"ready":true}`))
+		case "/v1/capabilities":
+			_, _ = w.Write([]byte(`{"tasks":["auto"],"algorithms":["auto","xgboost"],"unavailable":{"keras_mlp":"TensorFlow is not installed"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	h.worker = e.Route(worker.New(srv.URL, "", srv.Client()))
+
+	w := do(h.WorkerStatus, viewerA, http.MethodGet, "/api/ml/worker", nil, nil)
+	var status struct {
+		Ready       bool              `json:"ready"`
+		Source      string            `json:"source"`
+		Algorithms  []string          `json:"algorithms"`
+		Unavailable map[string]string `json:"unavailable"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if !status.Ready || status.Source != "saved" || !slices.Contains(status.Algorithms, "mlp") || !slices.Contains(status.Algorithms, "xgboost") {
+		t.Errorf("status = %+v; want both engines' algorithms", status)
+	}
+	if _, ok := status.Unavailable["xgboost"]; ok || status.Unavailable["keras_mlp"] == "" {
+		t.Errorf("unavailable = %v", status.Unavailable)
+	}
+	got := engines(t, w.Body.Bytes())
+	if !got.Builtin.Available || !got.Worker.Configured || !got.Worker.Ready || got.Worker.Source != "saved" ||
+		!slices.Contains(got.Worker.Algorithms, "xgboost") || got.Worker.Unavailable["keras_mlp"] == "" {
+		t.Errorf("engines = %+v", got)
+	}
+
+	// A worker that stops answering leaves the built-in engine ready.
+	srv.Close()
+	w = do(h.WorkerStatus, viewerA, http.MethodGet, "/api/ml/worker", nil, nil)
+	got = engines(t, w.Body.Bytes())
+	if !strings.Contains(w.Body.String(), `"ready":true`) || got.Worker.Ready || got.Worker.Error == "" || !got.Builtin.Available {
+		t.Errorf("with the worker down: %s", w.Body)
+	}
+}
 
 // TestTheBuiltinEngineServesAModelEndToEnd runs the whole path with no
 // hermod-ml worker: upload a dataset, train, go live, make a serving key and
@@ -34,6 +114,9 @@ func TestTheBuiltinEngineServesAModelEndToEnd(t *testing.T) {
 	}
 	if !status.Configured || !status.Ready || status.Source != "builtin" || status.Unavailable["xgboost"] != builtin.NeedsWorker {
 		t.Errorf("worker status = %+v", status)
+	}
+	if e := engines(t, w.Body.Bytes()); !e.Builtin.Available || e.Worker.Configured || !slices.Contains(e.Builtin.Algorithms, "mlp") {
+		t.Errorf("engines = %+v", e)
 	}
 
 	var csv strings.Builder
@@ -68,7 +151,7 @@ func TestTheBuiltinEngineServesAModelEndToEnd(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &trained); err != nil {
 		t.Fatal(err)
 	}
-	if !trained.Live || trained.Version.Version != "1" || trained.Version.Metrics["r2"] < 0.999 {
+	if !trained.Live || trained.Version.Version != "b1" || trained.Version.Metrics["r2"] < 0.999 {
 		t.Fatalf("trained = %+v (%s)", trained, w.Body)
 	}
 
