@@ -232,9 +232,29 @@ export interface WorkerCapabilities {
 
 /**
  * Where the worker in force was configured (pkg/ml/worker Source): "builtin"
- * is Hermod's own engine, in force when no hermod-ml worker is configured.
+ * is Hermod's own engine alone, when no hermod-ml worker is configured.
  */
 export type WorkerSource = 'environment' | 'saved' | 'builtin' | 'none'
+
+/** The engine that trained, and serves, a version or holds a dataset. */
+export type MLEngine = 'builtin' | 'worker'
+
+/**
+ * Each engine in force (internal/ml/transport/http WorkerStatus): Hermod's
+ * built-in one, and the hermod-ml worker with whether it answers. Both run
+ * at once; each version is served by the engine that trained it.
+ */
+export interface WorkerEngines {
+  builtin: { available: boolean; algorithms?: TrainAlgorithm[] }
+  worker: {
+    configured: boolean
+    ready: boolean
+    source?: WorkerSource
+    error?: string
+    algorithms?: TrainAlgorithm[]
+    unavailable?: Partial<Record<TrainAlgorithm, string>>
+  }
+}
 
 export interface WorkerStatus {
   configured: boolean
@@ -250,6 +270,8 @@ export interface WorkerStatus {
   algorithms?: TrainAlgorithm[]
   /** Why each algorithm missing from `algorithms` cannot train there. */
   unavailable?: Partial<Record<TrainAlgorithm, string>>
+  /** Each engine; absent from a server older than running both at once. */
+  engines?: WorkerEngines
 }
 
 export interface DatasetColumn {
@@ -263,6 +285,8 @@ export interface DatasetInfo {
   columns: DatasetColumn[]
   updated_at: string
   sample?: Record<string, unknown>[]
+  /** The engine that holds it; absent from an older server. */
+  engine?: MLEngine
 }
 
 export type TrainTask = 'auto' | 'classification' | 'regression' | 'recommendation'
@@ -398,6 +422,8 @@ export interface FeatureImportance {
 export interface ModelVersion {
   model: string
   version: string
+  /** The engine that trained it and serves it; absent from an older server. */
+  engine?: MLEngine
   task: string
   algorithm: string
   dataset: string
@@ -562,8 +588,16 @@ export function canTrainAlgorithm(status: WorkerStatus | undefined, algorithm: T
   return available.includes(algorithm)
 }
 
-/** Whether the engine in force is Hermod's built-in one. */
+/** Whether Hermod's built-in engine is the only engine in force. */
 export const isBuiltinEngine = (status: WorkerStatus | undefined) => status?.source === 'builtin'
+
+/** Whether Hermod's built-in engine is in force, alone or beside a worker. */
+export const hasBuiltinEngine = (status: WorkerStatus | undefined) =>
+  status?.engines?.builtin.available ?? isBuiltinEngine(status)
+
+/** The hermod-ml worker beside the built-in engine, or undefined when that is not in force. */
+export const workerBesideBuiltin = (status: WorkerStatus | undefined) =>
+  hasBuiltinEngine(status) ? status?.engines?.worker : undefined
 
 /** Why an algorithm cannot be picked on the built-in engine (pkg/ml/builtin NeedsWorker). */
 export const BUILTIN_OFF_REASON = 'Needs the hermod-ml worker.'
@@ -584,7 +618,9 @@ export function hasDeepLearning(status: WorkerStatus | undefined): boolean {
 export function algorithmOptions(status: WorkerStatus | undefined, scripts: MLScript[] = []): AlgorithmOption[] {
   const builtIn = ALGORITHM_OPTIONS.flatMap((o): AlgorithmOption[] => {
     if (canTrainAlgorithm(status, o.value)) return [o]
-    if (isBuiltinEngine(status) && status?.unavailable?.[o.value]) return [{ ...o, disabled: true, description: BUILTIN_OFF_REASON }]
+    if (hasBuiltinEngine(status) && status?.unavailable?.[o.value] && !(isDeepAlgorithm(o.value) && status?.engines?.worker.ready)) {
+      return [{ ...o, disabled: true, description: BUILTIN_OFF_REASON }]
+    }
     return isDeepAlgorithm(o.value) ? [{ ...o, disabled: true, description: DEEP_IMAGE_REASON }] : []
   })
   const custom = status?.capabilities?.custom_scripts

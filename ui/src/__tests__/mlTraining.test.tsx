@@ -315,6 +315,23 @@ describe('Training on the Models page', () => {
     await user.click(await within(dialog).findByRole('button', { name: 'Put version 2 live' }))
     await waitFor(() => expect(writes.find((w) => w.method === 'PROMOTE')?.path).toBe('tenant-a/churn/2'))
   })
+
+  it('says which engine trained each version, and serves it', async () => {
+    trainingApi()
+    server.use(http.get('/api/vhosts/:vhost/ml/models/:name/versions', () => HttpResponse.json({
+      data: [{ ...version('b1', 0.8), engine: 'builtin' }, { ...version('1', 0.9), engine: 'worker' }], total: 2,
+    })))
+    renderPage()
+    const user = userEvent.setup()
+    await user.click(await modelAction(user, 'churn', 'Versions and going live'))
+    const dialog = await screen.findByRole('dialog')
+    const rows = await within(dialog).findAllByRole('row')
+    const b1 = rows.find((r) => within(r).queryByText('b1'))!
+    expect(within(b1).getByText('Built-in')).toBeInTheDocument()
+    const v1 = rows.find((r) => within(r).queryByText('1'))!
+    expect(within(v1).getByText('Worker')).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Put version b1 live' })).toBeEnabled()
+  })
 })
 
 function NodeHarness({ onConfig }: { onConfig: (c: any) => void }) {

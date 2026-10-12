@@ -100,15 +100,67 @@ needs nothing else for them. For TensorFlow, PyTorch, XGBoost and the rest it
 uses **hermod-ml**, a Python worker beside Hermod (scikit-learn, XGBoost, and
 in the `-dl` image PyTorch and Keras; every model is exported to ONNX and
 served with ONNX Runtime; it never loads a pickle). Run it, then connect
-Hermod to it.
+Hermod to it. The two run together: connecting the worker adds what it
+trains, and takes nothing away.
 
 ### The built-in engine
 
-With no worker configured, the built-in engine (pure Go, in the Hermod
-process) is in force: the worker status reports `"source": "builtin"`, and
-Datasets, training, the Train Model node and the Collect Dataset sink all
-work. It speaks the worker's API in-process, so the console, the REST API and
-workflows do not change.
+The built-in engine (pure Go, in the Hermod process) is always in force,
+with or without a worker: Datasets, training, the Train Model node and the
+Collect Dataset sink all work on it alone, and the worker status reports
+`"source": "builtin"` while no worker is configured. It speaks the worker's
+API in-process, so the console, the REST API and workflows do not change.
+
+### Both engines at once
+
+When a worker is connected, both engines serve, and which one does what
+never depends on what is connected now:
+
+- **Each version is served by the engine that trained it.** The built-in
+  engine numbers its versions `b1`, `b2`, …; the worker numbers its own `1`,
+  `2`, …. A version (and the versions list, with `"engine": "builtin"` or
+  `"worker"`) says which, so the two never clash, and predictions,
+  recommendations and in-process scoring of a model follow its live
+  version to its engine.
+- **Training goes where the algorithm is.** A built-in algorithm (`linear`,
+  `random_forest`, `gradient_boosting`, `mlp`, `als`, `item_similarity`)
+  trains in-process even with a worker connected. `auto` trains on the
+  worker when one is connected (it compares more methods there) and
+  in-process otherwise. Algorithms only the worker has, custom scripts and
+  recommendation scenarios go to the worker.
+- **Datasets stay in Hermod.** Rows, uploads and the Collect Dataset sink
+  write to the built-in engine's store. A training on the worker is sent the
+  dataset's rows first, once per change of the dataset. A dataset that only
+  the worker has (one made there before) stays there: it is listed beside
+  Hermod's with `"engine": "worker"`, rows sent to it go on to it, and it
+  trains on the worker.
+- **Disconnecting the worker** (or the worker going down) leaves every
+  built-in model training and serving. Only a model whose live version the
+  worker trained is refused, with `503` and *version N of model "…" needs the
+  hermod-ml worker*; it serves again once the worker is back.
+
+The worker status (`GET /api/ml/worker`) lists what either engine trains in
+`algorithms`, and reports each engine under `engines`: `builtin`
+(`available`, `algorithms`) and `worker` (`configured`, `ready`, `source`,
+`error`, `algorithms`, `unavailable`). Getting started's first step is
+**Optional: connect the hermod-ml worker for TensorFlow/PyTorch**, done once
+a worker answers, and says so when one is set up but does not answer.
+
+### Where the built-in engine keeps its data
+
+Its datasets and model versions are kept in **Hermod's metadata database**
+(SQLite, PostgreSQL or MongoDB, in the `ml_blobs` table or collection), not
+on a server's disk. Any Hermod replica sharing that database trains on a
+dataset another replica filled and serves a model another one trained, and
+everything survives a restart onto a fresh disk or pod. Version numbers are
+claimed in the database, so two replicas training one model at once get
+`b1` and `b2`, never the same number; a deleted model's numbers are not
+given again. Deleting a vhost deletes its blobs.
+
+One blob is at most 256 MB (stored in 4 MB chunks): a dataset is kept as one
+blob per append or upload, so the limit applies to one file or one batch of
+rows (uploads are already capped at 200 MB), and a model's artifact is
+compressed. Something larger is refused with `413` and says so.
 
 | | Built-in engine | hermod-ml worker |
 |---|---|---|
@@ -137,7 +189,7 @@ It is configured with environment variables; none is needed.
 | Variable | Default | Meaning |
 |---|---|---|
 | `HERMOD_ML_BUILTIN` | on | `false` turns the engine off; training then needs a worker. |
-| `HERMOD_ML_BUILTIN_DIR` | `<config dir>/ml` | Where its datasets and model versions are kept. |
+| `HERMOD_ML_BUILTIN_DIR` | none | Used only when the metadata store cannot keep the engine's data (every supported one can); with more than one replica it must then be shared. |
 | `HERMOD_ML_BUILTIN_MAX_TRAININGS` | `1` | Trainings at once; another one is refused with `429` until one ends. |
 | `HERMOD_ML_BUILTIN_MAX_ROWS` | `1000000` | Rows a training reads; a larger dataset is sampled (with the seed) and the version says so. |
 | `HERMOD_ML_BUILTIN_THREADS` | the CPUs Go may use | Goroutines a training uses. |
@@ -154,13 +206,8 @@ size-limited JSON file, not ONNX, and is scored in-process.
 
 **Where it differs.** These are deliberate:
 
-- The engine in force is the worker when one is configured, else the
-  built-in one. Datasets and versions live with the engine that has them, so
-  connecting a worker does not move them, and a model trained by the built-in
-  engine cannot be scored while a worker is connected (disconnect it, or
-  retrain on the worker).
-- Several Hermod processes share the built-in engine's models only when they
-  share `HERMOD_ML_BUILTIN_DIR` (for example a shared volume).
+- A version keeps the engine that trained it: to move a model to the other
+  engine, train it again there (pick an algorithm that engine has).
 - `best` tries more methods for longer, but does not search hyperparameters.
 - Importance is measured on at most 10,000 test rows.
 - A recommender's time column is read as numbers or ISO 8601 dates

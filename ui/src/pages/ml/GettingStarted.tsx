@@ -1,7 +1,7 @@
 import { useId, useState, type ReactNode } from 'react'
 import { Badge, Box, Button, Group, Paper, Stack, Text, ThemeIcon, Title } from '@mantine/core'
 import { IconCheck, IconDatabase, IconPlayerPlay, IconPlugConnected, IconRocket, IconSchool, IconTool } from '@tabler/icons-react'
-import { hasDeepLearning, isBuiltinEngine, isTrainedModel, workerState, type MLModel, type WorkerStatus } from '@/lib/mlModels'
+import { hasBuiltinEngine, hasDeepLearning, isTrainedModel, workerBesideBuiltin, workerState, type MLModel, type WorkerEngines, type WorkerStatus } from '@/lib/mlModels'
 
 const storageKey = (username: string) => `hermod.ml.guide.hidden.${username}`
 
@@ -67,11 +67,49 @@ function Step({ n, title, done, optional, children, action, blocked }: {
 }
 
 /**
+ * Step 1 with the built-in engine in force: the hermod-ml worker is optional.
+ * Once connected both engines train, and a model is always served by the one
+ * that trained it; a worker that stops answering takes only its own models
+ * with it.
+ */
+function BuiltinWorkerStep({ worker, done, onSetup }: {
+  worker: WorkerEngines['worker'] | undefined
+  done: boolean
+  onSetup: () => void
+}) {
+  const down = !!worker?.configured && !worker.ready
+  const action = down
+    ? { label: 'Fix the connection', icon: <IconTool size="1rem" />, onClick: onSetup }
+    : worker?.ready ? undefined : { label: 'Set up the worker', icon: <IconPlugConnected size="1rem" />, onClick: onSetup }
+  return (
+    <Step n={1} title="Optional: connect the hermod-ml worker for TensorFlow/PyTorch" done={done} optional action={action}>
+      {worker?.ready ? (
+        <Text size="sm" c="dimmed">
+          Connected. Hermod trains with both engines: its built-in one for linear models, random forests, gradient
+          boosting, its neural network and recommendations, and the worker for the rest. Each model is served by the
+          engine that trained it.
+        </Text>
+      ) : down ? (
+        <Text size="sm" c="dimmed">
+          The worker is set up, but it does not answer. The built-in engine keeps training and serving its own models;
+          the models the worker trained wait until it answers.
+        </Text>
+      ) : (
+        <Text size="sm" c="dimmed">
+          Hermod trains with its built-in engine: linear models, random forests, gradient boosting, a neural network
+          and recommendations. Connect the hermod-ml worker for TensorFlow, PyTorch, XGBoost and custom scripts.
+        </Text>
+      )}
+    </Step>
+  )
+}
+
+/**
  * Getting started with machine learning, at the top of the page: the four
  * steps from nothing to a model in use, each with where it stands now and the
  * one button that moves it on. With Hermod's built-in engine in force the
  * first step, connecting the hermod-ml worker, is optional: it adds
- * TensorFlow, PyTorch and the rest. Once every step that is not optional is
+ * TensorFlow, PyTorch and the rest, and both engines then train at once. Once every step that is not optional is
  * done the person can hide it; that is remembered for them in this browser.
  */
 export function GettingStarted({ worker, datasets, models, username, onSetup, onDatasets, onTrain, onTry, onMakeLive }: {
@@ -91,12 +129,13 @@ export function GettingStarted({ worker, datasets, models, username, onSetup, on
   const state = workerState(worker)
   const ready = state === 'ready'
   const deep = hasDeepLearning(worker)
-  const builtin = isBuiltinEngine(worker)
+  const builtin = hasBuiltinEngine(worker)
+  const beside = workerBesideBuiltin(worker)
   const trained = (models ?? []).filter(isTrainedModel)
   const live = trained.find((m) => !!m.remote_version)
   const hasData = (datasets ?? 0) > 0
-  // On the built-in engine, step 1 (a worker) is optional and not done.
-  const done = [ready && !builtin, hasData, trained.length > 0, !!live]
+  // On the built-in engine, step 1 (a worker) is optional, and done once a worker answers beside it.
+  const done = [builtin ? !!beside?.ready : ready, hasData, trained.length > 0, !!live]
   const allDone = done.every((d, i) => d || (i === 0 && builtin))
   const connectFirst = 'Connect the worker first (step 1).'
 
@@ -134,13 +173,7 @@ export function GettingStarted({ worker, datasets, models, username, onSetup, on
 
         <Stack component="ol" gap="md" p={0} m={0}>
           {builtin ? (
-            <Step n={1} title="Optional: connect the hermod-ml worker for TensorFlow/PyTorch" done={false} optional
-              action={{ label: 'Set up the worker', icon: <IconPlugConnected size="1rem" />, onClick: onSetup }}>
-              <Text size="sm" c="dimmed">
-                Hermod trains with its built-in engine: linear models, random forests, gradient boosting, a neural network
-                and recommendations. Connect the hermod-ml worker for TensorFlow, PyTorch, XGBoost and custom scripts.
-              </Text>
-            </Step>
+            <BuiltinWorkerStep worker={beside} done={done[0]} onSetup={onSetup} />
           ) : (
             <Step n={1} title="Connect the training worker" done={ready}
               action={state === 'off' ? { label: 'Set up the worker', icon: <IconPlugConnected size="1rem" />, onClick: onSetup }
