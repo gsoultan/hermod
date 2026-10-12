@@ -22,7 +22,14 @@ import (
 // item_similarity parity fixture of pkg/ml/recommend.
 func asRecommender(t *testing.T) func(*ml.Service, *storage.MLModel) {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "pkg", "ml", "recommend", "testdata", "item_similarity", "model.rec"))
+	return servingFixture(t, filepath.Join("item_similarity", "model.rec"))
+}
+
+// servingFixture makes "a/double" version 1 of a worker model serving the
+// fixture at path under pkg/ml/recommend/testdata.
+func servingFixture(t *testing.T, path string) func(*ml.Service, *storage.MLModel) {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "pkg", "ml", "recommend", "testdata", path))
 	if err != nil {
 		t.Fatal(err)
 	}

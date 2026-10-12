@@ -155,6 +155,13 @@ func (s *Service) train(ctx context.Context, vhost, name string, spec worker.Tra
 	if err := checkRecommendSpec(spec); err != nil {
 		return TrainResult{}, err
 	}
+	if isScenario(spec) {
+		// Fills Dataset with the transactions dataset, which the rows
+		// count below and the model's listing read.
+		if spec, err = scenarioSpec(spec); err != nil {
+			return TrainResult{}, err
+		}
+	}
 	if !storage.ValidMLModelName(name) {
 		return TrainResult{}, fmt.Errorf("model name %q must start with a letter and hold only letters, digits, '_' or '-'", name)
 	}

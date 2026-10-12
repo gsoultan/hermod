@@ -77,7 +77,7 @@ type predictJob struct {
 }
 
 // JobSubmission is one job to queue: the model of a vhost, the kind, and the
-// request of that kind (Rows for a prediction, Recommend for
+// request of that kind (Rows for a prediction, Recommend or Scenario for
 // recommendations, Train for a training). CallbackURL, when set, is told
 // when the job ends. CallerKind and CreatedBy say who asked.
 type JobSubmission struct {
@@ -85,6 +85,7 @@ type JobSubmission struct {
 
 	Rows      []inference.Row
 	Recommend *RecommendRequest
+	Scenario  *ScenarioRequest
 	Train     *TrainJob
 
 	CallbackURL string
@@ -273,10 +274,22 @@ func (s *Service) encodePredict(ctx context.Context, sub JobSubmission) (json.Ra
 	return json.Marshal(predictJob{Instances: sub.Rows})
 }
 
+// recommendJob is what a recommendation job runs: a call for a "user" or an
+// "item", or, with Scenario, a scenario call (POST .../recommend).
+type recommendJob struct {
+	RecommendRequest
+	Scenario *ScenarioRequest `json:"scenario,omitempty"`
+}
+
 // encodeRecommend checks a recommendation job: a request a recommendation
 // model of the vhost can answer.
 func (s *Service) encodeRecommend(ctx context.Context, sub JobSubmission) (json.RawMessage, error) {
-	if sub.Recommend == nil {
+	switch {
+	case sub.Recommend != nil && sub.Scenario != nil:
+		return nil, badJob("a recommendation job is a call for a user or an item, or a scenario call, not both")
+	case sub.Scenario != nil:
+		return s.encodeScenario(ctx, sub)
+	case sub.Recommend == nil:
 		return nil, badJob("a recommendation job needs a user or an item")
 	}
 	if _, _, _, _, err := sub.Recommend.check(); err != nil {
@@ -290,6 +303,25 @@ func (s *Service) encodeRecommend(ctx context.Context, sub JobSubmission) (json.
 		return nil, fmt.Errorf("model %q: %w", sub.Model, ErrNotRecommender)
 	}
 	return json.Marshal(sub.Recommend)
+}
+
+// encodeScenario checks a scenario job as far as it can without the model's
+// scenario, which only its artifact holds: the ids, k and the period's dates,
+// for a recommendation model of the vhost. The rest is checked when it runs.
+func (s *Service) encodeScenario(ctx context.Context, sub JobSubmission) (json.RawMessage, error) {
+	req := *sub.Scenario
+	req.Respond, req.CallbackURL = "", ""
+	if err := req.check(); err != nil {
+		return nil, err
+	}
+	m, err := s.Model(ctx, sub.VHost, sub.Model)
+	if err != nil {
+		return nil, err
+	}
+	if !m.IsRecommender() {
+		return nil, fmt.Errorf("model %q: %w", sub.Model, ErrNotRecommender)
+	}
+	return json.Marshal(recommendJob{Scenario: &req})
 }
 
 // checkTraining refuses a training the worker would never be asked for: the

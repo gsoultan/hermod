@@ -19,12 +19,13 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	InferenceService_Predict_FullMethodName   = "/hermod.ml.v1.InferenceService/Predict"
-	InferenceService_Recommend_FullMethodName = "/hermod.ml.v1.InferenceService/Recommend"
-	InferenceService_SubmitJob_FullMethodName = "/hermod.ml.v1.InferenceService/SubmitJob"
-	InferenceService_GetJob_FullMethodName    = "/hermod.ml.v1.InferenceService/GetJob"
-	InferenceService_CancelJob_FullMethodName = "/hermod.ml.v1.InferenceService/CancelJob"
-	InferenceService_WatchJob_FullMethodName  = "/hermod.ml.v1.InferenceService/WatchJob"
+	InferenceService_Predict_FullMethodName           = "/hermod.ml.v1.InferenceService/Predict"
+	InferenceService_Recommend_FullMethodName         = "/hermod.ml.v1.InferenceService/Recommend"
+	InferenceService_RecommendScenario_FullMethodName = "/hermod.ml.v1.InferenceService/RecommendScenario"
+	InferenceService_SubmitJob_FullMethodName         = "/hermod.ml.v1.InferenceService/SubmitJob"
+	InferenceService_GetJob_FullMethodName            = "/hermod.ml.v1.InferenceService/GetJob"
+	InferenceService_CancelJob_FullMethodName         = "/hermod.ml.v1.InferenceService/CancelJob"
+	InferenceService_WatchJob_FullMethodName          = "/hermod.ml.v1.InferenceService/WatchJob"
 )
 
 // InferenceServiceClient is the client API for InferenceService service.
@@ -56,6 +57,17 @@ type InferenceServiceClient interface {
 	// rows; RESOURCE_EXHAUSTED over the vhost's quota; UNAVAILABLE when the
 	// model could not be loaded.
 	Recommend(ctx context.Context, in *RecommendRequest, opts ...grpc.CallOption) (*RecommendResponse, error)
+	// RecommendScenario asks a scenario recommendation model (visits,
+	// products, reorder, audience or similar) for its answer: the gRPC twin of
+	// POST /api/ml/serve/{vhost}/{name}/recommend, with the same fields. Each
+	// answer carries a recommendation_id to send feedback with.
+	//
+	// Errors: UNAUTHENTICATED as for Predict; INVALID_ARGUMENT for a subject
+	// the scenario does not take, a bad period, k or rule, a rule that loosens
+	// the model's own rules, more than 1000 customers, or a model without a
+	// scenario; RESOURCE_EXHAUSTED over the vhost's quota; UNAVAILABLE when the
+	// model could not be loaded.
+	RecommendScenario(ctx context.Context, in *RecommendScenarioRequest, opts ...grpc.CallOption) (*RecommendScenarioResponse, error)
 	// SubmitJob queues a Predict or Recommend call as a job and returns at
 	// once. It is the gRPC twin of a serve call with "respond": "async". A
 	// prediction job takes up to 50000 rows, sent to the model in calls the
@@ -105,6 +117,16 @@ func (c *inferenceServiceClient) Recommend(ctx context.Context, in *RecommendReq
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RecommendResponse)
 	err := c.cc.Invoke(ctx, InferenceService_Recommend_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *inferenceServiceClient) RecommendScenario(ctx context.Context, in *RecommendScenarioRequest, opts ...grpc.CallOption) (*RecommendScenarioResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RecommendScenarioResponse)
+	err := c.cc.Invoke(ctx, InferenceService_RecommendScenario_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -189,6 +211,17 @@ type InferenceServiceServer interface {
 	// rows; RESOURCE_EXHAUSTED over the vhost's quota; UNAVAILABLE when the
 	// model could not be loaded.
 	Recommend(context.Context, *RecommendRequest) (*RecommendResponse, error)
+	// RecommendScenario asks a scenario recommendation model (visits,
+	// products, reorder, audience or similar) for its answer: the gRPC twin of
+	// POST /api/ml/serve/{vhost}/{name}/recommend, with the same fields. Each
+	// answer carries a recommendation_id to send feedback with.
+	//
+	// Errors: UNAUTHENTICATED as for Predict; INVALID_ARGUMENT for a subject
+	// the scenario does not take, a bad period, k or rule, a rule that loosens
+	// the model's own rules, more than 1000 customers, or a model without a
+	// scenario; RESOURCE_EXHAUSTED over the vhost's quota; UNAVAILABLE when the
+	// model could not be loaded.
+	RecommendScenario(context.Context, *RecommendScenarioRequest) (*RecommendScenarioResponse, error)
 	// SubmitJob queues a Predict or Recommend call as a job and returns at
 	// once. It is the gRPC twin of a serve call with "respond": "async". A
 	// prediction job takes up to 50000 rows, sent to the model in calls the
@@ -229,6 +262,9 @@ func (UnimplementedInferenceServiceServer) Predict(context.Context, *PredictRequ
 }
 func (UnimplementedInferenceServiceServer) Recommend(context.Context, *RecommendRequest) (*RecommendResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Recommend not implemented")
+}
+func (UnimplementedInferenceServiceServer) RecommendScenario(context.Context, *RecommendScenarioRequest) (*RecommendScenarioResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RecommendScenario not implemented")
 }
 func (UnimplementedInferenceServiceServer) SubmitJob(context.Context, *SubmitJobRequest) (*SubmitJobResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SubmitJob not implemented")
@@ -295,6 +331,24 @@ func _InferenceService_Recommend_Handler(srv interface{}, ctx context.Context, d
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(InferenceServiceServer).Recommend(ctx, req.(*RecommendRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InferenceService_RecommendScenario_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RecommendScenarioRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InferenceServiceServer).RecommendScenario(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InferenceService_RecommendScenario_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InferenceServiceServer).RecommendScenario(ctx, req.(*RecommendScenarioRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -378,6 +432,10 @@ var InferenceService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Recommend",
 			Handler:    _InferenceService_Recommend_Handler,
+		},
+		{
+			MethodName: "RecommendScenario",
+			Handler:    _InferenceService_RecommendScenario_Handler,
 		},
 		{
 			MethodName: "SubmitJob",

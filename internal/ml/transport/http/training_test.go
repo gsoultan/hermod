@@ -58,6 +58,11 @@ func (s *workerStub) start(t *testing.T) *worker.Client {
 			_, _ = io.WriteString(w, `{"name":"customers","rows":2,"columns":[],"updated_at":"2026-10-10T00:00:00Z"}`)
 		case r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodPost && p == "/v1/recommend-check/tenant-a":
+			b, _ := io.ReadAll(r.Body)
+			s.checked = string(b)
+			_, _ = io.WriteString(w, `{"ok":true,"checks":[{"code":"few_customers","status":"amber","message":"300 customers","fix":"more"}],`+
+				`"stats":{"customers":300,"products":200,"transactions":46021,"months_of_history":18,"tx_per_customer":153}}`)
 		case r.Method == http.MethodPost && p == "/v1/train-check/tenant-a":
 			b, _ := io.ReadAll(r.Body)
 			s.checked = string(b)

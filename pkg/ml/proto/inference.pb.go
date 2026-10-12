@@ -482,12 +482,15 @@ type Job struct {
 	// When the job and its result are removed.
 	ExpiresAt *timestamppb.Timestamp `protobuf:"bytes,13,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
 	// The answer of a succeeded job: what Predict or Recommend would have
-	// returned. Unset until then.
+	// returned, or RecommendScenario for a scenario call sent with
+	// "respond": "async" to POST /api/ml/serve/{vhost}/{name}/recommend.
+	// Unset until then.
 	//
 	// Types that are valid to be assigned to Result:
 	//
 	//	*Job_PredictResult
 	//	*Job_RecommendResult
+	//	*Job_RecommendScenarioResult
 	Result        isJob_Result `protobuf_oneof:"result"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -639,6 +642,15 @@ func (x *Job) GetRecommendResult() *RecommendResponse {
 	return nil
 }
 
+func (x *Job) GetRecommendScenarioResult() *RecommendScenarioResponse {
+	if x != nil {
+		if x, ok := x.Result.(*Job_RecommendScenarioResult); ok {
+			return x.RecommendScenarioResult
+		}
+	}
+	return nil
+}
+
 type isJob_Result interface {
 	isJob_Result()
 }
@@ -651,9 +663,526 @@ type Job_RecommendResult struct {
 	RecommendResult *RecommendResponse `protobuf:"bytes,15,opt,name=recommend_result,json=recommendResult,proto3,oneof"`
 }
 
+type Job_RecommendScenarioResult struct {
+	RecommendScenarioResult *RecommendScenarioResponse `protobuf:"bytes,16,opt,name=recommend_scenario_result,json=recommendScenarioResult,proto3,oneof"`
+}
+
 func (*Job_PredictResult) isJob_Result() {}
 
 func (*Job_RecommendResult) isJob_Result() {}
+
+func (*Job_RecommendScenarioResult) isJob_Result() {}
+
+type RecommendScenarioRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The vhost the model belongs to.
+	Vhost string `protobuf:"bytes,1,opt,name=vhost,proto3" json:"vhost,omitempty"`
+	// The model's name in that vhost.
+	Model string `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
+	// Who or what the answer is for: the JSON call's "for". Set the one the
+	// model's scenario takes: salesman for visits, customer (or customers) for
+	// products and reorder, product for audience and similar.
+	Subject *ScenarioSubject `protobuf:"bytes,3,opt,name=subject,proto3" json:"subject,omitempty"`
+	// A visit plan's first day, YYYY-MM-DD; today when empty.
+	PeriodFrom string `protobuf:"bytes,4,opt,name=period_from,json=periodFrom,proto3" json:"period_from,omitempty"`
+	// A visit plan's last day, YYYY-MM-DD; the model's period from
+	// period_from when empty.
+	PeriodTo string `protobuf:"bytes,5,opt,name=period_to,json=periodTo,proto3" json:"period_to,omitempty"`
+	// Results per subject: the model's default when 0.
+	K int32 `protobuf:"varint,6,opt,name=k,proto3" json:"k,omitempty"`
+	// Rules for this call, each as JSON gives it ({"kind": "exclude", ...}).
+	// They may only tighten the model's own rules.
+	Rules []*structpb.Struct `protobuf:"bytes,7,rep,name=rules,proto3" json:"rules,omitempty"`
+	// Whether to leave out products the customer already bought; the model's
+	// default when unset.
+	ExcludeSeen   *bool `protobuf:"varint,8,opt,name=exclude_seen,json=excludeSeen,proto3,oneof" json:"exclude_seen,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecommendScenarioRequest) Reset() {
+	*x = RecommendScenarioRequest{}
+	mi := &file_inference_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecommendScenarioRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecommendScenarioRequest) ProtoMessage() {}
+
+func (x *RecommendScenarioRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecommendScenarioRequest.ProtoReflect.Descriptor instead.
+func (*RecommendScenarioRequest) Descriptor() ([]byte, []int) {
+	return file_inference_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *RecommendScenarioRequest) GetVhost() string {
+	if x != nil {
+		return x.Vhost
+	}
+	return ""
+}
+
+func (x *RecommendScenarioRequest) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *RecommendScenarioRequest) GetSubject() *ScenarioSubject {
+	if x != nil {
+		return x.Subject
+	}
+	return nil
+}
+
+func (x *RecommendScenarioRequest) GetPeriodFrom() string {
+	if x != nil {
+		return x.PeriodFrom
+	}
+	return ""
+}
+
+func (x *RecommendScenarioRequest) GetPeriodTo() string {
+	if x != nil {
+		return x.PeriodTo
+	}
+	return ""
+}
+
+func (x *RecommendScenarioRequest) GetK() int32 {
+	if x != nil {
+		return x.K
+	}
+	return 0
+}
+
+func (x *RecommendScenarioRequest) GetRules() []*structpb.Struct {
+	if x != nil {
+		return x.Rules
+	}
+	return nil
+}
+
+func (x *RecommendScenarioRequest) GetExcludeSeen() bool {
+	if x != nil && x.ExcludeSeen != nil {
+		return *x.ExcludeSeen
+	}
+	return false
+}
+
+type ScenarioSubject struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Customer string                 `protobuf:"bytes,1,opt,name=customer,proto3" json:"customer,omitempty"`
+	// Up to 1000 customers in one call: one result each.
+	Customers []string `protobuf:"bytes,2,rep,name=customers,proto3" json:"customers,omitempty"`
+	Product   string   `protobuf:"bytes,3,opt,name=product,proto3" json:"product,omitempty"`
+	Salesman  string   `protobuf:"bytes,4,opt,name=salesman,proto3" json:"salesman,omitempty"`
+	// The territory a rule's from_request "territory" binds to.
+	Territory     string `protobuf:"bytes,5,opt,name=territory,proto3" json:"territory,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ScenarioSubject) Reset() {
+	*x = ScenarioSubject{}
+	mi := &file_inference_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScenarioSubject) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScenarioSubject) ProtoMessage() {}
+
+func (x *ScenarioSubject) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScenarioSubject.ProtoReflect.Descriptor instead.
+func (*ScenarioSubject) Descriptor() ([]byte, []int) {
+	return file_inference_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ScenarioSubject) GetCustomer() string {
+	if x != nil {
+		return x.Customer
+	}
+	return ""
+}
+
+func (x *ScenarioSubject) GetCustomers() []string {
+	if x != nil {
+		return x.Customers
+	}
+	return nil
+}
+
+func (x *ScenarioSubject) GetProduct() string {
+	if x != nil {
+		return x.Product
+	}
+	return ""
+}
+
+func (x *ScenarioSubject) GetSalesman() string {
+	if x != nil {
+		return x.Salesman
+	}
+	return ""
+}
+
+func (x *ScenarioSubject) GetTerritory() string {
+	if x != nil {
+		return x.Territory
+	}
+	return ""
+}
+
+type RecommendScenarioResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The model that answered.
+	Model string `protobuf:"bytes,1,opt,name=model,proto3" json:"model,omitempty"`
+	// The id feedback on this answer is sent with.
+	RecommendationId string `protobuf:"bytes,2,opt,name=recommendation_id,json=recommendationId,proto3" json:"recommendation_id,omitempty"`
+	// One result per subject, in the order asked.
+	Results       []*ScenarioResult `protobuf:"bytes,3,rep,name=results,proto3" json:"results,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecommendScenarioResponse) Reset() {
+	*x = RecommendScenarioResponse{}
+	mi := &file_inference_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecommendScenarioResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecommendScenarioResponse) ProtoMessage() {}
+
+func (x *RecommendScenarioResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecommendScenarioResponse.ProtoReflect.Descriptor instead.
+func (*RecommendScenarioResponse) Descriptor() ([]byte, []int) {
+	return file_inference_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *RecommendScenarioResponse) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *RecommendScenarioResponse) GetRecommendationId() string {
+	if x != nil {
+		return x.RecommendationId
+	}
+	return ""
+}
+
+func (x *RecommendScenarioResponse) GetResults() []*ScenarioResult {
+	if x != nil {
+		return x.Results
+	}
+	return nil
+}
+
+type ScenarioResult struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The subject's id: the JSON answer's "for".
+	Subject string `protobuf:"bytes,1,opt,name=subject,proto3" json:"subject,omitempty"`
+	// Best first.
+	Items []*ScenarioPick `protobuf:"bytes,2,rep,name=items,proto3" json:"items,omitempty"`
+	// A visit plan's days, in order; empty for other scenarios.
+	Plan          []*PlanDay `protobuf:"bytes,3,rep,name=plan,proto3" json:"plan,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ScenarioResult) Reset() {
+	*x = ScenarioResult{}
+	mi := &file_inference_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScenarioResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScenarioResult) ProtoMessage() {}
+
+func (x *ScenarioResult) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScenarioResult.ProtoReflect.Descriptor instead.
+func (*ScenarioResult) Descriptor() ([]byte, []int) {
+	return file_inference_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *ScenarioResult) GetSubject() string {
+	if x != nil {
+		return x.Subject
+	}
+	return ""
+}
+
+func (x *ScenarioResult) GetItems() []*ScenarioPick {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+func (x *ScenarioResult) GetPlan() []*PlanDay {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
+}
+
+type ScenarioPick struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Id      string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Score   float64                `protobuf:"fixed64,2,opt,name=score,proto3" json:"score,omitempty"`
+	Rank    int32                  `protobuf:"varint,3,opt,name=rank,proto3" json:"rank,omitempty"`
+	Reasons []*Reason              `protobuf:"bytes,4,rep,name=reasons,proto3" json:"reasons,omitempty"`
+	// The item's own fields from the model's data (name, territory, ...).
+	Fields *structpb.Struct `protobuf:"bytes,5,opt,name=fields,proto3" json:"fields,omitempty"`
+	// For reorder: when the customer is due to order it, YYYY-MM-DD.
+	DueDate       string `protobuf:"bytes,6,opt,name=due_date,json=dueDate,proto3" json:"due_date,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ScenarioPick) Reset() {
+	*x = ScenarioPick{}
+	mi := &file_inference_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScenarioPick) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScenarioPick) ProtoMessage() {}
+
+func (x *ScenarioPick) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScenarioPick.ProtoReflect.Descriptor instead.
+func (*ScenarioPick) Descriptor() ([]byte, []int) {
+	return file_inference_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ScenarioPick) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ScenarioPick) GetScore() float64 {
+	if x != nil {
+		return x.Score
+	}
+	return 0
+}
+
+func (x *ScenarioPick) GetRank() int32 {
+	if x != nil {
+		return x.Rank
+	}
+	return 0
+}
+
+func (x *ScenarioPick) GetReasons() []*Reason {
+	if x != nil {
+		return x.Reasons
+	}
+	return nil
+}
+
+func (x *ScenarioPick) GetFields() *structpb.Struct {
+	if x != nil {
+		return x.Fields
+	}
+	return nil
+}
+
+func (x *ScenarioPick) GetDueDate() string {
+	if x != nil {
+		return x.DueDate
+	}
+	return ""
+}
+
+type Reason struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// A stable code, such as "overdue" or "bought_together".
+	Code string `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
+	// The reason in words.
+	Text          string `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Reason) Reset() {
+	*x = Reason{}
+	mi := &file_inference_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Reason) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Reason) ProtoMessage() {}
+
+func (x *Reason) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Reason.ProtoReflect.Descriptor instead.
+func (*Reason) Descriptor() ([]byte, []int) {
+	return file_inference_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *Reason) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+func (x *Reason) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+type PlanDay struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// YYYY-MM-DD.
+	Date string `protobuf:"bytes,1,opt,name=date,proto3" json:"date,omitempty"`
+	// That day's visits, in route order.
+	Items         []*ScenarioPick `protobuf:"bytes,2,rep,name=items,proto3" json:"items,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PlanDay) Reset() {
+	*x = PlanDay{}
+	mi := &file_inference_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlanDay) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlanDay) ProtoMessage() {}
+
+func (x *PlanDay) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlanDay.ProtoReflect.Descriptor instead.
+func (*PlanDay) Descriptor() ([]byte, []int) {
+	return file_inference_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *PlanDay) GetDate() string {
+	if x != nil {
+		return x.Date
+	}
+	return ""
+}
+
+func (x *PlanDay) GetItems() []*ScenarioPick {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
 
 type RecommendRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -680,7 +1209,7 @@ type RecommendRequest struct {
 
 func (x *RecommendRequest) Reset() {
 	*x = RecommendRequest{}
-	mi := &file_inference_proto_msgTypes[9]
+	mi := &file_inference_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -692,7 +1221,7 @@ func (x *RecommendRequest) String() string {
 func (*RecommendRequest) ProtoMessage() {}
 
 func (x *RecommendRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_inference_proto_msgTypes[9]
+	mi := &file_inference_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -705,7 +1234,7 @@ func (x *RecommendRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecommendRequest.ProtoReflect.Descriptor instead.
 func (*RecommendRequest) Descriptor() ([]byte, []int) {
-	return file_inference_proto_rawDescGZIP(), []int{9}
+	return file_inference_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *RecommendRequest) GetVhost() string {
@@ -784,14 +1313,16 @@ type RecommendResponse struct {
 	// The model that answered.
 	Model string `protobuf:"bytes,1,opt,name=model,proto3" json:"model,omitempty"`
 	// Best first.
-	Items         []*RecommendedItem `protobuf:"bytes,2,rep,name=items,proto3" json:"items,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Items []*RecommendedItem `protobuf:"bytes,2,rep,name=items,proto3" json:"items,omitempty"`
+	// The id feedback on this answer is sent with.
+	RecommendationId string `protobuf:"bytes,3,opt,name=recommendation_id,json=recommendationId,proto3" json:"recommendation_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *RecommendResponse) Reset() {
 	*x = RecommendResponse{}
-	mi := &file_inference_proto_msgTypes[10]
+	mi := &file_inference_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -803,7 +1334,7 @@ func (x *RecommendResponse) String() string {
 func (*RecommendResponse) ProtoMessage() {}
 
 func (x *RecommendResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_inference_proto_msgTypes[10]
+	mi := &file_inference_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -816,7 +1347,7 @@ func (x *RecommendResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecommendResponse.ProtoReflect.Descriptor instead.
 func (*RecommendResponse) Descriptor() ([]byte, []int) {
-	return file_inference_proto_rawDescGZIP(), []int{10}
+	return file_inference_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *RecommendResponse) GetModel() string {
@@ -831,6 +1362,13 @@ func (x *RecommendResponse) GetItems() []*RecommendedItem {
 		return x.Items
 	}
 	return nil
+}
+
+func (x *RecommendResponse) GetRecommendationId() string {
+	if x != nil {
+		return x.RecommendationId
+	}
+	return ""
 }
 
 type RecommendedItem struct {
@@ -848,7 +1386,7 @@ type RecommendedItem struct {
 
 func (x *RecommendedItem) Reset() {
 	*x = RecommendedItem{}
-	mi := &file_inference_proto_msgTypes[11]
+	mi := &file_inference_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -860,7 +1398,7 @@ func (x *RecommendedItem) String() string {
 func (*RecommendedItem) ProtoMessage() {}
 
 func (x *RecommendedItem) ProtoReflect() protoreflect.Message {
-	mi := &file_inference_proto_msgTypes[11]
+	mi := &file_inference_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -873,7 +1411,7 @@ func (x *RecommendedItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecommendedItem.ProtoReflect.Descriptor instead.
 func (*RecommendedItem) Descriptor() ([]byte, []int) {
-	return file_inference_proto_rawDescGZIP(), []int{11}
+	return file_inference_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *RecommendedItem) GetItem() string {
@@ -911,7 +1449,7 @@ type PredictRequest struct {
 
 func (x *PredictRequest) Reset() {
 	*x = PredictRequest{}
-	mi := &file_inference_proto_msgTypes[12]
+	mi := &file_inference_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -923,7 +1461,7 @@ func (x *PredictRequest) String() string {
 func (*PredictRequest) ProtoMessage() {}
 
 func (x *PredictRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_inference_proto_msgTypes[12]
+	mi := &file_inference_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -936,7 +1474,7 @@ func (x *PredictRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PredictRequest.ProtoReflect.Descriptor instead.
 func (*PredictRequest) Descriptor() ([]byte, []int) {
-	return file_inference_proto_rawDescGZIP(), []int{12}
+	return file_inference_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *PredictRequest) GetVhost() string {
@@ -973,7 +1511,7 @@ type PredictResponse struct {
 
 func (x *PredictResponse) Reset() {
 	*x = PredictResponse{}
-	mi := &file_inference_proto_msgTypes[13]
+	mi := &file_inference_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -985,7 +1523,7 @@ func (x *PredictResponse) String() string {
 func (*PredictResponse) ProtoMessage() {}
 
 func (x *PredictResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_inference_proto_msgTypes[13]
+	mi := &file_inference_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -998,7 +1536,7 @@ func (x *PredictResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PredictResponse.ProtoReflect.Descriptor instead.
 func (*PredictResponse) Descriptor() ([]byte, []int) {
-	return file_inference_proto_rawDescGZIP(), []int{13}
+	return file_inference_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *PredictResponse) GetModel() string {
@@ -1041,7 +1579,7 @@ const file_inference_proto_rawDesc = "" +
 	"\x05vhost\x18\x01 \x01(\tR\x05vhost\x12\x15\n" +
 	"\x06job_id\x18\x02 \x01(\tR\x05jobId\"7\n" +
 	"\x10WatchJobResponse\x12#\n" +
-	"\x03job\x18\x01 \x01(\v2\x11.hermod.ml.v1.JobR\x03job\"\x83\x05\n" +
+	"\x03job\x18\x01 \x01(\v2\x11.hermod.ml.v1.JobR\x03job\"\xea\x05\n" +
 	"\x03Job\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05vhost\x18\x02 \x01(\tR\x05vhost\x12\x14\n" +
@@ -1062,8 +1600,47 @@ const file_inference_proto_rawDesc = "" +
 	"\n" +
 	"expires_at\x18\r \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12F\n" +
 	"\x0epredict_result\x18\x0e \x01(\v2\x1d.hermod.ml.v1.PredictResponseH\x00R\rpredictResult\x12L\n" +
-	"\x10recommend_result\x18\x0f \x01(\v2\x1f.hermod.ml.v1.RecommendResponseH\x00R\x0frecommendResultB\b\n" +
-	"\x06result\"\xbc\x01\n" +
+	"\x10recommend_result\x18\x0f \x01(\v2\x1f.hermod.ml.v1.RecommendResponseH\x00R\x0frecommendResult\x12e\n" +
+	"\x19recommend_scenario_result\x18\x10 \x01(\v2'.hermod.ml.v1.RecommendScenarioResponseH\x00R\x17recommendScenarioResultB\b\n" +
+	"\x06result\"\xb3\x02\n" +
+	"\x18RecommendScenarioRequest\x12\x14\n" +
+	"\x05vhost\x18\x01 \x01(\tR\x05vhost\x12\x14\n" +
+	"\x05model\x18\x02 \x01(\tR\x05model\x127\n" +
+	"\asubject\x18\x03 \x01(\v2\x1d.hermod.ml.v1.ScenarioSubjectR\asubject\x12\x1f\n" +
+	"\vperiod_from\x18\x04 \x01(\tR\n" +
+	"periodFrom\x12\x1b\n" +
+	"\tperiod_to\x18\x05 \x01(\tR\bperiodTo\x12\f\n" +
+	"\x01k\x18\x06 \x01(\x05R\x01k\x12-\n" +
+	"\x05rules\x18\a \x03(\v2\x17.google.protobuf.StructR\x05rules\x12&\n" +
+	"\fexclude_seen\x18\b \x01(\bH\x00R\vexcludeSeen\x88\x01\x01B\x0f\n" +
+	"\r_exclude_seen\"\x9f\x01\n" +
+	"\x0fScenarioSubject\x12\x1a\n" +
+	"\bcustomer\x18\x01 \x01(\tR\bcustomer\x12\x1c\n" +
+	"\tcustomers\x18\x02 \x03(\tR\tcustomers\x12\x18\n" +
+	"\aproduct\x18\x03 \x01(\tR\aproduct\x12\x1a\n" +
+	"\bsalesman\x18\x04 \x01(\tR\bsalesman\x12\x1c\n" +
+	"\tterritory\x18\x05 \x01(\tR\tterritory\"\x96\x01\n" +
+	"\x19RecommendScenarioResponse\x12\x14\n" +
+	"\x05model\x18\x01 \x01(\tR\x05model\x12+\n" +
+	"\x11recommendation_id\x18\x02 \x01(\tR\x10recommendationId\x126\n" +
+	"\aresults\x18\x03 \x03(\v2\x1c.hermod.ml.v1.ScenarioResultR\aresults\"\x87\x01\n" +
+	"\x0eScenarioResult\x12\x18\n" +
+	"\asubject\x18\x01 \x01(\tR\asubject\x120\n" +
+	"\x05items\x18\x02 \x03(\v2\x1a.hermod.ml.v1.ScenarioPickR\x05items\x12)\n" +
+	"\x04plan\x18\x03 \x03(\v2\x15.hermod.ml.v1.PlanDayR\x04plan\"\xc4\x01\n" +
+	"\fScenarioPick\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
+	"\x05score\x18\x02 \x01(\x01R\x05score\x12\x12\n" +
+	"\x04rank\x18\x03 \x01(\x05R\x04rank\x12.\n" +
+	"\areasons\x18\x04 \x03(\v2\x14.hermod.ml.v1.ReasonR\areasons\x12/\n" +
+	"\x06fields\x18\x05 \x01(\v2\x17.google.protobuf.StructR\x06fields\x12\x19\n" +
+	"\bdue_date\x18\x06 \x01(\tR\adueDate\"0\n" +
+	"\x06Reason\x12\x12\n" +
+	"\x04code\x18\x01 \x01(\tR\x04code\x12\x12\n" +
+	"\x04text\x18\x02 \x01(\tR\x04text\"O\n" +
+	"\aPlanDay\x12\x12\n" +
+	"\x04date\x18\x01 \x01(\tR\x04date\x120\n" +
+	"\x05items\x18\x02 \x03(\v2\x1a.hermod.ml.v1.ScenarioPickR\x05items\"\xbc\x01\n" +
 	"\x10RecommendRequest\x12\x14\n" +
 	"\x05vhost\x18\x01 \x01(\tR\x05vhost\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x14\n" +
@@ -1072,10 +1649,11 @@ const file_inference_proto_rawDesc = "" +
 	"\x01k\x18\x05 \x01(\x05R\x01k\x12&\n" +
 	"\fexclude_seen\x18\x06 \x01(\bH\x01R\vexcludeSeen\x88\x01\x01B\t\n" +
 	"\asubjectB\x0f\n" +
-	"\r_exclude_seen\"^\n" +
+	"\r_exclude_seen\"\x8b\x01\n" +
 	"\x11RecommendResponse\x12\x14\n" +
 	"\x05model\x18\x01 \x01(\tR\x05model\x123\n" +
-	"\x05items\x18\x02 \x03(\v2\x1d.hermod.ml.v1.RecommendedItemR\x05items\"S\n" +
+	"\x05items\x18\x02 \x03(\v2\x1d.hermod.ml.v1.RecommendedItemR\x05items\x12+\n" +
+	"\x11recommendation_id\x18\x03 \x01(\tR\x10recommendationId\"S\n" +
 	"\x0fRecommendedItem\x12\x12\n" +
 	"\x04item\x18\x01 \x01(\tR\x04item\x12\x14\n" +
 	"\x05score\x18\x02 \x01(\x01R\x05score\x12\x16\n" +
@@ -1086,10 +1664,11 @@ const file_inference_proto_rawDesc = "" +
 	"\tinstances\x18\x03 \x03(\v2\x17.google.protobuf.StructR\tinstances\"b\n" +
 	"\x0fPredictResponse\x12\x14\n" +
 	"\x05model\x18\x01 \x01(\tR\x05model\x129\n" +
-	"\vpredictions\x18\x02 \x03(\v2\x17.google.protobuf.StructR\vpredictions2\xd6\x03\n" +
+	"\vpredictions\x18\x02 \x03(\v2\x17.google.protobuf.StructR\vpredictions2\xbc\x04\n" +
 	"\x10InferenceService\x12F\n" +
 	"\aPredict\x12\x1c.hermod.ml.v1.PredictRequest\x1a\x1d.hermod.ml.v1.PredictResponse\x12L\n" +
-	"\tRecommend\x12\x1e.hermod.ml.v1.RecommendRequest\x1a\x1f.hermod.ml.v1.RecommendResponse\x12L\n" +
+	"\tRecommend\x12\x1e.hermod.ml.v1.RecommendRequest\x1a\x1f.hermod.ml.v1.RecommendResponse\x12d\n" +
+	"\x11RecommendScenario\x12&.hermod.ml.v1.RecommendScenarioRequest\x1a'.hermod.ml.v1.RecommendScenarioResponse\x12L\n" +
 	"\tSubmitJob\x12\x1e.hermod.ml.v1.SubmitJobRequest\x1a\x1f.hermod.ml.v1.SubmitJobResponse\x12C\n" +
 	"\x06GetJob\x12\x1b.hermod.ml.v1.GetJobRequest\x1a\x1c.hermod.ml.v1.GetJobResponse\x12L\n" +
 	"\tCancelJob\x12\x1e.hermod.ml.v1.CancelJobRequest\x1a\x1f.hermod.ml.v1.CancelJobResponse\x12K\n" +
@@ -1107,58 +1686,76 @@ func file_inference_proto_rawDescGZIP() []byte {
 	return file_inference_proto_rawDescData
 }
 
-var file_inference_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_inference_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_inference_proto_goTypes = []any{
-	(*SubmitJobRequest)(nil),      // 0: hermod.ml.v1.SubmitJobRequest
-	(*SubmitJobResponse)(nil),     // 1: hermod.ml.v1.SubmitJobResponse
-	(*GetJobRequest)(nil),         // 2: hermod.ml.v1.GetJobRequest
-	(*GetJobResponse)(nil),        // 3: hermod.ml.v1.GetJobResponse
-	(*CancelJobRequest)(nil),      // 4: hermod.ml.v1.CancelJobRequest
-	(*CancelJobResponse)(nil),     // 5: hermod.ml.v1.CancelJobResponse
-	(*WatchJobRequest)(nil),       // 6: hermod.ml.v1.WatchJobRequest
-	(*WatchJobResponse)(nil),      // 7: hermod.ml.v1.WatchJobResponse
-	(*Job)(nil),                   // 8: hermod.ml.v1.Job
-	(*RecommendRequest)(nil),      // 9: hermod.ml.v1.RecommendRequest
-	(*RecommendResponse)(nil),     // 10: hermod.ml.v1.RecommendResponse
-	(*RecommendedItem)(nil),       // 11: hermod.ml.v1.RecommendedItem
-	(*PredictRequest)(nil),        // 12: hermod.ml.v1.PredictRequest
-	(*PredictResponse)(nil),       // 13: hermod.ml.v1.PredictResponse
-	(*timestamppb.Timestamp)(nil), // 14: google.protobuf.Timestamp
-	(*structpb.Struct)(nil),       // 15: google.protobuf.Struct
+	(*SubmitJobRequest)(nil),          // 0: hermod.ml.v1.SubmitJobRequest
+	(*SubmitJobResponse)(nil),         // 1: hermod.ml.v1.SubmitJobResponse
+	(*GetJobRequest)(nil),             // 2: hermod.ml.v1.GetJobRequest
+	(*GetJobResponse)(nil),            // 3: hermod.ml.v1.GetJobResponse
+	(*CancelJobRequest)(nil),          // 4: hermod.ml.v1.CancelJobRequest
+	(*CancelJobResponse)(nil),         // 5: hermod.ml.v1.CancelJobResponse
+	(*WatchJobRequest)(nil),           // 6: hermod.ml.v1.WatchJobRequest
+	(*WatchJobResponse)(nil),          // 7: hermod.ml.v1.WatchJobResponse
+	(*Job)(nil),                       // 8: hermod.ml.v1.Job
+	(*RecommendScenarioRequest)(nil),  // 9: hermod.ml.v1.RecommendScenarioRequest
+	(*ScenarioSubject)(nil),           // 10: hermod.ml.v1.ScenarioSubject
+	(*RecommendScenarioResponse)(nil), // 11: hermod.ml.v1.RecommendScenarioResponse
+	(*ScenarioResult)(nil),            // 12: hermod.ml.v1.ScenarioResult
+	(*ScenarioPick)(nil),              // 13: hermod.ml.v1.ScenarioPick
+	(*Reason)(nil),                    // 14: hermod.ml.v1.Reason
+	(*PlanDay)(nil),                   // 15: hermod.ml.v1.PlanDay
+	(*RecommendRequest)(nil),          // 16: hermod.ml.v1.RecommendRequest
+	(*RecommendResponse)(nil),         // 17: hermod.ml.v1.RecommendResponse
+	(*RecommendedItem)(nil),           // 18: hermod.ml.v1.RecommendedItem
+	(*PredictRequest)(nil),            // 19: hermod.ml.v1.PredictRequest
+	(*PredictResponse)(nil),           // 20: hermod.ml.v1.PredictResponse
+	(*timestamppb.Timestamp)(nil),     // 21: google.protobuf.Timestamp
+	(*structpb.Struct)(nil),           // 22: google.protobuf.Struct
 }
 var file_inference_proto_depIdxs = []int32{
-	12, // 0: hermod.ml.v1.SubmitJobRequest.predict:type_name -> hermod.ml.v1.PredictRequest
-	9,  // 1: hermod.ml.v1.SubmitJobRequest.recommend:type_name -> hermod.ml.v1.RecommendRequest
+	19, // 0: hermod.ml.v1.SubmitJobRequest.predict:type_name -> hermod.ml.v1.PredictRequest
+	16, // 1: hermod.ml.v1.SubmitJobRequest.recommend:type_name -> hermod.ml.v1.RecommendRequest
 	8,  // 2: hermod.ml.v1.SubmitJobResponse.job:type_name -> hermod.ml.v1.Job
 	8,  // 3: hermod.ml.v1.GetJobResponse.job:type_name -> hermod.ml.v1.Job
 	8,  // 4: hermod.ml.v1.CancelJobResponse.job:type_name -> hermod.ml.v1.Job
 	8,  // 5: hermod.ml.v1.WatchJobResponse.job:type_name -> hermod.ml.v1.Job
-	14, // 6: hermod.ml.v1.Job.created_at:type_name -> google.protobuf.Timestamp
-	14, // 7: hermod.ml.v1.Job.started_at:type_name -> google.protobuf.Timestamp
-	14, // 8: hermod.ml.v1.Job.finished_at:type_name -> google.protobuf.Timestamp
-	14, // 9: hermod.ml.v1.Job.expires_at:type_name -> google.protobuf.Timestamp
-	13, // 10: hermod.ml.v1.Job.predict_result:type_name -> hermod.ml.v1.PredictResponse
-	10, // 11: hermod.ml.v1.Job.recommend_result:type_name -> hermod.ml.v1.RecommendResponse
-	11, // 12: hermod.ml.v1.RecommendResponse.items:type_name -> hermod.ml.v1.RecommendedItem
-	15, // 13: hermod.ml.v1.PredictRequest.instances:type_name -> google.protobuf.Struct
-	15, // 14: hermod.ml.v1.PredictResponse.predictions:type_name -> google.protobuf.Struct
-	12, // 15: hermod.ml.v1.InferenceService.Predict:input_type -> hermod.ml.v1.PredictRequest
-	9,  // 16: hermod.ml.v1.InferenceService.Recommend:input_type -> hermod.ml.v1.RecommendRequest
-	0,  // 17: hermod.ml.v1.InferenceService.SubmitJob:input_type -> hermod.ml.v1.SubmitJobRequest
-	2,  // 18: hermod.ml.v1.InferenceService.GetJob:input_type -> hermod.ml.v1.GetJobRequest
-	4,  // 19: hermod.ml.v1.InferenceService.CancelJob:input_type -> hermod.ml.v1.CancelJobRequest
-	6,  // 20: hermod.ml.v1.InferenceService.WatchJob:input_type -> hermod.ml.v1.WatchJobRequest
-	13, // 21: hermod.ml.v1.InferenceService.Predict:output_type -> hermod.ml.v1.PredictResponse
-	10, // 22: hermod.ml.v1.InferenceService.Recommend:output_type -> hermod.ml.v1.RecommendResponse
-	1,  // 23: hermod.ml.v1.InferenceService.SubmitJob:output_type -> hermod.ml.v1.SubmitJobResponse
-	3,  // 24: hermod.ml.v1.InferenceService.GetJob:output_type -> hermod.ml.v1.GetJobResponse
-	5,  // 25: hermod.ml.v1.InferenceService.CancelJob:output_type -> hermod.ml.v1.CancelJobResponse
-	7,  // 26: hermod.ml.v1.InferenceService.WatchJob:output_type -> hermod.ml.v1.WatchJobResponse
-	21, // [21:27] is the sub-list for method output_type
-	15, // [15:21] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	21, // 6: hermod.ml.v1.Job.created_at:type_name -> google.protobuf.Timestamp
+	21, // 7: hermod.ml.v1.Job.started_at:type_name -> google.protobuf.Timestamp
+	21, // 8: hermod.ml.v1.Job.finished_at:type_name -> google.protobuf.Timestamp
+	21, // 9: hermod.ml.v1.Job.expires_at:type_name -> google.protobuf.Timestamp
+	20, // 10: hermod.ml.v1.Job.predict_result:type_name -> hermod.ml.v1.PredictResponse
+	17, // 11: hermod.ml.v1.Job.recommend_result:type_name -> hermod.ml.v1.RecommendResponse
+	11, // 12: hermod.ml.v1.Job.recommend_scenario_result:type_name -> hermod.ml.v1.RecommendScenarioResponse
+	10, // 13: hermod.ml.v1.RecommendScenarioRequest.subject:type_name -> hermod.ml.v1.ScenarioSubject
+	22, // 14: hermod.ml.v1.RecommendScenarioRequest.rules:type_name -> google.protobuf.Struct
+	12, // 15: hermod.ml.v1.RecommendScenarioResponse.results:type_name -> hermod.ml.v1.ScenarioResult
+	13, // 16: hermod.ml.v1.ScenarioResult.items:type_name -> hermod.ml.v1.ScenarioPick
+	15, // 17: hermod.ml.v1.ScenarioResult.plan:type_name -> hermod.ml.v1.PlanDay
+	14, // 18: hermod.ml.v1.ScenarioPick.reasons:type_name -> hermod.ml.v1.Reason
+	22, // 19: hermod.ml.v1.ScenarioPick.fields:type_name -> google.protobuf.Struct
+	13, // 20: hermod.ml.v1.PlanDay.items:type_name -> hermod.ml.v1.ScenarioPick
+	18, // 21: hermod.ml.v1.RecommendResponse.items:type_name -> hermod.ml.v1.RecommendedItem
+	22, // 22: hermod.ml.v1.PredictRequest.instances:type_name -> google.protobuf.Struct
+	22, // 23: hermod.ml.v1.PredictResponse.predictions:type_name -> google.protobuf.Struct
+	19, // 24: hermod.ml.v1.InferenceService.Predict:input_type -> hermod.ml.v1.PredictRequest
+	16, // 25: hermod.ml.v1.InferenceService.Recommend:input_type -> hermod.ml.v1.RecommendRequest
+	9,  // 26: hermod.ml.v1.InferenceService.RecommendScenario:input_type -> hermod.ml.v1.RecommendScenarioRequest
+	0,  // 27: hermod.ml.v1.InferenceService.SubmitJob:input_type -> hermod.ml.v1.SubmitJobRequest
+	2,  // 28: hermod.ml.v1.InferenceService.GetJob:input_type -> hermod.ml.v1.GetJobRequest
+	4,  // 29: hermod.ml.v1.InferenceService.CancelJob:input_type -> hermod.ml.v1.CancelJobRequest
+	6,  // 30: hermod.ml.v1.InferenceService.WatchJob:input_type -> hermod.ml.v1.WatchJobRequest
+	20, // 31: hermod.ml.v1.InferenceService.Predict:output_type -> hermod.ml.v1.PredictResponse
+	17, // 32: hermod.ml.v1.InferenceService.Recommend:output_type -> hermod.ml.v1.RecommendResponse
+	11, // 33: hermod.ml.v1.InferenceService.RecommendScenario:output_type -> hermod.ml.v1.RecommendScenarioResponse
+	1,  // 34: hermod.ml.v1.InferenceService.SubmitJob:output_type -> hermod.ml.v1.SubmitJobResponse
+	3,  // 35: hermod.ml.v1.InferenceService.GetJob:output_type -> hermod.ml.v1.GetJobResponse
+	5,  // 36: hermod.ml.v1.InferenceService.CancelJob:output_type -> hermod.ml.v1.CancelJobResponse
+	7,  // 37: hermod.ml.v1.InferenceService.WatchJob:output_type -> hermod.ml.v1.WatchJobResponse
+	31, // [31:38] is the sub-list for method output_type
+	24, // [24:31] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_inference_proto_init() }
@@ -1173,8 +1770,10 @@ func file_inference_proto_init() {
 	file_inference_proto_msgTypes[8].OneofWrappers = []any{
 		(*Job_PredictResult)(nil),
 		(*Job_RecommendResult)(nil),
+		(*Job_RecommendScenarioResult)(nil),
 	}
-	file_inference_proto_msgTypes[9].OneofWrappers = []any{
+	file_inference_proto_msgTypes[9].OneofWrappers = []any{}
+	file_inference_proto_msgTypes[16].OneofWrappers = []any{
 		(*RecommendRequest_User)(nil),
 		(*RecommendRequest_Item)(nil),
 	}
@@ -1184,7 +1783,7 @@ func file_inference_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_inference_proto_rawDesc), len(file_inference_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   14,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

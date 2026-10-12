@@ -62,6 +62,16 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/vhosts/{vhost}/ml/quotas", h.GetQuotas)
 	mux.Handle("PUT /api/vhosts/{vhost}/ml/quotas", h.AdminOnly(h.PutQuotas))
 	mux.HandleFunc("POST /api/ml/serve/{vhost}/{name}", h.Serve)
+	mux.HandleFunc("POST /api/ml/serve/{vhost}/{name}/recommend", h.ServeRecommend)
+	mux.Handle("POST /api/vhosts/{vhost}/ml/models/{name}/recommend", h.EditorOnly(h.RecommendScenario))
+	mux.Handle("POST /api/vhosts/{vhost}/ml/models/{name}/feedback", h.EditorOnly(h.PostFeedback))
+	mux.HandleFunc("GET /api/vhosts/{vhost}/ml/models/{name}/feedback/summary", h.GetFeedbackSummary)
+	mux.HandleFunc("GET /api/vhosts/{vhost}/ml/models/{name}/build", h.GetModelBuild)
+	mux.Handle("PUT /api/vhosts/{vhost}/ml/models/{name}/build", h.EditorOnly(h.PutModelBuild))
+	mux.Handle("DELETE /api/vhosts/{vhost}/ml/models/{name}/build", h.EditorOnly(h.DeleteModelBuild))
+	mux.Handle("PUT /api/vhosts/{vhost}/ml/datasets/{name}/refresh", h.EditorOnly(h.PutDatasetRefresh))
+	mux.Handle("DELETE /api/vhosts/{vhost}/ml/datasets/{name}/refresh", h.EditorOnly(h.DeleteDatasetRefresh))
+	mux.Handle("POST /api/vhosts/{vhost}/ml/recommend-check", h.EditorOnly(h.RecommendCheck))
 	mux.HandleFunc("GET /api/ml/serve/{vhost}/jobs/{id}", h.ServeJob)
 	mux.HandleFunc("GET /api/ml/serve/{vhost}/jobs/{id}/result", h.ServeJobResult)
 	mux.HandleFunc("POST /api/ml/serve/{vhost}/jobs/{id}/cancel", h.ServeCancelJob)
@@ -152,7 +162,7 @@ func (h *Handler) access(w http.ResponseWriter, r *http.Request, write bool) (st
 // passed on as 502 with their text: the caller is debugging that server. A
 // quota refusal is 429 when waiting is enough and 403 when it is not.
 func (h *Handler) fail(w http.ResponseWriter, err error) {
-	if h.failPools(w, err) {
+	if h.failPools(w, err) || h.failRecommend(w, err) {
 		return
 	}
 	var quota *ml.QuotaError
@@ -461,9 +471,9 @@ func (h *Handler) predict(w http.ResponseWriter, r *http.Request, vhost, name, c
 	var answer map[string]any
 	err = svc.Sync(r.Context(), vhost, name, func(ctx context.Context) error {
 		if req.recommends() {
-			items, err := svc.Recommend(ctx, vhost, name, ml.RecommendRequest{
+			items, id, err := svc.RecommendWithID(ctx, vhost, name, ml.RecommendRequest{
 				User: req.User, Item: req.Item, K: req.K, ExcludeSeen: req.ExcludeSeen})
-			answer = map[string]any{"model": name, "items": items}
+			answer = map[string]any{"model": name, "items": items, "recommendation_id": id}
 			return err
 		}
 		preds, err := svc.Predict(ctx, vhost, name, req.Instances)

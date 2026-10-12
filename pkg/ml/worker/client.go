@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/gsoultan/hermod/pkg/infra/httpclient"
+	"github.com/gsoultan/hermod/pkg/ml/recommend"
 )
 
 var (
@@ -42,7 +43,10 @@ const (
 	maxReplyBytes       = 16 << 20
 	// maxModelFileBytes bounds a model file. A tabular model small enough to
 	// score in-process is far below it; a larger one is left to the worker.
-	maxModelFileBytes = 64 << 20
+	// It matches the recommendation artifact's own limit
+	// (recommend.MaxArtifactBytes), 128 MiB since a scenario's artifact
+	// carries per-customer features.
+	maxModelFileBytes = 128 << 20
 )
 
 // names the worker accepts in a path; the worker checks the same rule.
@@ -143,6 +147,18 @@ type TrainSpec struct {
 	// Params tunes pytorch_mlp and keras_mlp; the worker refuses it for any
 	// other algorithm.
 	Params *TrainParams `json:"params,omitempty"`
+
+	// A recommendation scenario's training (ml/worker/hermod_ml/scenarios.py)
+	// names Scenario and maps each data role (transactions, customers,
+	// products, visits, salesmen) to a dataset and its columns in Data,
+	// instead of Recommend. Weights are the visit signals' weights, Rules the
+	// business rules every call obeys, and PeriodDays the planning (visits)
+	// or evaluation period.
+	Scenario   string                       `json:"scenario,omitempty"`
+	Data       map[string]map[string]string `json:"data,omitempty"`
+	Weights    map[string]float64           `json:"weights,omitempty"`
+	Rules      []recommend.Rule             `json:"rules,omitempty"`
+	PeriodDays int                          `json:"period_days,omitempty"`
 }
 
 // TrainParams are a deep-learning model's hyperparameters. A zero field is
@@ -176,12 +192,39 @@ type Catalog struct {
 	Items int `json:"items"`
 }
 
-// RecommendSample is one person of a recommendation model's test: what the
-// model recommended, and what they really picked next.
+// RecommendSample is one person of a #268 recommendation model's test: what
+// the model recommended, and what they really picked next. A scenario's
+// samples are example answers instead ({"for", "items"}), so Version keeps
+// Samples as the worker wrote them.
 type RecommendSample struct {
 	User        string   `json:"user"`
 	Recommended []string `json:"recommended"`
 	Picked      []string `json:"picked"`
+}
+
+// NamedBaseline is one simple rule a scenario was measured against, such as
+// most_overdue, biggest or popular, and its metrics.
+type NamedBaseline struct {
+	Name    string             `json:"name"`
+	Metrics map[string]float64 `json:"metrics"`
+}
+
+// RecommendHealth is a scenario's data health check: one entry per check,
+// green, amber or red, and what the data holds. OK is false when any check
+// is red, which a training refuses.
+type RecommendHealth struct {
+	OK     bool           `json:"ok"`
+	Checks []HealthCheck  `json:"checks"`
+	Stats  map[string]any `json:"stats"`
+}
+
+// HealthCheck is one check of the data health check: its code, green,
+// amber or red, what it found and, when not green, how to fix it.
+type HealthCheck struct {
+	Code    string `json:"code"`
+	Status  string `json:"status"`
+	Message string `json:"message"`
+	Fix     string `json:"fix,omitempty"`
 }
 
 // Capabilities is what a worker can train. The slim image cannot train the
@@ -225,8 +268,21 @@ type Version struct {
 	// split of the training rows).
 	Recommend  *RecommendSpec     `json:"recommend,omitempty"`
 	Catalog    *Catalog           `json:"catalog,omitempty"`
-	Samples    []RecommendSample  `json:"samples,omitempty"`
+	Samples    json.RawMessage    `json:"samples,omitempty"`
 	Candidates map[string]float64 `json:"candidates,omitempty"`
+
+	// A scenario's training (see TrainSpec): the scenario, its data roles,
+	// the weights asked for and those applied, its default rules, its
+	// metrics against named baselines, how it was evaluated, and the data
+	// health check it passed.
+	Scenario       string                       `json:"scenario,omitempty"`
+	Roles          map[string]map[string]string `json:"roles,omitempty"`
+	Weights        map[string]float64           `json:"weights,omitempty"`
+	AppliedWeights map[string]float64           `json:"applied_weights,omitempty"`
+	Rules          []recommend.Rule             `json:"rules,omitempty"`
+	BaselinesNamed []NamedBaseline              `json:"baselines_named,omitempty"`
+	Evaluation     map[string]any               `json:"evaluation,omitempty"`
+	Health         *RecommendHealth             `json:"health,omitempty"`
 	// Preset and Leaderboard are an auto training's: how hard it tried, and
 	// every candidate it scored, best first.
 	Preset      string             `json:"preset,omitempty"`
@@ -434,6 +490,22 @@ func (c *Client) TrainCheck(ctx context.Context, vhost string, spec TrainSpec) (
 	}
 	var out TrainCheck
 	err = c.call(ctx, http.MethodPost, "/v1/train-check/"+vhost, "application/json", bytes.NewReader(body), &out, callTimeout)
+	return out, err
+}
+
+// RecommendCheck runs a recommendation scenario's data health check on a
+// vhost's datasets: spec names the scenario and its data roles. It trains
+// nothing and takes no training slot.
+func (c *Client) RecommendCheck(ctx context.Context, vhost string, spec TrainSpec) (RecommendHealth, error) {
+	if err := checkName("vhost", vhost); err != nil {
+		return RecommendHealth{}, err
+	}
+	body, err := json.Marshal(spec)
+	if err != nil {
+		return RecommendHealth{}, fmt.Errorf("encoding the check: %w", err)
+	}
+	var out RecommendHealth
+	err = c.call(ctx, http.MethodPost, "/v1/recommend-check/"+vhost, "application/json", bytes.NewReader(body), &out, callTimeout)
 	return out, err
 }
 

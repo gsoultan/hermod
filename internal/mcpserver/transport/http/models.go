@@ -39,9 +39,25 @@ func (m models) Predict(ctx context.Context, vhost, name string, rows []map[stri
 }
 
 // Recommend is the service's recommendation path, logged as MCP.
-func (m models) Recommend(ctx context.Context, vhost, name string, req mcpserver.RecommendArgs) ([]recommend.Item, error) {
-	return m.svc.Recommend(ml.WithCaller(ctx, storage.MLCallerMCP, m.user), vhost, name, ml.RecommendRequest{
+func (m models) Recommend(ctx context.Context, vhost, name string, req mcpserver.RecommendArgs) ([]recommend.Item, string, error) {
+	return m.svc.RecommendWithID(ml.WithCaller(ctx, storage.MLCallerMCP, m.user), vhost, name, ml.RecommendRequest{
 		User: req.User, Item: req.Item, K: req.K, ExcludeSeen: req.ExcludeSeen})
+}
+
+// RecommendScenario is the service's scenario path, logged as MCP.
+func (m models) RecommendScenario(ctx context.Context, vhost, name string, req mcpserver.RecommendArgs) (mcpserver.ScenarioAnswer, error) {
+	call := ml.ScenarioRequest{Territory: req.Territory, K: req.K, Rules: req.Rules, ExcludeSeen: req.ExcludeSeen}
+	if f := req.For; f != nil {
+		call.For = ml.ScenarioFor{Customer: f.Customer, Customers: f.Customers, Product: f.Product, Salesman: f.Salesman, Territory: f.Territory}
+	}
+	if req.Period != nil {
+		call.Period = &ml.ScenarioPeriod{From: req.Period.From, To: req.Period.To}
+	}
+	ans, err := m.svc.RecommendScenario(ml.WithCaller(ctx, storage.MLCallerMCP, m.user), vhost, name, call)
+	if err != nil {
+		return mcpserver.ScenarioAnswer{}, err
+	}
+	return mcpserver.ScenarioAnswer{RecommendationID: ans.RecommendationID, Results: ans.Results}, nil
 }
 
 // mlService is the registry's ML service when the engine runs, so a model's

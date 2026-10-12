@@ -338,21 +338,26 @@ func (r *JobRunner) execute(ctx context.Context, svc *Service, j storage.MLJob, 
 		}
 		return json.Marshal(map[string]any{"model": j.Model, "predictions": preds})
 	case storage.MLJobRecommend:
-		var req RecommendRequest
+		var req recommendJob
 		if err := json.Unmarshal(j.Request, &req); err != nil {
 			return nil, fmt.Errorf("reading the job's request: %w", err)
 		}
 		report(0, "Finding recommendations")
-		var items any
+		var answer any
 		err := waitForQuota(ctx, func() error {
-			got, err := svc.Recommend(ctx, j.VHost, j.Model, req)
-			items = got
+			if req.Scenario != nil {
+				out, err := svc.RecommendScenario(ctx, j.VHost, j.Model, *req.Scenario)
+				answer = out
+				return err
+			}
+			items, id, err := svc.RecommendWithID(ctx, j.VHost, j.Model, req.RecommendRequest)
+			answer = map[string]any{"model": j.Model, "items": items, "recommendation_id": id}
 			return err
 		})
 		if err != nil {
 			return nil, err
 		}
-		return json.Marshal(map[string]any{"model": j.Model, "items": items})
+		return json.Marshal(answer)
 	case storage.MLJobTrain:
 		var req TrainJob
 		if err := json.Unmarshal(j.Request, &req); err != nil {

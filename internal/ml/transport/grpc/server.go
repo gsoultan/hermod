@@ -104,24 +104,17 @@ func (s *Server) Recommend(ctx context.Context, req *proto.RecommendRequest) (*p
 		call.Item = subject.Item
 	}
 	var items []recommend.Item
+	var id string
 	err := svc.Sync(ml.WithCaller(ctx, storage.MLCallerGRPC, ""), req.GetVhost(), req.GetModel(), func(ctx context.Context) error {
 		var err error
-		items, err = svc.Recommend(ctx, req.GetVhost(), req.GetModel(), call)
+		items, id, err = svc.RecommendWithID(ctx, req.GetVhost(), req.GetModel(), call)
 		return err
 	})
 	if err != nil {
-		switch {
-		case errors.Is(err, ml.ErrSyncTimeout):
-			return nil, status.Error(codes.DeadlineExceeded, syncHint(err))
-		case errors.Is(err, ml.ErrBadRecommendRequest), errors.Is(err, ml.ErrNotRecommender):
-			return nil, status.Error(codes.InvalidArgument, err.Error())
-		case errors.Is(err, ml.ErrQuotaExceeded):
-			return nil, status.Error(codes.ResourceExhausted, err.Error())
-		}
-		return nil, status.Error(codes.Unavailable, err.Error())
+		return nil, recommendStatus(err)
 	}
 
-	resp := &proto.RecommendResponse{Model: req.GetModel(), Items: make([]*proto.RecommendedItem, len(items))}
+	resp := &proto.RecommendResponse{Model: req.GetModel(), RecommendationId: id, Items: make([]*proto.RecommendedItem, len(items))}
 	for i, it := range items {
 		resp.Items[i] = &proto.RecommendedItem{Item: it.Item, Score: it.Score, Reason: it.Reason}
 	}

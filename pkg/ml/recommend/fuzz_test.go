@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // FuzzParse feeds Parse arbitrary bytes, seeded with valid artifacts. Parse
@@ -21,7 +22,15 @@ func FuzzParse(f *testing.F) {
 		}
 		f.Add(raw)
 	}
+	for _, name := range []string{"visits", "products", "reorder", "audience_als", "similar"} {
+		raw, err := os.ReadFile(filepath.Join("testdata", "scenario", name+".rec"))
+		if err != nil {
+			f.Fatal(err)
+		}
+		f.Add(raw)
+	}
 	f.Add([]byte("HREC\x01\x00\x00\x00\x02\x00\x00\x00{}"))
+	f.Add([]byte("HREC\x02\x00\x00\x00\x02\x00\x00\x00{}"))
 	f.Fuzz(func(t *testing.T, raw []byte) {
 		m, err := Parse(raw)
 		if err != nil {
@@ -44,7 +53,46 @@ func FuzzParse(f *testing.F) {
 				checkItems(t, m, got, k)
 			}
 		}
+		answerAnything(t, m, ids, items)
 	})
+}
+
+// answerAnything puts every kind of scenario call to a parsed model: each
+// must answer within bounds or refuse with ErrBadQuery, never panic.
+func answerAnything(t *testing.T, m *Model, ids, items []string) {
+	t.Helper()
+	salesmen := append([]string{"nobody"}, m.Salesmen()...)
+	today := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	var queries []Query
+	for _, s := range salesmen[:min(len(salesmen), 3)] {
+		queries = append(queries, Query{Salesman: s}, Query{Salesman: s, K: 3, Rules: []Rule{{Kind: RuleDiversity, Field: "customers.segment", MaxPer: 1}}})
+	}
+	for _, u := range ids[:min(len(ids), 4)] {
+		queries = append(queries, Query{Customer: u, K: 5, ExcludeSeen: true}, Query{Customers: []string{u, "x"}})
+	}
+	for _, it := range items[:min(len(items), 4)] {
+		queries = append(queries, Query{Product: it, K: 4})
+	}
+	for _, q := range queries {
+		q.Today = today
+		res, err := m.Answer(q)
+		if err != nil {
+			if !errors.Is(err, ErrBadQuery) && !errors.Is(err, ErrBadRule) {
+				t.Fatalf("Answer(%+v): %v", q, err)
+			}
+			continue
+		}
+		for _, r := range res {
+			if len(r.Items) > max(MaxPlan, MaxK) {
+				t.Fatalf("%d items", len(r.Items))
+			}
+			for _, p := range r.Items {
+				if p.Score != p.Score || p.Rank < 1 {
+					t.Fatalf("pick %+v", p)
+				}
+			}
+		}
+	}
 }
 
 func checkItems(t *testing.T, m *Model, got []Item, k int) {

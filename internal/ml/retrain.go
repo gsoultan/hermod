@@ -61,6 +61,13 @@ func ValidateRetrainPolicy(p storage.MLRetrainPolicy) error {
 			return fmt.Errorf("schedule %q is not a five-field cron expression or a descriptor such as @daily: %w", p.Schedule, err)
 		}
 	}
+	if isScenario(p.Spec) {
+		// A scenario names its datasets in its data roles.
+		if _, err := scenarioSpec(p.Spec); err != nil {
+			return err
+		}
+		return GoLive(p.GoLive).Validate()
+	}
 	if p.Spec.Dataset == "" {
 		return errors.New("name the dataset the model retrains on")
 	}
@@ -103,6 +110,13 @@ func (s *Service) SetRetrainPolicy(ctx context.Context, vhost, name string, p st
 	rs, err := s.retrainStore()
 	if err != nil {
 		return storage.MLModel{}, err
+	}
+	if isScenario(p.Spec) {
+		// Stored with its transactions dataset as Dataset, which the row
+		// trigger counts.
+		if p.Spec, err = scenarioSpec(p.Spec); err != nil {
+			return storage.MLModel{}, err
+		}
 	}
 	p.UpdatedBy, p.UpdatedAt = by, time.Now().UTC()
 	if err := rs.SetMLModelRetrain(ctx, vhost, name, &p); err != nil {

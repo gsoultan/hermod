@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/gsoultan/hermod/pkg/ml/recommend"
 )
 
 // fakeWorker records what the client sent and answers with reply.
@@ -453,11 +455,64 @@ func TestTrainSendsARecommendationSpecAndReadsItsVersion(t *testing.T) {
 	if v.Catalog == nil || v.Catalog.Users != 60 || v.Catalog.Items != 30 {
 		t.Errorf("version catalog = %+v", v.Catalog)
 	}
-	if len(v.Samples) != 1 || v.Samples[0].User != "c0" || len(v.Samples[0].Recommended) != 2 || v.Samples[0].Picked[0] != "sku-2" {
-		t.Errorf("version samples = %+v", v.Samples)
+	var samples []RecommendSample
+	if err := json.Unmarshal(v.Samples, &samples); err != nil || len(samples) != 1 || samples[0].User != "c0" || len(samples[0].Recommended) != 2 || samples[0].Picked[0] != "sku-2" {
+		t.Errorf("version samples = %s (%v)", v.Samples, err)
 	}
 	if v.Candidates["item_similarity"] != 0.2 {
 		t.Errorf("version candidates = %+v", v.Candidates)
+	}
+}
+
+// A scenario's training maps data roles instead of Recommend; its version
+// carries the scenario's evaluation, health and example answers.
+func TestTrainSendsAScenarioAndReadsItsVersion(t *testing.T) {
+	f := &fakeWorker{reply: `{"model":"plan","version":"2","task":"recommendation","scenario":"visits","algorithm":"item_similarity",
+		"dataset":"orders","target":"","features":[],"metrics":{"ordered_in_period@k":0.44,"score":0.44},
+		"baseline":{"ordered_in_period@k":0.32},
+		"baselines_named":[{"name":"most_overdue","metrics":{"ordered_in_period@k":0.32}}],
+		"evaluation":{"period_days":7,"cutoff":"2026-09-24"},
+		"health":{"ok":true,"checks":[{"code":"few_customers","status":"amber","message":"m","fix":"f"}],"stats":{"customers":300}},
+		"roles":{"transactions":{"dataset":"orders","customer":"cust"}},
+		"rules":[{"kind":"capacity","per_day":6}],
+		"samples":[{"for":"R01","items":[{"id":"C1","score":0.5,"rank":1,"reasons":[],"fields":{}}]}]}`}
+	c := New(f.server(t).URL, "", nil)
+	v, err := c.Train(t.Context(), "tenant-a", "plan", TrainSpec{
+		Task: TaskRecommendation, Scenario: "visits", Data: map[string]map[string]string{"transactions": {"dataset": "orders", "customer": "cust"}},
+		Rules: []recommend.Rule{{Kind: recommend.RuleCapacity, PerDay: 6}}, PeriodDays: 7,
+	})
+	if err != nil {
+		t.Fatalf("Train: %v", err)
+	}
+	var sent map[string]any
+	if err := json.Unmarshal(f.body, &sent); err != nil {
+		t.Fatal(err)
+	}
+	if sent["scenario"] != "visits" || sent["period_days"] != 7.0 || sent["recommend"] != nil {
+		t.Errorf("sent %v", sent)
+	}
+	if want := []any{map[string]any{"kind": "capacity", "per_day": 6.0}}; !equalJSON(sent["rules"], want) {
+		t.Errorf("sent rules %v", sent["rules"])
+	}
+	if v.Scenario != "visits" || len(v.BaselinesNamed) != 1 || v.BaselinesNamed[0].Name != "most_overdue" ||
+		v.Health == nil || !v.Health.OK || v.Health.Checks[0].Fix != "f" || v.Roles["transactions"]["customer"] != "cust" ||
+		len(v.Rules) != 1 || v.Evaluation["period_days"] != 7.0 || !strings.Contains(string(v.Samples), `"for":"R01"`) {
+		t.Errorf("version = %+v", v)
+	}
+}
+
+func TestRecommendCheckPostsTheScenario(t *testing.T) {
+	f := &fakeWorker{reply: `{"ok":false,"checks":[{"code":"missing_role","status":"red","message":"no customers","fix":"map it"}],"stats":{"customers":0}}`}
+	c := New(f.server(t).URL, "", nil)
+	h, err := c.RecommendCheck(t.Context(), "tenant-a", TrainSpec{Task: TaskRecommendation, Scenario: "visits"})
+	if err != nil {
+		t.Fatalf("RecommendCheck: %v", err)
+	}
+	if f.path != "/v1/recommend-check/tenant-a" || h.OK || h.Checks[0].Code != "missing_role" {
+		t.Errorf("path %q, health %+v", f.path, h)
+	}
+	if _, err := c.RecommendCheck(t.Context(), "../x", TrainSpec{}); err == nil {
+		t.Error("a bad vhost was sent")
 	}
 }
 

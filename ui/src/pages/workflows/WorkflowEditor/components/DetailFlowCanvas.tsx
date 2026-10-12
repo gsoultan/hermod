@@ -162,6 +162,7 @@ export const detailNodeTypes = {
   wait: TransformationNode,
   foreach: TransformationNode,
   explode: TransformationNode,
+  ml_recommend_build: TransformationNode,
   ai_classify: TransformationNode,
   ai_agent: TransformationNode,
   // Without these React Flow drew a bare default box, with no handles, for

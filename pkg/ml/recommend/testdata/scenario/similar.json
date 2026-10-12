@@ -1,0 +1,630 @@
+[
+ {
+  "today": "2026-10-01",
+  "product": "S036",
+  "k": 10,
+  "items": [
+   {
+    "id": "S056",
+    "score": 0.7789808511734009,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S036"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 6",
+     "category": "cleaning"
+    }
+   },
+   {
+    "id": "S046",
+    "score": 0.6882472038269043,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S036"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 5",
+     "category": "cleaning"
+    }
+   },
+   {
+    "id": "S006",
+    "score": 0.6676978468894958,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S036"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 1",
+     "category": "cleaning"
+    }
+   },
+   {
+    "id": "S016",
+    "score": 0.6515837907791138,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S036"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 2",
+     "category": "cleaning"
+    }
+   },
+   {
+    "id": "S026",
+    "score": 0.5298129320144653,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S036"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 3",
+     "category": "cleaning"
+    }
+   },
+   {
+    "id": "S047",
+    "score": 0.27668577432632446,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S036"
+     }
+    ],
+    "fields": {
+     "name": "Paper item 5",
+     "category": "paper"
+    }
+   },
+   {
+    "id": "S009",
+    "score": 0.26490646600723267,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S036"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 1",
+     "category": "spices"
+    }
+   },
+   {
+    "id": "S027",
+    "score": 0.26490646600723267,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S036"
+     }
+    ],
+    "fields": {
+     "name": "Paper item 3",
+     "category": "paper"
+    }
+   },
+   {
+    "id": "S017",
+    "score": 0.2452557384967804,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S036"
+     }
+    ],
+    "fields": {
+     "name": "Paper item 2",
+     "category": "paper"
+    }
+   },
+   {
+    "id": "S019",
+    "score": 0.2452557384967804,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S036"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 2",
+     "category": "spices"
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "product": "S006",
+  "k": 10,
+  "items": [
+   {
+    "id": "S046",
+    "score": 0.7276068925857544,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S006"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 5",
+     "category": "cleaning"
+    }
+   },
+   {
+    "id": "S036",
+    "score": 0.6676978468894958,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S006"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 4",
+     "category": "cleaning"
+    }
+   },
+   {
+    "id": "S026",
+    "score": 0.6301260590553284,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S006"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 3",
+     "category": "cleaning"
+    }
+   },
+   {
+    "id": "S016",
+    "score": 0.6262242794036865,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S006"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 2",
+     "category": "cleaning"
+    }
+   },
+   {
+    "id": "S056",
+    "score": 0.5882353186607361,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S006"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 6",
+     "category": "cleaning"
+    }
+   },
+   {
+    "id": "S009",
+    "score": 0.3500700294971466,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S006"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 1",
+     "category": "spices"
+    }
+   },
+   {
+    "id": "S032",
+    "score": 0.32338082790374756,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S006"
+     }
+    ],
+    "fields": {
+     "name": "Snacks item 4",
+     "category": "snacks"
+    }
+   },
+   {
+    "id": "S022",
+    "score": 0.28005602955818176,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S006"
+     }
+    ],
+    "fields": {
+     "name": "Snacks item 3",
+     "category": "snacks"
+    }
+   },
+   {
+    "id": "S052",
+    "score": 0.28005602955818176,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S006"
+     }
+    ],
+    "fields": {
+     "name": "Snacks item 6",
+     "category": "snacks"
+    }
+   },
+   {
+    "id": "S019",
+    "score": 0.2592814862728119,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S006"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 2",
+     "category": "spices"
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "product": "S034",
+  "k": 10,
+  "items": [
+   {
+    "id": "S004",
+    "score": 0.8426648378372192,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S034"
+     }
+    ],
+    "fields": {
+     "name": "Frozen item 1",
+     "category": "frozen"
+    }
+   },
+   {
+    "id": "S054",
+    "score": 0.8140915632247925,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S034"
+     }
+    ],
+    "fields": {
+     "name": "Frozen item 6",
+     "category": "frozen"
+    }
+   },
+   {
+    "id": "S024",
+    "score": 0.7514691352844238,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S034"
+     }
+    ],
+    "fields": {
+     "name": "Frozen item 3",
+     "category": "frozen"
+    }
+   },
+   {
+    "id": "S014",
+    "score": 0.5850179195404053,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S034"
+     }
+    ],
+    "fields": {
+     "name": "Frozen item 2",
+     "category": "frozen"
+    }
+   },
+   {
+    "id": "S044",
+    "score": 0.5601120591163635,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S034"
+     }
+    ],
+    "fields": {
+     "name": "Frozen item 5",
+     "category": "frozen"
+    }
+   },
+   {
+    "id": "S033",
+    "score": 0.2592814862728119,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S034"
+     }
+    ],
+    "fields": {
+     "name": "Dairy item 4",
+     "category": "dairy"
+    }
+   },
+   {
+    "id": "S016",
+    "score": 0.2504897117614746,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S034"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 2",
+     "category": "cleaning"
+    }
+   },
+   {
+    "id": "S012",
+    "score": 0.24253562092781067,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S034"
+     }
+    ],
+    "fields": {
+     "name": "Snacks item 2",
+     "category": "snacks"
+    }
+   },
+   {
+    "id": "S049",
+    "score": 0.21938171982765198,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S034"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 5",
+     "category": "spices"
+    }
+   },
+   {
+    "id": "S026",
+    "score": 0.21004201471805573,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S034"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 3",
+     "category": "cleaning"
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "product": "S010",
+  "k": 10,
+  "items": [
+   {
+    "id": "S020",
+    "score": 0.703526496887207,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S010"
+     }
+    ],
+    "fields": {
+     "name": "Personal item 2",
+     "category": "personal"
+    }
+   },
+   {
+    "id": "S040",
+    "score": 0.6689935922622681,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S010"
+     }
+    ],
+    "fields": {
+     "name": "Personal item 4",
+     "category": "personal"
+    }
+   },
+   {
+    "id": "S030",
+    "score": 0.5853694081306458,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S010"
+     }
+    ],
+    "fields": {
+     "name": "Personal item 3",
+     "category": "personal"
+    }
+   },
+   {
+    "id": "S060",
+    "score": 0.5449492335319519,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S010"
+     }
+    ],
+    "fields": {
+     "name": "Personal item 6",
+     "category": "personal"
+    }
+   },
+   {
+    "id": "S050",
+    "score": 0.5017452239990234,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S010"
+     }
+    ],
+    "fields": {
+     "name": "Personal item 5",
+     "category": "personal"
+    }
+   },
+   {
+    "id": "S059",
+    "score": 0.30151134729385376,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S010"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 6",
+     "category": "spices"
+    }
+   },
+   {
+    "id": "S039",
+    "score": 0.27272728085517883,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S010"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 4",
+     "category": "spices"
+    }
+   },
+   {
+    "id": "S049",
+    "score": 0.27272728085517883,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S010"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 5",
+     "category": "spices"
+    }
+   },
+   {
+    "id": "S029",
+    "score": 0.24174688756465912,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S010"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 3",
+     "category": "spices"
+    }
+   },
+   {
+    "id": "S041",
+    "score": 0.20100755989551544,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S010"
+     }
+    ],
+    "fields": {
+     "name": "Beverages item 5",
+     "category": "beverages"
+    }
+   }
+  ]
+ }
+]

@@ -41,6 +41,11 @@ var descriptions = map[string]string{
 		`the array. config: {"arrayPath":"lines","mode":"field|merge","targetField":"line","indexField","maxItems":"10000",` +
 		`"keepEmpty"}. mode field puts the element in targetField (default the array's path); merge copies an object ` +
 		`element's fields onto the record.`,
+	"ml_recommend_build": `Builds a recommendation scenario model's answers for every salesman, customer or product ` +
+		`of the vhost and emits one record per result row (model, version, recommendation_id, for_id, item_id, rank, score, ` +
+		`plan_date, reasons_text, built_at), optionally writing them to a table first. config: {"model",` +
+		`"for":"all_salesmen|all_customers|all_products","periodDays":"7","k":"20","targetSourceId","targetTable",` +
+		`"targetMode":"replace|append","maxRows":"10000"}.`,
 	"foreach":  `Splits an array into one record per item; downstream nodes run for each. config: {"arrayPath":"items"}.`,
 	"join":     "Stateful join: waits for related events from several paths and joins them by key.",
 	"log":      "Writes the record to the workflow log; passes it on unchanged.",
@@ -69,7 +74,10 @@ var descriptions = map[string]string{
 		`"outputField":"prediction"}. Empty inputs send the whole record. For a recommendation model use ` +
 		`{"model","mode":"recommend","recommendFor":"user|item","idField":"customer_id","k":"10","excludeSeen":"true",` +
 		`"outputField":"recommendations"}: it reads the person's (or item's) id from idField and writes a list of ` +
-		`{"item","score","reason"} best first; reason "popular" marks the fallback for an id the model never saw.`,
+		`{"item","score","reason"} best first; reason "popular" marks the fallback for an id the model never saw. ` +
+		`For a recommendation scenario model set recommendFor to "salesman" (a visit plan), "customer" or "product", ` +
+		`plus "periodDays" for a visit plan and "rules" (a JSON list); it writes {"id","score","rank","reasons","fields",` +
+		`"due_date","plan_date"} best first.`,
 	"transformation:ml_train": `Trains a new version of a model on a dataset held by the vhost's ML worker and writes ` +
 		`the result (version, metrics, whether it went live) onto the record. config: {"model","dataset","target",` +
 		`"features":"a,b,c","task":"auto|classification|regression",` +

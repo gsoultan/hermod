@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -77,6 +78,9 @@ func (r *Registry) MLPredict(ctx context.Context, vhost, model string, rows []in
 // recommendation model, for req's "user" or "item", with "k" and
 // "exclude_seen" when set. The workflow is the caller the log names.
 func (r *Registry) MLRecommend(ctx context.Context, vhost, model string, req map[string]any) ([]map[string]any, error) {
+	if _, ok := req["for"].(map[string]any); ok {
+		return r.mlRecommendScenario(ctx, vhost, model, req)
+	}
 	call := ml.RecommendRequest{User: req["user"], Item: req["item"]}
 	if k, ok := req["k"].(int); ok {
 		call.K = k
@@ -97,6 +101,124 @@ func (r *Registry) MLRecommend(ctx context.Context, vhost, model string, req map
 		}
 	}
 	return out, nil
+}
+
+// mlRecommendScenario is MLRecommend for a scenario subject: req's "for",
+// with "k", "exclude_seen", "rules" and "period_days" (a visit plan's days
+// from today). The answer is the first result's items, each with the day a
+// visit plan puts it on as "plan_date".
+func (r *Registry) mlRecommendScenario(ctx context.Context, vhost, model string, req map[string]any) ([]map[string]any, error) {
+	raw, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	var call ml.ScenarioRequest
+	if err := json.Unmarshal(raw, &call); err != nil {
+		return nil, fmt.Errorf("reading the recommendation request: %w", err)
+	}
+	if days, ok := req["period_days"].(int); ok && days > 0 {
+		from := time.Now().UTC()
+		call.Period = &ml.ScenarioPeriod{From: from.Format(time.DateOnly), To: from.AddDate(0, 0, days-1).Format(time.DateOnly)}
+	}
+	workflowID, _ := ctx.Value(hermod.WorkflowIDKey).(string)
+	ans, err := r.MLService().RecommendScenario(ml.WithCaller(ctx, storage.MLCallerWorkflow, workflowID), vhost, model, call)
+	if err != nil {
+		return nil, err
+	}
+	out := []map[string]any{}
+	if len(ans.Results) == 0 {
+		return out, nil
+	}
+	res := ans.Results[0]
+	days := map[string]string{}
+	for _, d := range res.Plan {
+		for _, p := range d.Items {
+			days[p.ID] = d.Date
+		}
+	}
+	for _, p := range res.Items {
+		item := map[string]any{"id": p.ID, "score": p.Score, "rank": p.Rank, "reasons": p.Reasons, "fields": p.Fields,
+			"recommendation_id": ans.RecommendationID}
+		if p.DueDate != "" {
+			item["due_date"] = p.DueDate
+		}
+		if d := days[p.ID]; d != "" {
+			item["plan_date"] = d
+		}
+		out = append(out, item)
+	}
+	return out, nil
+}
+
+// OpenMLTarget opens a database source of the vhost for a recommendation
+// build's writes: the source must belong to the vhost, as a dataset query's
+// must. It returns the pool and the source's type.
+func (r *Registry) OpenMLTarget(ctx context.Context, vhost, sourceID string) (*sql.DB, string, error) {
+	src, err := r.GetSourceConfig(ctx, sourceID)
+	if err != nil {
+		return nil, "", fmt.Errorf("source %q: %w", sourceID, err)
+	}
+	srcVHost := src.VHost
+	if srcVHost == "" {
+		srcVHost = "default"
+	}
+	if srcVHost != vhost {
+		return nil, "", fmt.Errorf("source %q does not belong to vhost %q", sourceID, vhost)
+	}
+	db, err := r.GetOrOpenDB(src)
+	if err != nil {
+		return nil, "", fmt.Errorf("opening source %q: %w", sourceID, err)
+	}
+	return db, src.Type, nil
+}
+
+// MLRecommendBuild is what the Build Recommendations node calls: the
+// model's answers for every salesman, customer or product as rows, written
+// to the target table when the config names one. config is the node's:
+// for, periodDays, k, targetSourceId, targetTable, targetMode, and maxRows,
+// over which the build is refused before anything is written.
+func (r *Registry) MLRecommendBuild(ctx context.Context, vhost, model string, config map[string]any) ([]map[string]any, int, error) {
+	b := ml.ModelBuild{For: stringOf(config["for"]), Target: ml.BuildTarget{
+		SourceID: stringOf(config["targetSourceId"]), Table: stringOf(config["targetTable"]), Mode: stringOf(config["targetMode"])}}
+	if v, ok := config["periodDays"].(int); ok {
+		b.PeriodDays = v
+	}
+	if v, ok := config["k"].(int); ok {
+		b.K = v
+	}
+	svc := r.MLService()
+	workflowID, _ := ctx.Value(hermod.WorkflowIDKey).(string)
+	ctx = ml.WithCaller(ctx, storage.MLCallerWorkflow, workflowID)
+	rows, err := svc.BuildRecommendations(ctx, vhost, model, b)
+	if err != nil {
+		return nil, 0, err
+	}
+	if limit, ok := config["maxRows"].(int); ok && limit > 0 && len(rows) > limit {
+		return nil, 0, fmt.Errorf("the build made %d rows, over the node's maxRows %d; nothing was written", len(rows), limit)
+	}
+	written := 0
+	if b.Target.SourceID != "" {
+		db, driver, err := r.OpenMLTarget(ctx, vhost, b.Target.SourceID)
+		if err != nil {
+			return nil, 0, err
+		}
+		if err := ml.WriteBuild(ctx, db, driver, b.Target, model, rows); err != nil {
+			return nil, 0, err
+		}
+		written = len(rows)
+	}
+	out := make([]map[string]any, len(rows))
+	for i, row := range rows {
+		out[i] = map[string]any{"model": row.Model, "version": row.Version, "recommendation_id": row.RecommendationID,
+			"for_id": row.ForID, "item_id": row.ItemID, "rank": row.Rank, "score": row.Score, "plan_date": row.PlanDate,
+			"reasons_text": row.ReasonsText, "built_at": row.BuiltAt}
+	}
+	return out, written, nil
+}
+
+func stringOf(v any) string {
+	s, _ := v.(string)
+	return s
 }
 
 // notifyMLDrift alerts that a model's inputs drifted past its alert

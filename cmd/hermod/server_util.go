@@ -61,6 +61,8 @@ func startAPI(ctx context.Context, o *Options, reg *registry.Registry, store, lo
 	// is claimed in storage before it is trained, so each retraining happens
 	// once across them.
 	go ml.NewRetrainer(reg.MLService, logger).Run(ctx)
+	// Dataset refreshes and recommendation builds, claimed the same way.
+	go ml.NewScheduler(reg.MLService, reg, logger).Run(ctx)
 	// Asynchronous predictions, recommendations and trainings. Every API
 	// replica runs a job runner; a job is claimed in storage before it runs,
 	// and a job whose replica stopped is taken over once its claim expires.

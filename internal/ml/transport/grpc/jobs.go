@@ -223,13 +223,26 @@ func setResult(pj *proto.Job, raw []byte) error {
 		}
 		pj.Result = &proto.Job_PredictResult{PredictResult: out}
 	case storage.MLJobRecommend:
+		// A scenario call's answer holds "results"; a call for a user or an
+		// item's, "items".
 		var res struct {
-			Items []recommend.Item `json:"items"`
+			Items            []recommend.Item   `json:"items"`
+			RecommendationID string             `json:"recommendation_id"`
+			Results          []recommend.Result `json:"results"`
 		}
 		if err := json.Unmarshal(raw, &res); err != nil {
 			return status.Errorf(codes.Internal, "reading the job's result: %v", err)
 		}
-		out := &proto.RecommendResponse{Model: pj.GetModel(), Items: make([]*proto.RecommendedItem, len(res.Items))}
+		if res.Results != nil {
+			out, err := scenarioResponse(pj.GetModel(), ml.ScenarioAnswer{RecommendationID: res.RecommendationID, Results: res.Results})
+			if err != nil {
+				return err
+			}
+			pj.Result = &proto.Job_RecommendScenarioResult{RecommendScenarioResult: out}
+			return nil
+		}
+		out := &proto.RecommendResponse{Model: pj.GetModel(), RecommendationId: res.RecommendationID,
+			Items: make([]*proto.RecommendedItem, len(res.Items))}
 		for i, it := range res.Items {
 			out.Items[i] = &proto.RecommendedItem{Item: it.Item, Score: it.Score, Reason: it.Reason}
 		}

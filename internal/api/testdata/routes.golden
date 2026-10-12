@@ -16,7 +16,9 @@ DELETE /api/sources/{id}
 DELETE /api/users/{id}
 DELETE /api/vhosts/{id}
 DELETE /api/vhosts/{vhost}/ml/datasets/{name}
+DELETE /api/vhosts/{vhost}/ml/datasets/{name}/refresh
 DELETE /api/vhosts/{vhost}/ml/models/{name}
+DELETE /api/vhosts/{vhost}/ml/models/{name}/build
 DELETE /api/vhosts/{vhost}/ml/models/{name}/retrain
 DELETE /api/vhosts/{vhost}/ml/models/{name}/serving-key
 DELETE /api/vhosts/{vhost}/ml/scripts/{name}
@@ -78,7 +80,9 @@ GET /api/vhosts/{vhost}/ml/jobs/{id}
 GET /api/vhosts/{vhost}/ml/jobs/{id}/result
 GET /api/vhosts/{vhost}/ml/models
 GET /api/vhosts/{vhost}/ml/models/{name}
+GET /api/vhosts/{vhost}/ml/models/{name}/build
 GET /api/vhosts/{vhost}/ml/models/{name}/drift
+GET /api/vhosts/{vhost}/ml/models/{name}/feedback/summary
 GET /api/vhosts/{vhost}/ml/models/{name}/predictions
 GET /api/vhosts/{vhost}/ml/models/{name}/scoring
 GET /api/vhosts/{vhost}/ml/models/{name}/versions
@@ -157,6 +161,7 @@ POST /api/mcp
 POST /api/mesh/clusters
 POST /api/ml/serve/{vhost}/jobs/{id}/cancel
 POST /api/ml/serve/{vhost}/{name}
+POST /api/ml/serve/{vhost}/{name}/recommend
 POST /api/proxy/fetch
 POST /api/schemas
 POST /api/settings/test
@@ -191,10 +196,13 @@ POST /api/vhosts
 POST /api/vhosts/
 POST /api/vhosts/{vhost}/ml/datasets/{name}/query
 POST /api/vhosts/{vhost}/ml/jobs/{id}/cancel
+POST /api/vhosts/{vhost}/ml/models/{name}/feedback
 POST /api/vhosts/{vhost}/ml/models/{name}/predict
+POST /api/vhosts/{vhost}/ml/models/{name}/recommend
 POST /api/vhosts/{vhost}/ml/models/{name}/serving-key
 POST /api/vhosts/{vhost}/ml/models/{name}/train
 POST /api/vhosts/{vhost}/ml/models/{name}/versions/{version}/promote
+POST /api/vhosts/{vhost}/ml/recommend-check
 POST /api/vhosts/{vhost}/ml/train-check
 POST /api/webhooks/requests/{id}/replay
 POST /api/webhooks/{path...}
@@ -237,7 +245,9 @@ PUT /api/vhosts/{id}
 PUT /api/vhosts/{vhost}/ai/budget
 PUT /api/vhosts/{vhost}/ai/kill-switch
 PUT /api/vhosts/{vhost}/ml/datasets/{name}/file
+PUT /api/vhosts/{vhost}/ml/datasets/{name}/refresh
 PUT /api/vhosts/{vhost}/ml/models/{name}
+PUT /api/vhosts/{vhost}/ml/models/{name}/build
 PUT /api/vhosts/{vhost}/ml/models/{name}/mcp
 PUT /api/vhosts/{vhost}/ml/models/{name}/monitoring
 PUT /api/vhosts/{vhost}/ml/models/{name}/retrain

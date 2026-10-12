@@ -37,6 +37,7 @@ import { AIAgentConfig } from './ai-agent/AIAgentConfig'
 // machine learning
 import { MLPredictConfig } from './ml/MLPredictConfig'
 import { MLTrainConfig } from './ml/MLTrainConfig'
+import { MLRecommendBuildConfig } from './ml/MLRecommendBuildConfig'
 // feature engineering
 import { ScaleConfig } from './features/ScaleConfig'
 import { EncodeConfig } from './features/EncodeConfig'
@@ -240,6 +241,7 @@ export const NODE_TYPE_CONFIGS: Record<string, ConfigComponent> = {
   ai_classify: AIClassifyConfig,
   ai_agent: AIAgentConfig,
   explode: ExplodeConfig,
+  ml_recommend_build: MLRecommendBuildConfig,
 }
 
 /**

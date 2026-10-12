@@ -54,7 +54,7 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from skl2onnx import convert_sklearn, get_latest_tested_opset_version
 from skl2onnx.common.data_types import FloatTensorType, StringTensorType
 
-from . import deep, insights, precheck, recommend, selection
+from . import deep, insights, precheck, recommend, scenarios, selection
 from .datasets import NUMBER, STRING, DatasetStore, is_null, to_text
 from .errors import ApiError, bad_request, not_found
 from .names import validate_name
@@ -218,9 +218,15 @@ def parse_seed(body: dict[str, Any]) -> int:
     return seed
 
 
-def parse_any_request(body: dict[str, Any]) -> TrainRequest | recommend.RecommendRequest:
-    """A recommendation request, or a request to predict a column."""
+def parse_any_request(body: dict[str, Any]) -> TrainRequest | recommend.RecommendRequest | scenarios.ScenarioRequest:
+    """A recommendation scenario, a recommendation request in #268's
+    `recommend` shape (scenario "products" on one table), or a request to
+    predict a column."""
+    if scenarios.is_scenario(body):
+        return scenarios.parse_request(body, parse_test_size(body), parse_seed(body))
     if body.get("task") == recommend.TASK:
+        if body.get("scenario") not in (None, "products") or body.get("data") is not None:
+            raise bad_request("'recommend' is the one-table shape of scenario \"products\"; for another scenario name each table in 'data' instead.")
         return recommend.parse_request(body, parse_test_size(body), parse_seed(body))
     return parse_request(body)
 
@@ -640,9 +646,14 @@ class Trainer:
         if not self._slots.acquire(blocking=False):
             raise ApiError(429, "Training is busy; try again when the current training finishes.")
         try:
-            if isinstance(request, recommend.RecommendRequest):
+            if isinstance(request, scenarios.ScenarioRequest):
+                artifact, meta = scenarios.train(lambda dataset: self._datasets.load(vhost, dataset), request, name)
+                meta["created_at"] = utc_now()
+                meta = self._models.save(vhost, name, artifact, meta, recommend.ARTIFACT)
+            elif isinstance(request, recommend.RecommendRequest):
                 frame, types = self._datasets.load(vhost, request.dataset)
                 artifact, meta = recommend.train(frame, types, request, name)
+                meta["scenario"] = "products"
                 meta["created_at"] = utc_now()
                 meta = self._models.save(vhost, name, artifact, meta, recommend.ARTIFACT)
             else:
@@ -666,6 +677,26 @@ class Trainer:
         frame, types = self._datasets.load(vhost, request.dataset)
         features = self._features(frame, types, request)
         return precheck.check(frame, types, request.target, features, request.task, request.seed)
+
+    def recommend_check(self, vhost: str, body: dict[str, Any]) -> dict[str, Any]:
+        """The data health check of a recommendation scenario: the same body
+        as its training, nothing trained, no training slot taken. A model
+        name and rules are ignored; a body in the one-table `recommend`
+        shape is read as scenario "products" on its dataset."""
+        body = {k: v for k, v in body.items() if k not in ("name", "go_live", "rules")}
+        if body.get("task") == recommend.TASK and body.get("recommend") is not None and body.get("data") is None:
+            legacy = recommend.parse_request(body, parse_test_size(body), parse_seed(body))
+            mapping = {"dataset": legacy.dataset, "customer": legacy.user, "product": legacy.item}
+            if legacy.time:
+                mapping["date"] = legacy.time
+            if legacy.strength:
+                mapping["quantity"] = legacy.strength
+            body = {"task": recommend.TASK, "scenario": "products", "data": {"transactions": mapping}}
+        if not scenarios.is_scenario(body):
+            raise bad_request("The data health check is for a recommendation model: send task \"recommendation\" with its scenario and data.")
+        request = scenarios.parse_request(body, parse_test_size(body), parse_seed(body))
+        health, _ = scenarios.inspect(lambda dataset: self._datasets.load(vhost, dataset), request)
+        return health
 
     @staticmethod
     def _features(frame: pd.DataFrame, types: dict[str, str], req: TrainRequest) -> list[str]:
