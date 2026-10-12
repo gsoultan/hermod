@@ -44,12 +44,16 @@ func TestMongoMLJobs(t *testing.T) {
 	if err != nil || !ok || first.ID != "job_1" || first.Attempts != 1 || first.StartedAt == nil {
 		t.Fatalf("claim = %+v, %v, %v", first, ok, err)
 	}
-	// hermod-1 stops; its claim expires and another Hermod takes the job over.
-	taken, ok, _ := st.ClaimMLJob(ctx, "hermod-2", time.Minute, t0.Add(2*time.Minute))
-	if !ok || taken.ID != "job_2" {
-		t.Fatalf("second claim = %+v, %v", taken, ok)
+	second, ok, _ := st.ClaimMLJob(ctx, "hermod-2", time.Minute, t0)
+	if !ok || second.ID != "job_2" {
+		t.Fatalf("second claim = %+v, %v", second, ok)
 	}
-	taken, ok, _ = st.ClaimMLJob(ctx, "hermod-2", time.Minute, t0.Add(2*time.Minute))
+	if _, ok, _ := st.ClaimMLJob(ctx, "hermod-3", time.Minute, t0); ok {
+		t.Fatal("a third claim took a job two others hold")
+	}
+	// hermod-1 stops; its claim expires and another Hermod takes the oldest
+	// job over, as the SQL store does.
+	taken, ok, _ := st.ClaimMLJob(ctx, "hermod-2", time.Minute, t0.Add(2*time.Minute))
 	if !ok || taken.ID != "job_1" || taken.Attempts != 2 || !taken.StartedAt.Equal(*first.StartedAt) {
 		t.Fatalf("takeover = %+v, %v", taken, ok)
 	}
