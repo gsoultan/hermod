@@ -7,6 +7,46 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+## [1.18.0] — 2026-10-12
+
+AI automation and machine learning. Workflows can call LLM providers, retrieve
+from vector stores and run agents whose writes wait for approval, with budgets
+and a kill switch per vhost. Models can be trained in Hermod by the `hermod-ml`
+worker, served from workflows, REST, gRPC and MCP, and watched for drift. Also
+new: a chat trigger, structure, parsing and reference-data nodes, feature
+engineering nodes and 42 more expression functions.
+
+Also in this release: Oracle CDC with LogMiner, MySQL and MariaDB members in
+transactional sink groups (XA), Kafka exactly-once delivery, data lineage and
+impact, recommendation models and scenarios for sales teams, asynchronous ML
+jobs, guided training for people new to machine learning, a prompt before
+leaving the workflow editor with unsaved changes, and a README split into pages
+under `docs/`.
+
+### Upgrading
+
+Nothing is required: every AI and ML feature waits until it is configured.
+Three behaviour changes come with AI automation, described in full under
+[Added — AI automation](#added--ai-automation):
+
+- Self-correction no longer changes a running workflow. A retry increase is a
+  proposal to approve, and Safe Mode is recommended rather than entered.
+- Mapping suggestions are off unless `HERMOD_SELF_HEALING_AI_PROVIDER` is set.
+- The AI Enrichment and AI Mapper nodes leave the palette. Saved workflows that
+  use them keep working.
+
+One behaviour change comes with the move to franz-go:
+
+**The Kafka sink spreads keyed records by key.** The connectors moved from
+`segmentio/kafka-go` to `franz-go`. The sink used to pick the partition with the
+fewest bytes queued; it now hashes the record key (the message ID), so records
+with the same ID land on the same partition in order, and records without one
+are spread across partitions in batches. A topic whose consumers relied on an even
+spread of records with few distinct IDs will see it change. The source now reads
+`read_committed`, which changes nothing on a topic nobody writes
+transactionally, and SASL credentials on the source are actually sent: they
+were set up on a transport the reader never used.
+
 ### Added — Recommendation scenarios for sales teams
 
 A recommendation model can now be trained for one of five **scenarios** from
@@ -70,6 +110,14 @@ asks scenario models for a salesman, customer or product, and the palette gets
 **Build Recommendations** (`ml_recommend_build`). A server without the
 scenario routes keeps the one-table recommender.
 
+### Added — the workflow editor asks before discarding unsaved changes
+
+Leaving the editor after editing a workflow used to discard the edits silently.
+Navigating away now asks Save, Discard or Cancel, and closing or reloading the
+tab shows the browser's leave-page prompt. An edit that is undone does not
+count as a change. Saving from the prompt continues to where you were going,
+and a failed save keeps you in the editor.
+
 ### Added — Asynchronous ML jobs
 
 Predict, recommend and train calls can run as **jobs**: send
@@ -107,44 +155,6 @@ is now given 10 seconds, or the model's own `timeout_ms` when that is longer,
 and answers **408** (`DEADLINE_EXCEEDED` over gRPC) with a hint to send it
 async. Set `HERMOD_ML_SYNC_TIMEOUT` (`30s`, or seconds) to change it, or `0`
 for no limit as before. Workflow nodes and sync training are not affected.
-
-## [1.18.0] — 2026-10-12
-
-AI automation and machine learning. Workflows can call LLM providers, retrieve
-from vector stores and run agents whose writes wait for approval, with budgets
-and a kill switch per vhost. Models can be trained in Hermod by the `hermod-ml`
-worker, served from workflows, REST, gRPC and MCP, and watched for drift. Also
-new: a chat trigger, structure, parsing and reference-data nodes, feature
-engineering nodes and 42 more expression functions.
-
-Also in this release: Oracle CDC with LogMiner, MySQL and MariaDB members in
-transactional sink groups (XA), Kafka exactly-once delivery, data lineage and
-impact, recommendation models, guided training for people new to machine
-learning, and a README split into pages under `docs/`.
-
-### Upgrading
-
-Nothing is required: every AI and ML feature waits until it is configured.
-Three behaviour changes come with AI automation, described in full under
-[Added — AI automation](#added--ai-automation):
-
-- Self-correction no longer changes a running workflow. A retry increase is a
-  proposal to approve, and Safe Mode is recommended rather than entered.
-- Mapping suggestions are off unless `HERMOD_SELF_HEALING_AI_PROVIDER` is set.
-- The AI Enrichment and AI Mapper nodes leave the palette. Saved workflows that
-  use them keep working.
-
-One behaviour change comes with the move to franz-go:
-
-**The Kafka sink spreads keyed records by key.** The connectors moved from
-`segmentio/kafka-go` to `franz-go`. The sink used to pick the partition with the
-fewest bytes queued; it now hashes the record key (the message ID), so records
-with the same ID land on the same partition in order, and records without one
-are spread across partitions in batches. A topic whose consumers relied on an even
-spread of records with few distinct IDs will see it change. The source now reads
-`read_committed`, which changes nothing on a topic nobody writes
-transactionally, and SASL credentials on the source are actually sent: they
-were set up on a transport the reader never used.
 
 ### Added — Recommendation models
 
