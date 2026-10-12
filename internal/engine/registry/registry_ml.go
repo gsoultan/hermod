@@ -38,15 +38,29 @@ func (r *Registry) createMLDatasetSink(cfg factory.SinkConfig) (hermod.Sink, err
 // MLService is the model registry and inference path over whatever storage
 // and secrets the registry holds right now. It is cheap to build, so it is
 // built per use rather than cached against a store that may be replaced. The
-// monitor is not: it is the one that holds the drift windows.
+// monitor is not: it is the one that holds the drift windows. Its ML worker is
+// the one in force, with the one saved in storage re-read when that is due,
+// so a worker connected from the console, here or in another process sharing
+// the database, is used without a restart.
 func (r *Registry) MLService() *ml.Service {
 	svc := ml.NewService(func() any { return r.store() }, r.vhostSecrets(), nil).
 		WithLogStore(func() any { return r.logStore() }).
 		WithMonitor(r.mlMonitor())
 	if r.mlWorker != nil {
-		svc.WithWorker(r.mlWorker)
+		return svc.WithWorker(r.mlWorker)
 	}
-	return svc
+	p := r.mlWorkerProvider()
+	ml.RefreshWorker(r.ctx, r.store(), p)
+	return svc.WithWorkerProvider(p)
+}
+
+// mlWorkerProvider is the provider of the ML worker in force: worker.Default,
+// unless a test replaced it.
+func (r *Registry) mlWorkerProvider() *worker.Provider {
+	if r.mlWorkers != nil {
+		return r.mlWorkers
+	}
+	return worker.Default
 }
 
 // mlMonitor is this process's prediction monitor, started on first use and

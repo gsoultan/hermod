@@ -24,10 +24,10 @@ func (h *Handler) WorkerStatus(w http.ResponseWriter, r *http.Request) {
 	svc := h.service()
 	wk, err := svc.Worker()
 	if err != nil {
-		writeJSON(w, map[string]any{"configured": false, "ready": false, "capabilities": svc.Capabilities()})
+		writeJSON(w, map[string]any{"configured": false, "ready": false, "source": worker.SourceNone, "capabilities": svc.Capabilities()})
 		return
 	}
-	status := map[string]any{"configured": true, "ready": true, "capabilities": svc.Capabilities()}
+	status := map[string]any{"configured": true, "ready": true, "source": h.workerSource(wk), "capabilities": svc.Capabilities()}
 	if err := wk.Ready(r.Context()); err != nil {
 		status["ready"] = false
 		status["error"] = "the ML worker does not answer"

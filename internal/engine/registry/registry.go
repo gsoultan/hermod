@@ -94,8 +94,10 @@ type Registry struct {
 	engines map[string]*activeEngine
 	mu      sync.RWMutex
 
-	// mlWorker replaces the ML worker the environment names; tests set it.
-	mlWorker *worker.Client
+	// mlWorker replaces the ML worker in force; tests set it. mlWorkers
+	// replaces worker.Default, the provider that answers it.
+	mlWorker  *worker.Client
+	mlWorkers *worker.Provider
 	// mlMon watches every prediction this process makes; see mlMonitor.
 	mlMon     *monitor.Monitor
 	mlMonOnce sync.Once

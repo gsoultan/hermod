@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/internal/storage/configsecrets"
 	"github.com/gsoultan/hermod/pkg/security/crypto"
 )
@@ -67,7 +68,59 @@ func (s *sqlStorage) ReEncryptSecrets(ctx context.Context, newKey string) error 
 		return err
 	}
 
-	return s.writeConfigRows(ctx, append(updates, secretUpdates...))
+	// So are the settings that hold credentials, such as the ML worker's
+	// token.
+	settingUpdates, err := s.reEncryptSettings(ctx, newKey)
+	if err != nil {
+		return err
+	}
+
+	return s.writeConfigRows(ctx, append(updates, secretUpdates...), settingUpdates)
+}
+
+// settingRow is one settings row's new value.
+type settingRow struct {
+	key, value string
+}
+
+// reEncryptSettings produces the new value of every setting in
+// storage.EncryptedSettingKeys that is set. As with reEncryptRows, one value
+// that cannot be read fails the whole rotation and nothing is written.
+func (s *sqlStorage) reEncryptSettings(ctx context.Context, newKey string) ([]settingRow, error) {
+	var out []settingRow
+	for _, key := range storage.EncryptedSettingKeys {
+		raw, err := s.GetSetting(ctx, key)
+		if err != nil {
+			return nil, fmt.Errorf("reading setting %s: %w", key, err)
+		}
+		if raw == "" {
+			continue
+		}
+		next, err := reEncryptSetting(key, raw, newKey)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, settingRow{key: key, value: next})
+	}
+	return out, nil
+}
+
+// reEncryptSetting re-encrypts one setting's stored value, a JSON object of
+// strings, under newKey.
+func reEncryptSetting(key, raw, newKey string) (string, error) {
+	cfg := map[string]string{}
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		return "", fmt.Errorf("setting %s is unreadable: %w", key, err)
+	}
+	next, err := configsecrets.ReEncrypt(cfg, newKey)
+	if err != nil {
+		return "", fmt.Errorf("setting %s: %w", key, err)
+	}
+	encoded, err := json.Marshal(next)
+	if err != nil {
+		return "", fmt.Errorf("setting %s: %w", key, err)
+	}
+	return string(encoded), nil
 }
 
 // readConfigRows reads the raw config column, bypassing the decryption that the
@@ -153,7 +206,7 @@ func reEncryptValues(rows []configRow, newKey string) ([]configRow, error) {
 	return updates, nil
 }
 
-func (s *sqlStorage) writeConfigRows(ctx context.Context, updates []configRow) error {
+func (s *sqlStorage) writeConfigRows(ctx context.Context, updates []configRow, settings []settingRow) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("re-encrypt transaction: %w", err)
@@ -167,6 +220,13 @@ func (s *sqlStorage) writeConfigRows(ctx context.Context, updates []configRow) e
 		stmt := s.prepareQuery("UPDATE " + u.table + " SET " + u.column + " = ? WHERE id = ?")
 		if _, err := tx.ExecContext(ctx, stmt, u.config, u.id); err != nil {
 			return fmt.Errorf("rewriting %s %s: %w", u.table, u.id, err)
+		}
+	}
+	for _, st := range settings {
+		// The dialect's own upsert, since "key" needs quoting on some.
+		//nolint:gosec // the statement is the dialect's constant upsert; key and value are bound parameters.
+		if _, err := tx.ExecContext(ctx, s.prepareQuery(s.queries.get(QuerySaveSetting)), st.key, st.value); err != nil {
+			return fmt.Errorf("rewriting setting %s: %w", st.key, err)
 		}
 	}
 
