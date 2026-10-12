@@ -99,6 +99,9 @@ type DriftStatus struct {
 	// window of at least MinRows predicted rows.
 	Window  string `json:"window,omitempty"`
 	MinRows int    `json:"min_rows,omitempty"`
+	// Recommendation is a recommendation model's latest report, which takes
+	// the place of feature drift: coverage and popular share.
+	Recommendation *monitor.RecommendationReport `json:"recommendation,omitempty"`
 }
 
 // Drift returns the model's latest drift report.
@@ -111,6 +114,15 @@ func (s *Service) Drift(ctx context.Context, vhost, name string) (DriftStatus, e
 		return DriftStatus{Reason: "drift is not measured by this Hermod process"}, nil
 	}
 	st := DriftStatus{Window: s.monitor.Window().String(), MinRows: s.monitor.MinRows()}
+	if m.IsRecommender() {
+		if r, ok := s.monitor.Recommendations(vhost, name); ok {
+			st.Recommendation = &r
+			return st, nil
+		}
+		st.Reason = fmt.Sprintf("a recommendation model has no features to drift; it is watched by coverage and popular share, "+
+			"reported every %s once at least %d recommendations have been made", st.Window, st.MinRows)
+		return st, nil
+	}
 	if r, ok := s.monitor.Report(vhost, name); ok {
 		st.Report = &r
 		return st, nil

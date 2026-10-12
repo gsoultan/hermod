@@ -24,8 +24,10 @@ type workerStub struct {
 	uploaded string
 	versions []worker.Version
 	busy     bool
-	// onnx is the graph every version serves (scoring_test.go).
+	// onnx is the graph every version serves (scoring_test.go), and rec the
+	// recommender artifact (recommend_test.go).
 	onnx []byte
+	rec  []byte
 	// trained is the last training spec the worker was sent, and checked
 	// the last pre-flight check's.
 	trained, checked string
@@ -77,10 +79,17 @@ func (s *workerStub) start(t *testing.T) *worker.Client {
 			s.trained = string(b)
 			v := worker.Version{Model: "churn", Version: "1", Task: "classification", Dataset: "customers",
 				Target: "churned", Features: []string{"age"}, Metrics: map[string]float64{"score": 0.6}}
+			var spec worker.TrainSpec
+			if json.Unmarshal(b, &spec) == nil && spec.Task == worker.TaskRecommendation {
+				v = worker.Version{Model: "recs", Version: "1", Task: worker.TaskRecommendation, Dataset: spec.Dataset,
+					Recommend: spec.Recommend, Metrics: map[string]float64{"score": 0.2, "ndcg@10": 0.2}}
+			}
 			s.versions = append([]worker.Version{v}, s.versions...)
 			_ = json.NewEncoder(w).Encode(v)
 		case strings.HasSuffix(p, "/model.onnx") && s.onnx != nil:
 			_, _ = w.Write(s.onnx)
+		case strings.HasSuffix(p, "/model.rec") && s.rec != nil:
+			_, _ = w.Write(s.rec)
 		case strings.HasSuffix(p, "/versions"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"versions": s.versions})
 		default:
@@ -351,6 +360,21 @@ func TestTrainCheckErrorsAreTrainingErrors(t *testing.T) {
 	w := do(h.TrainCheck, editorA, http.MethodPost, "/x", strings.NewReader(`{"dataset":"d","target":"y"}`), vals)
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("without a worker = %d %s", w.Code, w.Body)
+	}
+}
+
+// A recommender has no column to predict, so the check refuses it in words
+// that say what to do, rather than asking for a target.
+func TestTrainCheckRefusesARecommender(t *testing.T) {
+	h, _, stub := newTrainingAPI(t)
+	body := `{"dataset":"orders","task":"recommendation","recommend":{"user":"customer","item":"sku"}}`
+	w := do(h.TrainCheck, editorA, http.MethodPost, "/x", strings.NewReader(body), map[string]string{"vhost": "tenant-a"})
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "recommendation model") ||
+		!strings.Contains(w.Body.String(), "train it directly") {
+		t.Errorf("code = %d %s, want 400 saying to train it directly", w.Code, w.Body)
+	}
+	if stub.checked != "" {
+		t.Errorf("the worker was asked: %s", stub.checked)
 	}
 }
 

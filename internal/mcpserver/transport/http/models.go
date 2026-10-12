@@ -10,6 +10,7 @@ import (
 	"github.com/gsoultan/hermod/internal/mcpserver"
 	"github.com/gsoultan/hermod/internal/ml"
 	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/pkg/ml/recommend"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -35,6 +36,12 @@ func (m models) ListModels(ctx context.Context, vhost string) ([]storage.MLModel
 // Predict is the service's: an inference.Row is a map[string]any.
 func (m models) Predict(ctx context.Context, vhost, name string, rows []map[string]any) ([]map[string]any, error) {
 	return m.svc.Predict(ml.WithCaller(ctx, storage.MLCallerMCP, m.user), vhost, name, rows)
+}
+
+// Recommend is the service's recommendation path, logged as MCP.
+func (m models) Recommend(ctx context.Context, vhost, name string, req mcpserver.RecommendArgs) ([]recommend.Item, error) {
+	return m.svc.Recommend(ml.WithCaller(ctx, storage.MLCallerMCP, m.user), vhost, name, ml.RecommendRequest{
+		User: req.User, Item: req.Item, K: req.K, ExcludeSeen: req.ExcludeSeen})
 }
 
 // mlService is the registry's ML service when the engine runs, so a model's
@@ -79,14 +86,24 @@ func (m *MCPHandler) addModelTools(r *http.Request, srv *mcp.Server, svc *mcpser
 		return
 	}
 	for _, t := range tools {
+		title := "Predict with " + t.Model
+		if t.Recommend {
+			title = "Recommend with " + t.Model
+		}
 		srv.AddTool(&mcp.Tool{
 			Name:        t.Name,
-			Title:       "Predict with " + t.Model,
+			Title:       title,
 			Description: t.Description,
 			InputSchema: t.InputSchema,
 			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 		}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			res, err := svc.PredictTool(ctx, caller, t, req.Params.Arguments)
+			var res any
+			var err error
+			if t.Recommend {
+				res, err = svc.RecommendTool(ctx, caller, t, req.Params.Arguments)
+			} else {
+				res, err = svc.PredictTool(ctx, caller, t, req.Params.Arguments)
+			}
 			if err != nil {
 				// A refused or failed prediction is a tool result the model
 				// reads and can act on, not a protocol error.

@@ -37,6 +37,8 @@ export interface MLModel {
   retrain_status?: RetrainStatus
   /** Where a trained model is scored; absent means the ML worker. */
   scoring?: Scoring
+  /** What a trained model does: classification, regression or recommendation. */
+  task?: string
   updated_by?: string
   updated_at?: string
 }
@@ -55,6 +57,7 @@ export type MLModelInput = Omit<
   | 'mcp_exposed'
   | 'feature_types'
   | 'monitoring'
+  | 'task'
 >
 
 /** The rule storage.ValidMLModelName applies. */
@@ -105,6 +108,35 @@ export async function predict(vhost: string, name: string, instances: Record<str
   })
   const body = await res.json()
   return (body?.predictions ?? []) as unknown[]
+}
+
+/** A recommendation model's task. */
+export const RECOMMENDATION = 'recommendation'
+
+export const isRecommender = (m: Pick<MLModel, 'task'> | undefined | null) => m?.task === RECOMMENDATION
+
+/** One recommended item (pkg/ml/recommend Item); reason 'popular' marks the fallback. */
+export interface RecommendedItem {
+  item: string
+  score: number
+  reason?: string
+}
+
+/** A recommendation call: a person's top items, or the items like one item. */
+export type RecommendCall =
+  | { user: string | number; k?: number; exclude_seen?: boolean }
+  | { item: string | number; k?: number }
+
+/** Asks a recommendation model through the same predict route as rows. */
+export async function recommend(vhost: string, name: string, call: RecommendCall): Promise<RecommendedItem[]> {
+  const res = await apiFetch(`${modelUrl(vhost, name)}/predict`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(call),
+    silent: true,
+  })
+  const body = await res.json()
+  return (body?.items ?? []) as RecommendedItem[]
 }
 
 /** Makes a new serving key. This response is the only time it can be read. */
@@ -225,7 +257,50 @@ export interface DatasetInfo {
   sample?: Record<string, unknown>[]
 }
 
-export type TrainTask = 'auto' | 'classification' | 'regression'
+export type TrainTask = 'auto' | 'classification' | 'regression' | 'recommendation'
+
+/** The recommendation algorithms (ml/worker hermod_ml/recommend.py). */
+export type RecommendAlgorithm = 'auto' | 'als' | 'item_similarity'
+
+export const RECOMMEND_ALGORITHM_OPTIONS: Array<{ value: RecommendAlgorithm; label: string }> = [
+  { value: 'auto', label: 'Auto (tries both, keeps the better)' },
+  { value: 'als', label: 'Matrix factorization (ALS)' },
+  { value: 'item_similarity', label: 'Item similarity (people who had this also had…)' },
+]
+
+/** The columns a recommendation model learns from. */
+export interface RecommendColumns {
+  /** Who: a person or account id. */
+  user: string
+  /** What they had: a product, article or song id. */
+  item: string
+  /** How strongly, e.g. quantity or rating; empty counts every row as 1. */
+  strength?: string
+  /** When; the latest of each person is held back to test on. */
+  time?: string
+}
+
+/**
+ * How a recommendation version did, in words: out of 100 people, how many
+ * found something they really picked next in their top 10, against simply
+ * recommending everyone the most popular items.
+ */
+export function describeRecommendation(metrics: Record<string, number>): { hits: string; baseline?: string; coverage?: string } {
+  const per100 = (v: number | undefined) => Math.round((v ?? 0) * 100)
+  const hits = per100(metrics['hit_rate@10'])
+  const out: { hits: string; baseline?: string; coverage?: string } = {
+    hits: `For ${hits} of 100 people, one of their top 10 was something they really picked next.`,
+  }
+  if (metrics['baseline_hit_rate@10'] !== undefined) {
+    const base = per100(metrics['baseline_hit_rate@10'])
+    const verdict = hits > base ? 'better than' : hits === base ? 'the same as' : 'worse than'
+    out.baseline = `Recommending everyone the most popular items would find it for ${base} of 100: this model is ${verdict} that.`
+  }
+  if (metrics.coverage !== undefined) {
+    out.coverage = `Its top-10 lists used ${per100(metrics.coverage)}% of the items.`
+  }
+  return out
+}
 /** A built-in algorithm, or `custom:<script>` for one of the vhost's training scripts. */
 export type TrainAlgorithm =
   | 'auto' | 'random_forest' | 'gradient_boosting' | 'extra_trees' | 'hist_gradient_boosting' | 'linear' | 'xgboost'
@@ -281,6 +356,8 @@ export interface TrainSpec {
   device?: TrainDevice
   /** Only for pytorch_mlp and keras_mlp; the worker refuses it otherwise. */
   params?: TrainParams
+  /** Only with task 'recommendation', whose target is empty. */
+  recommend?: RecommendColumns
   /** Only with algorithm "auto"; the server takes "balanced" when it is absent. */
   preset?: TrainPreset
   go_live: GoLive
@@ -319,6 +396,14 @@ export interface ModelVersion {
   script?: { name: string; sha256: string }
   /** Per-feature statistics of the training split, the baseline drift is measured against. */
   feature_stats?: Record<string, FeatureStats>
+  /** A recommendation version's columns. */
+  recommend?: RecommendColumns
+  /** How many people and items a recommendation version knows. */
+  catalog?: { users: number; items: number }
+  /** A few people of the test: what they were recommended and what they picked next. */
+  samples?: Array<{ user: string; recommended: string[]; picked: string[] }>
+  /** With algorithm auto: each algorithm tried and its NDCG@10. */
+  candidates?: Record<string, number>
   /** The quality an "auto" training used. Absent from older servers, as are the fields below. */
   preset?: TrainPreset
   /** What "auto" tried, best first. */
@@ -800,6 +885,25 @@ export interface DriftStatus {
   reason?: string
   window?: string
   min_rows?: number
+  /** A recommendation model's latest window, in place of drift (monitor.RecommendationReport). */
+  recommendation?: RecommendationReport
+}
+
+/** How a recommendation model was used over one window. */
+export interface RecommendationReport {
+  vhost: string
+  model: string
+  version: string
+  window_start: string
+  window_end: string
+  calls: number
+  /** Calls answered with the popular items: an id the model did not know. */
+  fallbacks: number
+  popular_share: number
+  /** Distinct items recommended, of the catalog's. */
+  recommended: number
+  catalog: number
+  coverage: number
 }
 
 export const MASK_TYPE_OPTIONS = [

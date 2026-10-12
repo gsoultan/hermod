@@ -145,6 +145,9 @@ func (s *Service) train(ctx context.Context, vhost, name string, spec worker.Tra
 	if err := rule.Validate(); err != nil {
 		return TrainResult{}, err
 	}
+	if err := checkRecommendSpec(spec); err != nil {
+		return TrainResult{}, err
+	}
 	if !storage.ValidMLModelName(name) {
 		return TrainResult{}, fmt.Errorf("model name %q must start with a letter and hold only letters, digits, '_' or '-'", name)
 	}
@@ -174,14 +177,14 @@ func (s *Service) train(ctx context.Context, vhost, name string, spec worker.Tra
 	live, reason := rule.decide(v)
 	if live {
 		m.RemoteVersion = v.Version
-		m.Features, m.FeatureTypes = v.Features, v.FeatureTypes
+		m.Features, m.FeatureTypes, m.Task = v.Features, v.FeatureTypes, v.Task
 	} else if m.RemoteVersion == "" {
 		// Nothing is live yet, so the features the next promotion will serve
 		// are the ones to show.
-		m.Features, m.FeatureTypes = v.Features, v.FeatureTypes
+		m.Features, m.FeatureTypes, m.Task = v.Features, v.FeatureTypes, v.Task
 	}
 	if m.Description == "" {
-		m.Description = fmt.Sprintf("Predicts %s from dataset %s", v.Target, v.Dataset)
+		m.Description = describe(v)
 	}
 	m.UpdatedBy = by
 	if err := s.register(ctx, ms, m, isNew); err != nil {
@@ -198,8 +201,13 @@ func (s *Service) train(ctx context.Context, vhost, name string, spec worker.Tra
 // nothing trained. A spec a training would refuse in itself is refused here
 // the same way. The check runs on the main worker whatever the spec's device
 // or algorithm, since it holds the datasets and only measures them; it takes
-// neither the model's claim nor a training slot.
+// neither the model's claim nor a training slot. A recommender has no column
+// to predict, so it is refused with what to do instead.
 func (s *Service) TrainCheck(ctx context.Context, vhost string, spec worker.TrainSpec) (worker.TrainCheck, error) {
+	if spec.Task == worker.TaskRecommendation {
+		return worker.TrainCheck{}, fmt.Errorf("%w: the pre-flight check is for a model that predicts a column; "+
+			"a recommendation model has none to check, so train it directly", ErrBadTraining)
+	}
 	if err := checkSpec(spec); err != nil {
 		return worker.TrainCheck{}, err
 	}
@@ -250,6 +258,7 @@ func (s *Service) Promote(ctx context.Context, vhost, name, version, by string) 
 		return err
 	}
 	m.RemoteVersion, m.Features, m.FeatureTypes, m.UpdatedBy = version, vs[i].Features, vs[i].FeatureTypes, by
+	m.Task = vs[i].Task
 	return ms.PutMLModel(ctx, m)
 }
 
@@ -273,6 +282,7 @@ func (s *Service) DeleteModel(ctx context.Context, vhost, name string) error {
 		return err
 	}
 	scorers.forget(vhost, name)
+	recommenders.forget(vhost, name)
 	logsErr := s.forgetModel(ctx, vhost, name)
 	if m.Backend != storage.MLBackendWorker || s.worker == nil {
 		return logsErr

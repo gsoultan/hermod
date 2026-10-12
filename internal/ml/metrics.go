@@ -5,6 +5,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+
+	"github.com/gsoultan/hermod/internal/storage"
 )
 
 // One series per vhost and model: a vhost holds a handful of models, so the
@@ -42,6 +44,25 @@ var (
 		Help: "Requests refused because a vhost was at one of its ML quotas, by quota.",
 	}, []string{"vhost", "quota"})
 )
+
+// recommendationsTotal counts a recommendation model's answers by what was
+// asked (user or item) and what answered: the model, or popular items for a
+// person or item it does not know.
+var recommendationsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "hermod_ml_recommendations_total",
+	Help: "Recommendation calls answered, by what was asked (user or item) and what answered (model or popular).",
+}, []string{"vhost", "model", "kind", "source"})
+
+func countRecommendation(m storage.MLModel, forUser, known bool) {
+	kind, source := "item", "model"
+	if forUser {
+		kind = "user"
+	}
+	if !known {
+		source = "popular"
+	}
+	recommendationsTotal.WithLabelValues(m.VHost, m.Name, kind, source).Inc()
+}
 
 func observe(vhost, model string, rows int, took time.Duration, err error) {
 	outcome := "ok"

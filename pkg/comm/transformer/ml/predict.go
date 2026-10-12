@@ -34,6 +34,7 @@ type modelCaller interface {
 //
 // Config:
 //   - model: the model's name in the vhost's model registry. Required.
+//   - mode: "predict" (the default) or "recommend" (recommend.go).
 //   - inputs: feature name -> field path, as an object or JSON text. Empty
 //     sends the whole record.
 //   - outputField: where the prediction goes, default "prediction". A model
@@ -50,6 +51,13 @@ func (p *Predict) Transform(ctx context.Context, msg hermod.Message, config map[
 	model := core.GetConfigString(config, "model")
 	if model == "" {
 		return msg, errors.New("ml_predict: choose a model")
+	}
+	switch mode := core.GetConfigString(config, "mode"); mode {
+	case "", modePredict:
+	case modeRecommend:
+		return recommendInto(ctx, msg, model, config)
+	default:
+		return msg, fmt.Errorf("ml_predict: mode %q is not one of %q or %q", mode, modePredict, modeRecommend)
 	}
 	inputs, err := parseInputs(config["inputs"])
 	if err != nil {

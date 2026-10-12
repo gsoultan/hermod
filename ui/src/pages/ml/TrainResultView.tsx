@@ -1,14 +1,11 @@
 import { useId, useState } from 'react'
-import {
-  Accordion, Alert, Badge, Button, CopyButton, Group, List, Paper, Progress, Stack, Table, Text, Title,
-} from '@mantine/core'
-import { IconAlertCircle, IconCheck, IconCopy, IconPlayerPlay, IconRocket } from '@tabler/icons-react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import {
-  algorithmLabel, mlModelsKey, promoteVersion, servingUrl, versionsKey, type LeaderboardEntry, type TrainResult,
-} from '@/lib/mlModels'
+import { Accordion, Alert, Badge, Group, List, Paper, Progress, Stack, Table, Text, Title } from '@mantine/core'
+import { IconAlertCircle } from '@tabler/icons-react'
+import { RECOMMENDATION, algorithmLabel, type LeaderboardEntry, type TrainResult } from '@/lib/mlModels'
 import { MetricsTable, formatMetric } from './metrics'
 import { ModelTestModal } from './ModelTestModal'
+import { NextSteps, servingCurl } from './nextSteps'
+import { RecommendResultView } from './recommendResult'
 import { VERDICT_TEXT, baselineSentence, headline, verdict } from './trainVerdict'
 
 const METRIC_WORDS: Record<string, string> = { balanced_accuracy: 'balanced accuracy', r2: 'R²' }
@@ -19,7 +16,8 @@ const seconds = (s: number) => (s < 1 ? 'under a second' : s < 90 ? `${Math.roun
  * A training's outcome in plain words: how often it is right (or how far off),
  * whether that is good next to guessing, what mattered, what "auto" tried, and
  * what to do next. The raw metrics sit behind Details. Everything a server
- * older than these fields leaves out is simply not shown.
+ * older than these fields leaves out is simply not shown. A recommender's
+ * outcome is read against recommending the most popular items instead.
  */
 export function TrainResultView({ vhost, result, exampleRow }: {
   vhost: string
@@ -27,27 +25,24 @@ export function TrainResultView({ vhost, result, exampleRow }: {
   /** A row of the training data, to try the model with. */
   exampleRow?: Record<string, unknown>
 }) {
-  const queryClient = useQueryClient()
+  return result.version.task === RECOMMENDATION
+    ? <RecommendResultView vhost={vhost} result={result} />
+    : <PredictResultView vhost={vhost} result={result} exampleRow={exampleRow} />
+}
+
+function PredictResultView({ vhost, result, exampleRow }: {
+  vhost: string
+  result: TrainResult
+  exampleRow?: Record<string, unknown>
+}) {
   const v = result.version
   const name = result.model?.name ?? v.model
   const [trying, setTrying] = useState(false)
-  const promote = useMutation({
-    mutationFn: () => promoteVersion(vhost, name, v.version),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: mlModelsKey(vhost) })
-      queryClient.invalidateQueries({ queryKey: versionsKey(vhost, name) })
-    },
-  })
-  const live = result.live || promote.isSuccess
   const said = headline(v)
   const judged = verdict(v)
   const guess = baselineSentence(v)
   const row = exampleRow ? Object.fromEntries(v.features.filter((f) => f in exampleRow).map((f) => [f, exampleRow[f]])) : undefined
-  const apiCall = [
-    `curl -X POST '${window.location.origin}${servingUrl(vhost, name)}' \\`,
-    `  -H 'X-API-Key: <serving key>' -H 'Content-Type: application/json' \\`,
-    `  -d '${JSON.stringify({ instances: [row ?? Object.fromEntries(v.features.map((f) => [f, null]))] })}'`,
-  ].join('\n')
+  const apiCall = servingCurl(vhost, name, { instances: [row ?? Object.fromEntries(v.features.map((f) => [f, null]))] })
 
   return (
     <Stack gap="md">
@@ -91,37 +86,8 @@ export function TrainResultView({ vhost, result, exampleRow }: {
 
       {!!v.leaderboard?.length && <Leaderboard entries={v.leaderboard} />}
 
-      <Stack gap="xs">
-        <Text fw={600} size="sm">Next steps</Text>
-        <Group gap="xs">
-          <Button variant="light" leftSection={<IconPlayerPlay size="1rem" />} onClick={() => setTrying(true)}>Try it</Button>
-          {live ? (
-            <Badge color="green" variant="light" size="lg" tt="none">Live</Badge>
-          ) : (
-            <Button variant="light" color="green" leftSection={<IconRocket size="1rem" />} loading={promote.isPending}
-              onClick={() => promote.mutate()}>
-              Make it live
-            </Button>
-          )}
-          <CopyButton value={apiCall}>
-            {({ copied, copy }) => (
-              <Button variant="default" leftSection={copied ? <IconCheck size="1rem" /> : <IconCopy size="1rem" />} onClick={copy}>
-                {copied ? 'Copied' : 'Copy API call'}
-              </Button>
-            )}
-          </CopyButton>
-        </Group>
-        <Text size="xs" c="dimmed">
-          {live ? 'It is live. ' : `It is not live yet${result.reason ? ` (${result.reason})` : ''}. `}
-          To use it in a workflow, add a Predict node from Machine Learning and pick {name}. Applications call it with a
-          serving key, made from the model&apos;s key button.
-        </Text>
-        {promote.error && (
-          <Alert color="red" icon={<IconAlertCircle size="1rem" />} title="The version was not put live">
-            {(promote.error as Error).message}
-          </Alert>
-        )}
-      </Stack>
+      <NextSteps vhost={vhost} result={result} apiCall={apiCall} onTry={() => setTrying(true)}
+        workflow={`To use it in a workflow, add a Predict node from Machine Learning and pick ${name}.`} />
 
       <Accordion variant="contained" keepMounted={false}>
         <Accordion.Item value="details">

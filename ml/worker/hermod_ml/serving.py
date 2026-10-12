@@ -20,6 +20,7 @@ import onnxruntime as ort
 
 from .datasets import NUMBER, to_text
 from .errors import bad_request
+from .recommend import TASK as RECOMMENDATION
 from .training import ModelStore, run_model
 
 NUMERIC_DATATYPES = {"FP64", "FP32", "INT64", "INT32"}
@@ -114,6 +115,14 @@ def _text(value: Any) -> str:
     return value if isinstance(value, str) else to_text(value)
 
 
+def _not_a_recommender(meta: dict[str, Any], name: str) -> dict[str, Any]:
+    """meta, or 400 for a recommendation model: Hermod serves those itself,
+    from their artifact, and they take a person or an item, not rows."""
+    if meta.get("task") == RECOMMENDATION:
+        raise bad_request(f"Model {name!r} is a recommendation model; Hermod serves it, not this endpoint.")
+    return meta
+
+
 class ModelServer:
     """Answers OIP metadata and infer calls for models in a ModelStore."""
 
@@ -126,7 +135,7 @@ class ModelServer:
 
     def _session(self, vhost: str, name: str, version: str) -> tuple[ort.InferenceSession, dict[str, Any]]:
         def load():
-            meta = self.models.meta(vhost, name, version)
+            meta = _not_a_recommender(self.models.meta(vhost, name, version), name)
             path = self.models.onnx_path(vhost, name, version)
             session = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
             return session, meta
@@ -138,7 +147,7 @@ class ModelServer:
     def metadata(self, vhost: str, name: str, version: str | None) -> dict[str, Any]:
         resolved = self.models.resolve(vhost, name, version)
         versions = self.models.version_names(vhost, name) if version is None else [resolved]
-        meta = self.models.meta(vhost, name, resolved)
+        meta = _not_a_recommender(self.models.meta(vhost, name, resolved), name)
         inputs = [
             {"name": f, "datatype": "FP64" if meta["feature_types"][f] == NUMBER else "BYTES", "shape": [-1]}
             for f in meta["features"]

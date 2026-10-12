@@ -163,3 +163,21 @@ func TestMongoMLPredictionLogs(t *testing.T) {
 		t.Errorf("deleting vhost a touched vhost b: %+v", got)
 	}
 }
+
+// The task, as the SQL store keeps it (TestMLModelTaskRoundTrips).
+func TestMongoMLModelTaskRoundTrips(t *testing.T) {
+	s, _ := newTraceMongo(t)
+	st := s.(storage.MLModelStore)
+	ctx := t.Context()
+	m := storage.MLModel{VHost: "tenant-a", Name: "recs", Backend: storage.MLBackendWorker, Task: storage.MLTaskRecommendation}
+	if err := st.PutMLModel(ctx, m); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.GetMLModel(ctx, "tenant-a", "recs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.IsRecommender() {
+		t.Errorf("task = %q, want %q", got.Task, storage.MLTaskRecommendation)
+	}
+}

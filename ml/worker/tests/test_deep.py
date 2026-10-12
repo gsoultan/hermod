@@ -316,11 +316,12 @@ def test_capabilities_list_the_algorithms_this_image_can_train(client, monkeypat
     resp = client.get("/v1/capabilities")
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["tasks"] == ["auto", "classification", "regression"]
+    assert body["tasks"] == ["auto", "classification", "regression", "recommendation"]
     assert "pytorch_mlp" not in body["algorithms"]
     assert body["algorithms"][:5] == ["auto", "random_forest", "gradient_boosting", "linear", "xgboost"]
     assert "torch" in body["unavailable"]["pytorch_mlp"]
-    assert set(body["algorithms"]) | set(body["unavailable"]) == set(training.ALGORITHMS)
+    assert set(body["algorithms"]) | set(body["unavailable"]) == set(training.ALL_ALGORITHMS)
+    assert {"als", "item_similarity"} <= set(body["algorithms"])
 
 
 def test_capabilities_need_the_token(make_client):

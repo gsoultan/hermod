@@ -4,7 +4,7 @@ import { IconAlertCircle, IconCheck } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getSessionRole } from '@/auth/session'
 import {
-  driftKey, getDrift, isTrainedModel, listPredictionLogs, MASK_TYPE_OPTIONS, mlModelsKey, predictionLogsKey, saveMonitoring,
+  driftKey, getDrift, isRecommender, isTrainedModel, listPredictionLogs, MASK_TYPE_OPTIONS, mlModelsKey, predictionLogsKey, saveMonitoring,
   type DriftLevel, type MLModel, type MLMonitoring, type PredictionLog,
 } from '@/lib/mlModels'
 
@@ -19,16 +19,21 @@ const CALLER_LABEL: Record<string, string> = { workflow: 'Workflow', rest: 'REST
  */
 export function MonitoringModal({ vhost, model, onClose }: { vhost: string; model: MLModel; onClose: () => void }) {
   const canEdit = getSessionRole() !== 'Viewer'
+  // A recommender has no features to drift: it is watched by coverage and
+  // how often it fell back to the popular items.
+  const recommender = isRecommender(model)
   return (
     <Modal opened onClose={onClose} title={`Monitoring of ${model.name}`} centered size="xl">
       <Tabs defaultValue="logs" keepMounted={false}>
         <Tabs.List mb="md">
           <Tabs.Tab value="logs">Prediction log</Tabs.Tab>
-          <Tabs.Tab value="drift">Drift</Tabs.Tab>
+          <Tabs.Tab value="drift">{recommender ? 'Coverage' : 'Drift'}</Tabs.Tab>
           {canEdit && <Tabs.Tab value="settings">Settings</Tabs.Tab>}
         </Tabs.List>
         <Tabs.Panel value="logs"><PredictionLogPanel vhost={vhost} model={model} /></Tabs.Panel>
-        <Tabs.Panel value="drift"><DriftPanel vhost={vhost} model={model} /></Tabs.Panel>
+        <Tabs.Panel value="drift">
+          {recommender ? <RecommendationPanel vhost={vhost} model={model} /> : <DriftPanel vhost={vhost} model={model} />}
+        </Tabs.Panel>
         {canEdit && <Tabs.Panel value="settings"><SettingsPanel vhost={vhost} model={model} /></Tabs.Panel>}
       </Tabs>
     </Modal>
@@ -87,6 +92,53 @@ function PredictionLogPanel({ vhost, model }: { vhost: string; model: MLModel })
         </Table.Tbody>
       </Table>
     </Table.ScrollContainer>
+  )
+}
+
+/** A recommender's latest window: how much of the catalog it used, and how often it fell back to popular items. */
+function RecommendationPanel({ vhost, model }: { vhost: string; model: MLModel }) {
+  const { data, isLoading, error } = useQuery({
+    queryKey: driftKey(vhost, model.name),
+    queryFn: ({ signal }) => getDrift(vhost, model.name, signal),
+    retry: false,
+    refetchInterval: 30_000,
+  })
+  if (isLoading) return <Group justify="center" p="lg"><Loader size="sm" /></Group>
+  if (error) {
+    return <Alert color="red" icon={<IconAlertCircle size="1rem" />} title="The report could not be read">{(error as Error).message}</Alert>
+  }
+  const r = data?.recommendation
+  if (!r) {
+    return (
+      <Text size="sm" c="dimmed">
+        No report yet: one is made every {data?.window ?? 'few minutes'} once a window holds at least {data?.min_rows ?? 0} calls.
+      </Text>
+    )
+  }
+  const pct = (v: number) => `${Math.round(v * 100)}%`
+  return (
+    <Stack gap="xs">
+      <Text size="sm" c="dimmed">
+        Version {r.version}, {r.calls} calls from {new Date(r.window_start).toLocaleTimeString()} to{' '}
+        {new Date(r.window_end).toLocaleTimeString()}.
+      </Text>
+      <Table withRowBorders={false} verticalSpacing={4} fz="sm">
+        <Table.Tbody>
+          <Table.Tr>
+            <Table.Td c="dimmed" w={200}>Coverage</Table.Td>
+            <Table.Td>Recommended {r.recommended} of {r.catalog} items ({pct(r.coverage)})</Table.Td>
+          </Table.Tr>
+          <Table.Tr>
+            <Table.Td c="dimmed">Popular fallback</Table.Td>
+            <Table.Td>{r.fallbacks} of {r.calls} calls ({pct(r.popular_share)})</Table.Td>
+          </Table.Tr>
+        </Table.Tbody>
+      </Table>
+      <Text size="xs" c="dimmed">
+        Low coverage means the same few items go to everyone. A high popular share means many callers are people or items the
+        model never saw: train it again on newer rows.
+      </Text>
+    </Stack>
   )
 }
 

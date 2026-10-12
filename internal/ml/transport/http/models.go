@@ -168,6 +168,9 @@ func (h *Handler) fail(w http.ResponseWriter, err error) {
 		h.JsonError(w, err.Error(), http.StatusNotImplemented)
 	case errors.Is(err, ml.ErrTooManyRows):
 		h.JsonError(w, err.Error(), http.StatusBadRequest)
+	case errors.Is(err, ml.ErrRecommender), errors.Is(err, ml.ErrNotRecommender),
+		errors.Is(err, ml.ErrBadRecommendRequest):
+		h.JsonError(w, err.Error(), http.StatusBadRequest)
 	default:
 		h.JsonError(w, err.Error(), http.StatusBadGateway)
 	}
@@ -355,10 +358,19 @@ func (h *Handler) DisableServing(w http.ResponseWriter, r *http.Request) {
 }
 
 // predictRequest is the body of a prediction call, in the TensorFlow Serving
-// "instances" shape: one object per row.
+// "instances" shape: one object per row. A recommendation model is called
+// with "user" (a person's items) or "item" (items like it) instead, plus "k"
+// and, for a user, "exclude_seen".
 type predictRequest struct {
-	Instances []inference.Row `json:"instances"`
+	Instances   []inference.Row `json:"instances"`
+	User        any             `json:"user"`
+	Item        any             `json:"item"`
+	K           int             `json:"k"`
+	ExcludeSeen *bool           `json:"exclude_seen"`
 }
+
+// recommends reports whether the body asks for recommendations.
+func (r predictRequest) recommends() bool { return r.User != nil || r.Item != nil }
 
 // Predict calls a model from the UI, as an Editor of its vhost.
 func (h *Handler) Predict(w http.ResponseWriter, r *http.Request) {
@@ -389,6 +401,20 @@ func (h *Handler) predict(w http.ResponseWriter, r *http.Request, vhost, name st
 	var req predictRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxPredictBody)).Decode(&req); err != nil {
 		h.JsonError(w, `the request body must be JSON: {"instances": [{...}, ...]}`, http.StatusBadRequest)
+		return
+	}
+	if req.recommends() {
+		if len(req.Instances) > 0 {
+			h.JsonError(w, `give "instances" or a "user"/"item", not both`, http.StatusBadRequest)
+			return
+		}
+		items, err := h.service().Recommend(r.Context(), vhost, name, ml.RecommendRequest{
+			User: req.User, Item: req.Item, K: req.K, ExcludeSeen: req.ExcludeSeen})
+		if err != nil {
+			h.fail(w, err)
+			return
+		}
+		writeJSON(w, map[string]any{"model": name, "items": items})
 		return
 	}
 	if len(req.Instances) == 0 {

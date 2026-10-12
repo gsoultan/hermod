@@ -7,6 +7,39 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — Recommendation models
+
+The ML worker trains a new kind of model, **recommendation**, from who-had-what
+rows such as order lines: name the person, item and optionally strength
+(quantity, rating) and time columns, and it learns with implicit ALS or item
+similarity (`auto` tries both and keeps the better). Each person's latest picks
+(a random share without a time column) are held back, and the result is reported as hit rate, precision, recall and
+NDCG at 10 and catalog coverage, next to what recommending the most popular
+items would score; the Models page says it in words ("For 34 of 100 people, one
+of their top 10 was something they really picked next").
+
+In the guided **Train a model** dialog it is the second answer to "What do you
+want to do?": it asks which column is the person and which the item, and
+optionally how much they liked it and when; skips the pre-flight check and the
+quality cards (Auto always tries both methods; the method sits under
+Advanced); and reads the result as good, fair or weak against recommending the
+most popular items, with sample recommendations, Try it, Make it live and the
+API call for a person's top 10. Training a recommender again opens on that
+path, filled in. A `preset`, and a pre-flight check, are refused for a
+recommendation model with a 400 that says why.
+
+A recommendation model is called on the existing predict and serve routes with
+`{"user", "k", "exclude_seen"}` for a person's top items or `{"item", "k"}` for
+similar items, and answers `{"items": [{"item", "score", "reason"}]}`; an
+unknown person or item gets the most popular items with reason `popular`. It is
+served in-process from a small versioned file Hermod checks before use, logged
+and held to the prediction quota like any model. gRPC gains
+`InferenceService/Recommend`, the Predict node a Recommend mode, and MCP a
+`recommend_<model>` tool. Monitoring shows coverage and the popular-fallback
+share instead of drift. See "Recommendations" in docs/ml.md.
+
+An older Hermod drops the model's task when it saves the model, so do not roll
+back past this release with recommendation models in use.
 ### Changed — the README is split into docs/ pages
 
 The README was 2,431 lines. It is now an overview (what Hermod is, the feature list,

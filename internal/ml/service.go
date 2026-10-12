@@ -130,6 +130,9 @@ func (s *Service) Predict(ctx context.Context, vhost, name string, rows []infere
 	if err != nil {
 		return nil, err
 	}
+	if m.IsRecommender() {
+		return nil, fmt.Errorf("model %q: %w", name, ErrRecommender)
+	}
 	q, err := s.Quotas(ctx, vhost)
 	if err != nil {
 		return nil, err

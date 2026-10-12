@@ -33,6 +33,7 @@ from .artifacts import check_meta, check_onnx
 from .datasets import BOOL, NUMBER, DatasetStore, _kind_of
 from .errors import bad_request
 from .names import validate_name
+from .recommend import TASK as RECOMMENDATION
 from .training import ModelStore
 
 PARQUET = "application/vnd.apache.parquet"
@@ -77,6 +78,9 @@ def import_dataset(datasets: DatasetStore, vhost: str, name: str, body: bytes) -
 def export_version(models: ModelStore, vhost: str, name: str, version: str) -> dict[str, Any]:
     resolved = models.resolve(vhost, name, version)
     meta = models.meta(vhost, name, resolved)
+    if meta.get("task") == RECOMMENDATION:
+        # Recommenders train on the serving worker itself; none moves between pools.
+        raise bad_request(f"Version {resolved} of model {name!r} is a recommendation model, which cannot be exported.")
     onnx_bytes = models.onnx_path(vhost, name, resolved).read_bytes()
     return {"meta": meta, "onnx": base64.b64encode(onnx_bytes).decode("ascii")}
 

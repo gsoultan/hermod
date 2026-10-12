@@ -73,6 +73,32 @@ func (r *Registry) MLPredict(ctx context.Context, vhost, model string, rows []in
 	return r.MLService().Predict(ml.WithCaller(ctx, storage.MLCallerWorkflow, workflowID), vhost, model, rows)
 }
 
+// MLRecommend is what the Predict node calls in Recommend mode: the vhost's
+// recommendation model, for req's "user" or "item", with "k" and
+// "exclude_seen" when set. The workflow is the caller the log names.
+func (r *Registry) MLRecommend(ctx context.Context, vhost, model string, req map[string]any) ([]map[string]any, error) {
+	call := ml.RecommendRequest{User: req["user"], Item: req["item"]}
+	if k, ok := req["k"].(int); ok {
+		call.K = k
+	}
+	if exclude, ok := req["exclude_seen"].(bool); ok {
+		call.ExcludeSeen = &exclude
+	}
+	workflowID, _ := ctx.Value(hermod.WorkflowIDKey).(string)
+	items, err := r.MLService().Recommend(ml.WithCaller(ctx, storage.MLCallerWorkflow, workflowID), vhost, model, call)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]map[string]any, len(items))
+	for i, it := range items {
+		out[i] = map[string]any{"item": it.Item, "score": it.Score}
+		if it.Reason != "" {
+			out[i]["reason"] = it.Reason
+		}
+	}
+	return out, nil
+}
+
 // notifyMLDrift alerts that a model's inputs drifted past its alert
 // threshold. It is called at most once per judged window.
 func (r *Registry) notifyMLDrift(ctx context.Context, rep monitor.Report) {

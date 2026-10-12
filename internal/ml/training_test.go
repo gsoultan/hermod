@@ -66,6 +66,9 @@ func (f *fakeWorker) server(t *testing.T) *httptest.Server {
 				Dataset: spec.Dataset, Target: spec.Target, Features: []string{"age", "plan"},
 				FeatureTypes: map[string]string{"age": "number", "plan": "string"},
 				Metrics:      map[string]float64{"score": f.score, "accuracy": f.score}}
+			if spec.Task == worker.TaskRecommendation {
+				v.Task, v.Recommend, v.Features, v.FeatureTypes = spec.Task, spec.Recommend, nil, nil
+			}
 			f.versions[key] = append([]worker.Version{v}, f.versions[key]...)
 			_ = json.NewEncoder(w).Encode(v)
 		case r.Method == http.MethodGet && len(parts) == 5 && parts[4] == "versions":
@@ -312,6 +315,8 @@ func TestTrainCheckRefusesWhatATrainingWould(t *testing.T) {
 		{Dataset: "d", Target: "y", Algorithm: "linear", Preset: "best"},
 		{Dataset: "d", Target: "y", Preset: "fastest"},
 		{Dataset: "d", Target: "y", Device: "tpu"},
+		// A recommender has no column to predict, so nothing to check.
+		{Dataset: "orders", Task: worker.TaskRecommendation, Recommend: &worker.RecommendSpec{User: "u", Item: "i"}},
 	} {
 		if _, err := svc.TrainCheck(t.Context(), "tenant-a", spec); !errors.Is(err, ErrBadTraining) {
 			t.Errorf("%+v: err = %v, want ErrBadTraining", spec, err)

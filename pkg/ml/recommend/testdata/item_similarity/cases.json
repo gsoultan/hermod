@@ -1,0 +1,453 @@
+[
+ {
+  "user": "1000",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "item": "sku-7",
+    "score": 2.3323588371276855
+   },
+   {
+    "item": "sku-6",
+    "score": 2.0975751876831055
+   },
+   {
+    "item": "sku-2",
+    "score": 2.092669725418091
+   },
+   {
+    "item": "sku-9",
+    "score": 2.087822914123535
+   },
+   {
+    "item": "sku-1",
+    "score": 1.5685975551605225
+   },
+   {
+    "item": "sku-3",
+    "score": 1.5076873302459717
+   },
+   {
+    "item": "sku-12",
+    "score": 1.37600576877594
+   },
+   {
+    "item": "sku-14",
+    "score": 1.275421380996704
+   },
+   {
+    "item": "sku-0",
+    "score": 1.0949479341506958
+   },
+   {
+    "item": "sku-30",
+    "score": 1.0357983112335205
+   }
+  ]
+ },
+ {
+  "user": "1001",
+  "k": 5,
+  "exclude_seen": true,
+  "items": [
+   {
+    "item": "sku-22",
+    "score": 3.1886940002441406
+   },
+   {
+    "item": "sku-26",
+    "score": 2.9206364154815674
+   },
+   {
+    "item": "sku-27",
+    "score": 2.7393124103546143
+   },
+   {
+    "item": "sku-20",
+    "score": 2.405282974243164
+   },
+   {
+    "item": "sku-17",
+    "score": 2.117658853530884
+   }
+  ]
+ },
+ {
+  "user": "1002",
+  "k": 10,
+  "exclude_seen": false,
+  "items": [
+   {
+    "item": "sku-44",
+    "score": 1.1576147079467773
+   },
+   {
+    "item": "sku-42",
+    "score": 0.991045355796814
+   },
+   {
+    "item": "sku-39",
+    "score": 0.9750798940658569
+   },
+   {
+    "item": "sku-8",
+    "score": 0.9186381101608276
+   },
+   {
+    "item": "sku-37",
+    "score": 0.8946343064308167
+   },
+   {
+    "item": "sku-34",
+    "score": 0.8567341566085815
+   },
+   {
+    "item": "sku-30",
+    "score": 0.8360940217971802
+   },
+   {
+    "item": "sku-3",
+    "score": 0.8076750040054321
+   },
+   {
+    "item": "sku-31",
+    "score": 0.8055033087730408
+   },
+   {
+    "item": "sku-41",
+    "score": 0.7856003642082214
+   }
+  ]
+ },
+ {
+  "user": "1079",
+  "k": 20,
+  "exclude_seen": true,
+  "items": [
+   {
+    "item": "sku-45",
+    "score": 2.35129976272583
+   },
+   {
+    "item": "sku-49",
+    "score": 2.349342107772827
+   },
+   {
+    "item": "sku-50",
+    "score": 2.2342450618743896
+   },
+   {
+    "item": "sku-55",
+    "score": 2.055346965789795
+   },
+   {
+    "item": "sku-48",
+    "score": 1.7308930158615112
+   },
+   {
+    "item": "sku-54",
+    "score": 1.5856460332870483
+   },
+   {
+    "item": "sku-47",
+    "score": 1.5798704624176025
+   },
+   {
+    "item": "sku-58",
+    "score": 1.5512824058532715
+   },
+   {
+    "item": "sku-46",
+    "score": 1.4421441555023193
+   },
+   {
+    "item": "sku-37",
+    "score": 0.3492485284805298
+   },
+   {
+    "item": "sku-43",
+    "score": 0.31590718030929565
+   },
+   {
+    "item": "sku-32",
+    "score": 0.26726123690605164
+   },
+   {
+    "item": "sku-36",
+    "score": 0.2454340159893036
+   },
+   {
+    "item": "sku-44",
+    "score": 0.11180339753627777
+   },
+   {
+    "item": "sku-10",
+    "score": 1.0,
+    "reason": "popular"
+   },
+   {
+    "item": "sku-42",
+    "score": 1.0,
+    "reason": "popular"
+   },
+   {
+    "item": "sku-13",
+    "score": 0.9090909361839294,
+    "reason": "popular"
+   },
+   {
+    "item": "sku-26",
+    "score": 0.9090909361839294,
+    "reason": "popular"
+   },
+   {
+    "item": "sku-29",
+    "score": 0.9090909361839294,
+    "reason": "popular"
+   },
+   {
+    "item": "sku-5",
+    "score": 0.9090909361839294,
+    "reason": "popular"
+   }
+  ]
+ },
+ {
+  "user": "1037",
+  "k": 1,
+  "exclude_seen": true,
+  "items": [
+   {
+    "item": "sku-16",
+    "score": 3.177746295928955
+   }
+  ]
+ },
+ {
+  "user": "stranger",
+  "k": 7,
+  "exclude_seen": true,
+  "items": [
+   {
+    "item": "sku-10",
+    "score": 1.0,
+    "reason": "popular"
+   },
+   {
+    "item": "sku-42",
+    "score": 1.0,
+    "reason": "popular"
+   },
+   {
+    "item": "sku-43",
+    "score": 1.0,
+    "reason": "popular"
+   },
+   {
+    "item": "sku-13",
+    "score": 0.9090909361839294,
+    "reason": "popular"
+   },
+   {
+    "item": "sku-26",
+    "score": 0.9090909361839294,
+    "reason": "popular"
+   },
+   {
+    "item": "sku-29",
+    "score": 0.9090909361839294,
+    "reason": "popular"
+   },
+   {
+    "item": "sku-44",
+    "score": 0.9090909361839294,
+    "reason": "popular"
+   }
+  ]
+ },
+ {
+  "item": "sku-0",
+  "k": 10,
+  "items": [
+   {
+    "item": "sku-12",
+    "score": 0.4472135901451111
+   },
+   {
+    "item": "sku-1",
+    "score": 0.37796446681022644
+   },
+   {
+    "item": "sku-11",
+    "score": 0.37796446681022644
+   },
+   {
+    "item": "sku-2",
+    "score": 0.3333333432674408
+   },
+   {
+    "item": "sku-4",
+    "score": 0.25
+   },
+   {
+    "item": "sku-14",
+    "score": 0.20412415266036987
+   },
+   {
+    "item": "sku-9",
+    "score": 0.20412415266036987
+   },
+   {
+    "item": "sku-13",
+    "score": 0.15811388194561005
+   },
+   {
+    "item": "sku-5",
+    "score": 0.15811388194561005
+   },
+   {
+    "item": "sku-7",
+    "score": 0.15811388194561005
+   }
+  ]
+ },
+ {
+  "item": "sku-31",
+  "k": 5,
+  "items": [
+   {
+    "item": "sku-38",
+    "score": 0.6681531071662903
+   },
+   {
+    "item": "sku-40",
+    "score": 0.4714045226573944
+   },
+   {
+    "item": "sku-42",
+    "score": 0.42640143632888794
+   },
+   {
+    "item": "sku-41",
+    "score": 0.3535533845424652
+   },
+   {
+    "item": "sku-43",
+    "score": 0.31980106234550476
+   }
+  ]
+ },
+ {
+  "item": "sku-59",
+  "k": 20,
+  "items": [
+   {
+    "item": "sku-51",
+    "score": 0.5714285969734192
+   },
+   {
+    "item": "sku-47",
+    "score": 0.5070925354957581
+   },
+   {
+    "item": "sku-56",
+    "score": 0.47809144854545593
+   },
+   {
+    "item": "sku-49",
+    "score": 0.4285714328289032
+   },
+   {
+    "item": "sku-52",
+    "score": 0.4285714328289032
+   },
+   {
+    "item": "sku-55",
+    "score": 0.40089187026023865
+   },
+   {
+    "item": "sku-54",
+    "score": 0.33806169033050537
+   },
+   {
+    "item": "sku-48",
+    "score": 0.30860671401023865
+   },
+   {
+    "item": "sku-50",
+    "score": 0.30860671401023865
+   },
+   {
+    "item": "sku-57",
+    "score": 0.2857142984867096
+   },
+   {
+    "item": "sku-53",
+    "score": 0.26726123690605164
+   },
+   {
+    "item": "sku-58",
+    "score": 0.26726123690605164
+   },
+   {
+    "item": "sku-45",
+    "score": 0.2519763112068176
+   },
+   {
+    "item": "sku-46",
+    "score": 0.2182178944349289
+   },
+   {
+    "item": "sku-36",
+    "score": 0.13363061845302582
+   },
+   {
+    "item": "sku-10",
+    "score": 1.0,
+    "reason": "popular"
+   },
+   {
+    "item": "sku-42",
+    "score": 1.0,
+    "reason": "popular"
+   },
+   {
+    "item": "sku-43",
+    "score": 1.0,
+    "reason": "popular"
+   },
+   {
+    "item": "sku-13",
+    "score": 0.9090909361839294,
+    "reason": "popular"
+   },
+   {
+    "item": "sku-26",
+    "score": 0.9090909361839294,
+    "reason": "popular"
+   }
+  ]
+ },
+ {
+  "item": "sku-unknown",
+  "k": 3,
+  "items": [
+   {
+    "item": "sku-10",
+    "score": 1.0,
+    "reason": "popular"
+   },
+   {
+    "item": "sku-42",
+    "score": 1.0,
+    "reason": "popular"
+   },
+   {
+    "item": "sku-43",
+    "score": 1.0,
+    "reason": "popular"
+   }
+  ]
+ }
+]

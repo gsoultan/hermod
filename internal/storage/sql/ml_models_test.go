@@ -344,3 +344,26 @@ func TestDeletingAVHostDeletesItsPredictionLogs(t *testing.T) {
 		t.Errorf("deleting tenant-a left tenant-b with %d logged predictions, want 1", len(got))
 	}
 }
+
+// A trained model's task lives in its spec: a recommendation model is called
+// with a person or an item, so every caller must be able to tell.
+func TestMLModelTaskRoundTrips(t *testing.T) {
+	st := mlModelStore(t)
+	ctx := t.Context()
+	m := storage.MLModel{VHost: "v", Name: "recs", Backend: storage.MLBackendWorker, RemoteVersion: "1",
+		Task: storage.MLTaskRecommendation, UpdatedBy: "ada"}
+	if err := st.PutMLModel(ctx, m); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.GetMLModel(ctx, "v", "recs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Task != storage.MLTaskRecommendation || !got.IsRecommender() {
+		t.Errorf("task = %q, want %q", got.Task, storage.MLTaskRecommendation)
+	}
+	list, _ := st.ListMLModels(ctx, "v")
+	if len(list) != 1 || list[0].Task != storage.MLTaskRecommendation {
+		t.Errorf("listed = %+v", list)
+	}
+}

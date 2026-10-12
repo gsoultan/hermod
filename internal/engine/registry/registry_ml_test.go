@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -359,5 +361,46 @@ func TestRetentionPurgesEachModelsPredictionLog(t *testing.T) {
 	}
 	if got, _ := logs.ListMLPredictionLogs(t.Context(), "tenant-b", "deleted", 10); len(got) != 0 {
 		t.Errorf("a prediction older than any retention survived")
+	}
+}
+
+// The Predict node in Recommend mode end to end: a recommendation model of
+// the vhost is loaded from the worker's artifact and its items land on the
+// message.
+func TestMLRecommendWritesTheModelsItems(t *testing.T) {
+	reg := newSimRegistry(t)
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "pkg", "ml", "recommend", "testdata", "item_similarity", "model.rec"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/versions/1/model.rec") {
+			_, _ = w.Write(raw)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	reg.mlWorker = worker.New(srv.URL, "", nil)
+	if err := reg.store().(storage.MLModelStore).PutMLModel(t.Context(), storage.MLModel{VHost: "default", Name: "wf-recs",
+		Backend: storage.MLBackendWorker, RemoteVersion: "1", Task: storage.MLTaskRecommendation}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := transform(t, reg, map[string]any{"customer": "1000"}, map[string]any{
+		"transType": "ml_predict", "model": "wf-recs", "mode": "recommend", "idField": "customer", "k": "3",
+		"outputField": "next",
+	})
+	items, _ := got["next"].([]map[string]any)
+	if len(items) != 3 || items[0]["item"] == "" || items[0]["reason"] != nil {
+		t.Errorf("next = %#v, want three items the model chose", got["next"])
+	}
+
+	got = transform(t, reg, map[string]any{"customer": "stranger"}, map[string]any{
+		"transType": "ml_predict", "model": "wf-recs", "mode": "recommend", "idField": "customer", "k": "2",
+	})
+	items, _ = got["recommendations"].([]map[string]any)
+	if len(items) != 2 || items[0]["reason"] != "popular" {
+		t.Errorf("recommendations = %#v, want the popular fallback", got["recommendations"])
 	}
 }

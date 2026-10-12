@@ -22,6 +22,248 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type RecommendRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The vhost the model belongs to.
+	Vhost string `protobuf:"bytes,1,opt,name=vhost,proto3" json:"vhost,omitempty"`
+	// The model's name in that vhost.
+	Model string `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
+	// Who or what to recommend for: ids as text, as the training data held
+	// them ("1000" for a numeric id 1000).
+	//
+	// Types that are valid to be assigned to Subject:
+	//
+	//	*RecommendRequest_User
+	//	*RecommendRequest_Item
+	Subject isRecommendRequest_Subject `protobuf_oneof:"subject"`
+	// How many items: 10 when 0, at most 100.
+	K int32 `protobuf:"varint,5,opt,name=k,proto3" json:"k,omitempty"`
+	// For a user, whether to leave out items they already had. True when
+	// unset. Not allowed with an item.
+	ExcludeSeen   *bool `protobuf:"varint,6,opt,name=exclude_seen,json=excludeSeen,proto3,oneof" json:"exclude_seen,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecommendRequest) Reset() {
+	*x = RecommendRequest{}
+	mi := &file_inference_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecommendRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecommendRequest) ProtoMessage() {}
+
+func (x *RecommendRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecommendRequest.ProtoReflect.Descriptor instead.
+func (*RecommendRequest) Descriptor() ([]byte, []int) {
+	return file_inference_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *RecommendRequest) GetVhost() string {
+	if x != nil {
+		return x.Vhost
+	}
+	return ""
+}
+
+func (x *RecommendRequest) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *RecommendRequest) GetSubject() isRecommendRequest_Subject {
+	if x != nil {
+		return x.Subject
+	}
+	return nil
+}
+
+func (x *RecommendRequest) GetUser() string {
+	if x != nil {
+		if x, ok := x.Subject.(*RecommendRequest_User); ok {
+			return x.User
+		}
+	}
+	return ""
+}
+
+func (x *RecommendRequest) GetItem() string {
+	if x != nil {
+		if x, ok := x.Subject.(*RecommendRequest_Item); ok {
+			return x.Item
+		}
+	}
+	return ""
+}
+
+func (x *RecommendRequest) GetK() int32 {
+	if x != nil {
+		return x.K
+	}
+	return 0
+}
+
+func (x *RecommendRequest) GetExcludeSeen() bool {
+	if x != nil && x.ExcludeSeen != nil {
+		return *x.ExcludeSeen
+	}
+	return false
+}
+
+type isRecommendRequest_Subject interface {
+	isRecommendRequest_Subject()
+}
+
+type RecommendRequest_User struct {
+	// A person: their top items.
+	User string `protobuf:"bytes,3,opt,name=user,proto3,oneof"`
+}
+
+type RecommendRequest_Item struct {
+	// An item: the items most like it.
+	Item string `protobuf:"bytes,4,opt,name=item,proto3,oneof"`
+}
+
+func (*RecommendRequest_User) isRecommendRequest_Subject() {}
+
+func (*RecommendRequest_Item) isRecommendRequest_Subject() {}
+
+type RecommendResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The model that answered.
+	Model string `protobuf:"bytes,1,opt,name=model,proto3" json:"model,omitempty"`
+	// Best first.
+	Items         []*RecommendedItem `protobuf:"bytes,2,rep,name=items,proto3" json:"items,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecommendResponse) Reset() {
+	*x = RecommendResponse{}
+	mi := &file_inference_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecommendResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecommendResponse) ProtoMessage() {}
+
+func (x *RecommendResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecommendResponse.ProtoReflect.Descriptor instead.
+func (*RecommendResponse) Descriptor() ([]byte, []int) {
+	return file_inference_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *RecommendResponse) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *RecommendResponse) GetItems() []*RecommendedItem {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+type RecommendedItem struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The item's id.
+	Item string `protobuf:"bytes,1,opt,name=item,proto3" json:"item,omitempty"`
+	// The model's score: higher is a stronger recommendation. Scores compare
+	// only within one answer.
+	Score float64 `protobuf:"fixed64,2,opt,name=score,proto3" json:"score,omitempty"`
+	// "popular" when the item comes from the popular fallback; empty otherwise.
+	Reason        string `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecommendedItem) Reset() {
+	*x = RecommendedItem{}
+	mi := &file_inference_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecommendedItem) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecommendedItem) ProtoMessage() {}
+
+func (x *RecommendedItem) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecommendedItem.ProtoReflect.Descriptor instead.
+func (*RecommendedItem) Descriptor() ([]byte, []int) {
+	return file_inference_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *RecommendedItem) GetItem() string {
+	if x != nil {
+		return x.Item
+	}
+	return ""
+}
+
+func (x *RecommendedItem) GetScore() float64 {
+	if x != nil {
+		return x.Score
+	}
+	return 0
+}
+
+func (x *RecommendedItem) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
 type PredictRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The vhost the model belongs to.
@@ -36,7 +278,7 @@ type PredictRequest struct {
 
 func (x *PredictRequest) Reset() {
 	*x = PredictRequest{}
-	mi := &file_inference_proto_msgTypes[0]
+	mi := &file_inference_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -48,7 +290,7 @@ func (x *PredictRequest) String() string {
 func (*PredictRequest) ProtoMessage() {}
 
 func (x *PredictRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_inference_proto_msgTypes[0]
+	mi := &file_inference_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -61,7 +303,7 @@ func (x *PredictRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PredictRequest.ProtoReflect.Descriptor instead.
 func (*PredictRequest) Descriptor() ([]byte, []int) {
-	return file_inference_proto_rawDescGZIP(), []int{0}
+	return file_inference_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *PredictRequest) GetVhost() string {
@@ -98,7 +340,7 @@ type PredictResponse struct {
 
 func (x *PredictResponse) Reset() {
 	*x = PredictResponse{}
-	mi := &file_inference_proto_msgTypes[1]
+	mi := &file_inference_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -110,7 +352,7 @@ func (x *PredictResponse) String() string {
 func (*PredictResponse) ProtoMessage() {}
 
 func (x *PredictResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_inference_proto_msgTypes[1]
+	mi := &file_inference_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -123,7 +365,7 @@ func (x *PredictResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PredictResponse.ProtoReflect.Descriptor instead.
 func (*PredictResponse) Descriptor() ([]byte, []int) {
-	return file_inference_proto_rawDescGZIP(), []int{1}
+	return file_inference_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *PredictResponse) GetModel() string {
@@ -144,16 +386,33 @@ var File_inference_proto protoreflect.FileDescriptor
 
 const file_inference_proto_rawDesc = "" +
 	"\n" +
-	"\x0finference.proto\x12\fhermod.ml.v1\x1a\x1cgoogle/protobuf/struct.proto\"s\n" +
+	"\x0finference.proto\x12\fhermod.ml.v1\x1a\x1cgoogle/protobuf/struct.proto\"\xbc\x01\n" +
+	"\x10RecommendRequest\x12\x14\n" +
+	"\x05vhost\x18\x01 \x01(\tR\x05vhost\x12\x14\n" +
+	"\x05model\x18\x02 \x01(\tR\x05model\x12\x14\n" +
+	"\x04user\x18\x03 \x01(\tH\x00R\x04user\x12\x14\n" +
+	"\x04item\x18\x04 \x01(\tH\x00R\x04item\x12\f\n" +
+	"\x01k\x18\x05 \x01(\x05R\x01k\x12&\n" +
+	"\fexclude_seen\x18\x06 \x01(\bH\x01R\vexcludeSeen\x88\x01\x01B\t\n" +
+	"\asubjectB\x0f\n" +
+	"\r_exclude_seen\"^\n" +
+	"\x11RecommendResponse\x12\x14\n" +
+	"\x05model\x18\x01 \x01(\tR\x05model\x123\n" +
+	"\x05items\x18\x02 \x03(\v2\x1d.hermod.ml.v1.RecommendedItemR\x05items\"S\n" +
+	"\x0fRecommendedItem\x12\x12\n" +
+	"\x04item\x18\x01 \x01(\tR\x04item\x12\x14\n" +
+	"\x05score\x18\x02 \x01(\x01R\x05score\x12\x16\n" +
+	"\x06reason\x18\x03 \x01(\tR\x06reason\"s\n" +
 	"\x0ePredictRequest\x12\x14\n" +
 	"\x05vhost\x18\x01 \x01(\tR\x05vhost\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x125\n" +
 	"\tinstances\x18\x03 \x03(\v2\x17.google.protobuf.StructR\tinstances\"b\n" +
 	"\x0fPredictResponse\x12\x14\n" +
 	"\x05model\x18\x01 \x01(\tR\x05model\x129\n" +
-	"\vpredictions\x18\x02 \x03(\v2\x17.google.protobuf.StructR\vpredictions2Z\n" +
+	"\vpredictions\x18\x02 \x03(\v2\x17.google.protobuf.StructR\vpredictions2\xa8\x01\n" +
 	"\x10InferenceService\x12F\n" +
-	"\aPredict\x12\x1c.hermod.ml.v1.PredictRequest\x1a\x1d.hermod.ml.v1.PredictResponseB)Z'github.com/gsoultan/hermod/pkg/ml/protob\x06proto3"
+	"\aPredict\x12\x1c.hermod.ml.v1.PredictRequest\x1a\x1d.hermod.ml.v1.PredictResponse\x12L\n" +
+	"\tRecommend\x12\x1e.hermod.ml.v1.RecommendRequest\x1a\x1f.hermod.ml.v1.RecommendResponseB)Z'github.com/gsoultan/hermod/pkg/ml/protob\x06proto3"
 
 var (
 	file_inference_proto_rawDescOnce sync.Once
@@ -167,22 +426,28 @@ func file_inference_proto_rawDescGZIP() []byte {
 	return file_inference_proto_rawDescData
 }
 
-var file_inference_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_inference_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_inference_proto_goTypes = []any{
-	(*PredictRequest)(nil),  // 0: hermod.ml.v1.PredictRequest
-	(*PredictResponse)(nil), // 1: hermod.ml.v1.PredictResponse
-	(*structpb.Struct)(nil), // 2: google.protobuf.Struct
+	(*RecommendRequest)(nil),  // 0: hermod.ml.v1.RecommendRequest
+	(*RecommendResponse)(nil), // 1: hermod.ml.v1.RecommendResponse
+	(*RecommendedItem)(nil),   // 2: hermod.ml.v1.RecommendedItem
+	(*PredictRequest)(nil),    // 3: hermod.ml.v1.PredictRequest
+	(*PredictResponse)(nil),   // 4: hermod.ml.v1.PredictResponse
+	(*structpb.Struct)(nil),   // 5: google.protobuf.Struct
 }
 var file_inference_proto_depIdxs = []int32{
-	2, // 0: hermod.ml.v1.PredictRequest.instances:type_name -> google.protobuf.Struct
-	2, // 1: hermod.ml.v1.PredictResponse.predictions:type_name -> google.protobuf.Struct
-	0, // 2: hermod.ml.v1.InferenceService.Predict:input_type -> hermod.ml.v1.PredictRequest
-	1, // 3: hermod.ml.v1.InferenceService.Predict:output_type -> hermod.ml.v1.PredictResponse
-	3, // [3:4] is the sub-list for method output_type
-	2, // [2:3] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	2, // 0: hermod.ml.v1.RecommendResponse.items:type_name -> hermod.ml.v1.RecommendedItem
+	5, // 1: hermod.ml.v1.PredictRequest.instances:type_name -> google.protobuf.Struct
+	5, // 2: hermod.ml.v1.PredictResponse.predictions:type_name -> google.protobuf.Struct
+	3, // 3: hermod.ml.v1.InferenceService.Predict:input_type -> hermod.ml.v1.PredictRequest
+	0, // 4: hermod.ml.v1.InferenceService.Recommend:input_type -> hermod.ml.v1.RecommendRequest
+	4, // 5: hermod.ml.v1.InferenceService.Predict:output_type -> hermod.ml.v1.PredictResponse
+	1, // 6: hermod.ml.v1.InferenceService.Recommend:output_type -> hermod.ml.v1.RecommendResponse
+	5, // [5:7] is the sub-list for method output_type
+	3, // [3:5] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_inference_proto_init() }
@@ -190,13 +455,17 @@ func file_inference_proto_init() {
 	if File_inference_proto != nil {
 		return
 	}
+	file_inference_proto_msgTypes[0].OneofWrappers = []any{
+		(*RecommendRequest_User)(nil),
+		(*RecommendRequest_Item)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_inference_proto_rawDesc), len(file_inference_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

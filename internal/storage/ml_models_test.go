@@ -117,3 +117,20 @@ func TestFeatureTypesAreBounded(t *testing.T) {
 		t.Error("more feature types than a model may declare features were accepted")
 	}
 }
+
+func TestOnlyATrainedModelIsARecommender(t *testing.T) {
+	for _, task := range []string{"", "classification", "regression", MLTaskRecommendation} {
+		m := MLModel{VHost: "v", Name: "m", Backend: MLBackendWorker, Task: task}
+		if err := ValidateMLModel(m); err != nil {
+			t.Errorf("a trained model with task %q was refused: %v", task, err)
+		}
+	}
+	m := MLModel{VHost: "v", Name: "m", Backend: MLBackendWorker, Task: "clustering"}
+	if err := ValidateMLModel(m); err == nil || !strings.Contains(err.Error(), "task") {
+		t.Errorf("task clustering was accepted: %v", err)
+	}
+	m = MLModel{VHost: "v", Name: "m", Backend: inference.BackendOIP, URL: "http://ml:8080", RemoteModel: "m", Task: MLTaskRecommendation}
+	if err := ValidateMLModel(m); err == nil || !strings.Contains(err.Error(), "recommendation") {
+		t.Errorf("a model served elsewhere was taken as a recommender: %v", err)
+	}
+}
