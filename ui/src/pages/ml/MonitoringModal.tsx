@@ -7,6 +7,7 @@ import {
   driftKey, getDrift, isRecommender, isTrainedModel, listPredictionLogs, MASK_TYPE_OPTIONS, mlModelsKey, predictionLogsKey, saveMonitoring,
   type DriftLevel, type MLModel, type MLMonitoring, type PredictionLog,
 } from '@/lib/mlModels'
+import { feedbackSummaryKey, getFeedbackSummary } from '@/lib/mlRecommend'
 
 const LEVEL_COLOR: Record<DriftLevel, string> = { ok: 'green', warn: 'yellow', alert: 'red' }
 
@@ -32,7 +33,12 @@ export function MonitoringModal({ vhost, model, onClose }: { vhost: string; mode
         </Tabs.List>
         <Tabs.Panel value="logs"><PredictionLogPanel vhost={vhost} model={model} /></Tabs.Panel>
         <Tabs.Panel value="drift">
-          {recommender ? <RecommendationPanel vhost={vhost} model={model} /> : <DriftPanel vhost={vhost} model={model} />}
+          {recommender ? (
+            <Stack gap="md">
+              <AcceptancePanel vhost={vhost} model={model} />
+              <RecommendationPanel vhost={vhost} model={model} />
+            </Stack>
+          ) : <DriftPanel vhost={vhost} model={model} />}
         </Tabs.Panel>
         {canEdit && <Tabs.Panel value="settings"><SettingsPanel vhost={vhost} model={model} /></Tabs.Panel>}
       </Tabs>
@@ -92,6 +98,45 @@ function PredictionLogPanel({ vhost, model }: { vhost: string; model: MLModel })
         </Table.Tbody>
       </Table>
     </Table.ScrollContainer>
+  )
+}
+
+/** How many days of feedback the acceptance rate covers. */
+const FEEDBACK_DAYS = 30
+
+/**
+ * What people did with the recommendations over the last 30 days, from the
+ * feedback applications post: how many shown were accepted, visited or
+ * ordered. Nothing on a server without feedback, or before any arrived.
+ */
+function AcceptancePanel({ vhost, model }: { vhost: string; model: MLModel }) {
+  const { data } = useQuery({
+    queryKey: feedbackSummaryKey(vhost, model.name, FEEDBACK_DAYS),
+    queryFn: ({ signal }) => getFeedbackSummary(vhost, model.name, FEEDBACK_DAYS, signal),
+    retry: false,
+    refetchInterval: 60_000,
+  })
+  if (!data) return null
+  const pct = (v: number) => `${Math.round(v * 100)}%`
+  if (!data.shown) {
+    return <Text size="sm" c="dimmed">No feedback in the last {FEEDBACK_DAYS} days: the acceptance rate appears once applications report what was useful.</Text>
+  }
+  return (
+    <Stack gap={4}>
+      <Text size="sm" fw={500}>Acceptance, last {FEEDBACK_DAYS} days</Text>
+      <Table withRowBorders={false} verticalSpacing={4} fz="sm">
+        <Table.Tbody>
+          <Table.Tr>
+            <Table.Td c="dimmed" w={200}>Accepted</Table.Td>
+            <Table.Td>{data.accepted} of {data.shown} shown ({pct(data.acceptance_rate)})</Table.Td>
+          </Table.Tr>
+          <Table.Tr>
+            <Table.Td c="dimmed">Then visited or ordered</Table.Td>
+            <Table.Td>{data.visited} visited, {data.ordered} ordered; {data.dismissed} dismissed</Table.Td>
+          </Table.Tr>
+        </Table.Tbody>
+      </Table>
+    </Stack>
   )
 }
 

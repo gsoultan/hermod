@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ActionIcon, Alert, Anchor, Autocomplete, Button, Checkbox, Group, Radio, Select, Stack, Text, TextInput } from '@mantine/core'
 import { IconInfoCircle, IconPlus, IconTrash } from '@tabler/icons-react'
-import { isRecommender, useVHostModels } from '@/lib/mlModels'
+import { useQuery } from '@tanstack/react-query'
+import { isRecommender, listVersions, useVHostModels, versionsKey } from '@/lib/mlModels'
+import { isScenarioVersion, type Scenario } from '@/lib/mlRecommend'
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore'
 
 interface MLPredictConfigProps {
@@ -67,6 +69,16 @@ export function MLPredictConfig({ config, updateNodeConfig, nodeId, fieldPaths =
     if (recommender && config.mode !== 'recommend') updateNodeConfig(nodeId, { mode: 'recommend' })
   }, [recommender, config.mode, nodeId, updateNodeConfig])
   const recommending = config.mode === 'recommend'
+  // A recommender trained for a scenario is asked in that scenario's terms.
+  const { data: versions } = useQuery({
+    queryKey: versionsKey(vhost, model?.name ?? ''),
+    queryFn: ({ signal }) => listVersions(vhost, model?.name as string, signal),
+    enabled: recommender,
+    retry: false,
+    staleTime: 60_000,
+  })
+  const live = versions?.find((v) => v.version === model?.remote_version) ?? versions?.[0]
+  const scenario = isScenarioVersion(live) ? live.scenario : undefined
 
   // A model that declares its features is offered a row for each one the
   // mapping lacks, so the person fills in fields rather than retyping feature
@@ -119,7 +131,9 @@ export function MLPredictConfig({ config, updateNodeConfig, nodeId, fieldPaths =
       </Radio.Group>
 
       {recommending ? (
-        <RecommendFields config={config} set={set} fieldPaths={fieldPaths} />
+        scenario
+          ? <ScenarioFields scenario={scenario} config={config} set={set} fieldPaths={fieldPaths} />
+          : <RecommendFields config={config} set={set} fieldPaths={fieldPaths} />
       ) : (<>
       <Stack gap={6}>
         <Text size="sm" fw={500}>Inputs</Text>
@@ -213,6 +227,71 @@ function RecommendFields({ config, set, fieldPaths }: {
       <TextInput
         label="Output field"
         description={'Where the items are written: a list of {item, score, reason}. Reason "popular" marks the fallback for an id the model never saw.'}
+        placeholder="recommendations"
+        value={config.outputField ?? ''}
+        onChange={(e) => set({ outputField: e.currentTarget.value })}
+      />
+    </Stack>
+  )
+}
+
+/** Who a scenario is asked for: a salesman's plan, a customer's list, or a product's. */
+const SCENARIO_FOR: Record<Scenario, 'salesman' | 'customer' | 'product'> = {
+  visits: 'salesman', products: 'customer', reorder: 'customer', audience: 'product', similar: 'product',
+}
+
+/**
+ * Recommend mode for a scenario model: the id it is asked for (a salesman, a
+ * customer or a product, as the scenario decides) is read from a record field,
+ * a visit plan covers the next days from when the record arrives, and the
+ * answer, with its reasons, is written onto the record.
+ */
+function ScenarioFields({ scenario, config, set, fieldPaths }: {
+  scenario: Scenario; config: any; set: (patch: Record<string, unknown>) => void; fieldPaths: string[]
+}) {
+  const forKey = SCENARIO_FOR[scenario]
+  useEffect(() => {
+    if (config.recommendFor !== forKey) set(forKey === 'customer' ? { recommendFor: forKey } : { recommendFor: forKey, excludeSeen: undefined })
+  }, [config.recommendFor, forKey, set])
+  return (
+    <Stack gap="sm">
+      <Autocomplete
+        label={`Field with the ${forKey} id`}
+        description={`The record field holding the ${forKey} id, as in the training data.`}
+        placeholder={forKey === 'salesman' ? 'e.g. rep_id' : forKey === 'customer' ? 'e.g. customer.id' : 'e.g. sku'}
+        data={fieldPaths}
+        value={config.idField ?? ''}
+        onChange={(v) => set({ idField: v })}
+        required
+      />
+      {scenario === 'visits' && (
+        <TextInput
+          label="Days to plan"
+          description="The plan covers this many days from the day after the record arrives: 7 when empty."
+          placeholder="7"
+          value={config.periodDays ?? ''}
+          onChange={(e) => set({ periodDays: e.currentTarget.value })}
+        />
+      )}
+      <TextInput
+        label="How many"
+        description={scenario === 'visits' ? 'Visits in the plan: 10 when empty, at most 500.' : 'Items to return: 10 when empty, at most 100.'}
+        placeholder="10"
+        value={config.k ?? ''}
+        onChange={(e) => set({ k: e.currentTarget.value })}
+      />
+      {scenario === 'products' && (
+        <Checkbox
+          label="Leave out what the customer already bought"
+          checked={config.excludeSeen === undefined || config.excludeSeen === true || config.excludeSeen === 'true'}
+          onChange={(e) => set({ excludeSeen: e.currentTarget.checked })}
+        />
+      )}
+      <TextInput
+        label="Output field"
+        description={scenario === 'visits'
+          ? 'Where the plan is written: a list of days, each with its customers and reasons.'
+          : 'Where the answer is written: a list of {id, score, rank, reasons}.'}
         placeholder="recommendations"
         value={config.outputField ?? ''}
         onChange={(e) => set({ outputField: e.currentTarget.value })}

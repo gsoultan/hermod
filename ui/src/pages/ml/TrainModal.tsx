@@ -9,15 +9,25 @@ import {
   DEFAULT_PRESET, DEVICE_OPTIONS, LEAVE_OUT_ROLES, MODEL_NAME_PATTERN, PRESET_OPTIONS, RECOMMENDATION, RECOMMEND_ALGORITHM_OPTIONS,
   TASK_OPTIONS, algorithmLabel, algorithmOptions, isCustomAlgorithm, isDeepAlgorithm, listVersions, mlModelsKey, modelNameRule,
   trainCheck, trainModel, useDataset, useVHostDatasets, useVHostScripts, useWorkerStatus, versionsKey, type GoLive,
-  type RecommendAlgorithm, type TrainAlgorithm, type TrainCheck, type TrainDevice, type TrainPreset, type TrainTask,
+  type RecommendAlgorithm, type TrainAlgorithm, type TrainCheck, type TrainDevice, type TrainPreset, type TrainSpec, type TrainTask,
 } from '@/lib/mlModels'
+import {
+  DEFAULT_WEIGHTS, ROLES, defaultRuleChoices, isScenarioVersion, rulesFromChoices, scenarioLabel, scenariosSupported,
+  type RecommendData, type RoleKey, type Scenario, type ScenarioTrainSpec, type ScenarioVersion, type Weights,
+} from '@/lib/mlRecommend'
 import { DatasetPreview } from './datasetPreview'
 import { DeepParamsFields, readDeepParams, type DeepParamsText } from './deepParams'
 import { GoLiveField } from './goLive'
 import { PresetPicker } from './presetPicker'
+import {
+  HealthStep, RoleMappingStep, RulesStep, ScenarioPicker, healthAllowsNext, rolesComplete, rulesValid, useRecommendCheck,
+} from './recommendSteps'
 import { TrainResultView } from './TrainResultView'
 
-const STEP = { data: 0, target: 1, care: 2, train: 3, result: 4 } as const
+/** The steps in order: predicting and the one-table recommender, or a recommendation scenario. */
+type StepName = 'data' | 'target' | 'care' | 'needs' | 'health' | 'rules' | 'train' | 'result'
+const PLAIN_STEPS: StepName[] = ['data', 'target', 'care', 'train', 'result']
+const SCENARIO_STEPS: StepName[] = ['data', 'target', 'needs', 'health', 'rules', 'train', 'result']
 
 /** What the model is for: predict one column, or recommend items to people. */
 type Goal = 'predict' | 'recommend'
@@ -51,16 +61,19 @@ function targetSentence(check: TrainCheck): string {
  * who knows nothing about machine learning: the data, what to predict (checked
  * first, with fixes for what would spoil the model), how careful to be, train,
  * and the result in plain words. Instead of predicting a column, it can
- * learn to recommend items to people from who-had-what rows. Training
- * `modelName` again starts from its last version's choices, on the same path:
- * `task` is the model's, so a recommender opens as one before its versions
- * load. The expert controls stay under Advanced.
+ * learn to recommend: on a server with recommendation scenarios, the person
+ * picks one of five cards, points each table it needs at a dataset, sees the
+ * data health check and sets the rules in sentences; an older server gets the
+ * one-table recommender from who-had-what rows. Training `modelName` again
+ * starts from its last version's choices, on the same path: `task` is the
+ * model's, so a recommender opens as one before its versions load. The expert
+ * controls stay under Advanced.
  */
 export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
   vhost: string; modelName?: string; task?: string; onClose: () => void
 }) {
   const queryClient = useQueryClient()
-  const [active, setActive] = useState<number>(STEP.data)
+  const [at, setAt] = useState<StepName>('data')
   const [name, setName] = useState(modelName ?? '')
   const [nameError, setNameError] = useState<string | null>(null)
   const [dataset, setDataset] = useState<string | null>(null)
@@ -83,6 +96,25 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
   const [cols, setCols] = useState<RecommendCols>(NO_COLS)
   const [recAlgorithm, setRecAlgorithm] = useState<RecommendAlgorithm>('auto')
   const recommending = goal === 'recommend'
+  const [scenario, setScenario] = useState<Scenario | null>(null)
+  const [recData, setRecData] = useState<RecommendData>({})
+  const [choices, setChoices] = useState(() => defaultRuleChoices('visits'))
+  const [weights, setWeights] = useState<Weights>(DEFAULT_WEIGHTS)
+  const pickScenario = (s: Scenario) => {
+    setScenario(s)
+    setChoices(defaultRuleChoices(s))
+  }
+  // A server without the scenario routes gets the one-table recommender.
+  const probe = useQuery({
+    queryKey: ['ml-recommend-scenarios', vhost],
+    queryFn: ({ signal }) => scenariosSupported(vhost, signal),
+    enabled: recommending,
+    retry: false,
+    staleTime: 5 * 60_000,
+  })
+  const scenarioFlow = recommending && probe.data === true
+  const steps = scenarioFlow ? SCENARIO_STEPS : PLAIN_STEPS
+  const active = steps.indexOf(at)
 
   const { data: worker } = useWorkerStatus()
   const { data: datasets = [] } = useVHostDatasets(vhost)
@@ -109,17 +141,35 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
   if (!seeded && versions) {
     setSeeded(true)
     const last = versions[0]
-    if (last?.task === RECOMMENDATION && last.recommend) {
+    if (last?.task === RECOMMENDATION && isScenarioVersion(last)) {
+      const v = last as unknown as ScenarioVersion & { scenario: Scenario }
+      setGoal('recommend')
+      setDataset(v.roles?.transactions?.dataset ?? last.dataset)
+      setScenario(v.scenario)
+      setChoices(defaultRuleChoices(v.scenario))
+      setRecData(v.roles ?? { transactions: { dataset: last.dataset } })
+      if (v.weights) setWeights(v.weights)
+      setAt('needs')
+    } else if (last?.task === RECOMMENDATION && last.recommend) {
       const r = last.recommend
       setGoal('recommend')
       setDataset(last.dataset)
       setCols({ user: r.user, item: r.item, strength: r.strength ?? null, time: r.time ?? null })
-      setActive(STEP.target)
+      // On a server with scenarios, a one-table recommender trains again as "products to offer".
+      setScenario('products')
+      setChoices(defaultRuleChoices('products'))
+      setRecData({
+        transactions: {
+          dataset: last.dataset, customer: r.user, product: r.item,
+          ...(r.strength ? { quantity: r.strength } : {}), ...(r.time ? { date: r.time } : {}),
+        },
+      })
+      setAt('target')
     } else if (last) {
       setDataset(last.dataset)
       setTarget(last.target)
       setSeedFeatures(last.features ?? [])
-      setActive(STEP.target)
+      setAt('target')
     }
   }
   if (seedFeatures && info && target) {
@@ -142,10 +192,27 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
     const flagged = checked.columns.filter((c) => LEAVE_OUT_ROLES.includes(c.role) && c.name !== target).map((c) => c.name)
     if (flagged.length) setLeft((l) => [...new Set([...l, ...flagged])])
   }
+  const health = useRecommendCheck(vhost, scenario, recData, scenarioFlow && at === 'health')
+
   const notes = new Map((checked?.columns ?? []).filter((c) => c.note).map((c) => [c.name, c.note as string]))
 
   const train = useMutation({
     mutationFn: () => {
+      if (scenarioFlow && scenario) {
+        const spec: ScenarioTrainSpec = {
+          dataset: recData.transactions?.dataset ?? (dataset as string),
+          target: '',
+          task: RECOMMENDATION,
+          scenario,
+          data: recData,
+          ...(scenario === 'visits' ? { weights } : {}),
+          rules: rulesFromChoices(scenario, choices, recData),
+          algorithm: recAlgorithm,
+          go_live: goLive,
+        }
+        // The scenario fields are the contract's (ml-plan phase9-contract.md), beyond TrainSpec.
+        return trainModel(vhost, name.trim(), spec as unknown as TrainSpec)
+      }
       if (recommending) {
         // No preset: Auto always tries both methods, and the server refuses one.
         return trainModel(vhost, name.trim(), {
@@ -176,7 +243,7 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
       })
     },
     onSuccess: (res) => {
-      setActive(STEP.result)
+      setAt('result')
       queryClient.invalidateQueries({ queryKey: mlModelsKey(vhost) })
       queryClient.invalidateQueries({ queryKey: versionsKey(vhost, res.model?.name ?? name.trim()) })
     },
@@ -188,6 +255,7 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
     setLeft([])
     setApplied(null)
     setCols(NO_COLS)
+    setRecData(v ? { transactions: { dataset: v } } : {})
   }
   const setCol = (key: keyof RecommendCols) => (v: string | null) => setCols((c) => ({ ...c, [key]: v }))
   // The columns another question already took.
@@ -199,23 +267,28 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
   }
   const leaveOut = (column: string, out: boolean) => setLeft((l) => (out ? [...new Set([...l, column])] : l.filter((c) => c !== column)))
 
-  const canGoOn = active === STEP.data ? !!dataset && (!!modelName || !!name.trim())
-    : active === STEP.target
-      ? (recommending ? !!cols.user && !!cols.item : !!target && learnFrom.length > 0 && checked?.ok !== false)
-      : true
+  const canGoOn = at === 'data' ? !!dataset && (!!modelName || !!name.trim())
+    : at === 'target'
+      ? (recommending
+        ? (scenarioFlow ? !!scenario : !probe.isPending && !!cols.user && !!cols.item)
+        : !!target && learnFrom.length > 0 && checked?.ok !== false)
+      : at === 'needs' ? !!scenario && rolesComplete(scenario, recData)
+        : at === 'health' ? healthAllowsNext(health)
+          : at === 'rules' ? !!scenario && rulesValid(scenario, choices)
+            : true
 
   const goOn = () => {
-    if (active === STEP.data && !modelName) {
+    if (at === 'data' && !modelName) {
       const bad = !MODEL_NAME_PATTERN.test(name.trim())
       setNameError(bad ? `"${name.trim()}" is not a valid name.` : null)
       if (bad) return
     }
-    if (active === STEP.care && !recommending) {
+    if (at === 'care' && !recommending) {
       const { errors } = deep ? readDeepParams(deepText) : { errors: {} }
       setDeepErrors(errors)
       if (Object.keys(errors).length) return
     }
-    setActive((a) => a + 1)
+    setAt(steps[active + 1])
   }
 
   const presetLabel = PRESET_OPTIONS.find((o) => o.value === preset)?.label
@@ -226,7 +299,7 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
     <Modal opened onClose={onClose} title={modelName ? `Train ${modelName} again` : 'Train a model'} centered size="xl">
       <Stack gap="md">
         <Stepper active={active} size="sm" allowNextStepsSelect={false}
-          onStepClick={(i) => { if (i < active && active < STEP.result && !train.isPending) setActive(i) }}>
+          onStepClick={(i) => { if (i < active && at !== 'result' && !train.isPending) setAt(steps[i]) }}>
           <Stepper.Step label="Your data">
             <Stack gap="md">
               {!modelName && (
@@ -267,7 +340,11 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
                   </SimpleGrid>
                 </Radio.Group>
               )}
-              {recommending ? (
+              {recommending && probe.isPending ? (
+                <Group gap="xs"><Loader size="xs" /><Text size="sm" c="dimmed">Loading…</Text></Group>
+              ) : scenarioFlow ? (
+                <ScenarioPicker value={scenario} onChange={pickScenario} />
+              ) : recommending ? (
                 <>
                   <Text size="sm" c="dimmed">
                     Use rows where each one says someone had something: an order line, a view, a play. Hermod learns who had
@@ -329,7 +406,7 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
                             )
                           )}
                           {w.code === 'few_rows' && (
-                            <Button size="compact-xs" variant="light" onClick={() => setActive(STEP.data)}>Choose another dataset</Button>
+                            <Button size="compact-xs" variant="light" onClick={() => setAt('data')}>Choose another dataset</Button>
                           )}
                           {w.code === 'many_classes' && (
                             <Button size="compact-xs" variant="light" onClick={() => pickTarget(null)}>Pick another column</Button>
@@ -359,7 +436,7 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
             </Stack>
           </Stepper.Step>
 
-          <Stepper.Step label="How careful">
+          {!scenarioFlow && <Stepper.Step label="How careful">
             {recommending ? (
               <Stack gap="md">
                 {recAlgorithm === 'auto' && (
@@ -412,11 +489,36 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
               </Accordion>
             </Stack>
             )}
-          </Stepper.Step>
+          </Stepper.Step>}
+
+          {scenarioFlow && scenario && (
+            <Stepper.Step label="Data you need">
+              <RoleMappingStep vhost={vhost} scenario={scenario} data={recData} datasets={datasets} onChange={setRecData} />
+            </Stepper.Step>
+          )}
+          {scenarioFlow && (
+            <Stepper.Step label="Data health">
+              <HealthStep check={health} />
+            </Stepper.Step>
+          )}
+          {scenarioFlow && scenario && (
+            <Stepper.Step label="Rules">
+              <RulesStep scenario={scenario} data={recData} choices={choices} onChoices={setChoices} weights={weights} onWeights={setWeights} />
+            </Stepper.Step>
+          )}
 
           <Stepper.Step label="Train">
             <Stack gap="md">
-              {recommending ? (
+              {scenarioFlow && scenario ? (
+                <List size="sm" spacing={4}>
+                  <List.Item>Model: {name.trim()}</List.Item>
+                  <List.Item>Recommends: {scenarioLabel(scenario)}</List.Item>
+                  {(Object.keys(recData) as RoleKey[]).map((r) => (
+                    <List.Item key={r}>{ROLES[r].label}: {recData[r]?.dataset}</List.Item>
+                  ))}
+                  <List.Item>Rules: {rulesFromChoices(scenario, choices, recData).length || 'none'}</List.Item>
+                </List>
+              ) : recommending ? (
                 <List size="sm" spacing={4}>
                   <List.Item>Model: {name.trim()}</List.Item>
                   <List.Item>Data: {dataset}{info ? ` (${info.rows.toLocaleString()} rows)` : ''}</List.Item>
@@ -461,12 +563,12 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
         </Stepper>
 
         <Group justify="flex-end">
-          <Button variant="default" onClick={onClose}>{active === STEP.result ? 'Close' : 'Cancel'}</Button>
-          {active > STEP.data && active < STEP.result && (
-            <Button variant="default" disabled={train.isPending} onClick={() => setActive((a) => a - 1)}>Back</Button>
+          <Button variant="default" onClick={onClose}>{at === 'result' ? 'Close' : 'Cancel'}</Button>
+          {active > 0 && at !== 'result' && (
+            <Button variant="default" disabled={train.isPending} onClick={() => setAt(steps[active - 1])}>Back</Button>
           )}
-          {active < STEP.train && <Button onClick={goOn} disabled={!canGoOn}>Next</Button>}
-          {active === STEP.train && <Button loading={train.isPending} onClick={() => train.mutate()}>Train</Button>}
+          {active >= 0 && active < steps.indexOf('train') && <Button onClick={goOn} disabled={!canGoOn}>Next</Button>}
+          {at === 'train' && <Button loading={train.isPending} onClick={() => train.mutate()}>Train</Button>}
         </Group>
       </Stack>
     </Modal>

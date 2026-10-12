@@ -783,6 +783,46 @@ They are exported as `hermod_ml_recommendation_coverage` and
    Recommend, id field `customer_id`, and send `recommendations` on to an
    email or a cache.
 
+### Recommendation scenarios in the console
+
+On a Hermod with recommendation scenarios, **Recommend items to people** opens
+five cards instead of the four column questions: **Customers to visit or
+call**, **Products to offer a customer**, **When will they buy again**, **Who
+will want this product** and **Similar products**, each with a real example.
+**How to prepare your data** next to them explains the tables, how much data is
+enough and what the health check looks for.
+
+1. **What data you need.** A checklist of the tables the card needs (orders or
+   invoice lines always; customers with their salesman for visits; products,
+   visits and salesmen where they help), each with example rows and a CSV
+   template to download. Point each at a dataset, or upload a file there;
+   Hermod guesses the columns from their names and types (ids, dates, money)
+   and you confirm them.
+2. **Data health.** `POST …/ml/recommend-check` runs, and each check shows
+   green, amber or red with its fix. Red stops the dialog until it is fixed.
+3. **Rules.** Sentences you switch on: only the salesman's own customers, skip
+   customers visited (or products bought) in the last N days, skip customers on
+   credit hold, only active products, promote a list, prefer margin, at most N
+   per category. Visit planning adds visits per day, working days and five
+   sliders for what makes a customer worth a visit, with **Reset the weights**.
+4. **Train and the result.** The headline is in words ("Of the customers
+   Hermod would have planned last period, 62% ordered — the 'most overdue
+   first' list got 48%"), judged good, fair or weak against the simple lists,
+   with the data health summary and sample answers. A visit model previews one
+   salesman's plan as a list of days with reasons.
+5. **Use it.** **Try it** asks in the scenario's terms and lets you mark each
+   answer useful or not (posted as feedback); **Copy API call** and **Copy
+   async call** (the async one needs Hermod with async jobs); **Build
+   recommendations into a table** saves a weekly build (`PUT …/build`).
+
+Monitoring shows the acceptance rate of the last 30 days from the feedback.
+Under **Datasets**, the clock button refreshes a dataset from a database query
+on a cron schedule and shows the last run and error. In a workflow, **Predict**
+asks a scenario model for a salesman (with the days to plan), a customer or a
+product, and **Build Recommendations** builds every list and emits one message
+per row. A server without the scenario routes gets the one-table recommender
+above.
+
 ## Feature engineering nodes
 
 *Feature Engineering* in the palette holds the preprocessing a model needs

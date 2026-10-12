@@ -2,10 +2,12 @@ import { useId, useState } from 'react'
 import { Accordion, Alert, Badge, Group, List, Paper, Progress, Stack, Table, Text, Title } from '@mantine/core'
 import { IconAlertCircle } from '@tabler/icons-react'
 import { RECOMMENDATION, algorithmLabel, type LeaderboardEntry, type TrainResult } from '@/lib/mlModels'
+import { isScenarioVersion } from '@/lib/mlRecommend'
 import { MetricsTable, formatMetric } from './metrics'
 import { ModelTestModal } from './ModelTestModal'
 import { NextSteps, servingCurl } from './nextSteps'
 import { RecommendResultView } from './recommendResult'
+import { ScenarioResultView } from './scenarioResult'
 import { VERDICT_TEXT, baselineSentence, headline, verdict } from './trainVerdict'
 
 const METRIC_WORDS: Record<string, string> = { balanced_accuracy: 'balanced accuracy', r2: 'R²' }
@@ -17,7 +19,8 @@ const seconds = (s: number) => (s < 1 ? 'under a second' : s < 90 ? `${Math.roun
  * whether that is good next to guessing, what mattered, what "auto" tried, and
  * what to do next. The raw metrics sit behind Details. Everything a server
  * older than these fields leaves out is simply not shown. A recommender's
- * outcome is read against recommending the most popular items instead.
+ * outcome is read against recommending the most popular items instead, and a
+ * recommendation scenario's against its simple lists.
  */
 export function TrainResultView({ vhost, result, exampleRow }: {
   vhost: string
@@ -25,9 +28,10 @@ export function TrainResultView({ vhost, result, exampleRow }: {
   /** A row of the training data, to try the model with. */
   exampleRow?: Record<string, unknown>
 }) {
-  return result.version.task === RECOMMENDATION
-    ? <RecommendResultView vhost={vhost} result={result} />
-    : <PredictResultView vhost={vhost} result={result} exampleRow={exampleRow} />
+  if (result.version.task !== RECOMMENDATION) return <PredictResultView vhost={vhost} result={result} exampleRow={exampleRow} />
+  return isScenarioVersion(result.version)
+    ? <ScenarioResultView vhost={vhost} result={result} />
+    : <RecommendResultView vhost={vhost} result={result} />
 }
 
 function PredictResultView({ vhost, result, exampleRow }: {

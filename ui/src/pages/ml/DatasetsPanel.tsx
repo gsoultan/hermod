@@ -3,17 +3,18 @@ import {
   ActionIcon, Alert, Button, Group, Loader, Modal, NumberInput, Paper, Select, Stack, Table, Text,
   TextInput, Textarea, Title, Tooltip,
 } from '@mantine/core'
-import { IconAlertCircle, IconDatabase, IconEye, IconTable, IconTrash, IconUpload } from '@tabler/icons-react'
+import { IconAlertCircle, IconClock, IconDatabase, IconEye, IconTable, IconTrash, IconUpload } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useConfirm } from '@/components/common/ConfirmProvider'
 import { EmptyState } from '@/components/common/EmptyState'
 import {
   DATASET_NAME_PATTERN, datasetFromQuery, datasetsKey, deleteDataset, listSQLSources, uploadDataset, useDataset,
-  useVHostDatasets,
+  useVHostDatasets, type DatasetInfo,
 } from '@/lib/mlModels'
+import { clearDatasetRefresh, putDatasetRefresh, type DatasetRefresh } from '@/lib/mlRecommend'
 import { DatasetPreview } from './datasetPreview'
 
-type Dialog = { kind: 'upload' } | { kind: 'query' } | { kind: 'view'; name: string }
+type Dialog = { kind: 'upload' } | { kind: 'query' } | { kind: 'view'; name: string } | { kind: 'refresh'; name: string }
 
 const datasetNameRule = 'Letters, digits, "_", "." and "-".'
 
@@ -90,6 +91,11 @@ export function DatasetsPanel({ vhost }: { vhost: string }) {
                             <IconEye size="1.1rem" />
                           </ActionIcon>
                         </Tooltip>
+                        <Tooltip label="Refresh on a schedule">
+                          <ActionIcon variant="light" radius="md" aria-label={`Refresh ${d.name} on a schedule`} onClick={() => setDialog({ kind: 'refresh', name: d.name })}>
+                            <IconClock size="1.1rem" />
+                          </ActionIcon>
+                        </Tooltip>
                         <Tooltip label="Delete">
                           <ActionIcon variant="light" color="red" radius="md" aria-label={`Delete dataset ${d.name}`} onClick={() => askDelete(d.name)}>
                             <IconTrash size="1.1rem" />
@@ -107,6 +113,7 @@ export function DatasetsPanel({ vhost }: { vhost: string }) {
       {dialog?.kind === 'upload' && <UploadModal vhost={vhost} onClose={() => setDialog(undefined)} />}
       {dialog?.kind === 'query' && <QueryModal vhost={vhost} onClose={() => setDialog(undefined)} />}
       {dialog?.kind === 'view' && <SampleModal vhost={vhost} name={dialog.name} onClose={() => setDialog(undefined)} />}
+      {dialog?.kind === 'refresh' && <RefreshModal vhost={vhost} name={dialog.name} onClose={() => setDialog(undefined)} />}
     </Paper>
   )
 }
@@ -126,9 +133,10 @@ function useDatasetName(initial = '') {
   return { name: name.trim(), check, input }
 }
 
-function UploadModal({ vhost, onClose }: { vhost: string; onClose: () => void }) {
+/** Uploads a CSV or Excel file as a dataset; `initialName` fills in its name. */
+export function UploadModal({ vhost, initialName, onClose }: { vhost: string; initialName?: string; onClose: () => void }) {
   const queryClient = useQueryClient()
-  const ds = useDatasetName()
+  const ds = useDatasetName(initialName)
   const [file, setFile] = useState<File | null>(null)
   const upload = useMutation({
     mutationFn: () => uploadDataset(vhost, ds.name, file as File),
@@ -165,17 +173,21 @@ function UploadModal({ vhost, onClose }: { vhost: string; onClose: () => void })
   )
 }
 
+function useSQLSources(vhost: string) {
+  return useQuery({
+    queryKey: ['ml-sql-sources', vhost],
+    queryFn: ({ signal }) => listSQLSources(vhost, signal),
+    retry: false,
+  })
+}
+
 function QueryModal({ vhost, onClose }: { vhost: string; onClose: () => void }) {
   const queryClient = useQueryClient()
   const ds = useDatasetName()
   const [source, setSource] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [maxRows, setMaxRows] = useState<number | string>('')
-  const { data: sources = [], isLoading } = useQuery({
-    queryKey: ['ml-sql-sources', vhost],
-    queryFn: ({ signal }) => listSQLSources(vhost, signal),
-    retry: false,
-  })
+  const { data: sources = [], isLoading } = useSQLSources(vhost)
   const read = useMutation({
     mutationFn: () => datasetFromQuery(vhost, ds.name, source as string, query, typeof maxRows === 'number' ? maxRows : undefined),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: datasetsKey(vhost) }),
@@ -226,6 +238,81 @@ function SampleModal({ vhost, name, onClose }: { vhost: string; name: string; on
           {data && <DatasetPreview info={data} />}
         </Stack>
       )}
+    </Modal>
+  )
+}
+
+const when = (t: string | undefined) => (t && !t.startsWith('0001-01-01') ? new Date(t).toLocaleString() : 'never')
+
+/**
+ * Refills a dataset from a database query on a cron schedule, replacing its
+ * rows each time, so a retraining uses fresh data. Shows how the last refresh
+ * went. A server older than refreshes shows no refresh and refuses the save.
+ */
+function RefreshModal({ vhost, name, onClose }: { vhost: string; name: string; onClose: () => void }) {
+  const queryClient = useQueryClient()
+  const { data: info } = useDataset(vhost, name)
+  const current = (info as (DatasetInfo & { refresh?: DatasetRefresh }) | undefined)?.refresh
+  const [schedule, setSchedule] = useState<string | null>(null)
+  const [source, setSource] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+  const [maxRows, setMaxRows] = useState<number | string>('')
+  const { data: sources = [], isLoading } = useSQLSources(vhost)
+  const cron = schedule ?? current?.schedule ?? '0 5 * * *'
+  const done = () => {
+    queryClient.invalidateQueries({ queryKey: ['ml-dataset', vhost, name] })
+    queryClient.invalidateQueries({ queryKey: datasetsKey(vhost) })
+  }
+  const save = useMutation({
+    mutationFn: () => putDatasetRefresh(vhost, name, {
+      schedule: cron.trim(), source_id: source as string, query, max_rows: typeof maxRows === 'number' ? maxRows : 0,
+    }),
+    onSuccess: done,
+  })
+  const stop = useMutation({ mutationFn: () => clearDatasetRefresh(vhost, name), onSuccess: done })
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault()
+    if (cron.trim() && source && query.trim()) save.mutate()
+  }
+  return (
+    <Modal opened onClose={onClose} title={`Refresh ${name} on a schedule`} centered size="lg">
+      <form onSubmit={submit} noValidate>
+        <Stack gap="md">
+          {current ? (
+            <Stack gap={2}>
+              <Text size="sm">Refreshes on <Text span ff="var(--mantine-font-family-monospace)">{current.schedule}</Text>.</Text>
+              <Text size="sm" c="dimmed">Last run: {when(current.last_run)}. Next run: {when(current.next_run)}.</Text>
+              {current.last_error && (
+                <Alert color="red" variant="light" icon={<IconAlertCircle size="1rem" />} title="The last refresh failed">{current.last_error}</Alert>
+              )}
+            </Stack>
+          ) : (
+            <Text size="sm" c="dimmed">Each refresh runs the query and replaces the dataset's rows with what it returns.</Text>
+          )}
+          <TextInput label="Schedule" required description='When to refresh, as cron: "0 5 * * *" is every day at 05:00.'
+            value={cron} onChange={(e) => setSchedule(e.currentTarget.value)} styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)' } }} />
+          <Select label="Database source" required searchable placeholder={isLoading ? 'Loading…' : sources.length ? 'Choose a source' : 'No database sources in this vhost'}
+            data={sources.map((s) => ({ value: s.id, label: s.name }))} value={source} onChange={setSource} />
+          <Textarea label="Query" required autosize minRows={3} placeholder="SELECT cust_id, sku, order_date, qty, total FROM order_lines"
+            description="A SELECT, run read-only with the source's own credentials." value={query}
+            onChange={(e) => setQuery(e.currentTarget.value)} styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)' } }} />
+          <NumberInput label="At most this many rows" placeholder="1000000" min={1} value={maxRows} onChange={setMaxRows} maw={260} />
+          {(save.error || stop.error) && (
+            <Alert color="red" icon={<IconAlertCircle size="1rem" />} title="The schedule was not changed">
+              {((save.error || stop.error) as Error).message}
+            </Alert>
+          )}
+          {save.isSuccess && <Alert color="green" title="Saved">{name} refreshes on {cron.trim()}.</Alert>}
+          {stop.isSuccess && <Alert color="green" title="Stopped">{name} no longer refreshes by itself.</Alert>}
+          <Group justify="flex-end">
+            {current && (
+              <Button variant="subtle" color="red" loading={stop.isPending} onClick={() => stop.mutate()}>Stop refreshing</Button>
+            )}
+            <Button variant="default" onClick={onClose}>{save.isSuccess ? 'Close' : 'Cancel'}</Button>
+            <Button type="submit" loading={save.isPending} disabled={!cron.trim() || !source || !query.trim()}>Save</Button>
+          </Group>
+        </Stack>
+      </form>
     </Modal>
   )
 }
