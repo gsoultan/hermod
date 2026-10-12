@@ -30,6 +30,13 @@ const off = { configured: false, ready: false }
 const down = { configured: true, ready: false, error: 'the ML worker does not answer' }
 const slim = { configured: true, ready: true, algorithms: ['auto', 'random_forest', 'gradient_boosting', 'linear', 'xgboost'] }
 const withDL = { ...slim, algorithms: [...slim.algorithms, 'pytorch_mlp', 'keras_mlp'] }
+/** Hermod's built-in engine, in force when no worker is configured (pkg/ml/builtin). */
+const builtin = {
+  configured: true, ready: true, source: 'builtin',
+  algorithms: ['auto', 'random_forest', 'gradient_boosting', 'linear', 'mlp', 'als', 'item_similarity'],
+  unavailable: Object.fromEntries(['xgboost', 'extra_trees', 'hist_gradient_boosting', 'pytorch_mlp', 'keras_mlp']
+    .map((a) => [a, 'needs the hermod-ml worker'])),
+}
 
 const customers = {
   name: 'customers', rows: 1200, updated_at: '2026-10-10T00:00:00Z',
@@ -234,6 +241,31 @@ describe('Getting started: the setup guide', () => {
     await waitFor(() => expect(calls.worker).toBeGreaterThan(before))
     expect(await within(dialog).findByText(/the worker is connected/i)).toBeInTheDocument()
     expect(await within(worker).findByText('Done')).toBeInTheDocument()
+  })
+})
+
+describe('Getting started: the built-in engine', () => {
+  it('makes connecting the worker optional, and lets training start without it', async () => {
+    pageApi({ worker: builtin, datasets: [customers] })
+    renderPage()
+    const user = userEvent.setup()
+    const worker = await step(/optional: connect the hermod-ml worker for tensorflow\/pytorch/i)
+    expect(within(worker).getByText('Optional')).toBeInTheDocument()
+    expect(within(worker).getByText(/built-in engine/i)).toBeInTheDocument()
+    expect(within(worker).getByRole('button', { name: /set up the worker/i })).toBeEnabled()
+    const data = await step(/add your data/i)
+    expect(within(data).getByRole('button', { name: /go to datasets/i })).toBeEnabled()
+    const model = await step(/train a model/i)
+    expect(within(model).getByRole('button', { name: /start training/i })).toBeEnabled()
+    expect(await trainChoice(user)).toBeEnabled()
+  })
+
+  it('can be hidden once the other three steps are done', async () => {
+    pageApi({ worker: builtin, datasets: [customers], models: [live] })
+    renderPage()
+    const use = await step(/use it/i)
+    expect(await within(use).findByText('Done')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /hide the guide/i })).toBeInTheDocument()
   })
 })
 

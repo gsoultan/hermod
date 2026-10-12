@@ -1,7 +1,7 @@
 import { useId, useState, type ReactNode } from 'react'
 import { Badge, Box, Button, Group, Paper, Stack, Text, ThemeIcon, Title } from '@mantine/core'
 import { IconCheck, IconDatabase, IconPlayerPlay, IconPlugConnected, IconRocket, IconSchool, IconTool } from '@tabler/icons-react'
-import { hasDeepLearning, isTrainedModel, workerState, type MLModel, type WorkerStatus } from '@/lib/mlModels'
+import { hasDeepLearning, isBuiltinEngine, isTrainedModel, workerState, type MLModel, type WorkerStatus } from '@/lib/mlModels'
 
 const storageKey = (username: string) => `hermod.ml.guide.hidden.${username}`
 
@@ -23,10 +23,12 @@ function writeHidden(username: string, hidden: boolean) {
 }
 
 /** One step: its number or a tick, what it is, where it stands, and the one thing to do next. */
-function Step({ n, title, done, children, action, blocked }: {
+function Step({ n, title, done, optional, children, action, blocked }: {
   n: number
   title: string
   done: boolean
+  /** The step can be skipped: it reads Optional rather than To do. */
+  optional?: boolean
   children: ReactNode
   /** The step's button; absent when there is nothing left to press. */
   action?: { label: string; icon: ReactNode; onClick: () => void; disabled?: boolean }
@@ -44,7 +46,9 @@ function Step({ n, title, done, children, action, blocked }: {
         <Stack gap={4} style={{ flex: 1, minWidth: 0 }}>
           <Group gap="xs">
             <Text fw={600} id={titleId}>{title}</Text>
-            <Badge size="sm" variant="light" color={done ? 'green' : 'gray'} tt="none">{done ? 'Done' : 'To do'}</Badge>
+            <Badge size="sm" variant="light" color={done ? 'green' : optional ? 'blue' : 'gray'} tt="none">
+              {done ? 'Done' : optional ? 'Optional' : 'To do'}
+            </Badge>
           </Group>
           {children}
           {action && (
@@ -65,8 +69,10 @@ function Step({ n, title, done, children, action, blocked }: {
 /**
  * Getting started with machine learning, at the top of the page: the four
  * steps from nothing to a model in use, each with where it stands now and the
- * one button that moves it on. Once every step is done the person can hide
- * it; that is remembered for them in this browser.
+ * one button that moves it on. With Hermod's built-in engine in force the
+ * first step, connecting the hermod-ml worker, is optional: it adds
+ * TensorFlow, PyTorch and the rest. Once every step that is not optional is
+ * done the person can hide it; that is remembered for them in this browser.
  */
 export function GettingStarted({ worker, datasets, models, username, onSetup, onDatasets, onTrain, onTry, onMakeLive }: {
   worker: WorkerStatus | undefined
@@ -85,11 +91,13 @@ export function GettingStarted({ worker, datasets, models, username, onSetup, on
   const state = workerState(worker)
   const ready = state === 'ready'
   const deep = hasDeepLearning(worker)
+  const builtin = isBuiltinEngine(worker)
   const trained = (models ?? []).filter(isTrainedModel)
   const live = trained.find((m) => !!m.remote_version)
   const hasData = (datasets ?? 0) > 0
-  const done = [ready, hasData, trained.length > 0, !!live]
-  const allDone = done.every(Boolean)
+  // On the built-in engine, step 1 (a worker) is optional and not done.
+  const done = [ready && !builtin, hasData, trained.length > 0, !!live]
+  const allDone = done.every((d, i) => d || (i === 0 && builtin))
   const connectFirst = 'Connect the worker first (step 1).'
 
   const hide = (h: boolean) => {
@@ -125,32 +133,42 @@ export function GettingStarted({ worker, datasets, models, username, onSetup, on
         </Group>
 
         <Stack component="ol" gap="md" p={0} m={0}>
-          <Step n={1} title="Connect the training worker" done={ready}
-            action={state === 'off' ? { label: 'Set up the worker', icon: <IconPlugConnected size="1rem" />, onClick: onSetup }
-              : state === 'down' ? { label: 'Fix the connection', icon: <IconTool size="1rem" />, onClick: onSetup }
-              : ready && !deep ? { label: 'How to add deep learning', icon: <IconTool size="1rem" />, onClick: onSetup }
-              : undefined}>
-            {state === 'checking' && <Text size="sm" c="dimmed">Checking whether Hermod can reach the training worker…</Text>}
-            {state === 'off' && (
+          {builtin ? (
+            <Step n={1} title="Optional: connect the hermod-ml worker for TensorFlow/PyTorch" done={false} optional
+              action={{ label: 'Set up the worker', icon: <IconPlugConnected size="1rem" />, onClick: onSetup }}>
               <Text size="sm" c="dimmed">
-                Not set up yet. Training runs in hermod-ml, a helper program beside Hermod: run it with one command,
-                then connect it here. No restart needed.
+                Hermod trains with its built-in engine: linear models, random forests, gradient boosting, a neural network
+                and recommendations. Connect the hermod-ml worker for TensorFlow, PyTorch, XGBoost and custom scripts.
               </Text>
-            )}
-            {state === 'down' && (
-              <Text size="sm" c="dimmed">The worker is set up, but it does not answer. Hermod cannot train until it does.</Text>
-            )}
-            {ready && (
-              <>
-                <Text size="sm" c="dimmed">Connected. Hermod can train models.</Text>
+            </Step>
+          ) : (
+            <Step n={1} title="Connect the training worker" done={ready}
+              action={state === 'off' ? { label: 'Set up the worker', icon: <IconPlugConnected size="1rem" />, onClick: onSetup }
+                : state === 'down' ? { label: 'Fix the connection', icon: <IconTool size="1rem" />, onClick: onSetup }
+                : ready && !deep ? { label: 'How to add deep learning', icon: <IconTool size="1rem" />, onClick: onSetup }
+                : undefined}>
+              {state === 'checking' && <Text size="sm" c="dimmed">Checking whether Hermod can reach the training worker…</Text>}
+              {state === 'off' && (
                 <Text size="sm" c="dimmed">
-                  {deep
-                    ? 'Deep learning (PyTorch, TensorFlow) is available.'
-                    : 'Deep learning (PyTorch, TensorFlow) is not available: the worker runs the slim image.'}
+                  Not set up yet. Training runs in hermod-ml, a helper program beside Hermod: run it with one command,
+                  then connect it here. No restart needed.
                 </Text>
-              </>
-            )}
-          </Step>
+              )}
+              {state === 'down' && (
+                <Text size="sm" c="dimmed">The worker is set up, but it does not answer. Hermod cannot train until it does.</Text>
+              )}
+              {ready && (
+                <>
+                  <Text size="sm" c="dimmed">Connected. Hermod can train models.</Text>
+                  <Text size="sm" c="dimmed">
+                    {deep
+                      ? 'Deep learning (PyTorch, TensorFlow) is available.'
+                      : 'Deep learning (PyTorch, TensorFlow) is not available: the worker runs the slim image.'}
+                  </Text>
+                </>
+              )}
+            </Step>
+          )}
 
           <Step n={2} title="Add your data" done={hasData} blocked={connectFirst}
             action={{ label: 'Go to Datasets', icon: <IconDatabase size="1rem" />, onClick: onDatasets, disabled: !ready }}>
