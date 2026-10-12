@@ -4,7 +4,7 @@ import { IconAlertCircle } from '@tabler/icons-react'
 import { RECOMMENDATION, algorithmLabel, type LeaderboardEntry, type TrainResult } from '@/lib/mlModels'
 import { MetricsTable, formatMetric } from './metrics'
 import { ModelTestModal } from './ModelTestModal'
-import { NextSteps, servingCurl } from './nextSteps'
+import { NextSteps, servingCurl, servingCurlAsync } from './nextSteps'
 import { RecommendResultView } from './recommendResult'
 import { VERDICT_TEXT, baselineSentence, headline, verdict } from './trainVerdict'
 
@@ -42,7 +42,9 @@ function PredictResultView({ vhost, result, exampleRow }: {
   const judged = verdict(v)
   const guess = baselineSentence(v)
   const row = exampleRow ? Object.fromEntries(v.features.filter((f) => f in exampleRow).map((f) => [f, exampleRow[f]])) : undefined
-  const apiCall = servingCurl(vhost, name, { instances: [row ?? Object.fromEntries(v.features.map((f) => [f, null]))] })
+  const callBody = { instances: [row ?? Object.fromEntries(v.features.map((f) => [f, null]))] }
+  const apiCall = servingCurl(vhost, name, callBody)
+  const asyncCall = servingCurlAsync(vhost, name, callBody)
 
   return (
     <Stack gap="md">
@@ -86,7 +88,7 @@ function PredictResultView({ vhost, result, exampleRow }: {
 
       {!!v.leaderboard?.length && <Leaderboard entries={v.leaderboard} />}
 
-      <NextSteps vhost={vhost} result={result} apiCall={apiCall} onTry={() => setTrying(true)}
+      <NextSteps vhost={vhost} result={result} apiCall={apiCall} asyncCall={asyncCall} onTry={() => setTrying(true)}
         workflow={`To use it in a workflow, add a Predict node from Machine Learning and pick ${name}.`} />
 
       <Accordion variant="contained" keepMounted={false}>

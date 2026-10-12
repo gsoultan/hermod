@@ -5,6 +5,7 @@ package grpc
 import (
 	"context"
 	"errors"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -15,6 +16,7 @@ import (
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/ml/inference"
 	"github.com/gsoultan/hermod/pkg/ml/proto"
+	"github.com/gsoultan/hermod/pkg/ml/recommend"
 )
 
 // Server implements proto.InferenceServiceServer.
@@ -24,6 +26,9 @@ type Server struct {
 	// first-run setup and a database switch replace the store while the gRPC
 	// server keeps running.
 	ServiceFunc func() *ml.Service
+	// watchEvery is how often WatchJob reads its job; zero is
+	// defaultWatchEvery. Tests shorten it.
+	watchEvery time.Duration
 }
 
 // Predict authenticates the caller with the model's serving key, then runs the
@@ -50,8 +55,16 @@ func (s *Server) Predict(ctx context.Context, req *proto.PredictRequest) (*proto
 		rows[i] = in.AsMap()
 	}
 
-	preds, err := svc.Predict(ml.WithCaller(ctx, storage.MLCallerGRPC, ""), req.GetVhost(), req.GetModel(), rows)
+	var preds []inference.Row
+	err := svc.Sync(ml.WithCaller(ctx, storage.MLCallerGRPC, ""), req.GetVhost(), req.GetModel(), func(ctx context.Context) error {
+		var err error
+		preds, err = svc.Predict(ctx, req.GetVhost(), req.GetModel(), rows)
+		return err
+	})
 	if err != nil {
+		if errors.Is(err, ml.ErrSyncTimeout) {
+			return nil, status.Error(codes.DeadlineExceeded, syncHint(err))
+		}
 		if errors.Is(err, ml.ErrTooManyRows) || errors.Is(err, ml.ErrRecommender) {
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
@@ -90,9 +103,16 @@ func (s *Server) Recommend(ctx context.Context, req *proto.RecommendRequest) (*p
 	case *proto.RecommendRequest_Item:
 		call.Item = subject.Item
 	}
-	items, err := svc.Recommend(ml.WithCaller(ctx, storage.MLCallerGRPC, ""), req.GetVhost(), req.GetModel(), call)
+	var items []recommend.Item
+	err := svc.Sync(ml.WithCaller(ctx, storage.MLCallerGRPC, ""), req.GetVhost(), req.GetModel(), func(ctx context.Context) error {
+		var err error
+		items, err = svc.Recommend(ctx, req.GetVhost(), req.GetModel(), call)
+		return err
+	})
 	if err != nil {
 		switch {
+		case errors.Is(err, ml.ErrSyncTimeout):
+			return nil, status.Error(codes.DeadlineExceeded, syncHint(err))
 		case errors.Is(err, ml.ErrBadRecommendRequest), errors.Is(err, ml.ErrNotRecommender):
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		case errors.Is(err, ml.ErrQuotaExceeded):
@@ -106,6 +126,17 @@ func (s *Server) Recommend(ctx context.Context, req *proto.RecommendRequest) (*p
 		resp.Items[i] = &proto.RecommendedItem{Item: it.Item, Score: it.Score, Reason: it.Reason}
 	}
 	return resp, nil
+}
+
+// syncHint is a sync time limit refusal for a gRPC caller, who sends the
+// call as a job with SubmitJob rather than with "respond".
+func syncHint(err error) string {
+	var limit *ml.SyncTimeoutError
+	if errors.As(err, &limit) {
+		return "the model did not answer within " + limit.Limit.String() +
+			", the limit for a call that waits for its answer; send it with SubmitJob and read the answer with GetJob or WatchJob"
+	}
+	return err.Error()
 }
 
 // apiKey is the "x-api-key" metadata, as the gRPC source reads it.

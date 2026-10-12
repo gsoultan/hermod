@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"google.golang.org/protobuf/reflect/protodesc"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 // The same guard pkg/comm/source/grpc/proto keeps: parsing the embedded
@@ -24,5 +25,24 @@ func TestDescriptorParses(t *testing.T) {
 	const wantGoPkg = "github.com/gsoultan/hermod/pkg/ml/proto"
 	if got := protodesc.ToFileDescriptorProto(fd).GetOptions().GetGoPackage(); got != wantGoPkg {
 		t.Errorf("go_package = %q, want %q", got, wantGoPkg)
+	}
+}
+
+// The job RPCs are the async twin of Predict and Recommend; WatchJob streams
+// a job's progress until it ends.
+func TestJobRPCs(t *testing.T) {
+	svc := (&PredictRequest{}).ProtoReflect().Descriptor().ParentFile().Services().Get(0)
+	for _, rpc := range []struct {
+		name   string
+		stream bool
+	}{{"Predict", false}, {"Recommend", false}, {"SubmitJob", false}, {"GetJob", false}, {"CancelJob", false}, {"WatchJob", true}} {
+		m := svc.Methods().ByName(protoreflect.Name(rpc.name))
+		if m == nil {
+			t.Errorf("InferenceService has no %s", rpc.name)
+			continue
+		}
+		if m.IsStreamingServer() != rpc.stream || m.IsStreamingClient() {
+			t.Errorf("%s streams the server %v, the client %v; want %v, false", rpc.name, m.IsStreamingServer(), m.IsStreamingClient(), rpc.stream)
+		}
 	}
 }

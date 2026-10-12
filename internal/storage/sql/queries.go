@@ -31,6 +31,8 @@ const (
 	QueryInitMLScriptsTable          = "InitMLScriptsTable"
 	QueryInitMLQuotasTable           = "InitMLQuotasTable"
 	QueryInitMLPredictionLogsTable   = "InitMLPredictionLogsTable"
+	QueryInitMLJobsTable             = "InitMLJobsTable"
+	QueryInitMLJobResultsTable       = "InitMLJobResultsTable"
 	QueryInitAIBudgetsTable          = "InitAIBudgetsTable"
 	QueryInitAIUsageTable            = "InitAIUsageTable"
 	QueryInitWorkersTable            = "InitWorkersTable"
@@ -144,6 +146,31 @@ const (
 	QueryInsertMLScript          = "InsertMLScript"
 	QueryDeleteMLScript          = "DeleteMLScript"
 	QueryDeleteMLScriptsOfVHost  = "DeleteMLScriptsOfVHost"
+
+	// ML jobs
+	QueryInsertMLJob             = "InsertMLJob"
+	QueryGetMLJob                = "GetMLJob"
+	QueryGetMLJobVHost           = "GetMLJobVHost"
+	QueryGetMLJobCallbackURL     = "GetMLJobCallbackURL"
+	QueryListMLJobs              = "ListMLJobs"
+	QueryCountMLJobs             = "CountMLJobs"
+	QueryMLJobClaimCandidates    = "MLJobClaimCandidates"
+	QueryClaimMLJob              = "ClaimMLJob"
+	QueryUpdateMLJobProgress     = "UpdateMLJobProgress"
+	QueryMLJobCancelRequested    = "MLJobCancelRequested"
+	QueryFinishMLJob             = "FinishMLJob"
+	QueryCancelQueuedMLJob       = "CancelQueuedMLJob"
+	QueryRequestMLJobCancel      = "RequestMLJobCancel"
+	QueryMLJobCallbackCandidates = "MLJobCallbackCandidates"
+	QueryClaimMLJobCallback      = "ClaimMLJobCallback"
+	QueryRecordMLJobCallback     = "RecordMLJobCallback"
+	QueryInsertMLJobResult       = "InsertMLJobResult"
+	QueryGetMLJobResult          = "GetMLJobResult"
+	QueryDeleteMLJobResult       = "DeleteMLJobResult"
+	QueryDeleteExpiredMLJobs     = "DeleteExpiredMLJobs"
+	QueryDeleteExpiredMLResults  = "DeleteExpiredMLJobResults"
+	QueryDeleteMLJobsOfVHost     = "DeleteMLJobsOfVHost"
+	QueryDeleteMLResultsOfVHost  = "DeleteMLJobResultsOfVHost"
 
 	// Workflows
 	QueryListWorkflows        = "ListWorkflows"
@@ -365,6 +392,49 @@ var commonQueries = map[string]string{
 			description TEXT,
 			created_by TEXT,
 			created_at TIMESTAMP
+		)`,
+	// One row per asynchronous ML job. request and result are JSON; a result
+	// too large for the row goes to ml_job_results and result_ref says so.
+	// claimed_by and claim_until are the claim one Hermod holds while it runs
+	// the job or sends its callback, as training_owner and training_until are
+	// on ml_models: a claim not renewed in time is taken over, which is how a
+	// job outlives the Hermod that started it. Every job expires_at seven days
+	// after it was made, when the purge removes it.
+	QueryInitMLJobsTable: `CREATE TABLE IF NOT EXISTS ml_jobs (
+			id TEXT PRIMARY KEY,
+			vhost TEXT NOT NULL DEFAULT '',
+			model TEXT NOT NULL DEFAULT '',
+			kind TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'queued',
+			progress REAL NOT NULL DEFAULT 0,
+			progress_message TEXT,
+			request TEXT,
+			result TEXT,
+			result_ref TEXT,
+			error TEXT,
+			callback_url TEXT,
+			callback_status TEXT,
+			callback_attempts INTEGER DEFAULT 0,
+			callback_next_at TIMESTAMP,
+			callback_error TEXT,
+			caller_kind TEXT,
+			created_by TEXT,
+			cancel_requested BOOLEAN DEFAULT FALSE,
+			attempts INTEGER DEFAULT 0,
+			claimed_by TEXT,
+			claim_until TIMESTAMP,
+			created_at TIMESTAMP NOT NULL,
+			started_at TIMESTAMP,
+			finished_at TIMESTAMP,
+			expires_at TIMESTAMP NOT NULL
+		)`,
+	// A job's result when it is too large to keep on the job. job_id is the
+	// job's id; vhost is kept so every read is scoped to one vhost.
+	QueryInitMLJobResultsTable: `CREATE TABLE IF NOT EXISTS ml_job_results (
+			job_id TEXT PRIMARY KEY,
+			vhost TEXT NOT NULL DEFAULT '',
+			result TEXT,
+			expires_at TIMESTAMP NOT NULL
 		)`,
 	// One row per vhost that has quotas set; spec is the quotas as JSON, so a
 	// new quota is not a schema change.
@@ -744,6 +814,36 @@ var commonQueries = map[string]string{
 	QueryDeleteMLScript:         "DELETE FROM ml_scripts WHERE vhost = ? AND name = ?",
 	QueryDeleteMLScriptsOfVHost: "DELETE FROM ml_scripts WHERE vhost = ?",
 
+	// A job is claimable when it is queued, or running under a claim that
+	// expired: the Hermod running it stopped. The candidates are read first and
+	// each is then claimed with the same condition, so of two Hermods racing
+	// for one job exactly one update lands.
+	QueryInsertMLJob:          "INSERT INTO ml_jobs (id, vhost, model, kind, status, progress, progress_message, request, result, result_ref, error, callback_url, callback_status, callback_attempts, callback_next_at, callback_error, caller_kind, created_by, cancel_requested, attempts, claimed_by, claim_until, created_at, started_at, finished_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryGetMLJob:             "SELECT id, vhost, model, kind, status, progress, progress_message, request, result, result_ref, error, callback_url, callback_status, callback_attempts, callback_next_at, callback_error, caller_kind, created_by, cancel_requested, attempts, claimed_by, claim_until, created_at, started_at, finished_at, expires_at FROM ml_jobs WHERE vhost = ? AND id = ?",
+	QueryListMLJobs:           "SELECT id, vhost, model, kind, status, progress, progress_message, NULL, NULL, result_ref, error, callback_url, callback_status, callback_attempts, callback_next_at, callback_error, caller_kind, created_by, cancel_requested, attempts, claimed_by, claim_until, created_at, started_at, finished_at, expires_at FROM ml_jobs WHERE vhost = ? AND (? = '' OR model = ?) AND (? = '' OR status = ?) ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
+	QueryCountMLJobs:          "SELECT COUNT(*) FROM ml_jobs WHERE vhost = ? AND (? = '' OR model = ?) AND (? = '' OR status = ?)",
+	QueryMLJobClaimCandidates: "SELECT id FROM ml_jobs WHERE (status = 'queued' OR (status = 'running' AND (claim_until IS NULL OR claim_until < ?))) ORDER BY created_at, id LIMIT 10",
+	QueryClaimMLJob:           "UPDATE ml_jobs SET status = 'running', claimed_by = ?, claim_until = ?, started_at = COALESCE(started_at, ?), attempts = attempts + 1 WHERE id = ? AND (status = 'queued' OR (status = 'running' AND (claim_until IS NULL OR claim_until < ?)))",
+	QueryUpdateMLJobProgress:  "UPDATE ml_jobs SET progress = ?, progress_message = ?, claim_until = ? WHERE id = ? AND claimed_by = ? AND status = 'running'",
+	QueryMLJobCancelRequested: "SELECT cancel_requested FROM ml_jobs WHERE id = ?",
+	QueryGetMLJobVHost:        "SELECT vhost FROM ml_jobs WHERE id = ?",
+	QueryGetMLJobCallbackURL:  "SELECT callback_url FROM ml_jobs WHERE id = ?",
+	// progress is 1 for every finished job, whatever its end: there is nothing
+	// left to do.
+	QueryFinishMLJob:             "UPDATE ml_jobs SET status = ?, progress = 1, result = ?, result_ref = ?, error = ?, finished_at = ?, callback_status = ?, callback_next_at = ?, claimed_by = NULL, claim_until = NULL WHERE id = ? AND claimed_by = ? AND status = 'running'",
+	QueryCancelQueuedMLJob:       "UPDATE ml_jobs SET status = 'cancelled', progress = 1, finished_at = ?, callback_status = CASE WHEN callback_url IS NULL OR callback_url = '' THEN NULL ELSE 'pending' END, callback_next_at = ? WHERE vhost = ? AND id = ? AND status = 'queued'",
+	QueryRequestMLJobCancel:      "UPDATE ml_jobs SET cancel_requested = ? WHERE vhost = ? AND id = ? AND status = 'running'",
+	QueryMLJobCallbackCandidates: "SELECT id FROM ml_jobs WHERE callback_status = 'pending' AND callback_next_at <= ? AND (claimed_by IS NULL OR claim_until IS NULL OR claim_until < ?) ORDER BY callback_next_at, id LIMIT 10",
+	QueryClaimMLJobCallback:      "UPDATE ml_jobs SET claimed_by = ?, claim_until = ? WHERE id = ? AND callback_status = 'pending' AND callback_next_at <= ? AND (claimed_by IS NULL OR claim_until IS NULL OR claim_until < ?)",
+	QueryRecordMLJobCallback:     "UPDATE ml_jobs SET callback_status = ?, callback_attempts = ?, callback_next_at = ?, callback_error = ?, claimed_by = NULL, claim_until = NULL WHERE id = ? AND claimed_by = ?",
+	QueryInsertMLJobResult:       "INSERT INTO ml_job_results (job_id, vhost, result, expires_at) SELECT id, vhost, ?, expires_at FROM ml_jobs WHERE vhost = ? AND id = ?",
+	QueryGetMLJobResult:          "SELECT result FROM ml_job_results WHERE vhost = ? AND job_id = ?",
+	QueryDeleteMLJobResult:       "DELETE FROM ml_job_results WHERE vhost = ? AND job_id = ?",
+	QueryDeleteExpiredMLJobs:     "DELETE FROM ml_jobs WHERE expires_at < ?",
+	QueryDeleteExpiredMLResults:  "DELETE FROM ml_job_results WHERE expires_at < ?",
+	QueryDeleteMLJobsOfVHost:     "DELETE FROM ml_jobs WHERE vhost = ?",
+	QueryDeleteMLResultsOfVHost:  "DELETE FROM ml_job_results WHERE vhost = ?",
+
 	QueryGetMLQuotas:    "SELECT spec, updated_by, updated_at FROM ml_quotas WHERE vhost = ?",
 	QueryInsertMLQuotas: "INSERT INTO ml_quotas (vhost, spec, updated_by, updated_at) VALUES (?, ?, ?, ?)",
 	QueryUpdateMLQuotas: "UPDATE ml_quotas SET spec = ?, updated_by = ?, updated_at = ? WHERE vhost = ?",
@@ -914,6 +1014,11 @@ var driverOverrides = map[string]map[string]string{
 		// SQL Server has no LIMIT. OFFSET/FETCH keeps the limit the last
 		// argument, as it is in the common query.
 		QueryListMLPredictionLogs: "SELECT version, timestamp, inputs, outputs, latency_ms, caller_kind, caller_id FROM ml_prediction_logs WHERE vhost = ? AND model = ? ORDER BY timestamp DESC OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY",
+		// OFFSET/FETCH again. The offset comes before the page size here, the
+		// other way round from LIMIT/OFFSET; ListMLJobs passes them so.
+		QueryListMLJobs:              "SELECT id, vhost, model, kind, status, progress, progress_message, NULL, NULL, result_ref, error, callback_url, callback_status, callback_attempts, callback_next_at, callback_error, caller_kind, created_by, cancel_requested, attempts, claimed_by, claim_until, created_at, started_at, finished_at, expires_at FROM ml_jobs WHERE vhost = ? AND (? = '' OR model = ?) AND (? = '' OR status = ?) ORDER BY created_at DESC, id DESC OFFSET ? ROWS FETCH NEXT ? ROWS ONLY",
+		QueryMLJobClaimCandidates:    "SELECT TOP 10 id FROM ml_jobs WHERE (status = 'queued' OR (status = 'running' AND (claim_until IS NULL OR claim_until < ?))) ORDER BY created_at, id",
+		QueryMLJobCallbackCandidates: "SELECT TOP 10 id FROM ml_jobs WHERE callback_status = 'pending' AND callback_next_at <= ? AND (claimed_by IS NULL OR claim_until IS NULL OR claim_until < ?) ORDER BY callback_next_at, id",
 		// SQL Server has no upsert, so this is a MERGE like the two below it.
 		// Without it this key fell through to the SQLite spelling and every
 		// attempt to persist a node's state was rejected as bad syntax.

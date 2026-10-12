@@ -603,6 +603,103 @@ export async function trainModel(vhost: string, name: string, spec: TrainSpec): 
   return (await res.json()) as TrainResult
 }
 
+// ---------------------------------------------------------------------------
+// Asynchronous jobs: a predict, recommend or train call sent with
+// "respond": "async" is answered 202 with a job to follow.
+// ---------------------------------------------------------------------------
+
+export type MLJobKind = 'predict' | 'recommend' | 'train'
+export type MLJobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+
+export const JOB_STATUSES: readonly MLJobStatus[] = ['queued', 'running', 'succeeded', 'failed', 'cancelled']
+
+/** A job as GET .../ml/jobs/{id} shows it; listings leave out request and result. */
+export interface MLJob {
+  id: string
+  vhost: string
+  model: string
+  kind: MLJobKind
+  status: MLJobStatus
+  /** 0 to 1. */
+  progress: number
+  progress_message?: string
+  request?: unknown
+  /** The answer, when small enough to keep with the job; else read from result_url. */
+  result?: unknown
+  result_ref?: string
+  error?: string
+  callback_url?: string
+  callback_status?: string
+  cancel_requested?: boolean
+  created_by?: string
+  created_at: string
+  started_at?: string
+  finished_at?: string
+  expires_at: string
+  status_url: string
+  result_url?: string
+}
+
+/** What a call sent with "respond": "async" is answered with (202). */
+export interface AcceptedJob {
+  job_id: string
+  status: MLJobStatus
+  status_url: string
+}
+
+/** Whether a job has ended, one way or another. */
+export const jobFinished = (s: MLJobStatus | undefined) => s === 'succeeded' || s === 'failed' || s === 'cancelled'
+
+const jobsUrl = (vhost: string) => `/api/vhosts/${encodeURIComponent(vhost)}/ml/jobs`
+const jobUrl = (vhost: string, id: string) => `${jobsUrl(vhost)}/${encodeURIComponent(id)}`
+
+export const mlJobsKey = (vhost: string) => ['ml-jobs', vhost] as const
+export const mlJobKey = (vhost: string, id: string) => ['ml-job', vhost, id] as const
+
+/**
+ * Starts training as a job and returns it to follow. A server older than
+ * jobs trains while the request waits and answers with the result instead,
+ * which comes back as `result`.
+ */
+export async function startTraining(vhost: string, name: string, spec: TrainSpec):
+Promise<{ job: AcceptedJob; result?: undefined } | { result: TrainResult; job?: undefined }> {
+  const res = await apiFetch(`${modelUrl(vhost, name)}/train`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Prefer: 'respond-async' },
+    body: JSON.stringify({ ...spec, respond: 'async' }),
+    silent: true,
+  })
+  const body = await res.json()
+  if (res.status === 202 && body?.job_id) return { job: body as AcceptedJob }
+  return { result: body as TrainResult }
+}
+
+export async function getJob(vhost: string, id: string, signal?: AbortSignal): Promise<MLJob> {
+  const res = await apiFetch(jobUrl(vhost, id), { signal, silent: true })
+  return (await res.json()) as MLJob
+}
+
+/** A succeeded job's answer, read from the job or, when kept apart, from its result URL. */
+export async function jobResult<T>(vhost: string, job: MLJob, signal?: AbortSignal): Promise<T> {
+  if (job.result !== undefined && job.result !== null) return job.result as T
+  const res = await apiFetch(`${jobUrl(vhost, job.id)}/result`, { signal, silent: true })
+  return (await res.json()) as T
+}
+
+export async function listJobs(vhost: string, filter: { model?: string; status?: string; limit?: number; offset?: number } = {},
+  signal?: AbortSignal): Promise<{ data: MLJob[]; total: number }> {
+  const q = new URLSearchParams()
+  for (const [k, v] of Object.entries(filter)) if (v !== undefined && v !== '') q.set(k, String(v))
+  const res = await apiFetch(`${jobsUrl(vhost)}${q.size ? `?${q}` : ''}`, { signal, silent: true })
+  const body = await res.json()
+  return { data: (body?.data ?? []) as MLJob[], total: body?.total ?? 0 }
+}
+
+export async function cancelJob(vhost: string, id: string): Promise<MLJob> {
+  const res = await apiFetch(`${jobUrl(vhost, id)}/cancel`, { method: 'POST', silent: true })
+  return (await res.json()) as MLJob
+}
+
 /** What the pre-flight check says about a target column (POST .../ml/train-check). */
 export type TargetKind = 'yes_no' | 'category' | 'number'
 export type ColumnRole = 'use' | 'id_like' | 'constant' | 'mostly_empty' | 'leak_suspect' | 'target'

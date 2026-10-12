@@ -67,6 +67,13 @@ type Service struct {
 	// logs is the store the prediction log is read from. Both are optional.
 	monitor *monitor.Monitor
 	logs    func() any
+
+	// syncTimeout bounds a call that waits for its answer (Sync);
+	// maxQueuedJobs bounds a vhost's queued jobs; checkCallback vets a job's
+	// callback URL. Tests replace them.
+	syncTimeout   time.Duration
+	maxQueuedJobs int
+	checkCallback func(string) error
 }
 
 // envWorker is the worker HERMOD_ML_WORKER_URL names, read once.
@@ -81,7 +88,8 @@ func NewService(store func() any, sec secrets.ScopedManager, client *inference.C
 		client = inference.NewClient(nil)
 	}
 	return &Service{store: store, secrets: sec, client: client, worker: envWorker(), pools: envPools(),
-		quotaDefaults: envQuotaDefaults(), now: time.Now}
+		quotaDefaults: envQuotaDefaults(), now: time.Now,
+		syncTimeout: envSyncTimeout(), maxQueuedJobs: envMaxQueuedJobs(), checkCallback: CheckCallbackURL}
 }
 
 // WithWorker replaces the ML worker the environment names; nil means none.
