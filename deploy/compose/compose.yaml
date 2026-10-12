@@ -1,0 +1,45 @@
+# Hermod and its hermod-ml training worker, on one machine, sharing one token.
+#
+#   cp .env.example .env
+#   # put a token in .env:  sed -i "s/^HERMOD_ML_TOKEN=.*/HERMOD_ML_TOKEN=$(openssl rand -hex 32)/" .env
+#   docker compose up -d
+#
+# Then open http://localhost:4000 and finish first-run setup. Hermod reaches
+# the worker as http://hermod-ml:8090 on the network compose makes; because
+# that comes from the environment, the Machine Learning page shows the
+# connection as set by the server's environment, read-only. To connect the
+# worker from the console instead, remove the two HERMOD_ML_WORKER_* lines.
+#
+# HERMOD_VERSION picks the release of both images (they are tagged together);
+# HERMOD_ML_VARIANT=-dl runs the deep-learning worker (PyTorch, TensorFlow;
+# linux/amd64 only, about 2 GB larger, wants ~1 GB more memory).
+
+name: hermod
+
+services:
+  hermod:
+    image: ghcr.io/gsoultan/hermod:${HERMOD_VERSION:-latest}
+    restart: unless-stopped
+    ports:
+      - "${HERMOD_PORT:-4000}:4000"
+    environment:
+      HERMOD_ML_WORKER_URL: http://hermod-ml:8090
+      HERMOD_ML_WORKER_TOKEN: ${HERMOD_ML_TOKEN:?set HERMOD_ML_TOKEN in .env}
+    volumes:
+      - hermod:/var/lib/hermod
+    depends_on:
+      hermod-ml:
+        condition: service_started
+
+  hermod-ml:
+    image: ghcr.io/gsoultan/hermod-ml:${HERMOD_VERSION:-latest}${HERMOD_ML_VARIANT:-}
+    restart: unless-stopped
+    environment:
+      HERMOD_ML_TOKEN: ${HERMOD_ML_TOKEN:?set HERMOD_ML_TOKEN in .env}
+    volumes:
+      - hermod-ml:/var/lib/hermod-ml
+    # Not published on the host: only Hermod, on this network, calls it.
+
+volumes:
+  hermod:
+  hermod-ml:

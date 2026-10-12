@@ -44,13 +44,14 @@ page is at `/ml/models`). **Getting started**, at the top, walks through the
 four steps from nothing to a model in use, and shows which are done for the
 vhost you are on:
 
-1. **Connect the training worker**: whether Hermod has a worker address
-   (`HERMOD_ML_WORKER_URL`), whether the worker answers, and whether it can
-   train the neural networks (the `-dl` image). **Set up the worker** opens a
-   setup guide: what `hermod-ml` is, the Docker and Helm commands to copy (the
-   ones under [Train a model](#train-a-model)), how to add deep learning, what
-   to check when a configured worker does not answer, and **Check again**,
-   which asks Hermod again without reloading the page.
+1. **Connect the training worker**: whether Hermod has a worker, whether the
+   worker answers, and whether it can train the neural networks (the `-dl`
+   image). **Set up the worker** opens a guide in three steps (see
+   [Connect the worker](#connect-the-worker)): run the worker (one command to
+   copy, for Docker, Docker Compose or Helm, with a **Generate token** button
+   and a **Deep learning** switch), paste its address and token, then **Test
+   connection** and **Save**. **Check again** asks Hermod again without
+   reloading the page.
 2. **Add your data**: done once the vhost has a dataset; **Go to Datasets**
    moves to the [Datasets](#datasets) panel.
 3. **Train a model**: done once the vhost has a model trained here; **Start
@@ -68,25 +69,99 @@ elsewhere work without the worker.
 
 Training runs in **hermod-ml**, a Python worker beside Hermod (scikit-learn,
 XGBoost, and in the `-dl` image PyTorch and Keras; every model is exported to
-ONNX and served with ONNX Runtime; it never loads a pickle). Run it and point
-Hermod at it:
+ONNX and served with ONNX Runtime; it never loads a pickle). Run it, then
+connect Hermod to it.
+
+### Run the worker
+
+One command, where Docker runs. From a checkout of Hermod:
+
+```bash
+./scripts/install-hermod-ml.sh                   # scikit-learn, XGBoost
+./scripts/install-hermod-ml.sh --deep-learning   # adds PyTorch and TensorFlow (amd64 only)
+```
+
+It checks Docker, generates a random token, runs
+`ghcr.io/gsoultan/hermod-ml` with `--restart unless-stopped` on port 8090 and a
+`hermod-ml` volume, waits until the worker answers, and prints the address and
+token to paste into Hermod. `--version X.Y.Z` runs a release (use Hermod's
+own: the two are released together) instead of `latest`; `--network NAME`
+also joins a Docker network, so a Hermod container on it reaches the worker as
+`http://hermod-ml:8090`; `--token`, `--port` and `--name` set the rest. It
+refuses rather than replaces a container that already exists, and the `-dl`
+image on an arm64 Docker.
+
+The same, by hand:
+
+```bash
+docker run -d --name hermod-ml --restart unless-stopped -p 8090:8090 -e HERMOD_ML_TOKEN=change-me \
+  -v hermod-ml:/var/lib/hermod-ml ghcr.io/gsoultan/hermod-ml:latest
+```
+
+**Docker Compose.** [`deploy/compose/compose.yaml`](../deploy/compose/compose.yaml)
+runs Hermod and the worker together with one token from a `.env` file
+(`cp .env.example .env`, set `HERMOD_ML_TOKEN`, `docker compose up -d`). It
+connects them through the environment, so the console shows the connection as
+set by the server's environment.
+
+With Helm: `--set mlWorker.enabled=true --set mlWorker.token=…` (or
+`mlWorker.existingSecret`). The chart refuses to run the worker without a
+token, and gives Hermod the worker's address and token itself.
+
+### Connect the worker
+
+On **Machine Learning**, **Getting started**, **Set up the worker**
+(Administrators): paste the worker's address and token, press **Test
+connection**, then **Save**. Saving takes effect at once, for training,
+datasets, the Collect Dataset sink and the worker status; there is nothing to
+restart. Another Hermod process on the same database (a `--mode=worker`
+process with its own database connection) picks it up within 15 seconds.
+
+The test calls the worker the way training will (its `/v2/health/ready`, then
+`/v1/capabilities` with the token) and says what it found:
+
+| Result | Means |
+|---|---|
+| Connected | The worker answered and took the token; also says whether deep learning (PyTorch, TensorFlow) is available. |
+| The worker refused the token | It is there, but the token is not its `HERMOD_ML_TOKEN`. |
+| Nothing answered at this address | Not running, wrong host or port, or not reachable from Hermod. Inside a container, `localhost` is that container: use the worker's container name on a network both share. |
+| This is not hermod-ml | Something else answered there. |
+| Not an address Hermod can call | Not an `http://` or `https://` URL with a host, or it holds a password, query or fragment. |
+
+**Save** is offered once a test has run for the address and token shown
+(**Save anyway** when the test failed). Leaving the token empty keeps the
+saved one; an empty address disconnects the worker. Others see who to ask
+instead of the form.
+
+The token is stored in Hermod's settings, encrypted with the master key like a
+connector's credentials, and rotated with them (`PUT /api/config/crypto`); it
+is never sent back to the browser, which sees only whether one is set. The
+worker is called with Hermod's data client, which reaches private addresses
+(the worker runs beside Hermod), exactly as with the environment variables.
+
+**The environment wins.** When `HERMOD_ML_WORKER_URL` is set, that worker is
+used and the console shows it read-only, as set by the server's environment;
+change it there and restart Hermod. The Helm chart and the compose example
+connect this way.
 
 | Setting | On | Meaning |
 |---|---|---|
-| `HERMOD_ML_WORKER_URL` | Hermod | The worker's address, e.g. `http://hermod-ml:8090`. Unset means training is off. |
+| `HERMOD_ML_WORKER_URL` | Hermod | Optional. The worker's address, e.g. `http://hermod-ml:8090`; when set it wins over the console. |
 | `HERMOD_ML_WORKER_TOKEN` | Hermod | Sent as a bearer token; must equal the worker's `HERMOD_ML_TOKEN`. |
-| `HERMOD_ML_TRAIN_TIMEOUT` | Hermod | How long one training may take, default `30m`. |
+| `HERMOD_ML_TRAIN_TIMEOUT` | Hermod | How long one training may take, default `30m`. Applies to a worker connected either way. |
 | `HERMOD_ML_TOKEN` | worker | Required token. Without it the worker is open: never run it so outside a private network. |
 | `HERMOD_ML_DATA_DIR` | worker | Datasets and model versions, default `/var/lib/hermod-ml`. Keep it on a volume. |
 | `HERMOD_ML_MAX_TRAININGS` | worker | Trainings at once, default 1; another gets "busy". |
 
-With Helm: `--set mlWorker.enabled=true --set mlWorker.token=…` (or
-`mlWorker.existingSecret`). The chart refuses to run the worker without a token.
+The API behind the guide, for Administrators:
 
-```bash
-docker run -d --name hermod-ml -p 8090:8090 -e HERMOD_ML_TOKEN=change-me \
-  -v hermod-ml:/var/lib/hermod-ml ghcr.io/gsoultan/hermod-ml:latest
-```
+| Route | Does |
+|---|---|
+| `GET /api/ml/worker/connection` | `{"source": "environment" \| "saved" \| "none", "url", "token_set", "editable"}`. Never the token. |
+| `PUT /api/ml/worker/connection` | `{"url", "token"}` saves and connects at once; no `token` keeps the saved one; `"url": ""` disconnects. 409 while the environment sets the worker, 400 for an address Hermod cannot call. Audited, without the token. |
+| `POST /api/ml/worker/connection/test` | `{"url", "token"}` (no `token` tests with the saved one). Always 200: `{"result": "ok" \| "unauthorized" \| "unreachable" \| "not_a_worker" \| "bad_address" \| "error", "message", "deep_learning", "frameworks"}`. |
+
+`GET /api/ml/worker`, for any signed-in user, also says the worker's `source`.
 
 ### Image variants
 

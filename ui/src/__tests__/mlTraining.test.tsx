@@ -147,7 +147,7 @@ describe('Training on the Models page', () => {
   it('says how to turn training on when no worker is configured', async () => {
     trainingApi({ ready: false })
     renderPage()
-    expect(await screen.findByText(/HERMOD_ML_WORKER_URL/)).toBeInTheDocument()
+    expect(await screen.findByText(/run it with one command,\s+then connect it here/i)).toBeInTheDocument()
     // Train a model stays on the page, off, rather than vanishing: people
     // took a missing button for a missing feature.
     expect(screen.getByRole('button', { name: /^train a model$/i })).toBeDisabled()

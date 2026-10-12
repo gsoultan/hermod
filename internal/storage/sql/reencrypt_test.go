@@ -1,12 +1,14 @@
 package sql
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/internal/storage/configsecrets"
@@ -226,16 +228,32 @@ func TestRotationKeepsTheMLWorkerTokenReadable(t *testing.T) {
 }
 
 // On Postgres the settings upsert is the dialect's own ($n placeholders, ON
-// CONFLICT), run inside the rotation's transaction. POSTGRES_DSN must name a
-// database of its own: the rotation rewrites every connector in it.
+// CONFLICT), run inside the rotation's transaction. A rotation rewrites every
+// connector in the database, so this one runs in a schema of its own rather
+// than over the rows other tests share.
 func TestRotationKeepsTheMLWorkerTokenReadableOnPostgres(t *testing.T) {
 	dsn := os.Getenv("POSTGRES_DSN")
 	if os.Getenv("HERMOD_INTEGRATION") != "1" || dsn == "" {
 		t.Skip("integration: set HERMOD_INTEGRATION=1 and POSTGRES_DSN to enable")
 	}
-	db, err := sql.Open("pgx", dsn)
+	admin, err := sql.Open("pgx", dsn)
 	if err != nil {
 		t.Fatalf("POSTGRES_DSN names a server that could not be opened: %v", err)
+	}
+	t.Cleanup(func() { _ = admin.Close() })
+	schema := fmt.Sprintf("rot_ml_worker_%d", time.Now().UnixNano())
+	if _, err := admin.ExecContext(t.Context(), "CREATE SCHEMA "+schema); err != nil {
+		t.Fatalf("creating schema: %v", err)
+	}
+	t.Cleanup(func() { _, _ = admin.ExecContext(context.Background(), "DROP SCHEMA "+schema+" CASCADE") })
+
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	db, err := sql.Open("pgx", dsn+sep+"search_path="+schema)
+	if err != nil {
+		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	s := NewSQLStorage(db, "pgx").(*sqlStorage)
