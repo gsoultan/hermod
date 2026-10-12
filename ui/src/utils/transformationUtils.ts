@@ -246,6 +246,10 @@ const callFunction = (name: string, args: any[]): any => {
     case 'mul': return (Number(args[0]) || 0) * (Number(args[1]) || 0);
     case 'div': return (Number(args[1]) || 0) !== 0 ? (Number(args[0]) || 0) / (Number(args[1]) || 0) : 0;
     case 'abs': return Math.abs(Number(args[0]) || 0);
+    case 'floor': return Math.floor(Number(args[0]) || 0);
+    case 'ceil': return Math.ceil(Number(args[0]) || 0);
+    case 'len': return [...String(args[0] ?? '')].length;
+    case 'normalize_space': return String(args[0] ?? '').trim().split(/\s+/).filter(Boolean).join(' ');
     case 'round': {
       const v = Number(args[0]) || 0;
       const precision = Number(args[1]) || 0;
@@ -360,8 +364,17 @@ const conditionNumbersEqual = (fieldVal: any, val: any): boolean => {
   return v2 !== null && fieldVal === v2;
 };
 
+// The engine's EvaluateField: a call or a source.<path> is evaluated, anything
+// else is a path. A condition on lower(source.status) compares the lowered
+// value, not the value of a field named after the expression.
+const conditionFieldValue = (payload: any, field: string): any => {
+  const f = String(field ?? '');
+  if (f.startsWith('source.') || (f.includes('(') && f.endsWith(')'))) return parseAndEvaluate(f, payload);
+  return getValByPath(payload, f);
+};
+
 export const matchesCondition = (payload: any, cond: Condition): boolean => {
-  const fieldVal = getValByPath(payload, cond.field);
+  const fieldVal = conditionFieldValue(payload, cond.field);
   const rawOp = cond.operator || '=';
   const op = CONDITION_OPERATOR_ALIASES[rawOp] ?? rawOp;
   // Resolve value templates (e.g., {{.after.id}} or {{upper(source.name)}})
@@ -578,12 +591,11 @@ export const simulateTransformation = (transType: string, data: any, inputPayloa
             matchedLabel = c.label;
             break;
           }
-        } else {
-          const fieldVal = String(getValByPath(result.output, data.field) || '');
-          if (fieldVal === String(c.value)) {
-            matchedLabel = c.label;
-            break;
-          }
+        } else if (matchesCondition(result.output, { field: data.field, operator: c.operator || '=', value: c.value })) {
+          // Same comparison the engine's SwitchNode makes, so the case's
+          // operator and a {{field}} value are honoured here too.
+          matchedLabel = c.label;
+          break;
         }
       }
       result.metadata.matchedLabel = matchedLabel;
