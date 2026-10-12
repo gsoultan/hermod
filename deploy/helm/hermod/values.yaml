@@ -80,7 +80,7 @@ database:
   connectionSecret: ""
   connectionSecretKey: dsn
 
-# Arbitrary extra environment. Everything in README's tuning guide is settable
+# Arbitrary extra environment. Everything in the tuning guide in docs/performance.md is settable
 # here — HERMOD_ADMISSION_CPU_THRESHOLD, HERMOD_BUFFER_TYPE, and so on.
 env: {}
 envFrom: []
@@ -172,7 +172,7 @@ metrics:
     interval: 30s
     labels: {}
   # The four alerts covering failures that lose data while every status stays
-  # green. See README "Alerting on silent failures".
+  # green. See "Alerting on silent failures" in docs/observability.md.
   prometheusRule:
     enabled: false
     labels: {}

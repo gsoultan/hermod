@@ -273,7 +273,7 @@ func TestSinkConformance(t *testing.T) {
 	// That is a testability defect in the connector, not a reason to pretend it
 	// is covered: give pinecone (and any connector that hardcodes a hostname) an
 	// optional base-URL override and it can join the registry. Until then it is
-	// Experimental and untested, which is what README.md says.
+	// Experimental and untested, which is what docs/connectors.md says.
 	// The base URL is injected, so this stays offline: the sink dials the dead
 	// address and every operation has to come back inside its deadline.
 	sinkOrSkip(t, "metis", func() (hermod.Sink, error) {

@@ -40,6 +40,22 @@ share instead of drift. See "Recommendations" in docs/ml.md.
 
 An older Hermod drops the model's task when it saves the model, so do not roll
 back past this release with recommendation models in use.
+### Changed — the README is split into docs/ pages
+
+The README was 2,431 lines. It is now an overview (what Hermod is, the feature list,
+install and the development quick start) with a list of topic pages, and everything
+else moved without rewording to 14 pages under `docs/`: connectors, usage, workflows,
+reliability, distributed transactions, PostgreSQL CDC, API sources, schema registry,
+security, encryption, observability, deployment, performance and development. Links
+into the old README sections now point at the page each section moved to.
+
+`docs/connectors.md` gains a reference of every source and sink `type` the factory
+builds, generated from the factory's own switches; a test fails when the two disagree.
+The second, older feature list ("Enterprise Features") is removed: it repeated the
+first, and its line on transactional interfaces still said only PostgreSQL implements
+them with no cross-sink coordinator. Its one item missing from the first list, adaptive
+throughput control, moved into it.
+
 ### Added — Smart Auto, training presets, two more algorithms and a pre-flight check
 
 `algorithm: "auto"` no longer always trains a random forest: it cross-validates
@@ -97,8 +113,9 @@ crash. MySQL members use XA transactions and need MySQL 5.7.7 or later (8.0.30 o
 later if binary logging is on) or MariaDB 10.5.2 or later, and an account that
 can run `XA RECOVER` (`XA_RECOVER_ADMIN` on MySQL 8.0+); a group with a member
 that does not meet these refuses to start. Hermod's XA transactions appear in
-`XA RECOVER` with format ID `1213026116`. See "MySQL and MariaDB members (XA)" in
-the README before enabling.
+`XA RECOVER` with format ID `1213026116`. See
+[MySQL and MariaDB members (XA)](docs/transactional-sink-groups.md#mysql-and-mariadb-members-xa)
+before enabling.
 
 ### Upgrading
 

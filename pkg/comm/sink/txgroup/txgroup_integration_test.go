@@ -292,7 +292,7 @@ func prepareOnlyViaSinks(ctx context.Context, a, b *sinkpostgres.PostgresSink, _
 }
 
 // rollbackPrepared resolves every prepared transaction on the server, which is
-// the manual procedure documented in README.md for a lost coordinator log.
+// the manual procedure documented in docs/transactional-sink-groups.md for a lost coordinator log.
 func rollbackPrepared(ctx context.Context, p *pgxpool.Pool) error {
 	rows, err := p.Query(ctx, "SELECT gid FROM pg_prepared_xacts")
 	if err != nil {

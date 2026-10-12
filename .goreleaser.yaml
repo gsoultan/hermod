@@ -59,6 +59,7 @@ archives:
     files:
       - LICENSE
       - README.md
+      - docs/*.md
 
 nfpms:
   - file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"

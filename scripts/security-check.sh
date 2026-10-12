@@ -143,7 +143,7 @@ fi
 #     discipline, and a grep would be theatre rather than a check.
 #   * The two-phase-commit operational hazard. Covered by the integration tests
 #     in pkg/comm/sink/txgroup, which need a real PostgreSQL and so are not run
-#     here. See the README's operational hazard section.
+#     here. See the operational hazard section of docs/transactional-sink-groups.md.
 
 printf '\n'
 if [[ ${#FAILED[@]} -eq 0 ]]; then

@@ -21,7 +21,7 @@ import (
 //
 // This matches the convention already used across pkg/comm (see
 // pkg/comm/sink/postgres/postgres_idempotency_test.go) and documented in
-// README.md under "Running Integration Tests".
+// docs/development.md under "Running Integration Tests".
 func requireIntegrationInfra(t *testing.T) {
 	t.Helper()
 	if os.Getenv("HERMOD_INTEGRATION") != "1" {

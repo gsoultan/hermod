@@ -164,7 +164,7 @@ func (s *ScyllaDBSource) Read(ctx context.Context) (hermod.Message, error) {
 				// ORDER BY an arbitrary column, so this returns an arbitrary
 				// qualifying row and the watermark can skip rows. Sound only
 				// when idField is a clustering column in a restricted
-				// partition. Experimental tier — see README.md.
+				// partition. Experimental tier — see docs/connectors.md.
 				s.warnUnordered.Do(func() {
 					s.log("WARN",
 						"scylladb: incremental polling cannot be ordered in CQL; rows may be skipped unless the id field is a clustering column in a restricted partition",

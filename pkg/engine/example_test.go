@@ -13,7 +13,7 @@ import (
 	"github.com/gsoultan/hermod/pkg/engine/config"
 )
 
-// The README shows this under "As a Library". It lived only in the README and
+// docs/usage.md shows this under "As a Library". It lived only in the docs and
 // named three packages that do not exist -- pkg/sink/stdout and pkg/buffer are
 // really pkg/comm/sink/stdout and pkg/comm/buffer -- and passed no formatter to
 // a constructor that requires one. Nothing caught it because the module path in

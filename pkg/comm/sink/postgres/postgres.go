@@ -632,7 +632,7 @@ func (s *PostgresSink) PreflightTwoPhaseCommit(ctx context.Context) error {
 	if maxPrepared == 0 {
 		return errors.New("postgres sink: max_prepared_transactions is 0, so PREPARE TRANSACTION will fail. " +
 			"Set it to at least the number of concurrent transactional groups (it needs a server restart), " +
-			"and read the operational hazard note in README.md first — a prepared transaction holds locks " +
+			"and read the operational hazard note in docs/transactional-sink-groups.md first — a prepared transaction holds locks " +
 			"and blocks VACUUM until it is resolved")
 	}
 
