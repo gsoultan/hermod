@@ -95,10 +95,78 @@ work without the worker.
 
 ## Train a model
 
-Training runs in **hermod-ml**, a Python worker beside Hermod (scikit-learn,
-XGBoost, and in the `-dl` image PyTorch and Keras; every model is exported to
-ONNX and served with ONNX Runtime; it never loads a pickle). Run it, then
-connect Hermod to it.
+Hermod trains the common models itself, with its **built-in engine**, and
+needs nothing else for them. For TensorFlow, PyTorch, XGBoost and the rest it
+uses **hermod-ml**, a Python worker beside Hermod (scikit-learn, XGBoost, and
+in the `-dl` image PyTorch and Keras; every model is exported to ONNX and
+served with ONNX Runtime; it never loads a pickle). Run it, then connect
+Hermod to it.
+
+### The built-in engine
+
+With no worker configured, the built-in engine (pure Go, in the Hermod
+process) is in force: the worker status reports `"source": "builtin"`, and
+Datasets, training, the Train Model node and the Collect Dataset sink all
+work. It speaks the worker's API in-process, so the console, the REST API and
+workflows do not change.
+
+| | Built-in engine | hermod-ml worker |
+|---|---|---|
+| `auto` (presets quick, balanced, best) | yes | yes |
+| `linear` (ridge / logistic regression) | yes | yes |
+| `random_forest`, `gradient_boosting` | yes | yes |
+| `mlp` — **Neural network (built-in)** | yes | no |
+| `extra_trees`, `hist_gradient_boosting`, `xgboost` | no | yes |
+| `pytorch_mlp`, `keras_mlp` (TensorFlow) | no | `-dl` image |
+| Custom training scripts | no | yes |
+| Recommendations: `als`, `item_similarity`, `auto` | yes | yes |
+| Recommendation scenarios | no | yes |
+| Version export and import | no | yes |
+| Scoring | in-process, Go | in-process ONNX, or the worker |
+
+An algorithm the built-in engine does not have stays in the console's
+Algorithm pickers, off, with **Needs the hermod-ml worker.**; asked for over
+the API it answers `503` with the same reason, before any training starts.
+The built-in `mlp` takes the same `params` as `pytorch_mlp` and `keras_mlp`
+(`hidden_layers` default `[64, 32]`, `epochs` 200, `batch_size` 32,
+`learning_rate` 0.001, `patience` 10; a tenth of the training rows decides
+when to stop).
+
+It is configured with environment variables; none is needed.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `HERMOD_ML_BUILTIN` | on | `false` turns the engine off; training then needs a worker. |
+| `HERMOD_ML_BUILTIN_DIR` | `<config dir>/ml` | Where its datasets and model versions are kept. |
+| `HERMOD_ML_BUILTIN_MAX_TRAININGS` | `1` | Trainings at once; another one is refused with `429` until one ends. |
+| `HERMOD_ML_BUILTIN_MAX_ROWS` | `1000000` | Rows a training reads; a larger dataset is sampled (with the seed) and the version says so. |
+| `HERMOD_ML_BUILTIN_THREADS` | the CPUs Go may use | Goroutines a training uses. |
+| `HERMOD_ML_TRAIN_TIMEOUT` | as for the worker | Bounds each training; it is cancelled when it runs out. |
+
+**How it matches the worker.** It reads CSV, Excel and JSON rows with the
+worker's typing rules, prepares features the same way (median or most
+frequent value for a gap, one-hot text, scaled numbers), holds back the same
+share for testing, and reports the same metric names, baselines, warnings,
+feature statistics and importance. A training repeats exactly for the same
+seed. A recommender writes the same `model.rec` artifact the worker does, and
+Hermod serves it the same way. A model's own artifact is a versioned,
+size-limited JSON file, not ONNX, and is scored in-process.
+
+**Where it differs.** These are deliberate:
+
+- The engine in force is the worker when one is configured, else the
+  built-in one. Datasets and versions live with the engine that has them, so
+  connecting a worker does not move them, and a model trained by the built-in
+  engine cannot be scored while a worker is connected (disconnect it, or
+  retrain on the worker).
+- Several Hermod processes share the built-in engine's models only when they
+  share `HERMOD_ML_BUILTIN_DIR` (for example a shared volume).
+- `best` tries more methods for longer, but does not search hyperparameters.
+- Importance is measured on at most 10,000 test rows.
+- A recommender's time column is read as numbers or ISO 8601 dates
+  (`2026-01-31`, `2026-01-31 10:00`, `2026-01-31T10:00:00Z`, …).
+- Random choices (the test rows, the people held back) follow the same rules
+  as the worker's, but not numpy's random numbers, so the rows picked differ.
 
 ### Run the worker
 

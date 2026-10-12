@@ -7,6 +7,33 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — Built-in Go ML engine: train models with no hermod-ml worker
+
+Hermod now trains machine-learning models itself. With no worker configured,
+its built-in engine (pure Go, in the Hermod process) is in force and the
+worker status says `"source": "builtin"`: upload a dataset, train, go live and
+serve with nothing else running. It trains `auto` (quick, balanced, best),
+ridge/logistic `linear`, `random_forest`, `gradient_boosting`, a small neural
+network `mlp` (**Neural network (built-in)**, tuned with the same hidden
+layers, epochs, batch size, learning rate and patience as the worker's), and
+recommendations (`als`, `item_similarity`, `auto`). It reads files, prepares
+features and names metrics as the worker does, repeats exactly for a seed,
+bounds its memory and CPU, and is cancelled by `HERMOD_ML_TRAIN_TIMEOUT`.
+Models are scored in-process; a recommender writes the same `model.rec` the
+worker does.
+
+The hermod-ml worker stays the way to TensorFlow, PyTorch, Keras, XGBoost,
+extra trees, histogram gradient boosting, custom training scripts,
+recommendation scenarios and version export/import; once configured, it takes
+over. On the built-in engine those algorithms stay in the console's pickers,
+off, with **Needs the hermod-ml worker.**, and the API answers `503` with the
+same reason. Getting started's first step becomes **Optional: connect the
+hermod-ml worker for TensorFlow/PyTorch**. Settings: `HERMOD_ML_BUILTIN`
+(`false` turns it off), `HERMOD_ML_BUILTIN_DIR`, `HERMOD_ML_BUILTIN_MAX_TRAININGS`,
+`HERMOD_ML_BUILTIN_MAX_ROWS`, `HERMOD_ML_BUILTIN_THREADS`. See
+[Machine learning: the built-in engine](docs/ml.md#the-built-in-engine),
+including where it deliberately differs from the worker.
+
 ### Changed — Machine Learning page with a Getting started guide
 
 The sidebar link **Models** is now **Machine Learning** (same page, same

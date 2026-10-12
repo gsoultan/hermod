@@ -133,9 +133,10 @@ type TrainSpec struct {
 	// Recommend names a recommendation model's columns. The worker refuses
 	// it for any other task, and Target, Features and Params for this one.
 	Recommend *RecommendSpec `json:"recommend,omitempty"`
-	// Algorithm is auto, random_forest, gradient_boosting, linear, xgboost,
-	// extra_trees, hist_gradient_boosting, pytorch_mlp or keras_mlp; for a
-	// recommendation model, auto, als or item_similarity.
+	// Algorithm is auto, random_forest, gradient_boosting, linear, mlp (the
+	// built-in engine only), xgboost, extra_trees, hist_gradient_boosting,
+	// pytorch_mlp or keras_mlp; for a recommendation model, auto, als or
+	// item_similarity.
 	Algorithm string `json:"algorithm,omitempty"`
 	// Preset is how hard auto tries: quick, balanced (the worker's default)
 	// or best. Only an auto training takes one.
@@ -145,8 +146,8 @@ type TrainSpec struct {
 	// Device is cpu (the default) or gpu. Hermod routes a gpu training to its
 	// GPU worker pool; the worker reads it as a hint for its own networks.
 	Device string `json:"device,omitempty"`
-	// Params tunes pytorch_mlp and keras_mlp; the worker refuses it for any
-	// other algorithm.
+	// Params tunes pytorch_mlp and keras_mlp (mlp on the built-in engine);
+	// the engine refuses it for any other algorithm.
 	Params *TrainParams `json:"params,omitempty"`
 
 	// A recommendation scenario's training (ml/worker/hermod_ml/scenarios.py)
