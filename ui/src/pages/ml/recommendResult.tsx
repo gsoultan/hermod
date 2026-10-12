@@ -3,7 +3,7 @@ import { Accordion, Badge, Group, Paper, Stack, Table, Text, Title } from '@mant
 import { RECOMMENDATION, RECOMMEND_ALGORITHM_OPTIONS, describeRecommendation, type TrainResult } from '@/lib/mlModels'
 import { MetricsTable, formatMetric } from './metrics'
 import { ModelTestModal } from './ModelTestModal'
-import { NextSteps, servingCurl } from './nextSteps'
+import { NextSteps, servingCurl, servingCurlAsync } from './nextSteps'
 import { RECOMMEND_VERDICT_TEXT, VERDICT_TEXT, recommendVerdict } from './trainVerdict'
 
 /** How many items the headline, the samples and the API call speak of. */
@@ -55,6 +55,7 @@ export function RecommendResultView({ vhost, result }: { vhost: string; result: 
       {tried.length > 1 && <Tried entries={tried} kept={v.algorithm} />}
 
       <NextSteps vhost={vhost} result={result} apiCall={servingCurl(vhost, name, { user: person, k: TOP_K })}
+        asyncCall={servingCurlAsync(vhost, name, { user: person, k: TOP_K })}
         onTry={() => setTrying(true)}
         workflow={`To use it in a workflow, add a Predict node from Machine Learning, pick ${name} and choose Recommend.`} />
 

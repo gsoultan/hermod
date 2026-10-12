@@ -30,7 +30,19 @@ import (
 // is computed from the DDL itself, so changing the schema fails this test and
 // forces the question to be asked out loud.
 //
-// Last moved by: adding scoring to ml_models, whether a trained model is
+// Last moved by: adding the ml_jobs and ml_job_results tables, the
+// asynchronous predictions, recommendations and trainings a vhost queues, and
+// the results too large to keep on the job. currentSchemaVersion was left
+// alone deliberately, for the reasons the ml_scripts note below gives: both are
+// standalone tables no earlier code path reads or writes. A rollback costs the
+// feature: jobs still queued are not run, and their callbacks are not sent,
+// until the newer binary returns and its runner picks them up. As with the
+// other ML tables, the previous release's DeleteVHost does not remove a
+// vhost's jobs, so a vhost deleted during a rollback leaves them, requests and
+// results included, for a later vhost of the same name until they expire
+// seven days after they were made; the newer binary's purge removes them then.
+//
+// The note before that: adding scoring to ml_models, whether a trained model is
 // scored by the ML worker or in-process. currentSchemaVersion was left alone
 // deliberately, for the reason the retrain note below gives: the column is
 // nullable, and the previous release names its ml_models columns in both
@@ -182,7 +194,7 @@ import (
 // unpopulated — a gap in a chart that fills itself in when the newer binary
 // returns — so bumping the version would buy nothing and cost a refused
 // start-up during exactly the rollback it was supposed to make safe.
-const knownSchemaFingerprint = "8fb90bc8b887879da9584deb702f541df8c50adc0e5d7cc76f89e0998befce11"
+const knownSchemaFingerprint = "f9d7d3360d151b4329790e622119582e80d03187caba82f6f27b7bf8cc329e18"
 
 func TestSchemaVersionIsReconsideredWhenTheSchemaChanges(t *testing.T) {
 	if got := SchemaFingerprint(); got != knownSchemaFingerprint {

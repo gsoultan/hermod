@@ -86,7 +86,14 @@ type TrainResult struct {
 // The training takes one of the vhost's training slots, and a new model
 // counts against its model quota.
 func (s *Service) Train(ctx context.Context, vhost, name string, spec worker.TrainSpec, rule GoLive, by string) (TrainResult, error) {
-	release, err := s.claimTraining(ctx, vhost, name, newClaimOwner())
+	return s.trainAs(ctx, newClaimOwner(), vhost, name, spec, rule, by)
+}
+
+// trainAs is Train holding the model's claim as owner. A training job trains
+// as its own id, so the runner that takes it over after a crash holds the
+// claim the crashed one left, rather than waiting for it to expire.
+func (s *Service) trainAs(ctx context.Context, owner, vhost, name string, spec worker.TrainSpec, rule GoLive, by string) (TrainResult, error) {
+	release, err := s.claimTraining(ctx, vhost, name, owner)
 	if err != nil {
 		return TrainResult{}, err
 	}

@@ -61,6 +61,10 @@ func startAPI(ctx context.Context, o *Options, reg *registry.Registry, store, lo
 	// is claimed in storage before it is trained, so each retraining happens
 	// once across them.
 	go ml.NewRetrainer(reg.MLService, logger).Run(ctx)
+	// Asynchronous predictions, recommendations and trainings. Every API
+	// replica runs a job runner; a job is claimed in storage before it runs,
+	// and a job whose replica stopped is taken over once its claim expires.
+	go ml.NewJobRunner(reg.MLService, logger).Run(ctx)
 
 	// Go's http.Server has no timeouts by default, and this one had none set.
 	// A connection that opens and then dribbles its request headers one byte at

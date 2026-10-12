@@ -10,6 +10,7 @@ import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	structpb "google.golang.org/protobuf/types/known/structpb"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -21,6 +22,638 @@ const (
 	// Verify that runtime/protoimpl is sufficiently up-to-date.
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
+
+type SubmitJobRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The call to run as a job. Its vhost and model are the job's.
+	//
+	// Types that are valid to be assigned to Call:
+	//
+	//	*SubmitJobRequest_Predict
+	//	*SubmitJobRequest_Recommend
+	Call isSubmitJobRequest_Call `protobuf_oneof:"call"`
+	// An http or https URL Hermod posts the finished job to, signed with the
+	// vhost's ML_CALLBACK_SECRET. Optional.
+	CallbackUrl   string `protobuf:"bytes,3,opt,name=callback_url,json=callbackUrl,proto3" json:"callback_url,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SubmitJobRequest) Reset() {
+	*x = SubmitJobRequest{}
+	mi := &file_inference_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SubmitJobRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SubmitJobRequest) ProtoMessage() {}
+
+func (x *SubmitJobRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SubmitJobRequest.ProtoReflect.Descriptor instead.
+func (*SubmitJobRequest) Descriptor() ([]byte, []int) {
+	return file_inference_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *SubmitJobRequest) GetCall() isSubmitJobRequest_Call {
+	if x != nil {
+		return x.Call
+	}
+	return nil
+}
+
+func (x *SubmitJobRequest) GetPredict() *PredictRequest {
+	if x != nil {
+		if x, ok := x.Call.(*SubmitJobRequest_Predict); ok {
+			return x.Predict
+		}
+	}
+	return nil
+}
+
+func (x *SubmitJobRequest) GetRecommend() *RecommendRequest {
+	if x != nil {
+		if x, ok := x.Call.(*SubmitJobRequest_Recommend); ok {
+			return x.Recommend
+		}
+	}
+	return nil
+}
+
+func (x *SubmitJobRequest) GetCallbackUrl() string {
+	if x != nil {
+		return x.CallbackUrl
+	}
+	return ""
+}
+
+type isSubmitJobRequest_Call interface {
+	isSubmitJobRequest_Call()
+}
+
+type SubmitJobRequest_Predict struct {
+	Predict *PredictRequest `protobuf:"bytes,1,opt,name=predict,proto3,oneof"`
+}
+
+type SubmitJobRequest_Recommend struct {
+	Recommend *RecommendRequest `protobuf:"bytes,2,opt,name=recommend,proto3,oneof"`
+}
+
+func (*SubmitJobRequest_Predict) isSubmitJobRequest_Call() {}
+
+func (*SubmitJobRequest_Recommend) isSubmitJobRequest_Call() {}
+
+type SubmitJobResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The job, queued.
+	Job           *Job `protobuf:"bytes,1,opt,name=job,proto3" json:"job,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SubmitJobResponse) Reset() {
+	*x = SubmitJobResponse{}
+	mi := &file_inference_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SubmitJobResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SubmitJobResponse) ProtoMessage() {}
+
+func (x *SubmitJobResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SubmitJobResponse.ProtoReflect.Descriptor instead.
+func (*SubmitJobResponse) Descriptor() ([]byte, []int) {
+	return file_inference_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *SubmitJobResponse) GetJob() *Job {
+	if x != nil {
+		return x.Job
+	}
+	return nil
+}
+
+type GetJobRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The vhost the job belongs to.
+	Vhost string `protobuf:"bytes,1,opt,name=vhost,proto3" json:"vhost,omitempty"`
+	// The job's id, as SubmitJob returned it.
+	JobId         string `protobuf:"bytes,2,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetJobRequest) Reset() {
+	*x = GetJobRequest{}
+	mi := &file_inference_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetJobRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetJobRequest) ProtoMessage() {}
+
+func (x *GetJobRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetJobRequest.ProtoReflect.Descriptor instead.
+func (*GetJobRequest) Descriptor() ([]byte, []int) {
+	return file_inference_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *GetJobRequest) GetVhost() string {
+	if x != nil {
+		return x.Vhost
+	}
+	return ""
+}
+
+func (x *GetJobRequest) GetJobId() string {
+	if x != nil {
+		return x.JobId
+	}
+	return ""
+}
+
+type GetJobResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Job           *Job                   `protobuf:"bytes,1,opt,name=job,proto3" json:"job,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetJobResponse) Reset() {
+	*x = GetJobResponse{}
+	mi := &file_inference_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetJobResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetJobResponse) ProtoMessage() {}
+
+func (x *GetJobResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetJobResponse.ProtoReflect.Descriptor instead.
+func (*GetJobResponse) Descriptor() ([]byte, []int) {
+	return file_inference_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *GetJobResponse) GetJob() *Job {
+	if x != nil {
+		return x.Job
+	}
+	return nil
+}
+
+type CancelJobRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The vhost the job belongs to.
+	Vhost string `protobuf:"bytes,1,opt,name=vhost,proto3" json:"vhost,omitempty"`
+	// The job's id.
+	JobId         string `protobuf:"bytes,2,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CancelJobRequest) Reset() {
+	*x = CancelJobRequest{}
+	mi := &file_inference_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CancelJobRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CancelJobRequest) ProtoMessage() {}
+
+func (x *CancelJobRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CancelJobRequest.ProtoReflect.Descriptor instead.
+func (*CancelJobRequest) Descriptor() ([]byte, []int) {
+	return file_inference_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *CancelJobRequest) GetVhost() string {
+	if x != nil {
+		return x.Vhost
+	}
+	return ""
+}
+
+func (x *CancelJobRequest) GetJobId() string {
+	if x != nil {
+		return x.JobId
+	}
+	return ""
+}
+
+type CancelJobResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The job after cancelling: cancelled, or running with
+	// cancel_requested set until it stops.
+	Job           *Job `protobuf:"bytes,1,opt,name=job,proto3" json:"job,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CancelJobResponse) Reset() {
+	*x = CancelJobResponse{}
+	mi := &file_inference_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CancelJobResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CancelJobResponse) ProtoMessage() {}
+
+func (x *CancelJobResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CancelJobResponse.ProtoReflect.Descriptor instead.
+func (*CancelJobResponse) Descriptor() ([]byte, []int) {
+	return file_inference_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *CancelJobResponse) GetJob() *Job {
+	if x != nil {
+		return x.Job
+	}
+	return nil
+}
+
+type WatchJobRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The vhost the job belongs to.
+	Vhost string `protobuf:"bytes,1,opt,name=vhost,proto3" json:"vhost,omitempty"`
+	// The job's id.
+	JobId         string `protobuf:"bytes,2,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WatchJobRequest) Reset() {
+	*x = WatchJobRequest{}
+	mi := &file_inference_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WatchJobRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WatchJobRequest) ProtoMessage() {}
+
+func (x *WatchJobRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WatchJobRequest.ProtoReflect.Descriptor instead.
+func (*WatchJobRequest) Descriptor() ([]byte, []int) {
+	return file_inference_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *WatchJobRequest) GetVhost() string {
+	if x != nil {
+		return x.Vhost
+	}
+	return ""
+}
+
+func (x *WatchJobRequest) GetJobId() string {
+	if x != nil {
+		return x.JobId
+	}
+	return ""
+}
+
+type WatchJobResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Job           *Job                   `protobuf:"bytes,1,opt,name=job,proto3" json:"job,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WatchJobResponse) Reset() {
+	*x = WatchJobResponse{}
+	mi := &file_inference_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WatchJobResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WatchJobResponse) ProtoMessage() {}
+
+func (x *WatchJobResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WatchJobResponse.ProtoReflect.Descriptor instead.
+func (*WatchJobResponse) Descriptor() ([]byte, []int) {
+	return file_inference_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *WatchJobResponse) GetJob() *Job {
+	if x != nil {
+		return x.Job
+	}
+	return nil
+}
+
+// Job is an asynchronous call: where it stands and, once it succeeded, what
+// the call answered.
+type Job struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Vhost string                 `protobuf:"bytes,2,opt,name=vhost,proto3" json:"vhost,omitempty"`
+	Model string                 `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`
+	// "predict", "recommend" or "train".
+	Kind string `protobuf:"bytes,4,opt,name=kind,proto3" json:"kind,omitempty"`
+	// "queued", "running", "succeeded", "failed" or "cancelled".
+	Status string `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
+	// How far along the job is, from 0 to 1, and the same in words.
+	Progress        float64 `protobuf:"fixed64,6,opt,name=progress,proto3" json:"progress,omitempty"`
+	ProgressMessage string  `protobuf:"bytes,7,opt,name=progress_message,json=progressMessage,proto3" json:"progress_message,omitempty"`
+	// Why the job failed, in words; empty otherwise.
+	Error string `protobuf:"bytes,8,opt,name=error,proto3" json:"error,omitempty"`
+	// Set once cancelling a running job was asked for, until it stops.
+	CancelRequested bool                   `protobuf:"varint,9,opt,name=cancel_requested,json=cancelRequested,proto3" json:"cancel_requested,omitempty"`
+	CreatedAt       *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	StartedAt       *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	FinishedAt      *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=finished_at,json=finishedAt,proto3" json:"finished_at,omitempty"`
+	// When the job and its result are removed.
+	ExpiresAt *timestamppb.Timestamp `protobuf:"bytes,13,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	// The answer of a succeeded job: what Predict or Recommend would have
+	// returned. Unset until then.
+	//
+	// Types that are valid to be assigned to Result:
+	//
+	//	*Job_PredictResult
+	//	*Job_RecommendResult
+	Result        isJob_Result `protobuf_oneof:"result"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Job) Reset() {
+	*x = Job{}
+	mi := &file_inference_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Job) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Job) ProtoMessage() {}
+
+func (x *Job) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Job.ProtoReflect.Descriptor instead.
+func (*Job) Descriptor() ([]byte, []int) {
+	return file_inference_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *Job) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *Job) GetVhost() string {
+	if x != nil {
+		return x.Vhost
+	}
+	return ""
+}
+
+func (x *Job) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *Job) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *Job) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *Job) GetProgress() float64 {
+	if x != nil {
+		return x.Progress
+	}
+	return 0
+}
+
+func (x *Job) GetProgressMessage() string {
+	if x != nil {
+		return x.ProgressMessage
+	}
+	return ""
+}
+
+func (x *Job) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *Job) GetCancelRequested() bool {
+	if x != nil {
+		return x.CancelRequested
+	}
+	return false
+}
+
+func (x *Job) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *Job) GetStartedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.StartedAt
+	}
+	return nil
+}
+
+func (x *Job) GetFinishedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.FinishedAt
+	}
+	return nil
+}
+
+func (x *Job) GetExpiresAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return nil
+}
+
+func (x *Job) GetResult() isJob_Result {
+	if x != nil {
+		return x.Result
+	}
+	return nil
+}
+
+func (x *Job) GetPredictResult() *PredictResponse {
+	if x != nil {
+		if x, ok := x.Result.(*Job_PredictResult); ok {
+			return x.PredictResult
+		}
+	}
+	return nil
+}
+
+func (x *Job) GetRecommendResult() *RecommendResponse {
+	if x != nil {
+		if x, ok := x.Result.(*Job_RecommendResult); ok {
+			return x.RecommendResult
+		}
+	}
+	return nil
+}
+
+type isJob_Result interface {
+	isJob_Result()
+}
+
+type Job_PredictResult struct {
+	PredictResult *PredictResponse `protobuf:"bytes,14,opt,name=predict_result,json=predictResult,proto3,oneof"`
+}
+
+type Job_RecommendResult struct {
+	RecommendResult *RecommendResponse `protobuf:"bytes,15,opt,name=recommend_result,json=recommendResult,proto3,oneof"`
+}
+
+func (*Job_PredictResult) isJob_Result() {}
+
+func (*Job_RecommendResult) isJob_Result() {}
 
 type RecommendRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -47,7 +680,7 @@ type RecommendRequest struct {
 
 func (x *RecommendRequest) Reset() {
 	*x = RecommendRequest{}
-	mi := &file_inference_proto_msgTypes[0]
+	mi := &file_inference_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -59,7 +692,7 @@ func (x *RecommendRequest) String() string {
 func (*RecommendRequest) ProtoMessage() {}
 
 func (x *RecommendRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_inference_proto_msgTypes[0]
+	mi := &file_inference_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -72,7 +705,7 @@ func (x *RecommendRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecommendRequest.ProtoReflect.Descriptor instead.
 func (*RecommendRequest) Descriptor() ([]byte, []int) {
-	return file_inference_proto_rawDescGZIP(), []int{0}
+	return file_inference_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *RecommendRequest) GetVhost() string {
@@ -158,7 +791,7 @@ type RecommendResponse struct {
 
 func (x *RecommendResponse) Reset() {
 	*x = RecommendResponse{}
-	mi := &file_inference_proto_msgTypes[1]
+	mi := &file_inference_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -170,7 +803,7 @@ func (x *RecommendResponse) String() string {
 func (*RecommendResponse) ProtoMessage() {}
 
 func (x *RecommendResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_inference_proto_msgTypes[1]
+	mi := &file_inference_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -183,7 +816,7 @@ func (x *RecommendResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecommendResponse.ProtoReflect.Descriptor instead.
 func (*RecommendResponse) Descriptor() ([]byte, []int) {
-	return file_inference_proto_rawDescGZIP(), []int{1}
+	return file_inference_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *RecommendResponse) GetModel() string {
@@ -215,7 +848,7 @@ type RecommendedItem struct {
 
 func (x *RecommendedItem) Reset() {
 	*x = RecommendedItem{}
-	mi := &file_inference_proto_msgTypes[2]
+	mi := &file_inference_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -227,7 +860,7 @@ func (x *RecommendedItem) String() string {
 func (*RecommendedItem) ProtoMessage() {}
 
 func (x *RecommendedItem) ProtoReflect() protoreflect.Message {
-	mi := &file_inference_proto_msgTypes[2]
+	mi := &file_inference_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -240,7 +873,7 @@ func (x *RecommendedItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecommendedItem.ProtoReflect.Descriptor instead.
 func (*RecommendedItem) Descriptor() ([]byte, []int) {
-	return file_inference_proto_rawDescGZIP(), []int{2}
+	return file_inference_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *RecommendedItem) GetItem() string {
@@ -278,7 +911,7 @@ type PredictRequest struct {
 
 func (x *PredictRequest) Reset() {
 	*x = PredictRequest{}
-	mi := &file_inference_proto_msgTypes[3]
+	mi := &file_inference_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -290,7 +923,7 @@ func (x *PredictRequest) String() string {
 func (*PredictRequest) ProtoMessage() {}
 
 func (x *PredictRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_inference_proto_msgTypes[3]
+	mi := &file_inference_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -303,7 +936,7 @@ func (x *PredictRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PredictRequest.ProtoReflect.Descriptor instead.
 func (*PredictRequest) Descriptor() ([]byte, []int) {
-	return file_inference_proto_rawDescGZIP(), []int{3}
+	return file_inference_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *PredictRequest) GetVhost() string {
@@ -340,7 +973,7 @@ type PredictResponse struct {
 
 func (x *PredictResponse) Reset() {
 	*x = PredictResponse{}
-	mi := &file_inference_proto_msgTypes[4]
+	mi := &file_inference_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -352,7 +985,7 @@ func (x *PredictResponse) String() string {
 func (*PredictResponse) ProtoMessage() {}
 
 func (x *PredictResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_inference_proto_msgTypes[4]
+	mi := &file_inference_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -365,7 +998,7 @@ func (x *PredictResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PredictResponse.ProtoReflect.Descriptor instead.
 func (*PredictResponse) Descriptor() ([]byte, []int) {
-	return file_inference_proto_rawDescGZIP(), []int{4}
+	return file_inference_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *PredictResponse) GetModel() string {
@@ -386,7 +1019,51 @@ var File_inference_proto protoreflect.FileDescriptor
 
 const file_inference_proto_rawDesc = "" +
 	"\n" +
-	"\x0finference.proto\x12\fhermod.ml.v1\x1a\x1cgoogle/protobuf/struct.proto\"\xbc\x01\n" +
+	"\x0finference.proto\x12\fhermod.ml.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xb7\x01\n" +
+	"\x10SubmitJobRequest\x128\n" +
+	"\apredict\x18\x01 \x01(\v2\x1c.hermod.ml.v1.PredictRequestH\x00R\apredict\x12>\n" +
+	"\trecommend\x18\x02 \x01(\v2\x1e.hermod.ml.v1.RecommendRequestH\x00R\trecommend\x12!\n" +
+	"\fcallback_url\x18\x03 \x01(\tR\vcallbackUrlB\x06\n" +
+	"\x04call\"8\n" +
+	"\x11SubmitJobResponse\x12#\n" +
+	"\x03job\x18\x01 \x01(\v2\x11.hermod.ml.v1.JobR\x03job\"<\n" +
+	"\rGetJobRequest\x12\x14\n" +
+	"\x05vhost\x18\x01 \x01(\tR\x05vhost\x12\x15\n" +
+	"\x06job_id\x18\x02 \x01(\tR\x05jobId\"5\n" +
+	"\x0eGetJobResponse\x12#\n" +
+	"\x03job\x18\x01 \x01(\v2\x11.hermod.ml.v1.JobR\x03job\"?\n" +
+	"\x10CancelJobRequest\x12\x14\n" +
+	"\x05vhost\x18\x01 \x01(\tR\x05vhost\x12\x15\n" +
+	"\x06job_id\x18\x02 \x01(\tR\x05jobId\"8\n" +
+	"\x11CancelJobResponse\x12#\n" +
+	"\x03job\x18\x01 \x01(\v2\x11.hermod.ml.v1.JobR\x03job\">\n" +
+	"\x0fWatchJobRequest\x12\x14\n" +
+	"\x05vhost\x18\x01 \x01(\tR\x05vhost\x12\x15\n" +
+	"\x06job_id\x18\x02 \x01(\tR\x05jobId\"7\n" +
+	"\x10WatchJobResponse\x12#\n" +
+	"\x03job\x18\x01 \x01(\v2\x11.hermod.ml.v1.JobR\x03job\"\x83\x05\n" +
+	"\x03Job\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
+	"\x05vhost\x18\x02 \x01(\tR\x05vhost\x12\x14\n" +
+	"\x05model\x18\x03 \x01(\tR\x05model\x12\x12\n" +
+	"\x04kind\x18\x04 \x01(\tR\x04kind\x12\x16\n" +
+	"\x06status\x18\x05 \x01(\tR\x06status\x12\x1a\n" +
+	"\bprogress\x18\x06 \x01(\x01R\bprogress\x12)\n" +
+	"\x10progress_message\x18\a \x01(\tR\x0fprogressMessage\x12\x14\n" +
+	"\x05error\x18\b \x01(\tR\x05error\x12)\n" +
+	"\x10cancel_requested\x18\t \x01(\bR\x0fcancelRequested\x129\n" +
+	"\n" +
+	"created_at\x18\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
+	"\n" +
+	"started_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\x12;\n" +
+	"\vfinished_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"finishedAt\x129\n" +
+	"\n" +
+	"expires_at\x18\r \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12F\n" +
+	"\x0epredict_result\x18\x0e \x01(\v2\x1d.hermod.ml.v1.PredictResponseH\x00R\rpredictResult\x12L\n" +
+	"\x10recommend_result\x18\x0f \x01(\v2\x1f.hermod.ml.v1.RecommendResponseH\x00R\x0frecommendResultB\b\n" +
+	"\x06result\"\xbc\x01\n" +
 	"\x10RecommendRequest\x12\x14\n" +
 	"\x05vhost\x18\x01 \x01(\tR\x05vhost\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x14\n" +
@@ -409,10 +1086,14 @@ const file_inference_proto_rawDesc = "" +
 	"\tinstances\x18\x03 \x03(\v2\x17.google.protobuf.StructR\tinstances\"b\n" +
 	"\x0fPredictResponse\x12\x14\n" +
 	"\x05model\x18\x01 \x01(\tR\x05model\x129\n" +
-	"\vpredictions\x18\x02 \x03(\v2\x17.google.protobuf.StructR\vpredictions2\xa8\x01\n" +
+	"\vpredictions\x18\x02 \x03(\v2\x17.google.protobuf.StructR\vpredictions2\xd6\x03\n" +
 	"\x10InferenceService\x12F\n" +
 	"\aPredict\x12\x1c.hermod.ml.v1.PredictRequest\x1a\x1d.hermod.ml.v1.PredictResponse\x12L\n" +
-	"\tRecommend\x12\x1e.hermod.ml.v1.RecommendRequest\x1a\x1f.hermod.ml.v1.RecommendResponseB)Z'github.com/gsoultan/hermod/pkg/ml/protob\x06proto3"
+	"\tRecommend\x12\x1e.hermod.ml.v1.RecommendRequest\x1a\x1f.hermod.ml.v1.RecommendResponse\x12L\n" +
+	"\tSubmitJob\x12\x1e.hermod.ml.v1.SubmitJobRequest\x1a\x1f.hermod.ml.v1.SubmitJobResponse\x12C\n" +
+	"\x06GetJob\x12\x1b.hermod.ml.v1.GetJobRequest\x1a\x1c.hermod.ml.v1.GetJobResponse\x12L\n" +
+	"\tCancelJob\x12\x1e.hermod.ml.v1.CancelJobRequest\x1a\x1f.hermod.ml.v1.CancelJobResponse\x12K\n" +
+	"\bWatchJob\x12\x1d.hermod.ml.v1.WatchJobRequest\x1a\x1e.hermod.ml.v1.WatchJobResponse0\x01B)Z'github.com/gsoultan/hermod/pkg/ml/protob\x06proto3"
 
 var (
 	file_inference_proto_rawDescOnce sync.Once
@@ -426,28 +1107,58 @@ func file_inference_proto_rawDescGZIP() []byte {
 	return file_inference_proto_rawDescData
 }
 
-var file_inference_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_inference_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_inference_proto_goTypes = []any{
-	(*RecommendRequest)(nil),  // 0: hermod.ml.v1.RecommendRequest
-	(*RecommendResponse)(nil), // 1: hermod.ml.v1.RecommendResponse
-	(*RecommendedItem)(nil),   // 2: hermod.ml.v1.RecommendedItem
-	(*PredictRequest)(nil),    // 3: hermod.ml.v1.PredictRequest
-	(*PredictResponse)(nil),   // 4: hermod.ml.v1.PredictResponse
-	(*structpb.Struct)(nil),   // 5: google.protobuf.Struct
+	(*SubmitJobRequest)(nil),      // 0: hermod.ml.v1.SubmitJobRequest
+	(*SubmitJobResponse)(nil),     // 1: hermod.ml.v1.SubmitJobResponse
+	(*GetJobRequest)(nil),         // 2: hermod.ml.v1.GetJobRequest
+	(*GetJobResponse)(nil),        // 3: hermod.ml.v1.GetJobResponse
+	(*CancelJobRequest)(nil),      // 4: hermod.ml.v1.CancelJobRequest
+	(*CancelJobResponse)(nil),     // 5: hermod.ml.v1.CancelJobResponse
+	(*WatchJobRequest)(nil),       // 6: hermod.ml.v1.WatchJobRequest
+	(*WatchJobResponse)(nil),      // 7: hermod.ml.v1.WatchJobResponse
+	(*Job)(nil),                   // 8: hermod.ml.v1.Job
+	(*RecommendRequest)(nil),      // 9: hermod.ml.v1.RecommendRequest
+	(*RecommendResponse)(nil),     // 10: hermod.ml.v1.RecommendResponse
+	(*RecommendedItem)(nil),       // 11: hermod.ml.v1.RecommendedItem
+	(*PredictRequest)(nil),        // 12: hermod.ml.v1.PredictRequest
+	(*PredictResponse)(nil),       // 13: hermod.ml.v1.PredictResponse
+	(*timestamppb.Timestamp)(nil), // 14: google.protobuf.Timestamp
+	(*structpb.Struct)(nil),       // 15: google.protobuf.Struct
 }
 var file_inference_proto_depIdxs = []int32{
-	2, // 0: hermod.ml.v1.RecommendResponse.items:type_name -> hermod.ml.v1.RecommendedItem
-	5, // 1: hermod.ml.v1.PredictRequest.instances:type_name -> google.protobuf.Struct
-	5, // 2: hermod.ml.v1.PredictResponse.predictions:type_name -> google.protobuf.Struct
-	3, // 3: hermod.ml.v1.InferenceService.Predict:input_type -> hermod.ml.v1.PredictRequest
-	0, // 4: hermod.ml.v1.InferenceService.Recommend:input_type -> hermod.ml.v1.RecommendRequest
-	4, // 5: hermod.ml.v1.InferenceService.Predict:output_type -> hermod.ml.v1.PredictResponse
-	1, // 6: hermod.ml.v1.InferenceService.Recommend:output_type -> hermod.ml.v1.RecommendResponse
-	5, // [5:7] is the sub-list for method output_type
-	3, // [3:5] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	12, // 0: hermod.ml.v1.SubmitJobRequest.predict:type_name -> hermod.ml.v1.PredictRequest
+	9,  // 1: hermod.ml.v1.SubmitJobRequest.recommend:type_name -> hermod.ml.v1.RecommendRequest
+	8,  // 2: hermod.ml.v1.SubmitJobResponse.job:type_name -> hermod.ml.v1.Job
+	8,  // 3: hermod.ml.v1.GetJobResponse.job:type_name -> hermod.ml.v1.Job
+	8,  // 4: hermod.ml.v1.CancelJobResponse.job:type_name -> hermod.ml.v1.Job
+	8,  // 5: hermod.ml.v1.WatchJobResponse.job:type_name -> hermod.ml.v1.Job
+	14, // 6: hermod.ml.v1.Job.created_at:type_name -> google.protobuf.Timestamp
+	14, // 7: hermod.ml.v1.Job.started_at:type_name -> google.protobuf.Timestamp
+	14, // 8: hermod.ml.v1.Job.finished_at:type_name -> google.protobuf.Timestamp
+	14, // 9: hermod.ml.v1.Job.expires_at:type_name -> google.protobuf.Timestamp
+	13, // 10: hermod.ml.v1.Job.predict_result:type_name -> hermod.ml.v1.PredictResponse
+	10, // 11: hermod.ml.v1.Job.recommend_result:type_name -> hermod.ml.v1.RecommendResponse
+	11, // 12: hermod.ml.v1.RecommendResponse.items:type_name -> hermod.ml.v1.RecommendedItem
+	15, // 13: hermod.ml.v1.PredictRequest.instances:type_name -> google.protobuf.Struct
+	15, // 14: hermod.ml.v1.PredictResponse.predictions:type_name -> google.protobuf.Struct
+	12, // 15: hermod.ml.v1.InferenceService.Predict:input_type -> hermod.ml.v1.PredictRequest
+	9,  // 16: hermod.ml.v1.InferenceService.Recommend:input_type -> hermod.ml.v1.RecommendRequest
+	0,  // 17: hermod.ml.v1.InferenceService.SubmitJob:input_type -> hermod.ml.v1.SubmitJobRequest
+	2,  // 18: hermod.ml.v1.InferenceService.GetJob:input_type -> hermod.ml.v1.GetJobRequest
+	4,  // 19: hermod.ml.v1.InferenceService.CancelJob:input_type -> hermod.ml.v1.CancelJobRequest
+	6,  // 20: hermod.ml.v1.InferenceService.WatchJob:input_type -> hermod.ml.v1.WatchJobRequest
+	13, // 21: hermod.ml.v1.InferenceService.Predict:output_type -> hermod.ml.v1.PredictResponse
+	10, // 22: hermod.ml.v1.InferenceService.Recommend:output_type -> hermod.ml.v1.RecommendResponse
+	1,  // 23: hermod.ml.v1.InferenceService.SubmitJob:output_type -> hermod.ml.v1.SubmitJobResponse
+	3,  // 24: hermod.ml.v1.InferenceService.GetJob:output_type -> hermod.ml.v1.GetJobResponse
+	5,  // 25: hermod.ml.v1.InferenceService.CancelJob:output_type -> hermod.ml.v1.CancelJobResponse
+	7,  // 26: hermod.ml.v1.InferenceService.WatchJob:output_type -> hermod.ml.v1.WatchJobResponse
+	21, // [21:27] is the sub-list for method output_type
+	15, // [15:21] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_inference_proto_init() }
@@ -456,6 +1167,14 @@ func file_inference_proto_init() {
 		return
 	}
 	file_inference_proto_msgTypes[0].OneofWrappers = []any{
+		(*SubmitJobRequest_Predict)(nil),
+		(*SubmitJobRequest_Recommend)(nil),
+	}
+	file_inference_proto_msgTypes[8].OneofWrappers = []any{
+		(*Job_PredictResult)(nil),
+		(*Job_RecommendResult)(nil),
+	}
+	file_inference_proto_msgTypes[9].OneofWrappers = []any{
 		(*RecommendRequest_User)(nil),
 		(*RecommendRequest_Item)(nil),
 	}
@@ -465,7 +1184,7 @@ func file_inference_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_inference_proto_rawDesc), len(file_inference_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

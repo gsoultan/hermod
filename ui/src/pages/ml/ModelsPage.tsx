@@ -14,6 +14,7 @@ import {
   deleteModel, isModelVHost, isTrainedModel, listModels, mlModelsKey, setMCPExposure, useWorkerStatus, type MLModel,
 } from '@/lib/mlModels'
 import { DatasetsPanel } from './DatasetsPanel'
+import { JobsPanel } from './JobsPanel'
 import { ScriptsPanel } from './ScriptsPanel'
 import { ModelFormModal } from './ModelFormModal'
 import { ModelTestModal } from './ModelTestModal'
@@ -287,6 +288,7 @@ export function ModelsPage() {
             <Tabs.Panel value="models">
               <Stack gap="lg">
                 {modelsTable}
+                <JobsPanel vhost={vhost} canEdit={canEdit} />
                 <DatasetsPanel vhost={vhost} />
                 <QuotasPanel vhost={vhost} canEdit={role === 'Administrator'} />
               </Stack>
@@ -298,6 +300,7 @@ export function ModelsPage() {
         ) : (
           <>
             {modelsTable}
+            {vhost && <JobsPanel vhost={vhost} canEdit={canEdit} />}
             {vhost && canTrain && <DatasetsPanel vhost={vhost} />}
             {vhost && <QuotasPanel vhost={vhost} canEdit={role === 'Administrator'} />}
           </>
