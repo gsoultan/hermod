@@ -173,7 +173,6 @@ export const TRANSFORM_CONFIGS: Record<string, ConfigComponent> = {
   // machine learning
   ml_predict: MLPredictConfig,
   ml_train: MLTrainConfig,
-  ml_recommend_build: MLRecommendBuildConfig,
   // feature engineering (pkg/comm/transformer/features)
   scale: ScaleConfig,
   encode: EncodeConfig,
@@ -242,6 +241,7 @@ export const NODE_TYPE_CONFIGS: Record<string, ConfigComponent> = {
   ai_classify: AIClassifyConfig,
   ai_agent: AIAgentConfig,
   explode: ExplodeConfig,
+  ml_recommend_build: MLRecommendBuildConfig,
 }
 
 /**

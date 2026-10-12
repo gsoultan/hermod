@@ -65,6 +65,7 @@ export const canvasNodeTypes = {
   note: NoteNode,
   ai_classify: AIClassifyNode,
   ai_agent: AIAgentNode,
+  ml_recommend_build: TransformationNode,
 };
 
 interface FlowCanvasProps {

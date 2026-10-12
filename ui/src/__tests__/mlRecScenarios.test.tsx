@@ -12,7 +12,9 @@ import { MonitoringModal } from '@/pages/ml/MonitoringModal'
 import { DatasetsPanel } from '@/pages/ml/DatasetsPanel'
 import { MLPredictConfig } from '@/components/workflow/Transformation/configs/ml/MLPredictConfig'
 import { MLRecommendBuildConfig } from '@/components/workflow/Transformation/configs/ml/MLRecommendBuildConfig'
-import { TRANSFORM_CONFIGS } from '@/components/workflow/Transformation/configs/registry'
+import { resolveConfigComponent } from '@/components/workflow/Transformation/configs/registry'
+import { canvasNodeTypes } from '@/pages/workflows/WorkflowEditor/components/FlowCanvas'
+import { detailNodeTypes } from '@/pages/workflows/WorkflowEditor/components/DetailFlowCanvas'
 import { NODE_CATEGORIES } from '@/pages/workflows/WorkflowEditor/constants/nodeCategories'
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore'
 import { ConfirmProvider } from '@/components/common/ConfirmProvider'
@@ -597,8 +599,13 @@ describe('Workflow nodes for scenarios', () => {
 
   it('has a Build Recommendations node in the palette with its own editor', async () => {
     const ml = NODE_CATEGORIES.find((c: any) => c.title === 'Machine Learning')
-    expect(ml?.items.map((i: any) => i.subType)).toContain('ml_recommend_build')
-    expect(TRANSFORM_CONFIGS.ml_recommend_build).toBe(MLRecommendBuildConfig)
+    // The engine runs it as its own node type (RegisterNodeExecutor
+    // "ml_recommend_build"), not as a transformation subtype.
+    const item = ml?.items.find((i: any) => i.subType === 'ml_recommend_build')
+    expect(item?.type).toBe('ml_recommend_build')
+    expect(resolveConfigComponent('ml_recommend_build', 'ml_recommend_build')).toBe(MLRecommendBuildConfig)
+    expect(canvasNodeTypes).toHaveProperty('ml_recommend_build')
+    expect(detailNodeTypes).toHaveProperty('ml_recommend_build')
 
     api()
     server.use(http.get('/api/vhosts/:vhost/ml/models', () => HttpResponse.json({ data: [planModel], total: 1 })))
