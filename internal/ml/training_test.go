@@ -28,6 +28,8 @@ type fakeWorker struct {
 	// answers every training with 429.
 	rows map[string]int
 	busy bool
+	// checked is the spec the last pre-flight check was sent.
+	checked worker.TrainSpec
 }
 
 func (f *fakeWorker) server(t *testing.T) *httptest.Server {
@@ -48,6 +50,11 @@ func (f *fakeWorker) server(t *testing.T) *httptest.Server {
 				return
 			}
 			_ = json.NewEncoder(w).Encode(worker.DatasetInfo{Name: parts[3], Rows: n})
+		case r.Method == http.MethodPost && len(parts) == 3 && parts[1] == "train-check":
+			_ = json.NewDecoder(r.Body).Decode(&f.checked)
+			two := 2
+			_ = json.NewEncoder(w).Encode(worker.TrainCheck{Task: "classification", TargetKind: "yes_no", Classes: &two,
+				Rows: 120, UsableRows: 118, Columns: []worker.ColumnCheck{{Name: "churned", Type: "string", Role: "target"}}, OK: true})
 		case r.Method == http.MethodPost && len(parts) == 5 && parts[0] == "v1" && parts[4] == "train" && f.busy:
 			w.WriteHeader(http.StatusTooManyRequests)
 			_, _ = io.WriteString(w, `{"error":"Training is busy"}`)
@@ -277,5 +284,48 @@ func TestDeletingAWorkerModelDeletesItsVersionsToo(t *testing.T) {
 	}
 	if err := svc.DeleteModel(t.Context(), "v", "churn"); !errors.Is(err, ErrModelNotFound) {
 		t.Errorf("deleting twice: err = %v", err)
+	}
+}
+
+func TestTrainCheckAsksTheMainWorkerAndTrainsNothing(t *testing.T) {
+	store := newMemStore()
+	svc, f := workerService(t, store, 0.9)
+
+	got, err := svc.TrainCheck(t.Context(), "tenant-a", worker.TrainSpec{Dataset: "customers", Target: "churned", Preset: "quick"})
+	if err != nil {
+		t.Fatalf("TrainCheck: %v", err)
+	}
+	if !got.OK || got.TargetKind != "yes_no" || got.UsableRows != 118 {
+		t.Errorf("check = %+v", got)
+	}
+	if f.checked.Dataset != "customers" || f.checked.Preset != "quick" {
+		t.Errorf("the worker was sent %+v", f.checked)
+	}
+	if len(f.calls) != 1 || f.calls[0] != "POST /v1/train-check/tenant-a" {
+		t.Errorf("worker calls = %v, want only the check", f.calls)
+	}
+	if _, err := svc.Model(t.Context(), "tenant-a", "churn"); err == nil {
+		t.Error("a check registered a model")
+	}
+}
+
+func TestTrainCheckRefusesWhatATrainingWould(t *testing.T) {
+	svc, f := workerService(t, newMemStore(), 0.9)
+	for _, spec := range []worker.TrainSpec{
+		{Dataset: "d", Target: "y", Algorithm: "linear", Preset: "best"},
+		{Dataset: "d", Target: "y", Preset: "fastest"},
+		{Dataset: "d", Target: "y", Device: "tpu"},
+	} {
+		if _, err := svc.TrainCheck(t.Context(), "tenant-a", spec); !errors.Is(err, ErrBadTraining) {
+			t.Errorf("%+v: err = %v, want ErrBadTraining", spec, err)
+		}
+	}
+	if len(f.calls) != 0 {
+		t.Errorf("the worker was called: %v", f.calls)
+	}
+
+	noWorker := NewService(func() any { return newMemStore() }, nil, nil).WithWorker(nil)
+	if _, err := noWorker.TrainCheck(t.Context(), "tenant-a", worker.TrainSpec{Dataset: "d", Target: "y"}); !errors.Is(err, ErrNoWorker) {
+		t.Errorf("err = %v, want ErrNoWorker", err)
 	}
 }

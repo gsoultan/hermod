@@ -45,7 +45,7 @@ def test_dl_classification_keeps_the_model_contract(client, tmp_path, algorithm)
     assert meta["task"] == "classification"
     assert meta["labels"] == ["no", "yes"]
     assert meta["params"] == DEFAULT_PARAMS
-    assert set(meta["metrics"]) == {"accuracy", "f1", "roc_auc", "score"}
+    assert set(meta["metrics"]) == {"accuracy", "balanced_accuracy", "f1", "roc_auc", "score"}
     assert meta["metrics"]["accuracy"] > 0.7
 
     model = onnx.load(str(tmp_path / "data/models/acme/c/1/model.onnx"))

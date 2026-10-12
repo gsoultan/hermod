@@ -30,6 +30,44 @@ share instead of drift. See "Recommendations" in docs/ml.md.
 
 An older Hermod drops the model's task when it saves the model, so do not roll
 back past this release with recommendation models in use.
+### Added — Smart Auto, training presets, two more algorithms and a pre-flight check
+
+`algorithm: "auto"` no longer always trains a random forest: it cross-validates
+several candidates on the training rows only (never the held-out rows) and
+keeps the best. A new `preset` (`quick`, `balanced` by default, or `best`) sets
+how many candidates, folds and settings it tries, within a time budget; any
+other algorithm with a preset is a 400. `extra_trees` and
+`hist_gradient_boosting` are new built-in algorithms; both export to ONNX tree
+ensembles that in-process scoring serves. A lopsided classification target is
+trained with balanced class weights and Auto judges classifiers by balanced
+accuracy, now also among a classifier's metrics. Every version records a
+`baseline` (the metrics of always guessing the most common class or the mean),
+permutation `importance` (top 20, normalised) and data `warnings`; an Auto
+version also its `preset` and a `leaderboard` of what it tried. `POST
+/api/vhosts/{vhost}/ml/train-check` takes a training's body, trains nothing,
+and returns the task, the target in words, usable rows, a role per column
+(ID-like, constant, mostly empty, suspected leak) and warnings. The Train Model
+node takes `preset`. The worker now also checks that an exported classifier's
+probabilities, not only its labels, match the trained model's. See "Training"
+in `docs/ml.md`.
+
+### Added — guided training for people new to machine learning
+
+**Train a model** on the Models page is now five steps instead of one long
+form: pick a dataset and see its first rows; pick the column to predict, which
+the new pre-flight check describes in words ("a yes/no question") and screens
+for ID-like, constant, mostly empty and answer-leaking columns, leaving them
+out with a one-click way to put them back; choose **Quick**, **Balanced**
+(recommended) or **Best quality**; train; and read the result in plain words
+("Right 87 of 100 times on rows it never saw", or "Typically off by 12.4"),
+rated good, fair or weak against a model that only guesses, with what mattered
+most, what Auto tried, and buttons to try it, put it live, or copy the API
+call. Task, algorithm, device and network settings sit under **Advanced**, and
+the raw metrics under **Details**. The Train Model node gets the same quality
+picker, and an empty Models page walks through dataset, train and try. Extra
+trees and histogram gradient boosting are offered as algorithms. Against a
+server without the check or the new result fields, the dialog trains as before.
+See [docs/ml.md](docs/ml.md#guided-training).
 
 ### Added — data lineage and impact
 

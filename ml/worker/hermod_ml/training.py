@@ -38,42 +38,47 @@ import onnxruntime as ort
 import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import (
+    ExtraTreesClassifier,
+    ExtraTreesRegressor,
     GradientBoostingClassifier,
     GradientBoostingRegressor,
+    HistGradientBoostingClassifier,
+    HistGradientBoostingRegressor,
     RandomForestClassifier,
     RandomForestRegressor,
 )
 from sklearn.linear_model import LinearRegression, LogisticRegression
-from sklearn.metrics import (
-    accuracy_score,
-    f1_score,
-    mean_absolute_error,
-    mean_squared_error,
-    r2_score,
-    roc_auc_score,
-)
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from skl2onnx import convert_sklearn, get_latest_tested_opset_version
 from skl2onnx.common.data_types import FloatTensorType, StringTensorType
 
-from . import deep, recommend
-from .datasets import BOOL, NUMBER, STRING, DatasetStore, is_null, to_text
+from . import deep, insights, precheck, recommend, selection
+from .datasets import NUMBER, STRING, DatasetStore, is_null, to_text
 from .errors import ApiError, bad_request, not_found
 from .names import validate_name
+from .precheck import MAX_AUTO_CLASSES, MIN_ROWS  # noqa: F401 (custom.py imports them from here)
 from .stats import feature_stats
 
-MIN_ROWS = 10
-MAX_AUTO_CLASSES = 20  # integer targets with at most this many values are classes
 REGRESSION_RTOL = 1e-3
 
 TASKS = ("auto", "classification", "regression", recommend.TASK)
-ALGORITHMS = ("auto", "random_forest", "gradient_boosting", "linear", "xgboost", *deep.ALGORITHMS)
+ALGORITHMS = (
+    "auto",
+    "random_forest",
+    "gradient_boosting",
+    "linear",
+    "xgboost",
+    "extra_trees",
+    "hist_gradient_boosting",
+    *deep.ALGORITHMS,
+)
 # What /v1/capabilities offers: every task's algorithms.
 ALL_ALGORITHMS = (*ALGORITHMS, *(a for a in recommend.ALGORITHMS if a not in ALGORITHMS))
-# A deep-learning model's labels may differ from its framework's where the top
-# two probabilities are closer than this: float32 rounding decides those ties.
+# How far an exported classifier's probabilities may be from the model's. Its
+# labels may differ from the model's where the top two probabilities are
+# closer than this: float32 rounding decides those ties.
 PROBABILITY_ATOL = 1e-4
 VERSION_RE = re.compile(r"[0-9]+\Z")
 
@@ -195,6 +200,8 @@ class TrainRequest:
     # The deep-learning hyperparameters with defaults filled in; None for
     # every other algorithm.
     params: dict[str, Any] | None = None
+    # How hard Auto tries (selection.PRESETS); None unless algorithm is auto.
+    preset: str | None = None
 
 
 def parse_test_size(body: dict[str, Any]) -> float:
@@ -255,7 +262,18 @@ def parse_request(body: dict[str, Any]) -> TrainRequest:
     elif body.get("params") is not None:
         raise bad_request(f"'params' applies only to the algorithms {', '.join(deep.ALGORITHMS)}.")
 
-    return TrainRequest(dataset, target, list(features), task, algorithm, test_size, seed, params)
+    preset = body.get("preset")
+    if preset is not None and preset != "":
+        if not isinstance(preset, str) or preset not in selection.PRESET_NAMES:
+            raise bad_request(f"'preset' must be one of {', '.join(selection.PRESET_NAMES)}.")
+        if algorithm != "auto":
+            raise bad_request("'preset' applies only when 'algorithm' is auto.")
+    elif algorithm == "auto":
+        preset = selection.DEFAULT_PRESET
+    else:
+        preset = None
+
+    return TrainRequest(dataset, target, list(features), task, algorithm, float(test_size), seed, params, preset)
 
 
 # --------------------------------------------------------------------------
@@ -410,10 +428,12 @@ def _xgboost_classes() -> tuple[type, type]:
             # Tells the onnxmltools converter to treat this as a classifier.
             operator_name = "XGBClassifier"
 
-            def fit(self, X, y, **kwargs):
+            # sample_weight is named so selection.balance can see that fit
+            # takes it.
+            def fit(self, X, y, sample_weight=None, **kwargs):
                 self._labels = None  # classes_ must read 0..k-1 while xgboost fits
                 encoder = LabelEncoder().fit(y)
-                super().fit(X, encoder.transform(y), **kwargs)
+                super().fit(X, encoder.transform(y), sample_weight=sample_weight, **kwargs)
                 self._labels = encoder.classes_
                 return self
 
@@ -450,6 +470,14 @@ def _estimator(task: str, algorithm: str, seed: int):
     classify = task == "classification"
     if algorithm == "random_forest":
         return RandomForestClassifier(random_state=seed) if classify else RandomForestRegressor(random_state=seed)
+    if algorithm == "extra_trees":
+        return ExtraTreesClassifier(random_state=seed) if classify else ExtraTreesRegressor(random_state=seed)
+    if algorithm == "hist_gradient_boosting":
+        # Fast on large tables; with more than 10,000 rows it stops early on a
+        # slice of the training rows it holds back itself.
+        if classify:
+            return HistGradientBoostingClassifier(random_state=seed)
+        return HistGradientBoostingRegressor(random_state=seed)
     if algorithm == "gradient_boosting":
         return GradientBoostingClassifier(random_state=seed) if classify else GradientBoostingRegressor(random_state=seed)
     if algorithm == "linear":
@@ -519,9 +547,71 @@ def _labels_agree(got: np.ndarray, expected: np.ndarray, probabilities: np.ndarr
     return bool((same | tie).all())
 
 
-def _finite(metrics: dict[str, float]) -> dict[str, float]:
-    """Drop metrics that came out NaN/inf (e.g. r2 on a one-row test split)."""
-    return {k: float(v) for k, v in metrics.items() if v is not None and math.isfinite(v)}
+_finite = insights.finite
+
+# Histogram gradient boosting's default minimum rows per leaf, kept from 200
+# training rows up.
+HGB_MIN_LEAF = 20
+
+
+def snap_thresholds(estimator: Any) -> None:
+    """Make a fitted histogram gradient boosting model's split thresholds
+    float32 values, as its ONNX graph holds them.
+
+    It splits float64 inputs at float64 thresholds; the graph compares
+    float32 inputs with float32 thresholds. A threshold that is not a
+    float32 value rounds up or down in the graph, and an input equal to the
+    rounded value then goes the other way. Every input here is a float32
+    value (numeric_column), and for those `x <= t` holds exactly when `x` is
+    at most the largest float32 at or below `t`. Moving each threshold there
+    changes none of the model's decisions and makes the graph's identical.
+    """
+    if not isinstance(estimator, (HistGradientBoostingClassifier, HistGradientBoostingRegressor)):
+        return
+    for trees in estimator._predictors:
+        for tree in trees:
+            t = tree.nodes["num_threshold"]
+            down = t.astype(np.float32)
+            down = np.where(down.astype(np.float64) > t, np.nextafter(down, np.float32(-np.inf)), down)
+            tree.nodes["num_threshold"] = down.astype(np.float64)
+
+
+def build_pipeline(
+    task: str,
+    algorithm: str,
+    numeric: list[str],
+    strings: list[str],
+    seed: int,
+    settings: dict[str, Any] | None = None,
+    deep_params: dict[str, Any] | None = None,
+    rows: int | None = None,
+) -> Pipeline:
+    """The unfitted pipeline for `algorithm`: scaled (linear, deep) or raw
+    numbers and one-hot strings, then the model. `settings` override the
+    estimator's defaults (Auto's search); `deep_params` configure a network.
+    `rows`, the training rows, sizes histogram gradient boosting's leaves."""
+    is_deep = algorithm in deep.ALGORITHMS
+    if is_deep:
+        estimator = deep.make_estimator(algorithm, task, deep_params or deep.parse_params(None), seed)
+    else:
+        estimator = _estimator(task, algorithm, seed)
+        if algorithm == "hist_gradient_boosting" and rows is not None:
+            # Its default of 20 rows per leaf leaves a small table with no
+            # split at all: one leaf in every tree. Such a model learns
+            # nothing, and skl2onnx exports its probabilities wrongly.
+            estimator.set_params(min_samples_leaf=max(1, min(HGB_MIN_LEAF, rows // 10)))
+        if settings:
+            known = estimator.get_params()
+            estimator.set_params(**{k: v for k, v in settings.items() if k in known})
+    transformers = []
+    if numeric:
+        scale = algorithm == "linear" or is_deep
+        transformers.append(("num", StandardScaler() if scale else "passthrough", numeric))
+    if strings:
+        transformers.append(("str", OneHotEncoder(handle_unknown="ignore"), strings))
+    # sparse_threshold=0 keeps the transformed matrix dense, which is what
+    # the ONNX graph produces too.
+    return Pipeline([("prep", ColumnTransformer(transformers, sparse_threshold=0)), ("model", estimator)])
 
 
 # --------------------------------------------------------------------------
@@ -563,10 +653,18 @@ class Trainer:
             self._on_saved(vhost, name)
         return meta
 
-    def _train(self, vhost: str, name: str, req: TrainRequest) -> dict[str, Any]:
-        frame, types = self._datasets.load(vhost, req.dataset)
+    def check(self, vhost: str, body: dict[str, Any]) -> dict[str, Any]:
+        """The pre-flight check (precheck.py) for a train request. It takes
+        no training slot: it reads the dataset and measures, nothing more.
+        What only a training uses (name, go_live, params) is ignored."""
+        request = parse_request({k: v for k, v in body.items() if k not in ("name", "go_live", "params")})
+        frame, types = self._datasets.load(vhost, request.dataset)
+        features = self._features(frame, types, request)
+        return precheck.check(frame, types, request.target, features, request.task, request.seed)
 
-        # -- columns ---------------------------------------------------------
+    @staticmethod
+    def _features(frame: pd.DataFrame, types: dict[str, str], req: TrainRequest) -> list[str]:
+        """The feature columns `req` names, checked against the dataset."""
         if req.target not in types:
             raise bad_request(f"Target column {req.target!r} is not in dataset {req.dataset!r}.")
         features = req.features or [c for c in frame.columns if c != req.target]
@@ -577,6 +675,13 @@ class Trainer:
                 raise bad_request(f"Feature column {feature!r} is not in dataset {req.dataset!r}.")
         if not features:
             raise bad_request("There are no feature columns to train on.")
+        return features
+
+    def _train(self, vhost: str, name: str, req: TrainRequest) -> dict[str, Any]:
+        frame, types = self._datasets.load(vhost, req.dataset)
+
+        # -- columns ---------------------------------------------------------
+        features = self._features(frame, types, req)
 
         frame = frame[~frame[req.target].map(is_null)]
         if len(frame) < MIN_ROWS:
@@ -585,31 +690,16 @@ class Trainer:
         # -- target and task -------------------------------------------------
         target_type = types[req.target]
         raw_target = frame[req.target]
-        integral = target_type == NUMBER and all(float(v).is_integer() for v in raw_target)
-        task = req.task
-        if task == "auto":
-            if target_type in (STRING, BOOL):
-                task = "classification"
-            elif integral and raw_target.nunique() <= MAX_AUTO_CLASSES:
-                task = "classification"
-            else:
-                task = "regression"
+        task = precheck.detect_task(req.task, target_type, raw_target)
+        y = precheck.target_values(task, req.target, target_type, raw_target)
+        if task == "classification" and len(np.unique(y)) < 2:
+            raise bad_request(f"Classification needs at least two distinct values in {req.target!r}.")
 
-        if task == "classification":
-            if target_type == STRING:
-                y = np.asarray([str(v) for v in raw_target], dtype=object)
-            elif target_type == BOOL:
-                y = np.asarray(["true" if v else "false" for v in raw_target], dtype=object)
-            elif integral:
-                y = raw_target.to_numpy(dtype=np.int64)
-            else:
-                raise bad_request(f"Classification needs a string, bool or integer target; {req.target!r} has fractional numbers.")
-            if len(np.unique(y)) < 2:
-                raise bad_request(f"Classification needs at least two distinct values in {req.target!r}.")
-        else:
-            if target_type != NUMBER:
-                raise bad_request(f"Task regression needs a numeric target; {req.target!r} is {target_type}.")
-            y = raw_target.to_numpy(dtype=np.float64)
+        # Data notes for the version, in words. Measured on every usable row,
+        # like the pre-flight check, so the two agree.
+        notes, _ = precheck.target_warnings(task, req.target, y)
+        _, column_notes = precheck.feature_notes(frame.reset_index(drop=True), types, features, task, y, req.seed)
+        data_warnings = [w["message"] for w in notes + column_notes]
 
         # -- features --------------------------------------------------------
         feature_types = {f: STRING if types[f] == STRING else NUMBER for f in features}
@@ -633,23 +723,31 @@ class Trainer:
         X_train = X_train.fillna(value=fill)
         X_test = X_test.fillna(value=fill)
 
-        # -- fit -------------------------------------------------------------
-        algorithm = "random_forest" if req.algorithm == "auto" else req.algorithm
-        is_deep = algorithm in deep.ALGORITHMS
-        if is_deep:
-            estimator = deep.make_estimator(algorithm, task, req.params, req.seed)
+        # -- choose ----------------------------------------------------------
+        def build(algorithm: str, settings: dict[str, Any]) -> Pipeline:
+            return build_pipeline(task, algorithm, numeric, strings, req.seed, settings, req.params, len(X_train))
+
+        chosen = None
+        if req.algorithm == "auto":
+            # The training split only: the test rows judge the winner below.
+            chosen = selection.select(
+                X_train, y_train, task, req.preset, req.seed, build, xgboost=_xgboost_unavailable() is None
+            )
+            algorithm, settings = chosen.algorithm, chosen.params
+            data_warnings += chosen.warnings
         else:
-            estimator = _estimator(task, algorithm, req.seed)
-        transformers = []
-        if numeric:
-            scale = algorithm == "linear" or is_deep
-            transformers.append(("num", StandardScaler() if scale else "passthrough", numeric))
-        if strings:
-            transformers.append(("str", OneHotEncoder(handle_unknown="ignore"), strings))
-        # sparse_threshold=0 keeps the transformed matrix dense, which is what
-        # the ONNX graph produces too.
-        pipeline = Pipeline([("prep", ColumnTransformer(transformers, sparse_threshold=0)), ("model", estimator)])
-        pipeline.fit(X_train, y_train)
+            algorithm, settings = req.algorithm, {}
+        is_deep = algorithm in deep.ALGORITHMS
+
+        # -- fit -------------------------------------------------------------
+        pipeline = build(algorithm, settings)
+        pipeline.fit(X_train, y_train, **selection.balance(pipeline.named_steps["model"], task, y_train))
+        if selection.learned_nothing(pipeline.named_steps["model"]):
+            raise bad_request(
+                f"Algorithm {algorithm!r} found nothing to learn from in these rows: no feature splits them. "
+                "Add rows or features, or try another algorithm."
+            )
+        snap_thresholds(pipeline.named_steps["model"])
 
         # -- export ----------------------------------------------------------
         model_bytes = export_onnx(pipeline, features, feature_types, task, algorithm).SerializeToString()
@@ -668,17 +766,20 @@ class Trainer:
         if task == "classification":
             meta["labels"] = [c.item() if hasattr(c, "item") else c for c in pipeline.classes_]
         if is_deep:
-            meta["params"] = req.params
+            # Auto picks a network with its default settings.
+            meta["params"] = req.params or deep.parse_params(None)
 
         # -- parity: the ONNX graph must agree with sklearn on the test split --
         session = ort.InferenceSession(model_bytes, providers=["CPUExecutionProvider"])
         expected = pipeline.predict(X_test)
         got, got_proba = onnx_predict_for_parity(session, X_test, meta)
         if task == "classification":
-            # A network computes in float32 in both places, but not in the same
-            # order, so its probabilities agree to a tolerance, not exactly.
-            proba = pipeline.predict_proba(X_test) if is_deep else None
-            if proba is not None and not np.allclose(got_proba, proba, atol=PROBABILITY_ATOL):
+            # The graph computes in float32 and the model mostly in float64, so
+            # probabilities agree to a tolerance, not exactly. They are checked
+            # for every classifier: a converter can get them wrong while the
+            # labels still agree.
+            proba = pipeline.predict_proba(X_test)
+            if not np.allclose(got_proba, proba, atol=PROBABILITY_ATOL):
                 raise ApiError(500, "ONNX export check failed: the exported model's probabilities differ from the trained model's.")
             if not _labels_agree(got, expected, proba):
                 raise ApiError(500, "ONNX export check failed: the exported model's labels differ from the trained model's.")
@@ -690,25 +791,19 @@ class Trainer:
 
         # -- metrics ---------------------------------------------------------
         if task == "classification":
-            metrics = {
-                "accuracy": accuracy_score(y_test, expected),
-                "f1": f1_score(y_test, expected, average="macro"),
-            }
             classes = list(pipeline.classes_)
-            if len(classes) == 2 and len(np.unique(y_test)) == 2:
-                proba = pipeline.predict_proba(X_test)[:, 1]
-                metrics["roc_auc"] = roc_auc_score(np.asarray(y_test) == classes[1], proba)
-            metrics["score"] = metrics["accuracy"]
+            proba = pipeline.predict_proba(X_test) if len(classes) == 2 else None
+            meta["metrics"] = insights.metrics(task, y_test, expected, proba, classes)
         else:
-            metrics = {
-                "rmse": math.sqrt(mean_squared_error(y_test, expected)),
-                "mae": mean_absolute_error(y_test, expected),
-                "r2": r2_score(y_test, expected) if len(y_test) >= 2 else math.nan,
-            }
-            metrics["score"] = metrics["r2"]
-        meta["metrics"] = _finite(metrics)
+            meta["metrics"] = insights.metrics(task, y_test, expected, None, [])
         meta["rows"] = {"train": int(len(X_train)), "test": int(len(X_test))}
         meta["created_at"] = utc_now()
+        meta["baseline"] = insights.baseline(task, X_train, y_train, X_test, y_test)
+        meta["importance"] = insights.importance(pipeline, X_test, y_test, task, req.seed)
+        if chosen is not None:
+            meta["preset"] = req.preset
+            meta["leaderboard"] = chosen.leaderboard
+        meta["warnings"] = data_warnings
 
         return self._models.save(vhost, name, model_bytes, meta)
 

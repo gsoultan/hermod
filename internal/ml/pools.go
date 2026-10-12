@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -121,12 +122,40 @@ func checkDevice(spec worker.TrainSpec) error {
 	}
 }
 
+// The presets an auto training takes: how many candidates it compares and how
+// long it may spend choosing. The worker defaults to balanced.
+var presets = []string{"quick", "balanced", "best"}
+
+// checkPreset reports an unknown preset, or one given with an algorithm other
+// than auto: only auto chooses, so only auto takes a preset.
+func checkPreset(spec worker.TrainSpec) error {
+	if spec.Preset == "" {
+		return nil
+	}
+	if !slices.Contains(presets, spec.Preset) {
+		return fmt.Errorf("%w: preset is %s, not %q", ErrBadTraining, strings.Join(presets, ", "), spec.Preset)
+	}
+	if spec.Algorithm != "" && spec.Algorithm != "auto" {
+		return fmt.Errorf("%w: a preset applies only when the algorithm is auto, not %q", ErrBadTraining, spec.Algorithm)
+	}
+	return nil
+}
+
+// checkSpec reports what is wrong with a spec in itself, before any worker
+// is asked.
+func checkSpec(spec worker.TrainSpec) error {
+	if err := checkDevice(spec); err != nil {
+		return err
+	}
+	return checkPreset(spec)
+}
+
 // trainVersion trains one version where the spec says it should run: a
 // custom script on the custom pool, a gpu training on the GPU pool, anything
 // else on the main worker. A version trained on a pool is moved to the main
 // worker, which serves it; the version returned is the main worker's.
 func (s *Service) trainVersion(ctx context.Context, main *worker.Client, vhost, name string, spec worker.TrainSpec) (worker.Version, error) {
-	if err := checkDevice(spec); err != nil {
+	if err := checkSpec(spec); err != nil {
 		return worker.Version{}, err
 	}
 	custom := strings.HasPrefix(spec.Algorithm, CustomPrefix)

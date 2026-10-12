@@ -3,7 +3,7 @@ import { Alert, Badge, Button, Checkbox, Code, Group, Modal, Radio, Stack, Table
 import { IconAlertCircle, IconPlayerPlay } from '@tabler/icons-react'
 import { useMutation } from '@tanstack/react-query'
 import { isRecommender, predict, recommend, type MLModel, type RecommendCall, type RecommendedItem } from '@/lib/mlModels'
-import { formatMetric } from './TrainModal'
+import { formatMetric } from './metrics'
 
 /** A starting row: the model's declared features, each set to 0. */
 function sampleRow(model: MLModel): string {
@@ -14,17 +14,30 @@ function sampleRow(model: MLModel): string {
 /** How many items the test asks a recommender for. */
 const TEST_K = 10
 
-/** Sends one row to the model, or asks a recommender, and shows what it answered. */
-export function ModelTestModal({ vhost, model, onClose }: { vhost: string; model: MLModel; onClose: () => void }) {
+/**
+ * Sends one row to the model, or asks a recommender, and shows what it
+ * answered. `initialRow`, such as a row of the dataset it was trained on,
+ * replaces the row of zeros to start from; a recommender ignores it.
+ */
+export function ModelTestModal({
+  vhost, model, initialRow, onClose,
+}: {
+  vhost: string
+  model: MLModel
+  initialRow?: Record<string, unknown>
+  onClose: () => void
+}) {
   return (
     <Modal opened onClose={onClose} title={`Test ${model.name}`} centered size="lg">
-      {isRecommender(model) ? <RecommenderTest vhost={vhost} model={model} /> : <RowTest vhost={vhost} model={model} />}
+      {isRecommender(model)
+        ? <RecommenderTest vhost={vhost} model={model} />
+        : <RowTest vhost={vhost} model={model} initialRow={initialRow} />}
     </Modal>
   )
 }
 
-function RowTest({ vhost, model }: { vhost: string; model: MLModel }) {
-  const [row, setRow] = useState(() => sampleRow(model))
+function RowTest({ vhost, model, initialRow }: { vhost: string; model: MLModel; initialRow?: Record<string, unknown> }) {
+  const [row, setRow] = useState(() => (initialRow ? JSON.stringify(initialRow, null, 2) : sampleRow(model)))
   const [parseError, setParseError] = useState<string | null>(null)
   const run = useMutation({ mutationFn: (instance: Record<string, unknown>) => predict(vhost, model.name, [instance]) })
 

@@ -196,6 +196,23 @@ func (s *Service) train(ctx context.Context, vhost, name string, spec worker.Tra
 	return TrainResult{Model: m, Version: v, Live: live, Reason: reason}, nil
 }
 
+// TrainCheck is the pre-flight check of a training: what the worker makes of
+// the dataset (the task, the target, each column's role, warnings), with
+// nothing trained. A spec a training would refuse in itself is refused here
+// the same way. The check runs on the main worker whatever the spec's device
+// or algorithm, since it holds the datasets and only measures them; it takes
+// neither the model's claim nor a training slot.
+func (s *Service) TrainCheck(ctx context.Context, vhost string, spec worker.TrainSpec) (worker.TrainCheck, error) {
+	if err := checkSpec(spec); err != nil {
+		return worker.TrainCheck{}, err
+	}
+	w, err := s.Worker()
+	if err != nil {
+		return worker.TrainCheck{}, err
+	}
+	return w.TrainCheck(ctx, vhost, spec)
+}
+
 // Versions lists a trained model's versions, newest first.
 func (s *Service) Versions(ctx context.Context, vhost, name string) ([]worker.Version, error) {
 	m, err := s.Model(ctx, vhost, name)

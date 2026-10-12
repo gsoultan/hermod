@@ -37,9 +37,12 @@ type modelTrainer interface {
 //   - features: the columns to learn from, as a JSON list or comma-separated;
 //     empty means every column but the target.
 //   - task: auto, classification or regression. algorithm: auto,
-//     random_forest, gradient_boosting, linear, xgboost, pytorch_mlp or
-//     keras_mlp (the last two need the worker's "-dl" image), or custom:NAME
-//     for one of the vhost's custom training scripts.
+//     random_forest, gradient_boosting, linear, xgboost, extra_trees,
+//     hist_gradient_boosting, pytorch_mlp or keras_mlp (the last two need the
+//     worker's "-dl" image), or custom:NAME for one of the vhost's custom
+//     training scripts.
+//   - preset: quick, balanced (the default) or best: how hard auto tries.
+//     It is ignored for any other algorithm.
 //   - hiddenLayers ("64, 32"), epochs, batchSize, learningRate, patience:
 //     optional hyperparameters for pytorch_mlp and keras_mlp; unset ones use
 //     the worker's defaults.
@@ -101,6 +104,11 @@ func trainRequest(config map[string]any) (map[string]any, error) {
 	}
 	if device := core.GetConfigString(config, "device"); device != "" {
 		req["device"] = device
+	}
+	// Only auto chooses, so only auto takes a preset; one left over from
+	// before an algorithm was picked is dropped rather than refused.
+	if preset := core.GetConfigString(config, "preset"); preset != "" && req["algorithm"] == "auto" {
+		req["preset"] = preset
 	}
 	features, err := parseFeatures(config["features"])
 	if err != nil {

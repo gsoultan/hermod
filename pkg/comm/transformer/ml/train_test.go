@@ -101,6 +101,39 @@ func TestTrainDefaultsAndCommaFeatures(t *testing.T) {
 	}
 }
 
+func TestTrainSendsThePresetForAuto(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cfg  map[string]any
+		want any // nil: no preset sent
+	}{
+		{"auto by default", map[string]any{"preset": "best"}, "best"},
+		{"auto by name", map[string]any{"algorithm": "auto", "preset": "quick"}, "quick"},
+		{"no preset", map[string]any{"algorithm": "auto"}, nil},
+		// A preset left over from before the algorithm was picked does not
+		// apply, and is not sent for the worker to refuse.
+		{"an explicit algorithm", map[string]any{"algorithm": "extra_trees", "preset": "best"}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reg := &fakeTrainer{reply: map[string]any{"version": "1"}}
+			cfg := map[string]any{"model": "m", "dataset": "d", "target": "y"}
+			for k, v := range tc.cfg {
+				cfg[k] = v
+			}
+			if _, err := runTrain(t, reg, "", cfg); err != nil {
+				t.Fatal(err)
+			}
+			got, ok := reg.req["preset"]
+			if tc.want == nil && ok {
+				t.Errorf("preset %v sent", got)
+			}
+			if tc.want != nil && got != tc.want {
+				t.Errorf("preset = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestTrainSendsDeepLearningParams(t *testing.T) {
 	cases := []struct {
 		name string

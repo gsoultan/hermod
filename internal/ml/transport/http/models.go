@@ -66,6 +66,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/vhosts/{vhost}/ml/datasets/{name}/query", h.EditorOnly(h.DatasetFromQuery))
 	mux.Handle("DELETE /api/vhosts/{vhost}/ml/datasets/{name}", h.EditorOnly(h.DeleteDataset))
 	mux.Handle("POST /api/vhosts/{vhost}/ml/models/{name}/train", h.EditorOnly(h.TrainModel))
+	mux.Handle("POST /api/vhosts/{vhost}/ml/train-check", h.EditorOnly(h.TrainCheck))
 	mux.HandleFunc("GET /api/vhosts/{vhost}/ml/models/{name}/versions", h.ListVersions)
 	mux.Handle("POST /api/vhosts/{vhost}/ml/models/{name}/versions/{version}/promote", h.EditorOnly(h.PromoteVersion))
 	mux.Handle("PUT /api/vhosts/{vhost}/ml/models/{name}/retrain", h.EditorOnly(h.PutRetrain))

@@ -202,6 +202,34 @@ func (h *Handler) TrainModel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, res)
 }
 
+// TrainCheck is the pre-flight check before a training: it takes the train
+// body, trains nothing, and says what the worker makes of the dataset. The
+// model name, go_live and params are ignored. Like training, it reads rows,
+// so it needs the Editor role.
+func (h *Handler) TrainCheck(w http.ResponseWriter, r *http.Request) {
+	vhost, _, ok := h.access(w, r, true)
+	if !ok {
+		return
+	}
+	var req trainBody
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxModelBody)).Decode(&req); err != nil {
+		h.JsonError(w, "the request body must be a JSON training spec", http.StatusBadRequest)
+		return
+	}
+	if req.Dataset == "" || req.Target == "" {
+		h.JsonError(w, "name the dataset to train on and the target column to predict", http.StatusBadRequest)
+		return
+	}
+	spec := req.TrainSpec
+	spec.Params = nil
+	res, err := h.service().TrainCheck(r.Context(), vhost, spec)
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	writeJSON(w, res)
+}
+
 func (h *Handler) ListVersions(w http.ResponseWriter, r *http.Request) {
 	vhost, _, ok := h.access(w, r, false)
 	if !ok {

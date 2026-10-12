@@ -105,17 +105,27 @@ Filling a dataset again replaces its rows.
 
 **Train a model** asks for a dataset, the column to predict, and optionally the
 columns to learn from (empty means all the others). The task (classify, or
-predict a number) is chosen from the target unless you pick it; the algorithm
-is random forest unless you pick another:
+predict a number) is chosen from the target unless you pick it. The algorithm
+is `auto` unless you pick one: Auto tries several and keeps the best (see
+**Auto and presets** below).
 
 | Algorithm | Library | Notes |
 |---|---|---|
-| `random_forest` (auto) | scikit-learn | 100 trees. |
+| `auto` | | Tries several of the algorithms below on the training rows and keeps the best. |
+| `random_forest` | scikit-learn | 100 trees. |
+| `extra_trees` | scikit-learn | 100 extremely randomised trees: like a random forest, with random split points; often as good and faster. |
+| `hist_gradient_boosting` | scikit-learn | Histogram gradient boosting: fast on large tables. At most 20 rows per leaf, fewer on a table under 200 rows. |
 | `gradient_boosting` | scikit-learn | |
 | `linear` | scikit-learn | Logistic regression to classify, least squares for numbers; numbers are standardised. |
 | `xgboost` | XGBoost | 200 trees, depth 6, `hist`. |
 | `pytorch_mlp` | PyTorch | Multilayer perceptron; `-dl` image only. |
 | `keras_mlp` | TensorFlow/Keras | The same network in Keras; `-dl` image only. |
+
+Every built-in algorithm exports to ONNX, and the worker refuses a version
+whose exported graph does not give the trained model's labels and
+probabilities (or values) on the held-out rows. `extra_trees` and
+`hist_gradient_boosting` export as tree ensembles, so in-process scoring serves
+them too.
 
 Every algorithm reads the same inputs: numbers as they are (missing ones get
 the training median), text one-hot encoded, and for `linear` and the two
@@ -144,13 +154,107 @@ target's units.
 
 A fifth of the rows are held back to score the model:
 
-- classification: `accuracy`, `f1` (macro), `roc_auc` (two classes); `score` is accuracy
+- classification: `accuracy`, `balanced_accuracy` (the mean of each class's
+  recall), `f1` (macro), `roc_auc` (two classes); `score` is accuracy
 - numbers: `rmse`, `mae`, `r2`; `score` is R²
+
+**Auto and presets.** With `algorithm: "auto"`, the worker scores candidate
+algorithms by cross-validation on the training rows only, and trains the best
+on all of them. The held-out rows are never used to choose, so the version's
+metrics are not flattered by the choice. `preset` (auto only; any other
+algorithm with a preset is a 400) says how hard it tries:
+
+| Preset | Candidates | Scored on | Time budget |
+|---|---|---|---|
+| `quick` | `hist_gradient_boosting`, `linear` | One validation split (a quarter of the training rows) | 30 s |
+| `balanced` (default) | `hist_gradient_boosting`, `random_forest`, `linear`, `xgboost` (`extra_trees` when XGBoost is missing) | 3-fold cross-validation | 120 s |
+| `best` | All of the above and `extra_trees`, plus the MLP (`pytorch_mlp`, else `keras_mlp`) in the `-dl` image | 5-fold cross-validation, and two alternative settings per algorithm | 600 s |
+
+Once the budget runs out, no further candidate or fold starts; the first
+candidate is always scored, and the version's warnings name what was skipped.
+A candidate that fails on the data is skipped with a warning, not the whole
+training. A classifier is judged by balanced accuracy and a regression by R².
+
+**Lopsided targets.** When the rarest class of a classification target has at
+most a quarter as many rows as the most common one, every algorithm is
+trained with balanced class weights (per-row weights for `xgboost` and
+`gradient_boosting`), so the rare classes count. With balanced accuracy as
+Auto's yardstick, a model that only ever predicts the common class scores 0.5
+and cannot win.
+
+**What a version records.** Besides `metrics`, every built-in training stores:
+
+| Field | What |
+|---|---|
+| `baseline` | The same metric keys, scored by a model that always answers the most common class (classification) or the mean (regression). A model is only useful by its margin over this. |
+| `importance` | `[{feature, weight}]`: permutation importance on the held-out rows (each feature shuffled five times; the drop in balanced accuracy or R² is its weight). Negative weights count as 0, weights are normalised to sum to 1, and the top 20 are kept, heaviest first. |
+| `warnings` | Notes on the data in plain words: few rows, a lopsided target, ID-like, constant, mostly empty or suspected leaking columns, and anything Auto skipped. |
+| `preset`, `leaderboard` | Auto only: the preset, and `[{algorithm, score, metric, folds, seconds, chosen}]` for every candidate scored, best first. |
+
+**Pre-flight check.** `POST /api/vhosts/{vhost}/ml/train-check` (Editor) takes
+the same body as a training (`name`, `go_live` and `params` are ignored),
+trains nothing, and answers in a moment: the detected `task`, the target in
+words (`target_kind`: `yes_no`, `category` or `number`, with `classes` for a
+classification), `rows` and `usable_rows` (rows with a target), a `role` per
+column with a `note`, `warnings` (`code`, `message`, `column`), and `ok`, which
+is false only when a training would be refused (fewer than 10 usable rows, or
+a target with one value). Column roles:
+
+| Role | Meaning |
+|---|---|
+| `target` | The column to predict. |
+| `mostly_empty` | More than 60% of its values are missing. |
+| `constant` | At most one distinct value. |
+| `id_like` | A text or whole-number column with a distinct value on at least 95% of the rows. |
+| `leak_suspect` | It gives the answer away: for a classification, a one-column decision tree (or, for text, each value's most common class) fitted on half of a sample of at most 5,000 rows predicts the other half with a balanced accuracy of at least 0.98; for a regression, an absolute correlation of at least 0.98 with the target. Checked only with 20 or more rows. |
+| `use` | None of the above. |
+
+Warning codes: `few_rows` (under 100 usable rows, or under the minimum),
+`imbalanced`, `many_classes` (more than 20 classes), and the column roles
+above. The worker runs the check at `POST /v1/train-check/{vhost}`; Hermod
+always asks the main worker, which holds the datasets, whatever the spec's
+device or algorithm, and maps its errors as for a training.
 
 Every training makes a new, immutable version. Whether it goes live is your
 rule: **only when I put it live**, **always**, or **if it scores at least** a
 minimum on a metric. A version that is not put live is kept; **Versions** on
 the model lists them all and puts any one live, which is also how you roll back.
+
+### Guided training
+
+**Train a model** walks through five steps, in plain words, so no machine
+learning knowledge is needed:
+
+1. **Your data.** Name the model, pick a dataset, and check its first rows.
+2. **What to predict.** Pick the column. Hermod runs a pre-flight check
+   (`POST /api/vhosts/{vhost}/ml/train-check`, the train body, nothing trained)
+   and says what the column is: a yes/no question, a category, or a number.
+   Columns that would spoil the model are unticked for you: ID-like columns,
+   constant ones, mostly empty ones, and any that give the answer away. Each
+   warning has a one-click fix, such as putting a column back or choosing
+   another dataset. When the check says training would be refused, the dialog
+   stops here and says why.
+3. **How careful.** **Quick** (about a minute), **Balanced** (recommended, a
+   few minutes) or **Best quality** (10 minutes or more) is sent as `preset`
+   and sets how much Auto tries. **Advanced** holds the task, algorithm, device
+   and neural-network settings; picking an algorithm there trains only that
+   one, and no preset is sent.
+4. **Train.** One button; leave the window open while it runs.
+5. **Result.** A headline such as "Right 87 of 100 times on rows it never
+   saw" (classification, from `accuracy`) or "Typically off by 12.4" (numbers,
+   from `mae`). A **good / fair / weak** badge says how much of the gap between
+   the version's `baseline` (a model that always guesses the most common answer
+   or the average) and a perfect score it closes: at least half is good, at
+   least a fifth fair. Then **What mattered most** (`importance`), **What Auto
+   tried** (`leaderboard`) and the next steps: **Try it** with a row of the
+   dataset, **Make it live**, **Copy API call**, or use it from a Predict node.
+   The raw metrics are under **Details**.
+
+Training a model again opens on step 2 with the last version's dataset, target
+and columns. Every one of these fields is optional: against a server without
+the check or the new result fields, the dialog learns from every other column
+and shows the headline and metrics as before. The Train Model node has the same
+quality picker, saved as `preset`, with the expert fields under **Advanced**.
 
 ### Train Model node
 
@@ -159,7 +263,9 @@ that reaches it trains a new version, and the message carries the result under
 `training` (version, metrics, `live`, and why). Optionally it first refills the
 dataset from a database source with a query, so a weekly cron workflow keeps
 the model fresh. Put it in a workflow that runs on a schedule or on demand,
-not one that sees every change to a table.
+not one that sees every change to a table. Its `preset` setting (`quick`,
+`balanced` or `best`) applies when the algorithm is auto, and is ignored for
+any other.
 
 A trained model is called like any other: the Predict node sends a record's
 fields, one per feature, and gets back `label` and `probability` for a
@@ -223,8 +329,9 @@ the worker. **Scoring** on the Models page can set a trained model to
 worker once and scores it itself, in pure Go (`pkg/ml/onnxscore`), with no
 round trip.
 
-It covers what the worker trains — linear, random forest, gradient boosting
-and XGBoost models, for classification and regression. The graph may use only
+It covers what the worker trains — linear, random forest, extra trees,
+gradient boosting, histogram gradient boosting and XGBoost models, for
+classification and regression. The graph may use only
 these operators:
 
 | Domain | Operators |
