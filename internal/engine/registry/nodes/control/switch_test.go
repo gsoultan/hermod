@@ -146,3 +146,91 @@ func TestSwitch_Execute_CasesSavedAsArray(t *testing.T) {
 		})
 	}
 }
+
+// The editor stores a case value picked from the record's fields as a
+// {{path}} reference. The case compares the switch field against that
+// field's value in the same message, not against the literal text.
+func TestSwitch_Execute_ValueFromField(t *testing.T) {
+	cases := []map[string]any{
+		{"label": "over_limit", "operator": ">", "value": "{{limit}}"},
+		{"label": "same_region", "operator": "=", "value": "{{customer.region}}"},
+	}
+	casesJSON, _ := json.Marshal(cases)
+	node := &storage.WorkflowNode{
+		Config: map[string]any{
+			"field": "amount",
+			"cases": string(casesJSON),
+		},
+	}
+
+	tests := []struct {
+		name   string
+		amount any
+		limit  any
+		region any
+		want   string
+	}{
+		{name: "amount above the record's limit", amount: 150, limit: 100, region: "eu", want: "over_limit"},
+		{name: "amount equals another field", amount: "eu", limit: "zz", region: "eu", want: "same_region"},
+		{name: "no case matches", amount: 50, limit: 100, region: "eu", want: "default"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := msgpkg.AcquireMessage()
+			defer msgpkg.ReleaseMessage(m)
+			m.SetData("amount", tt.amount)
+			m.SetData("limit", tt.limit)
+			m.SetData("customer", map[string]any{"region": tt.region})
+
+			_, branch, err := (&SwitchNode{}).Execute(context.Background(), &switchStubCtx{}, "wf1", node, m)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if branch != tt.want {
+				t.Errorf("branch = %q, want %q", branch, tt.want)
+			}
+		})
+	}
+}
+
+// The editor's function picker wraps either side in a one-argument call:
+// lower(source.status) as the switch field, and {{lower(source.x)}} or
+// {{upper("eu")}} as a case value.
+func TestSwitch_Execute_FunctionOnBothSides(t *testing.T) {
+	cases := []map[string]any{
+		{"label": "from_field", "operator": "=", "value": "{{lower(source.expected)}}"},
+		{"label": "from_text", "operator": "=", "value": "{{lower(\"PAUSED\")}}"},
+	}
+	casesJSON, _ := json.Marshal(cases)
+	node := &storage.WorkflowNode{
+		Config: map[string]any{
+			"field": "lower(source.status)",
+			"cases": string(casesJSON),
+		},
+	}
+
+	tests := []struct {
+		status string
+		want   string
+	}{
+		{status: "ACTIVE", want: "from_field"},
+		{status: "Paused", want: "from_text"},
+		{status: "closed", want: "default"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.status, func(t *testing.T) {
+			m := msgpkg.AcquireMessage()
+			defer msgpkg.ReleaseMessage(m)
+			m.SetData("status", tt.status)
+			m.SetData("expected", "Active")
+
+			_, branch, err := (&SwitchNode{}).Execute(context.Background(), &switchStubCtx{}, "wf1", node, m)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if branch != tt.want {
+				t.Errorf("branch = %q, want %q", branch, tt.want)
+			}
+		})
+	}
+}
