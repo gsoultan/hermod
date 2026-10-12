@@ -1,37 +1,44 @@
 package builtin
 
 import (
+	"bytes"
+	"compress/gzip"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
+	"io"
 	"math"
 	"os"
 	"path"
 	"regexp"
 	"slices"
 	"strconv"
-	"sync"
+	"strings"
 	"time"
 
 	"github.com/gsoultan/hermod/pkg/ml/builtin/table"
 	"github.com/gsoultan/hermod/pkg/ml/worker"
 )
 
-// The on-disk layout, beside the worker's own:
+// The engine's blobs (Blobs), per vhost:
 //
-//	DIR/datasets/{vhost}/{name}/index.json         the parts and their columns
-//	                             part-000001.json  one table per append
-//	DIR/models/{vhost}/{name}/{version}/meta.json  the version (worker.Version)
-//	                                    model.json.gz  a column model (learn)
-//	                                    model.rec      a recommender (pkg/ml/recommend)
+//	dataset-heads/{name}/head          {"gen": G}: the dataset's current generation
+//	datasets/{name}/{G}/data/{part}    a part's values, gzipped JSON (partFile)
+//	datasets/{name}/{G}/info/{part}    the part's rows and column kinds (partInfo)
+//	models/{name}/{version}/meta       a version and where its artifact is (versionMeta)
+//	artifacts/{name}/{id}/artifact     a version's model.json.gz or model.rec
+//	counters/{name}                    the highest version number the model was given
 //
-// Each store reaches its files through an os.Root, so no name can lead
-// outside its directory, and names are checked besides. Every write goes to
-// a temporary name in the same directory first and is renamed into place,
-// so a crash never leaves half a part, index or version.
+// Nothing here relies on a lock or a transaction, so several Hermod servers
+// can share one store. A part is written once under a fresh id, its data
+// before its info, so whoever lists a part can read it. Replacing a dataset
+// writes a new generation and then points the head at it. A version number is
+// claimed with Create, so two servers training one model at once get two
+// numbers; the counter keeps a deleted model's numbers from being given
+// again, so a version id always means one model.
 
 var validName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
 
@@ -46,6 +53,11 @@ func tempName(prefix string) string {
 	b := make([]byte, 8)
 	_, _ = rand.Read(b)
 	return prefix + hex.EncodeToString(b)
+}
+
+// newID is a fresh id that sorts by when it was made, then at random.
+func newID() string {
+	return fmt.Sprintf("%020d", time.Now().UnixNano()) + tempName("-")
 }
 
 // writeFileAtomic writes data to name through a temporary file beside it.
@@ -77,23 +89,41 @@ func removeDir(root *os.Root, dir string) error {
 	return root.RemoveAll(trash)
 }
 
-// -- datasets ----------------------------------------------------------------
-
-// datasetStore keeps datasets as parts, one per append. One lock keeps
-// appends, replaces and deletes from interleaving; reads take it too, so they
-// never see a dataset halfway through a swap.
-type datasetStore struct {
-	root *os.Root
-	mu   sync.RWMutex
+func gzipped(raw []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write(raw); err != nil {
+		return nil, err
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
-// datasetIndex lists a dataset's parts, so a listing reads one small file.
-type datasetIndex struct {
-	Parts []partInfo `json:"parts"`
+func gunzipped(raw []byte) ([]byte, error) {
+	zr, err := gzip.NewReader(bytes.NewReader(raw))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = zr.Close() }()
+	return io.ReadAll(zr)
+}
+
+// -- datasets ----------------------------------------------------------------
+
+// datasetStore keeps datasets as parts, one per append.
+type datasetStore struct {
+	blobs Blobs
+}
+
+// datasetHead points at the dataset's current generation of parts.
+type datasetHead struct {
+	Gen string `json:"gen"`
 }
 
 type partInfo struct {
-	File    string         `json:"file"`
+	ID      string         `json:"id"`
 	Rows    int            `json:"rows"`
 	Columns []partColumnKV `json:"columns"`
 }
@@ -118,31 +148,51 @@ type partValues struct {
 	Values []any  `json:"values"`
 }
 
-// dir is a dataset's directory in the store's root.
-func (s *datasetStore) dir(vhost, name string) (string, error) {
+func checkDatasetName(vhost, name string) error {
 	if err := checkName("vhost", vhost); err != nil {
-		return "", err
+		return err
 	}
-	if err := checkName("dataset", name); err != nil {
-		return "", err
-	}
-	return path.Join(vhost, name), nil
+	return checkName("dataset", name)
 }
+
+func headKey(name string) string { return "dataset-heads/" + name + "/head" }
+
+func genPrefix(name, gen string) string { return "datasets/" + name + "/" + gen + "/" }
 
 func notFoundDataset(vhost, name string) error {
 	return notFound("Dataset %q does not exist in vhost %q.", name, vhost)
 }
 
-func (s *datasetStore) readIndex(dir string) (datasetIndex, error) {
-	var idx datasetIndex
-	raw, err := s.root.ReadFile(path.Join(dir, "index.json"))
-	if errors.Is(err, fs.ErrNotExist) {
-		return idx, nil
+// head is the dataset's generation, "" when there is no such dataset.
+func (s *datasetStore) head(ctx context.Context, vhost, name string) (string, error) {
+	raw, err := s.blobs.Get(ctx, vhost, headKey(name))
+	if errors.Is(err, ErrBlobNotFound) {
+		return "", nil
 	}
 	if err != nil {
-		return idx, err
+		return "", err
 	}
-	return idx, json.Unmarshal(raw, &idx)
+	var h datasetHead
+	if err := json.Unmarshal(raw, &h); err != nil {
+		return "", fmt.Errorf("dataset %q has an unreadable head: %w", name, err)
+	}
+	if h.Gen == "" {
+		return "", fmt.Errorf("dataset %q has an empty head", name)
+	}
+	return h.Gen, nil
+}
+
+// ensureHead is the dataset's generation, made if the dataset is new. Two
+// servers making it at once agree on the one that was created first.
+func (s *datasetStore) ensureHead(ctx context.Context, vhost, name string) (string, error) {
+	if gen, err := s.head(ctx, vhost, name); err != nil || gen != "" {
+		return gen, err
+	}
+	raw, _ := json.Marshal(datasetHead{Gen: newID()})
+	if err := s.blobs.Create(ctx, vhost, headKey(name), raw); err != nil && !errors.Is(err, ErrBlobExists) {
+		return "", err
+	}
+	return s.head(ctx, vhost, name)
 }
 
 func encodePart(t *table.Table) (partFile, partInfo) {
@@ -165,121 +215,132 @@ func encodePart(t *table.Table) (partFile, partInfo) {
 	return pf, info
 }
 
-// writePart writes a table as the next part of the dataset in dir and
-// returns the index that lists it.
-func (s *datasetStore) writePart(dir string, idx datasetIndex, t *table.Table) (datasetIndex, error) {
+// writePart writes t as a new part of generation gen: its data, then its
+// info, which is what lists it.
+func (s *datasetStore) writePart(ctx context.Context, vhost, name, gen string, t *table.Table) error {
 	pf, info := encodePart(t)
+	info.ID = newID()
 	raw, err := json.Marshal(pf)
-	if err != nil {
-		return idx, err
-	}
-	info.File = fmt.Sprintf("part-%06d.json", len(idx.Parts)+1)
-	if err := writeFileAtomic(s.root, path.Join(dir, info.File), raw); err != nil {
-		return idx, err
-	}
-	idx.Parts = append(idx.Parts, info)
-	return idx, nil
-}
-
-func (s *datasetStore) writeIndex(dir string, idx datasetIndex) error {
-	raw, err := json.Marshal(idx)
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(s.root, path.Join(dir, "index.json"), raw)
+	if raw, err = gzipped(raw); err != nil {
+		return err
+	}
+	if err := s.blobs.Put(ctx, vhost, genPrefix(name, gen)+"data/"+info.ID, raw); err != nil {
+		return err
+	}
+	meta, err := json.Marshal(info)
+	if err != nil {
+		return err
+	}
+	return s.blobs.Put(ctx, vhost, genPrefix(name, gen)+"info/"+info.ID, meta)
 }
 
 // append adds t as a new part, or replaces the dataset with it, and returns
 // how many rows the dataset holds now.
-func (s *datasetStore) append(vhost, name string, t *table.Table, replace bool) (int, error) {
-	dir, err := s.dir(vhost, name)
-	if err != nil {
+func (s *datasetStore) append(ctx context.Context, vhost, name string, t *table.Table, replace bool) (int, error) {
+	if err := checkDatasetName(vhost, name); err != nil {
 		return 0, err
 	}
 	if replace {
-		return t.Rows, s.replace(vhost, name, t)
+		return t.Rows, s.replace(ctx, vhost, name, t)
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.root.MkdirAll(dir, 0o700); err != nil {
-		return 0, err
-	}
-	idx, err := s.readIndex(dir)
+	gen, err := s.ensureHead(ctx, vhost, name)
 	if err != nil {
 		return 0, err
 	}
 	if t.Rows > 0 {
-		if idx, err = s.writePart(dir, idx, t); err != nil {
+		if err := s.writePart(ctx, vhost, name, gen, t); err != nil {
 			return 0, err
 		}
 	}
-	if err := s.writeIndex(dir, idx); err != nil {
+	parts, _, err := s.parts(ctx, vhost, name, gen)
+	if err != nil {
 		return 0, err
 	}
-	return idx.rows(), nil
+	return rowsOf(parts), nil
 }
 
-func (idx datasetIndex) rows() int {
+func rowsOf(parts []partInfo) int {
 	n := 0
-	for _, p := range idx.Parts {
+	for _, p := range parts {
 		n += p.Rows
 	}
 	return n
 }
 
-// replace swaps the dataset for one holding only t. The new dataset is
-// staged in a sibling directory and renamed into place.
-func (s *datasetStore) replace(vhost, name string, t *table.Table) error {
-	dir, err := s.dir(vhost, name)
+// replace swaps the dataset for one holding only t: a new generation, then
+// the head moved to it, then the old one removed.
+func (s *datasetStore) replace(ctx context.Context, vhost, name string, t *table.Table) error {
+	if err := checkDatasetName(vhost, name); err != nil {
+		return err
+	}
+	old, err := s.head(ctx, vhost, name)
 	if err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.root.MkdirAll(vhost, 0o700); err != nil {
-		return err
-	}
-	staging := path.Join(vhost, tempName(".staging-"))
-	if err := s.root.Mkdir(staging, 0o700); err != nil {
-		return err
-	}
-	defer func() { _ = s.root.RemoveAll(staging) }()
-	idx := datasetIndex{}
+	gen := newID()
 	if t.Rows > 0 || len(t.Columns) > 0 {
-		if idx, err = s.writePart(staging, idx, t); err != nil {
+		if err := s.writePart(ctx, vhost, name, gen, t); err != nil {
 			return err
 		}
 	}
-	if err := s.writeIndex(staging, idx); err != nil {
+	raw, _ := json.Marshal(datasetHead{Gen: gen})
+	if err := s.blobs.Put(ctx, vhost, headKey(name), raw); err != nil {
 		return err
 	}
-	if exists(s.root, dir) {
-		if err := removeDir(s.root, dir); err != nil {
-			return err
-		}
+	if old != "" {
+		_, _ = s.blobs.Delete(ctx, vhost, genPrefix(name, old))
 	}
-	return s.root.Rename(staging, dir)
+	return nil
 }
 
-func (s *datasetStore) delete(vhost, name string) error {
-	dir, err := s.dir(vhost, name)
+func (s *datasetStore) delete(ctx context.Context, vhost, name string) error {
+	if err := checkDatasetName(vhost, name); err != nil {
+		return err
+	}
+	n, err := s.blobs.Delete(ctx, vhost, "dataset-heads/"+name+"/")
 	if err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !exists(s.root, dir) {
+	if _, err := s.blobs.Delete(ctx, vhost, "datasets/"+name+"/"); err != nil {
+		return err
+	}
+	if n == 0 {
 		return notFoundDataset(vhost, name)
 	}
-	return removeDir(s.root, dir)
+	return nil
 }
 
-// schema is the dataset's columns: in first-seen order, each the kind every
+// parts are the infos of generation gen, oldest first, and when the latest
+// was written.
+func (s *datasetStore) parts(ctx context.Context, vhost, name, gen string) ([]partInfo, time.Time, error) {
+	list, err := s.blobs.List(ctx, vhost, genPrefix(name, gen)+"info/", true)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	out := make([]partInfo, 0, len(list))
+	var latest time.Time
+	for _, b := range list {
+		var p partInfo
+		if err := json.Unmarshal(b.Data, &p); err != nil {
+			return nil, time.Time{}, fmt.Errorf("dataset %q part %s is unreadable: %w", name, b.Key, err)
+		}
+		out = append(out, p)
+		if b.UpdatedAt.After(latest) {
+			latest = b.UpdatedAt
+		}
+	}
+	return out, latest, nil
+}
+
+// schemaOf is the dataset's columns: in first-seen order, each the kind every
 // part holding a value in it agrees on, else string.
-func (idx datasetIndex) schema() []worker.Column {
+func schemaOf(parts []partInfo) []worker.Column {
 	var order []string
 	votes := map[string]map[string]bool{}
-	for _, p := range idx.Parts {
+	for _, p := range parts {
 		for _, c := range p.Columns {
 			if _, ok := votes[c.Name]; !ok {
 				votes[c.Name] = map[string]bool{}
@@ -307,52 +368,48 @@ func (idx datasetIndex) schema() []worker.Column {
 	return out
 }
 
-func (s *datasetStore) infoLocked(dir, name string) (worker.DatasetInfo, error) {
-	idx, err := s.readIndex(dir)
+func (s *datasetStore) info(ctx context.Context, vhost, name string) (worker.DatasetInfo, error) {
+	if err := checkDatasetName(vhost, name); err != nil {
+		return worker.DatasetInfo{}, err
+	}
+	gen, err := s.head(ctx, vhost, name)
 	if err != nil {
 		return worker.DatasetInfo{}, err
 	}
-	updated := time.Time{}
-	if st, err := s.root.Stat(path.Join(dir, "index.json")); err == nil {
-		updated = st.ModTime()
-	} else if st, err := s.root.Stat(dir); err == nil {
-		updated = st.ModTime()
-	}
-	return worker.DatasetInfo{Name: name, Rows: idx.rows(), Columns: idx.schema(), UpdatedAt: updated.UTC().Truncate(time.Second)}, nil
-}
-
-func (s *datasetStore) info(vhost, name string) (worker.DatasetInfo, error) {
-	dir, err := s.dir(vhost, name)
-	if err != nil {
-		return worker.DatasetInfo{}, err
-	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if !exists(s.root, dir) {
+	if gen == "" {
 		return worker.DatasetInfo{}, notFoundDataset(vhost, name)
 	}
-	return s.infoLocked(dir, name)
+	return s.infoOf(ctx, vhost, name, gen, time.Time{})
 }
 
-func (s *datasetStore) list(vhost string) ([]worker.DatasetInfo, error) {
+func (s *datasetStore) infoOf(ctx context.Context, vhost, name, gen string, since time.Time) (worker.DatasetInfo, error) {
+	parts, latest, err := s.parts(ctx, vhost, name, gen)
+	if err != nil {
+		return worker.DatasetInfo{}, err
+	}
+	if latest.Before(since) {
+		latest = since
+	}
+	return worker.DatasetInfo{Name: name, Rows: rowsOf(parts), Columns: schemaOf(parts),
+		UpdatedAt: latest.UTC().Truncate(time.Second), Engine: worker.EngineBuiltin}, nil
+}
+
+func (s *datasetStore) list(ctx context.Context, vhost string) ([]worker.DatasetInfo, error) {
 	if err := checkName("vhost", vhost); err != nil {
 		return nil, err
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	entries, err := fs.ReadDir(s.root.FS(), vhost)
-	if errors.Is(err, fs.ErrNotExist) {
-		return []worker.DatasetInfo{}, nil
-	}
+	heads, err := s.blobs.List(ctx, vhost, "dataset-heads/", true)
 	if err != nil {
 		return nil, err
 	}
 	out := []worker.DatasetInfo{}
-	for _, e := range entries {
-		if !e.IsDir() || !validName.MatchString(e.Name()) {
+	for _, b := range heads {
+		name := strings.TrimSuffix(strings.TrimPrefix(b.Key, "dataset-heads/"), "/head")
+		var h datasetHead
+		if !validName.MatchString(name) || json.Unmarshal(b.Data, &h) != nil || h.Gen == "" {
 			continue
 		}
-		info, err := s.infoLocked(path.Join(vhost, e.Name()), e.Name())
+		info, err := s.infoOf(ctx, vhost, name, h.Gen, b.UpdatedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -361,41 +418,51 @@ func (s *datasetStore) list(vhost string) ([]worker.DatasetInfo, error) {
 	return out, nil
 }
 
+// has reports whether the dataset exists.
+func (s *datasetStore) has(ctx context.Context, vhost, name string) (bool, error) {
+	if err := checkDatasetName(vhost, name); err != nil {
+		return false, err
+	}
+	gen, err := s.head(ctx, vhost, name)
+	return gen != "", err
+}
+
 // load reads the dataset into one table, at most limit rows (0 for all),
 // with the dataset's column kinds.
-func (s *datasetStore) load(vhost, name string, limit int) (*table.Table, error) {
-	dir, err := s.dir(vhost, name)
+func (s *datasetStore) load(ctx context.Context, vhost, name string, limit int) (*table.Table, error) {
+	if err := checkDatasetName(vhost, name); err != nil {
+		return nil, err
+	}
+	gen, err := s.head(ctx, vhost, name)
 	if err != nil {
 		return nil, err
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if !exists(s.root, dir) {
+	if gen == "" {
 		return nil, notFoundDataset(vhost, name)
 	}
-	idx, err := s.readIndex(dir)
+	parts, _, err := s.parts(ctx, vhost, name, gen)
 	if err != nil {
 		return nil, err
 	}
-	total := idx.rows()
+	total := rowsOf(parts)
 	if limit > 0 {
 		total = min(total, limit)
 	}
 	out := &table.Table{Rows: total}
 	cols := map[string]*table.Column{}
-	for _, c := range idx.schema() {
+	for _, c := range schemaOf(parts) {
 		col := emptyColumn(c.Name, c.Type, total)
 		cols[c.Name] = col
 		out.Columns = append(out.Columns, col)
 	}
 	at := 0
-	for _, p := range idx.Parts {
+	for _, p := range parts {
 		if at >= total {
 			break
 		}
-		n, err := s.readPart(path.Join(dir, p.File), cols, at, total-at)
+		n, err := s.readPart(ctx, vhost, genPrefix(name, gen)+"data/"+p.ID, cols, at, total-at)
 		if err != nil {
-			return nil, fmt.Errorf("dataset %q part %s is unreadable: %w", name, p.File, err)
+			return nil, fmt.Errorf("dataset %q part %s is unreadable: %w", name, p.ID, err)
 		}
 		at += n
 	}
@@ -404,9 +471,12 @@ func (s *datasetStore) load(vhost, name string, limit int) (*table.Table, error)
 
 // readPart reads a part's values into cols from row at on, at most room
 // rows, and returns how many it read.
-func (s *datasetStore) readPart(name string, cols map[string]*table.Column, at, room int) (int, error) {
-	raw, err := s.root.ReadFile(name)
+func (s *datasetStore) readPart(ctx context.Context, vhost, key string, cols map[string]*table.Column, at, room int) (int, error) {
+	raw, err := s.blobs.Get(ctx, vhost, key)
 	if err != nil {
+		return 0, err
+	}
+	if raw, err = gunzipped(raw); err != nil {
 		return 0, err
 	}
 	var pf partFile
@@ -469,135 +539,163 @@ func setValue(c *table.Column, i int, v any) {
 
 // -- models ------------------------------------------------------------------
 
-// The files of a version.
+// The kinds of a version's artifact.
 const (
-	metaFile        = "meta.json"
 	modelFile       = "model.json.gz"
 	recommenderFile = "model.rec"
 )
 
-// modelStore keeps each model's versions, numbered from 1.
+// maxVersionClaims bounds how many numbers a save tries when other servers
+// keep taking them.
+const maxVersionClaims = 50
+
+// modelStore keeps each model's versions, b1, b2, ….
 type modelStore struct {
-	root *os.Root
-	mu   sync.Mutex
+	blobs Blobs
 }
 
-func (s *modelStore) dir(vhost, name string) (string, error) {
+// versionMeta is a version as stored: what the worker API answers, and which
+// artifact holds it.
+type versionMeta struct {
+	Version  worker.Version `json:"version"`
+	File     string         `json:"file"`
+	Artifact string         `json:"artifact"`
+}
+
+func checkModel(vhost, name string) error {
 	if err := checkName("vhost", vhost); err != nil {
-		return "", err
+		return err
 	}
-	if err := checkName("model", name); err != nil {
-		return "", err
-	}
-	return path.Join(vhost, name), nil
+	return checkName("model", name)
 }
 
-// numbers are the committed versions, newest first.
-func (s *modelStore) numbers(dir string) []int {
-	entries, _ := fs.ReadDir(s.root.FS(), dir)
-	var out []int
-	for _, e := range entries {
-		if n, err := strconv.Atoi(e.Name()); err == nil && e.IsDir() && n > 0 && strconv.Itoa(n) == e.Name() {
-			out = append(out, n)
+func metaKey(name, version string) string { return "models/" + name + "/" + version + "/meta" }
+
+// highest is the highest version number the model was ever given.
+func (s *modelStore) highest(ctx context.Context, vhost, name string) (int, error) {
+	top := 0
+	if raw, err := s.blobs.Get(ctx, vhost, "counters/"+name); err == nil {
+		top, _ = strconv.Atoi(string(raw))
+	} else if !errors.Is(err, ErrBlobNotFound) {
+		return 0, err
+	}
+	list, err := s.blobs.List(ctx, vhost, "models/"+name+"/", false)
+	if err != nil {
+		return 0, err
+	}
+	for _, b := range list {
+		if n, ok := worker.ParseBuiltinVersion(path.Base(path.Dir(b.Key))); ok {
+			top = max(top, n)
 		}
 	}
-	slices.SortFunc(out, func(a, b int) int { return b - a })
-	return out
+	return top, nil
 }
 
-// save writes a new version, numbered after the newest, and returns its
-// meta with the version filled in.
-func (s *modelStore) save(vhost, name string, v worker.Version, file string, data []byte) (worker.Version, error) {
-	dir, err := s.dir(vhost, name)
-	if err != nil {
+// save writes a new version, numbered after the highest the model was ever
+// given, and returns it with its version filled in.
+func (s *modelStore) save(ctx context.Context, vhost, name string, v worker.Version, file string, data []byte) (worker.Version, error) {
+	if err := checkModel(vhost, name); err != nil {
 		return v, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.root.MkdirAll(dir, 0o700); err != nil {
+	// Under a prefix of its own, so a save that fails can take it back.
+	artifactDir := "artifacts/" + name + "/" + newID() + "/"
+	artifact := artifactDir + "artifact"
+	if err := s.blobs.Put(ctx, vhost, artifact, data); err != nil {
 		return v, err
 	}
-	next := 1
-	if ns := s.numbers(dir); len(ns) > 0 {
-		next = ns[0] + 1
+	for range maxVersionClaims {
+		top, err := s.highest(ctx, vhost, name)
+		if err != nil {
+			break
+		}
+		v.Model, v.Version, v.Engine = name, worker.BuiltinVersion(top+1), worker.EngineBuiltin
+		meta, err := json.Marshal(versionMeta{Version: v, File: file, Artifact: artifact})
+		if err != nil {
+			return v, fmt.Errorf("encoding the version: %w", err)
+		}
+		err = s.blobs.Create(ctx, vhost, metaKey(name, v.Version), meta)
+		if errors.Is(err, ErrBlobExists) {
+			continue
+		}
+		if err != nil {
+			break
+		}
+		_ = s.blobs.Put(ctx, vhost, "counters/"+name, []byte(strconv.Itoa(top+1)))
+		return v, nil
 	}
-	v.Model, v.Version = name, strconv.Itoa(next)
-	meta, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return v, fmt.Errorf("encoding the version: %w", err)
-	}
-	tmp := path.Join(dir, tempName(".tmp-"))
-	if err := s.root.Mkdir(tmp, 0o700); err != nil {
-		return v, err
-	}
-	defer func() { _ = s.root.RemoveAll(tmp) }()
-	if err := s.root.WriteFile(path.Join(tmp, file), data, 0o600); err != nil {
-		return v, err
-	}
-	if err := s.root.WriteFile(path.Join(tmp, metaFile), meta, 0o600); err != nil {
-		return v, err
-	}
-	return v, s.root.Rename(tmp, path.Join(dir, v.Version))
+	_, _ = s.blobs.Delete(ctx, vhost, artifactDir)
+	return v, fmt.Errorf("could not give model %q a version number", name)
 }
 
-func (s *modelStore) versions(vhost, name string) ([]worker.Version, error) {
-	dir, err := s.dir(vhost, name)
+func (s *modelStore) versions(ctx context.Context, vhost, name string) ([]worker.Version, error) {
+	if err := checkModel(vhost, name); err != nil {
+		return nil, err
+	}
+	list, err := s.blobs.List(ctx, vhost, "models/"+name+"/", true)
 	if err != nil {
 		return nil, err
 	}
-	ns := s.numbers(dir)
-	if len(ns) == 0 {
+	var out []worker.Version
+	for _, b := range list {
+		var m versionMeta
+		if path.Base(b.Key) != "meta" || json.Unmarshal(b.Data, &m) != nil {
+			continue
+		}
+		out = append(out, m.Version)
+	}
+	if len(out) == 0 {
 		return nil, notFound("Model %q has no versions in vhost %q.", name, vhost)
 	}
-	out := make([]worker.Version, 0, len(ns))
-	for _, n := range ns {
-		v, err := s.meta(dir, name, strconv.Itoa(n))
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, v)
-	}
+	slices.SortFunc(out, func(a, b worker.Version) int {
+		na, _ := worker.ParseBuiltinVersion(a.Version)
+		nb, _ := worker.ParseBuiltinVersion(b.Version)
+		return nb - na
+	})
 	return out, nil
 }
 
-func (s *modelStore) meta(dir, name, version string) (worker.Version, error) {
-	var v worker.Version
-	raw, err := s.root.ReadFile(path.Join(dir, version, metaFile))
-	if err != nil {
-		return v, notFound("Model %q has no version %q.", name, version)
+// file reads a version and its artifact, which must be of the kind file.
+func (s *modelStore) file(ctx context.Context, vhost, name, version, file string) (worker.Version, []byte, error) {
+	if err := checkModel(vhost, name); err != nil {
+		return worker.Version{}, nil, err
 	}
-	return v, json.Unmarshal(raw, &v)
-}
-
-// file reads one of a version's files: its meta, and the file's bytes.
-func (s *modelStore) file(vhost, name, version, file string) (worker.Version, []byte, error) {
-	dir, err := s.dir(vhost, name)
+	if !worker.IsBuiltinVersion(version) {
+		return worker.Version{}, nil, notFound("Model %q has no version %q.", name, version)
+	}
+	raw, err := s.blobs.Get(ctx, vhost, metaKey(name, version))
+	if errors.Is(err, ErrBlobNotFound) {
+		return worker.Version{}, nil, notFound("Model %q has no version %q.", name, version)
+	}
 	if err != nil {
 		return worker.Version{}, nil, err
 	}
-	if n, err := strconv.Atoi(version); err != nil || n <= 0 || strconv.Itoa(n) != version {
-		return worker.Version{}, nil, notFound("Model %q has no version %q.", name, version)
+	var m versionMeta
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return worker.Version{}, nil, fmt.Errorf("version %s of model %q is unreadable: %w", version, name, err)
 	}
-	v, err := s.meta(dir, name, version)
-	if err != nil {
-		return v, nil, err
+	if m.File != file {
+		return m.Version, nil, notFound("Version %s of model %q has no %s.", version, name, file)
 	}
-	raw, err := s.root.ReadFile(path.Join(dir, version, file))
-	if err != nil {
-		return v, nil, notFound("Version %s of model %q has no %s.", version, name, file)
+	data, err := s.blobs.Get(ctx, vhost, m.Artifact)
+	if errors.Is(err, ErrBlobNotFound) {
+		return m.Version, nil, notFound("Version %s of model %q has lost its %s.", version, name, file)
 	}
-	return v, raw, nil
+	return m.Version, data, err
 }
 
-func (s *modelStore) delete(vhost, name string) error {
-	dir, err := s.dir(vhost, name)
+func (s *modelStore) delete(ctx context.Context, vhost, name string) error {
+	if err := checkModel(vhost, name); err != nil {
+		return err
+	}
+	n, err := s.blobs.Delete(ctx, vhost, "models/"+name+"/")
 	if err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !exists(s.root, dir) {
+	if _, err := s.blobs.Delete(ctx, vhost, "artifacts/"+name+"/"); err != nil {
+		return err
+	}
+	if n == 0 {
 		return notFound("Model %q does not exist in vhost %q.", name, vhost)
 	}
-	return removeDir(s.root, dir)
+	return nil
 }

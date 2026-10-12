@@ -43,12 +43,12 @@ func (e *Engine) routes() {
 	m.HandleFunc("POST /v1/datasets/{vhost}/{name}/rows", e.handle(e.appendRows))
 	m.HandleFunc("PUT /v1/datasets/{vhost}/{name}/file", e.handle(e.uploadFile))
 	m.HandleFunc("GET /v1/datasets/{vhost}", e.handle(func(r *http.Request) (any, error) {
-		list, err := e.datasets.list(r.PathValue("vhost"))
+		list, err := e.datasets.list(r.Context(), r.PathValue("vhost"))
 		return map[string]any{"datasets": list}, err
 	}))
 	m.HandleFunc("GET /v1/datasets/{vhost}/{name}", e.handle(e.getDataset))
 	m.HandleFunc("DELETE /v1/datasets/{vhost}/{name}", e.handle(func(r *http.Request) (any, error) {
-		return nil, e.datasets.delete(r.PathValue("vhost"), r.PathValue("name"))
+		return nil, e.datasets.delete(r.Context(), r.PathValue("vhost"), r.PathValue("name"))
 	}))
 	m.HandleFunc("GET /v1/datasets/{vhost}/{name}/export", e.handle(refuse("Copying a dataset to a worker pool")))
 	m.HandleFunc("PUT /v1/datasets/{vhost}/{name}/import", e.handle(refuse("Copying a dataset from a worker pool")))
@@ -58,7 +58,7 @@ func (e *Engine) routes() {
 	m.HandleFunc("POST /v1/recommend-check/{vhost}", e.handle(refuse("A recommendation scenario's data health check")))
 	m.HandleFunc("POST /v1/models/{vhost}/{name}/train-custom", e.handle(refuse("A custom training script")))
 	m.HandleFunc("GET /v1/models/{vhost}/{name}/versions", e.handle(func(r *http.Request) (any, error) {
-		vs, err := e.models.versions(r.PathValue("vhost"), r.PathValue("name"))
+		vs, err := e.models.versions(r.Context(), r.PathValue("vhost"), r.PathValue("name"))
 		return map[string]any{"versions": vs}, err
 	}))
 	m.HandleFunc("GET /v1/models/{vhost}/{name}/versions/{version}/model.onnx", e.handle(func(r *http.Request) (any, error) {
@@ -70,7 +70,7 @@ func (e *Engine) routes() {
 	m.HandleFunc("POST /v1/models/{vhost}/{name}/import", e.handle(refuse("Importing a version")))
 	m.HandleFunc("DELETE /v1/models/{vhost}/{name}", e.handle(func(r *http.Request) (any, error) {
 		vhost, name := r.PathValue("vhost"), r.PathValue("name")
-		err := e.models.delete(vhost, name)
+		err := e.models.delete(r.Context(), vhost, name)
 		e.evict(vhost, name)
 		return nil, err
 	}))
@@ -138,7 +138,7 @@ func (e *Engine) body(r *http.Request) ([]byte, error) {
 
 func (e *Engine) appendRows(r *http.Request) (any, error) {
 	vhost, name := r.PathValue("vhost"), r.PathValue("name")
-	if _, err := e.datasets.dir(vhost, name); err != nil {
+	if err := checkDatasetName(vhost, name); err != nil {
 		return nil, err
 	}
 	raw, err := e.body(r)
@@ -159,7 +159,7 @@ func (e *Engine) appendRows(r *http.Request) (any, error) {
 	if err != nil {
 		return nil, badRequest("%s.", err)
 	}
-	total, err := e.datasets.append(vhost, name, t, body.Replace != nil && *body.Replace)
+	total, err := e.datasets.append(r.Context(), vhost, name, t, body.Replace != nil && *body.Replace)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +168,7 @@ func (e *Engine) appendRows(r *http.Request) (any, error) {
 
 func (e *Engine) uploadFile(r *http.Request) (any, error) {
 	vhost, name := r.PathValue("vhost"), r.PathValue("name")
-	if _, err := e.datasets.dir(vhost, name); err != nil {
+	if err := checkDatasetName(vhost, name); err != nil {
 		return nil, err
 	}
 	format := r.URL.Query().Get("format")
@@ -191,10 +191,10 @@ func (e *Engine) uploadFile(r *http.Request) (any, error) {
 	if err != nil {
 		return nil, badRequest("%s.", err)
 	}
-	if err := e.datasets.replace(vhost, name, t); err != nil {
+	if err := e.datasets.replace(r.Context(), vhost, name, t); err != nil {
 		return nil, err
 	}
-	return e.datasets.info(vhost, name)
+	return e.datasets.info(r.Context(), vhost, name)
 }
 
 // sampleRows is how many rows a dataset's description shows.
@@ -202,11 +202,11 @@ const sampleRows = 20
 
 func (e *Engine) getDataset(r *http.Request) (any, error) {
 	vhost, name := r.PathValue("vhost"), r.PathValue("name")
-	info, err := e.datasets.info(vhost, name)
+	info, err := e.datasets.info(r.Context(), vhost, name)
 	if err != nil {
 		return nil, err
 	}
-	t, err := e.datasets.load(vhost, name, sampleRows)
+	t, err := e.datasets.load(r.Context(), vhost, name, sampleRows)
 	if err != nil {
 		return nil, err
 	}
@@ -215,7 +215,7 @@ func (e *Engine) getDataset(r *http.Request) (any, error) {
 }
 
 func (e *Engine) recommender(w http.ResponseWriter, r *http.Request) {
-	v, raw, err := e.models.file(r.PathValue("vhost"), r.PathValue("name"), r.PathValue("version"), recommenderFile)
+	v, raw, err := e.models.file(r.Context(), r.PathValue("vhost"), r.PathValue("name"), r.PathValue("version"), recommenderFile)
 	if err == nil && v.Task != worker.TaskRecommendation {
 		err = notFound("Version %s of model %q is not a recommendation model.", v.Version, r.PathValue("name"))
 	}

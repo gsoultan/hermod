@@ -114,6 +114,9 @@ type DatasetInfo struct {
 	Columns   []Column         `json:"columns"`
 	UpdatedAt time.Time        `json:"updated_at"`
 	Sample    []map[string]any `json:"sample,omitempty"`
+	// Engine holds the dataset: EngineBuiltin (Hermod's metadata store) or
+	// EngineWorker, for one only a connected hermod-ml worker has.
+	Engine string `json:"engine,omitempty"`
 }
 
 // TaskRecommendation is the task of a model that recommends items to people
@@ -240,8 +243,11 @@ type Capabilities struct {
 // Version is one trained, immutable model version and how it scored on the
 // rows held back from training.
 type Version struct {
-	Model        string             `json:"model"`
-	Version      string             `json:"version"`
+	Model   string `json:"model"`
+	Version string `json:"version"`
+	// Engine is the engine that trained it and scores it: EngineBuiltin or
+	// EngineWorker (engines.go).
+	Engine       string             `json:"engine,omitempty"`
 	Task         string             `json:"task"`
 	Algorithm    string             `json:"algorithm"`
 	Dataset      string             `json:"dataset"`

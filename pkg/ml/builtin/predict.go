@@ -26,7 +26,7 @@ type loaded struct {
 func cacheKey(vhost, name, version string) string { return vhost + "\x00" + name + "\x00" + version }
 
 // load returns a version's decoded model, from the cache when it is there.
-func (e *Engine) load(vhost, name, version string) (*loaded, error) {
+func (e *Engine) load(ctx context.Context, vhost, name, version string) (*loaded, error) {
 	key := cacheKey(vhost, name, version)
 	e.cacheMu.Lock()
 	if l, ok := e.cache[key]; ok {
@@ -36,7 +36,7 @@ func (e *Engine) load(vhost, name, version string) (*loaded, error) {
 	}
 	e.cacheMu.Unlock()
 
-	v, raw, err := e.models.file(vhost, name, version, modelFile)
+	v, raw, err := e.models.file(ctx, vhost, name, version, modelFile)
 	if err != nil {
 		if v.Task == worker.TaskRecommendation {
 			return nil, badRequest("Model %q is a recommendation model; Hermod serves it, not this endpoint.", name)
@@ -99,7 +99,7 @@ func (e *Engine) Predict(ctx context.Context, vhost, name, version string, rows 
 	if len(rows) == 0 {
 		return []map[string]any{}, nil
 	}
-	l, err := e.load(vhost, name, version)
+	l, err := e.load(ctx, vhost, name, version)
 	if err != nil {
 		return nil, err
 	}

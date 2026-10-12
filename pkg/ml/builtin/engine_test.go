@@ -125,7 +125,7 @@ func TestTrainLinearRegressionKnowsTheAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Train: %v", err)
 	}
-	if v.Version != "1" || v.Model != "m" || v.Task != "regression" || v.Algorithm != "linear" {
+	if v.Version != "b1" || v.Engine != worker.EngineBuiltin || v.Model != "m" || v.Task != "regression" || v.Algorithm != "linear" {
 		t.Errorf("version = %s %s %s %s", v.Model, v.Version, v.Task, v.Algorithm)
 	}
 	if v.Metrics["r2"] < 0.999 || v.Metrics["score"] != v.Metrics["r2"] || v.Metrics["rmse"] > 0.1 {
@@ -158,7 +158,7 @@ func TestTrainLinearRegressionKnowsTheAnswer(t *testing.T) {
 	if err != nil || len(versions) != 1 || versions[0].Metrics["r2"] != v.Metrics["r2"] {
 		t.Fatalf("Versions = %v, %v", versions, err)
 	}
-	out, err := e.Predict(ctx, "v", "m", "1", []map[string]any{{"a": 1.0, "b": 2.0, "colour": "red"}, {"a": "4", "b": nil}})
+	out, err := e.Predict(ctx, "v", "m", "b1", []map[string]any{{"a": 1.0, "b": 2.0, "colour": "red"}, {"a": "4", "b": nil}})
 	if err != nil {
 		t.Fatalf("Predict: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestTrainClassifierAutoChoosesAndServesLabels(t *testing.T) {
 	if v.Metrics["accuracy"] < 0.9 {
 		t.Errorf("accuracy = %v", v.Metrics["accuracy"])
 	}
-	out, err := e.Predict(ctx, "v", "churn", "1", []map[string]any{{"tenure": 3.0, "plan": "basic"}, {"tenure": 50, "plan": "team"}})
+	out, err := e.Predict(ctx, "v", "churn", "b1", []map[string]any{{"tenure": 3.0, "plan": "basic"}, {"tenure": 50, "plan": "team"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +226,7 @@ func TestTrainEveryBuiltinAlgorithmOnIntegerClasses(t *testing.T) {
 		if !slices.Equal(v.Labels, []any{0.0, 1.0, 2.0, 3.0}) {
 			t.Errorf("%s labels = %v", alg, v.Labels)
 		}
-		out, err := e.Predict(ctx, "v", alg, "1", []map[string]any{{"x": 35}})
+		out, err := e.Predict(ctx, "v", alg, "b1", []map[string]any{{"x": 35}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -250,7 +250,7 @@ func TestTrainIsDeterministicForASeed(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, raw, err := e.models.file("v", v.Model, v.Version, modelFile)
+		_, raw, err := e.models.file(ctx, "v", v.Model, v.Version, modelFile)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -330,10 +330,10 @@ func TestWorkerOnlyRoutesSayWhy(t *testing.T) {
 	if _, err := c.Train(ctx, "v", "m", worker.TrainSpec{Dataset: "lin", Target: "y", Algorithm: "linear"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.ModelFile(ctx, "v", "m", "1"); !errors.Is(err, worker.ErrNotFound) {
+	if _, err := c.ModelFile(ctx, "v", "m", "b1"); !errors.Is(err, worker.ErrNotFound) {
 		t.Errorf("model.onnx: %v, want ErrNotFound", err)
 	}
-	if _, err := c.RecommenderFile(ctx, "v", "m", "1"); !errors.Is(err, worker.ErrNotFound) {
+	if _, err := c.RecommenderFile(ctx, "v", "m", "b1"); !errors.Is(err, worker.ErrNotFound) {
 		t.Errorf("model.rec of a tabular model: %v, want ErrNotFound", err)
 	}
 	if err := c.DeleteModel(ctx, "v", "m"); err != nil {

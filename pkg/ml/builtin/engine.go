@@ -38,7 +38,11 @@ import (
 
 // Config is how the engine runs.
 type Config struct {
-	// Dir holds the datasets and model versions.
+	// Blobs keeps the datasets and model versions. Hermod gives the engine
+	// its metadata store, so every replica shares them; without one they
+	// are kept in Dir.
+	Blobs Blobs
+	// Dir keeps the datasets and model versions when Blobs is nil.
 	Dir string
 	// MaxTrainings is how many trainings run at once; another is refused as
 	// busy, as the worker refuses one.
@@ -89,6 +93,8 @@ func envInt(name string) int {
 // Engine is the built-in engine. It is safe for concurrent use.
 type Engine struct {
 	cfg      Config
+	owned    bool
+	blobs    Blobs
 	datasets *datasetStore
 	models   *modelStore
 	slots    chan struct{}
@@ -100,10 +106,11 @@ type Engine struct {
 	order   []string
 }
 
-// New returns an engine over cfg.Dir, which it creates.
+// New returns an engine over cfg.Blobs, or else over cfg.Dir, which it
+// creates.
 func New(cfg Config) (*Engine, error) {
-	if cfg.Dir == "" {
-		return nil, errors.New("the built-in ML engine needs a directory")
+	if cfg.Blobs == nil && cfg.Dir == "" {
+		return nil, errors.New("the built-in ML engine needs a store or a directory")
 	}
 	if cfg.MaxTrainings <= 0 {
 		cfg.MaxTrainings = 1
@@ -117,22 +124,20 @@ func New(cfg Config) (*Engine, error) {
 	if cfg.MaxUploadBytes <= 0 {
 		cfg.MaxUploadBytes = DefaultMaxUploadBytes
 	}
-	roots := make([]*os.Root, 2)
-	for i, d := range []string{"datasets", "models"} {
-		dir := filepath.Join(cfg.Dir, d)
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return nil, fmt.Errorf("creating the built-in ML engine's directory: %w", err)
-		}
-		root, err := os.OpenRoot(dir)
-		if err != nil {
+	blobs, owned := cfg.Blobs, false
+	if blobs == nil {
+		var err error
+		if blobs, err = DirBlobs(cfg.Dir); err != nil {
 			return nil, fmt.Errorf("opening the built-in ML engine's directory: %w", err)
 		}
-		roots[i] = root
+		owned = true
 	}
 	e := &Engine{
 		cfg:      cfg,
-		datasets: &datasetStore{root: roots[0]},
-		models:   &modelStore{root: roots[1]},
+		owned:    owned,
+		blobs:    blobs,
+		datasets: &datasetStore{blobs: blobs},
+		models:   &modelStore{blobs: blobs},
 		slots:    make(chan struct{}, cfg.MaxTrainings),
 		now:      time.Now,
 		cache:    map[string]*loaded{},
@@ -141,10 +146,13 @@ func New(cfg Config) (*Engine, error) {
 	return e, nil
 }
 
-// Close releases the engine's directories. The engine must not be used
-// after.
+// Close releases the directory the engine opened, if it opened one. The
+// engine must not be used after.
 func (e *Engine) Close() error {
-	return errors.Join(e.datasets.root.Close(), e.models.root.Close())
+	if e.owned {
+		return CloseBlobs(e.blobs)
+	}
+	return nil
 }
 
 // Client is a worker client that reaches this engine in-process.

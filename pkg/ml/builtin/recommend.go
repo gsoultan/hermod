@@ -256,7 +256,7 @@ func compareFloat(a, b float64) int {
 // trainRecommender trains a recommendation model as the worker's
 // recommend.train does, and saves its artifact as the model's next version.
 func (e *Engine) trainRecommender(ctx context.Context, vhost, name string, req *recommendRequest) (worker.Version, error) {
-	t, err := e.datasets.load(vhost, req.dataset, 0)
+	t, err := e.datasets.load(ctx, vhost, req.dataset, 0)
 	if err != nil {
 		return worker.Version{}, err
 	}
@@ -301,7 +301,7 @@ func (e *Engine) trainRecommender(ctx context.Context, vhost, name string, req *
 	if err := describeRecommender(&v, req, in, base, samples); err != nil {
 		return worker.Version{}, err
 	}
-	return e.models.save(vhost, name, v, recommenderFile, artifact)
+	return e.models.save(ctx, vhost, name, v, recommenderFile, artifact)
 }
 
 // artifact is the model's model.rec, refused when it is over the size limit

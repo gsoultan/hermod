@@ -26,7 +26,7 @@ func (e *Engine) spec(r *http.Request) (any, error) {
 // context, so a caller that gives up, or Hermod's train timeout, stops it.
 func (e *Engine) train(r *http.Request) (any, error) {
 	vhost, name := r.PathValue("vhost"), r.PathValue("name")
-	if _, err := e.models.dir(vhost, name); err != nil {
+	if err := checkModel(vhost, name); err != nil {
 		return nil, err
 	}
 	spec, err := e.spec(r)
@@ -62,8 +62,8 @@ type prepared struct {
 
 // prepare reads the dataset for req and works out the task and target, as
 // a training and its pre-flight check both do.
-func (e *Engine) prepare(vhost string, req *trainRequest) (*prepared, error) {
-	t, err := e.datasets.load(vhost, req.dataset, 0)
+func (e *Engine) prepare(ctx context.Context, vhost string, req *trainRequest) (*prepared, error) {
+	t, err := e.datasets.load(ctx, vhost, req.dataset, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +95,7 @@ func (e *Engine) trainCheck(r *http.Request) (any, error) {
 	if !ok {
 		return nil, badRequest("The pre-flight check is for a model that predicts a column; a recommendation model has none to check, so train it directly.")
 	}
-	p, err := e.prepare(vhost, req)
+	p, err := e.prepare(r.Context(), vhost, req)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +139,7 @@ func (p *prepared) columnChecks(req *trainRequest) ([]worker.ColumnCheck, []work
 // trainTabular trains a model that predicts a column, as the worker's
 // Trainer._train does, and saves it as the model's next version.
 func (e *Engine) trainTabular(ctx context.Context, vhost, name string, req *trainRequest) (worker.Version, error) {
-	p, err := e.prepare(vhost, req)
+	p, err := e.prepare(ctx, vhost, req)
 	if err != nil {
 		return worker.Version{}, err
 	}
@@ -186,7 +186,7 @@ func (e *Engine) trainTabular(ctx context.Context, vhost, name string, req *trai
 	if err != nil {
 		return worker.Version{}, badRequest("The trained model is too large to keep: %v. Use fewer features or rows, or the hermod-ml worker.", err)
 	}
-	return e.models.save(vhost, name, v, modelFile, raw)
+	return e.models.save(ctx, vhost, name, v, modelFile, raw)
 }
 
 // warnings are the data notes for a version, in words, measured on every
