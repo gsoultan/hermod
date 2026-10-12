@@ -492,7 +492,7 @@ export const ALGORITHM_OPTIONS: Array<{ value: TrainAlgorithm; label: string }> 
   { value: 'linear', label: 'Linear / logistic regression' },
   { value: 'xgboost', label: 'XGBoost' },
   { value: 'pytorch_mlp', label: 'PyTorch MLP (neural network)' },
-  { value: 'keras_mlp', label: 'Keras MLP (neural network)' },
+  { value: 'keras_mlp', label: 'Keras MLP — TensorFlow (neural network)' },
 ]
 
 /** An algorithm's name for people: its option label, or the name itself. */
@@ -525,14 +525,40 @@ export const DEVICE_OPTIONS: Array<{ value: TrainDevice; label: string }> = [
 export const CUSTOM_PREFIX = 'custom:'
 export const isCustomAlgorithm = (a: string | undefined | null) => !!a && a.startsWith(CUSTOM_PREFIX)
 
+/** Why a neural network cannot be picked on a worker that runs the slim image. */
+export const DEEP_IMAGE_REASON = 'Needs the deep-learning worker image (hermod-ml:…-dl).'
+
+/** One choice of the Algorithm pickers; a disabled one says why in `description`. */
+export interface AlgorithmOption {
+  value: string
+  label: string
+  disabled?: boolean
+  description?: string
+}
+
+/** Whether the worker can train `algorithm`: every one, when it does not say. */
+export function canTrainAlgorithm(status: WorkerStatus | undefined, algorithm: TrainAlgorithm): boolean {
+  const available = status?.algorithms
+  return algorithm === 'auto' || !available || available.includes(algorithm)
+}
+
+/** Whether a ready worker can train the neural networks (PyTorch and TensorFlow). */
+export function hasDeepLearning(status: WorkerStatus | undefined): boolean {
+  return !!status?.ready && DEEP_ALGORITHMS.some((a) => canTrainAlgorithm(status, a))
+}
+
 /**
  * The algorithms a training can pick: the built-in ones the worker says it can
  * train (all of them when it does not say; "auto" always), then the vhost's
- * scripts when the server can train with them.
+ * scripts when the server can train with them. The neural networks stay in the
+ * list when the worker cannot train them, disabled and saying why, so that
+ * someone looking for TensorFlow finds what it takes.
  */
-export function algorithmOptions(status: WorkerStatus | undefined, scripts: MLScript[] = []) {
-  const available = status?.algorithms
-  const builtIn = available ? ALGORITHM_OPTIONS.filter((o) => o.value === 'auto' || available.includes(o.value)) : ALGORITHM_OPTIONS
+export function algorithmOptions(status: WorkerStatus | undefined, scripts: MLScript[] = []): AlgorithmOption[] {
+  const builtIn = ALGORITHM_OPTIONS.flatMap((o): AlgorithmOption[] => {
+    if (canTrainAlgorithm(status, o.value)) return [o]
+    return isDeepAlgorithm(o.value) ? [{ ...o, disabled: true, description: DEEP_IMAGE_REASON }] : []
+  })
   const custom = status?.capabilities?.custom_scripts
     ? scripts.map((s) => ({ value: `${CUSTOM_PREFIX}${s.name}`, label: `Script: ${s.name}` }))
     : []
@@ -807,6 +833,28 @@ export async function listSQLSources(vhost: string, signal?: AbortSignal): Promi
   const body = await res.json()
   const all = (body?.data ?? []) as Array<{ id: string; name: string; type: string }>
   return all.filter((s) => SQL_SOURCE_TYPES.includes(s.type))
+}
+
+/**
+ * Where the training worker stands, for people: still being asked, not set up
+ * (no HERMOD_ML_WORKER_URL), set up but not answering, or ready.
+ */
+export type WorkerState = 'checking' | 'off' | 'down' | 'ready'
+
+export function workerState(status: WorkerStatus | undefined): WorkerState {
+  if (!status) return 'checking'
+  if (status.ready) return 'ready'
+  return status.configured ? 'down' : 'off'
+}
+
+/** Why training cannot start yet, in one sentence; undefined when it can. */
+export function trainBlockedReason(status: WorkerStatus | undefined): string | undefined {
+  switch (workerState(status)) {
+    case 'checking': return 'Checking whether the training worker is connected…'
+    case 'off': return 'Training needs the hermod-ml worker, which is not set up yet.'
+    case 'down': return 'Training needs the hermod-ml worker, which is set up but not answering.'
+    default: return undefined
+  }
 }
 
 /** Whether training is available; answers "not configured" on any failure. */

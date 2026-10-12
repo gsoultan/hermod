@@ -6,6 +6,7 @@ import { http, HttpResponse } from 'msw'
 import { useEffect, useState } from 'react'
 import { describe, expect, it } from 'vitest'
 import { server, signInAs } from '../test/setupTests'
+import { findEnabledButton } from '../test/buttons'
 import { VHostProvider, useVHost } from '@/context/VHostContext'
 import { ConfirmProvider } from '@/components/common/ConfirmProvider'
 import { ModelsPage } from '@/pages/ml/ModelsPage'
@@ -120,7 +121,7 @@ async function openOptions(user: ReturnType<typeof userEvent.setup>, scope: HTML
 
 /** Opens the Train dialog for a new model and walks it to "How careful", with Advanced open. */
 async function toAdvanced(user: ReturnType<typeof userEvent.setup>, model: string) {
-  await user.click(await screen.findByRole('button', { name: /train a model/i }))
+  await user.click(await findEnabledButton(/train a model/i))
   const dialog = await screen.findByRole('dialog')
   await user.type(within(dialog).getByRole('textbox', { name: /model name/i }), model)
   await pick(user, dialog, /^dataset/i, 'customers')
@@ -147,7 +148,9 @@ describe('Training on the Models page', () => {
     trainingApi({ ready: false })
     renderPage()
     expect(await screen.findByText(/HERMOD_ML_WORKER_URL/)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /train a model/i })).not.toBeInTheDocument()
+    // Train a model stays on the page, off, rather than vanishing: people
+    // took a missing button for a missing feature.
+    expect(screen.getByRole('button', { name: /^train a model$/i })).toBeDisabled()
   })
 
   it('uploads a CSV file as a dataset', async () => {
@@ -185,7 +188,7 @@ describe('Training on the Models page', () => {
     const writes = trainingApi()
     renderPage()
     const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: /train a model/i }))
+    await user.click(await findEnabledButton(/train a model/i))
     const dialog = await screen.findByRole('dialog')
     await user.type(within(dialog).getByRole('textbox', { name: /model name/i }), 'churn2')
     await pick(user, dialog, /^dataset/i, 'customers')
@@ -206,17 +209,22 @@ describe('Training on the Models page', () => {
     expect(within(dialog).getByText(/version 2/i)).toBeInTheDocument()
   })
 
-  it('offers only the algorithms the worker can train', async () => {
+  it('offers the algorithms the worker can train, and shows the neural networks it cannot as off, saying why', async () => {
     trainingApi({ algorithms: ['auto', 'random_forest', 'gradient_boosting', 'linear', 'xgboost'] })
     renderPage()
     const user = userEvent.setup()
-    // The page shows its Train button only once the worker status, and so
+    // The page enables its Train button only once the worker status, and so
     // its list of algorithms, has arrived.
     const dialog = await toAdvanced(user, 'churn2')
     const list = await openOptions(user, dialog, /algorithm/i)
     expect(await within(list).findByRole('option', { name: 'XGBoost', hidden: true })).toBeInTheDocument()
-    expect(within(list).queryByRole('option', { name: /pytorch/i, hidden: true })).not.toBeInTheDocument()
-    expect(within(list).queryByRole('option', { name: /keras/i, hidden: true })).not.toBeInTheDocument()
+    // They used to vanish with the slim image, and people asked where TensorFlow was.
+    const pytorch = within(list).getByRole('option', { name: /pytorch mlp/i, hidden: true })
+    const keras = within(list).getByRole('option', { name: /keras mlp — tensorflow/i, hidden: true })
+    expect(pytorch).toHaveAttribute('data-combobox-disabled')
+    expect(keras).toHaveAttribute('data-combobox-disabled')
+    expect(keras).toHaveTextContent(/needs the deep-learning worker image \(hermod-ml:…-dl\)/i)
+    expect(within(dialog).getByText(/neural networks \(pytorch, tensorflow\) need the deep-learning worker image/i)).toBeInTheDocument()
   })
 
   it('trains a PyTorch model with the hyperparameters from Advanced', async () => {
@@ -243,7 +251,7 @@ describe('Training on the Models page', () => {
     renderPage()
     const user = userEvent.setup()
     const dialog = await toAdvanced(user, 'deep')
-    await pick(user, dialog, /algorithm/i, 'Keras MLP (neural network)')
+    await pick(user, dialog, /algorithm/i, 'Keras MLP — TensorFlow (neural network)')
     await user.type(field(dialog, /hidden layers/i), '32, wide')
     await user.click(within(dialog).getByRole('button', { name: /^next$/i }))
     expect(await within(dialog).findByText(/whole numbers/i)).toBeInTheDocument()
@@ -338,7 +346,7 @@ describe('Train Model node', () => {
     await user.click(screen.getByRole('button', { name: /advanced/i }))
     await screen.findAllByLabelText(/^algorithm/i)
     expect(screen.queryByRole('textbox', { name: /hidden layers/i, hidden: true })).not.toBeInTheDocument()
-    await pick(user, document.body, /algorithm/i, 'Keras MLP (neural network)')
+    await pick(user, document.body, /algorithm/i, 'Keras MLP — TensorFlow (neural network)')
     await user.type(field(document.body, /hidden layers/i), '64,32')
     await user.type(field(document.body, /epochs/i), '30')
     await user.type(field(document.body, /patience/i), '4')
@@ -364,5 +372,6 @@ describe('Train Model node', () => {
     const list = await openOptions(user, document.body, /algorithm/i)
     expect(within(list).getByRole('option', { name: 'Linear / logistic regression', hidden: true })).toBeInTheDocument()
     expect(within(list).queryByRole('option', { name: 'XGBoost', hidden: true })).not.toBeInTheDocument()
+    expect(within(list).getByRole('option', { name: /keras mlp — tensorflow/i, hidden: true })).toHaveAttribute('data-combobox-disabled')
   })
 })

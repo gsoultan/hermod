@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
-  ActionIcon, Alert, Badge, Box, Button, Group, List, Loader, Paper, Select, Stack, Switch, Table, Tabs, Text, Title, Tooltip,
+  ActionIcon, Alert, Badge, Box, Button, Group, Loader, Paper, Select, Stack, Switch, Table, Tabs, Text, Title, Tooltip,
 } from '@mantine/core'
 import {
-  IconActivityHeartbeat, IconAlertCircle, IconBrain, IconCode, IconCpu, IconHistory, IconInfoCircle, IconKey, IconPencil, IconPlayerPlay, IconPlus, IconRepeat, IconSchool, IconTrash,
+  IconActivityHeartbeat, IconAlertCircle, IconBrain, IconCode, IconCpu, IconHistory, IconKey, IconPencil, IconPlayerPlay, IconPlus, IconRepeat, IconSchool, IconTrash,
 } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useVHost } from '@/context/VHostContext'
@@ -11,9 +11,11 @@ import { useConfirm } from '@/components/common/ConfirmProvider'
 import { EmptyState } from '@/components/common/EmptyState'
 import { useSessionStore } from '@/auth/session'
 import {
-  deleteModel, isModelVHost, isTrainedModel, listModels, mlModelsKey, setMCPExposure, useWorkerStatus, type MLModel,
+  deleteModel, isModelVHost, isTrainedModel, listModels, mlModelsKey, setMCPExposure, trainBlockedReason, useVHostDatasets, useWorkerStatus,
+  workerState, type MLModel,
 } from '@/lib/mlModels'
-import { DatasetsPanel } from './DatasetsPanel'
+import { DATASETS_HEADING_ID, DatasetsPanel } from './DatasetsPanel'
+import { GettingStarted } from './GettingStarted'
 import { JobsPanel } from './JobsPanel'
 import { ScriptsPanel } from './ScriptsPanel'
 import { ModelFormModal } from './ModelFormModal'
@@ -26,6 +28,7 @@ import { ScoringModal } from './ScoringModal'
 import { ServingKeyModal } from './ServingKeyModal'
 import { TrainModal } from './TrainModal'
 import { VersionsModal } from './VersionsModal'
+import { WorkerSetupModal } from './WorkerSetupModal'
 
 const BACKEND_LABEL: Record<string, string> = { oip: 'Open Inference', mlflow: 'MLflow', 'hermod-ml': 'Trained in Hermod' }
 
@@ -44,11 +47,18 @@ type Dialog =
   | { kind: 'monitoring'; model: MLModel }
   | { kind: 'retrain'; model: MLModel }
   | { kind: 'scoring'; model: MLModel }
+  | { kind: 'setup' }
+
+/** The sentence that says why training is off; buttons it disables point at it. */
+const TRAIN_BLOCKED_ID = 'ml-train-blocked'
 
 /**
- * The models a vhost can call. Each is the address of a model on a model
- * server; workflows call it from a Predict node, and applications through the
- * serving endpoint with the model's own key.
+ * Machine Learning: the models a vhost can call. Each is trained here on a
+ * dataset, or is the address of a model on a model server; workflows call it
+ * from a Predict node, and applications through the serving endpoint with the
+ * model's own key. Getting started at the top walks a newcomer through the
+ * worker, data, training and use; an action that cannot run yet stays on the
+ * page, off, and says why.
  */
 export function ModelsPage() {
   const confirm = useConfirm()
@@ -63,10 +73,28 @@ export function ModelsPage() {
   const [dialog, setDialog] = useState<Dialog | undefined>(undefined)
   const { data: worker } = useWorkerStatus()
   const canTrain = !!worker?.ready
+  const blockedReason = trainBlockedReason(worker)
+  const blockedBy = canTrain ? undefined : TRAIN_BLOCKED_ID
+  const { data: datasets } = useVHostDatasets(vhost ?? undefined, canTrain)
   // The Scripts tab exists only where the server has custom scripts on.
   const showScripts = canTrain && !!worker?.capabilities?.scripts_enabled
   const [tab, setTab] = useState<string | null>('models')
   const role = useSessionStore((s) => s.user?.role)
+  const username = useSessionStore((s) => s.user?.username) ?? ''
+  // Getting started's "Go to Datasets": show the Models tab, then move focus
+  // to the Datasets heading once it is on the page.
+  const [toDatasets, setToDatasets] = useState(0)
+  useEffect(() => {
+    if (!toDatasets) return
+    const heading = document.getElementById(DATASETS_HEADING_ID)
+    heading?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+    heading?.focus({ preventScroll: true })
+  }, [toDatasets])
+  const goToDatasets = () => {
+    setTab('models')
+    setToDatasets((n) => n + 1)
+  }
+  const openSetup = () => setDialog({ kind: 'setup' })
   const canEdit = role === 'Administrator' || role === 'Editor'
 
   const { data: models, isLoading, error } = useQuery({
@@ -146,21 +174,18 @@ export function ModelsPage() {
                   <IconCpu size="1.1rem" />
                 </ActionIcon>
               </Tooltip>
-              {canTrain && (
-                <Tooltip label="Train again">
-                  <ActionIcon variant="light" color="blue" radius="md" aria-label={`Train ${m.name} again`} onClick={() => setDialog({ kind: 'train', modelName: m.name, task: m.task })}>
-                    <IconSchool size="1.1rem" />
-                  </ActionIcon>
-                </Tooltip>
-              )}
-              {canTrain && (
-                <Tooltip label="Retrain automatically">
-                  <ActionIcon variant={m.retrain ? 'filled' : 'light'} color="indigo" radius="md" aria-label={`Retrain ${m.name} automatically`}
-                    onClick={() => setDialog({ kind: 'retrain', model: m })}>
-                    <IconRepeat size="1.1rem" />
-                  </ActionIcon>
-                </Tooltip>
-              )}
+              <Tooltip label={canTrain ? 'Train again' : `Train again: ${blockedReason}`}>
+                <ActionIcon variant="light" color="blue" radius="md" aria-label={`Train ${m.name} again`} disabled={!canTrain}
+                  aria-describedby={blockedBy} onClick={() => setDialog({ kind: 'train', modelName: m.name, task: m.task })}>
+                  <IconSchool size="1.1rem" />
+                </ActionIcon>
+              </Tooltip>
+              <Tooltip label={canTrain ? 'Retrain automatically' : `Retrain automatically: ${blockedReason}`}>
+                <ActionIcon variant={m.retrain ? 'filled' : 'light'} color="indigo" radius="md" aria-label={`Retrain ${m.name} automatically`}
+                  disabled={!canTrain} aria-describedby={blockedBy} onClick={() => setDialog({ kind: 'retrain', model: m })}>
+                  <IconRepeat size="1.1rem" />
+                </ActionIcon>
+              </Tooltip>
             </>
           ) : (
             <Tooltip label="Edit">
@@ -190,19 +215,9 @@ export function ModelsPage() {
         <Alert m="md" color="red" icon={<IconAlertCircle size="1rem" />} title={`The models of ${vhost} could not be loaded`}>
           {(error as Error).message}
         </Alert>
-      ) : rows.length === 0 && canTrain ? (
-        <EmptyState icon={<IconSchool size="1.3rem" />} title="Train your first model"
-          description={
-            <List type="ordered" size="sm" spacing={4} ta="left">
-              <List.Item>Add a dataset: upload a CSV or Excel file, or read rows from a database, under Datasets below.</List.Item>
-              <List.Item>Train: pick the column to predict, and Hermod tries several methods and keeps the best.</List.Item>
-              <List.Item>Try it: send it one row and see what it predicts, then use it in a workflow.</List.Item>
-            </List>
-          }
-          action={{ label: 'Start training', onClick: () => setDialog({ kind: 'train' }) }} />
       ) : rows.length === 0 ? (
         <EmptyState compact icon={<IconBrain size="1.3rem" />} title={`No models in ${vhost} yet`}
-          description="Add the address of a model server and the model's name on it. Then score records with a Predict node."
+          description="Train one with the steps in Getting started above, or add the address of a model already running on a model server."
           action={{ label: 'Add model', onClick: () => setDialog({ kind: 'form' }) }} />
       ) : (
         <Table.ScrollContainer minWidth={880}>
@@ -233,7 +248,7 @@ export function ModelsPage() {
               <IconBrain size="2rem" color="var(--mantine-color-grape-filled)" />
               <Box style={{ flex: 1 }}>
                 <Group gap="sm" align="center">
-                  <Title order={2} fw={800}>Models</Title>
+                  <Title order={2} fw={800}>Machine Learning</Title>
                   {vhost && <Badge variant="light" size="lg" radius="sm" tt="none" aria-label="VHost shown">{vhost}</Badge>}
                 </Group>
                 <Text size="sm" c="dimmed">
@@ -244,13 +259,20 @@ export function ModelsPage() {
               </Box>
               {vhost && (
                 <Group gap="xs">
-                  {canTrain && (
-                    <Button leftSection={<IconSchool size="1.2rem" />} onClick={() => setDialog({ kind: 'train' })}>Train a model</Button>
-                  )}
-                  <Button variant={canTrain ? 'light' : 'filled'} leftSection={<IconPlus size="1.2rem" />} onClick={() => setDialog({ kind: 'form' })}>Add model</Button>
+                  <Button leftSection={<IconSchool size="1.2rem" />} disabled={!canTrain} aria-describedby={blockedBy}
+                    onClick={() => setDialog({ kind: 'train' })}>Train a model</Button>
+                  <Button variant="light" leftSection={<IconPlus size="1.2rem" />} onClick={() => setDialog({ kind: 'form' })}>Add model</Button>
                 </Group>
               )}
             </Group>
+            {vhost && blockedReason && (
+              <Group gap="xs" justify="flex-end">
+                <Text size="sm" c="dimmed" id={TRAIN_BLOCKED_ID}>{blockedReason}</Text>
+                {workerState(worker) !== 'checking' && (
+                  <Button size="compact-sm" variant="subtle" onClick={openSetup}>How to set it up</Button>
+                )}
+              </Group>
+            )}
             {!isModelVHost(selectedVHost) && (
               <Select label="VHost" description="A model belongs to one vhost." placeholder="Select one"
                 data={vhostOptions} value={chosen} onChange={setChosen} allowDeselect={false} maw={360} />
@@ -258,13 +280,10 @@ export function ModelsPage() {
           </Stack>
         </Paper>
 
-        {worker && !worker.ready && (
-          <Alert color={worker.configured ? 'yellow' : 'gray'} variant="light" icon={<IconInfoCircle size="1rem" />}
-            title={worker.configured ? 'The ML worker does not answer' : 'Training is off'}>
-            {worker.configured
-              ? 'Hermod has an ML worker configured, but it does not answer. Models served elsewhere still work.'
-              : 'Training models needs the hermod-ml worker. Run it beside Hermod and set HERMOD_ML_WORKER_URL (and HERMOD_ML_WORKER_TOKEN). Models served elsewhere work without it.'}
-          </Alert>
+        {vhost && (
+          <GettingStarted key={username} worker={worker} datasets={canTrain ? datasets?.length : undefined} models={models}
+            username={username} onSetup={openSetup} onDatasets={goToDatasets} onTrain={() => setDialog({ kind: 'train' })}
+            onTry={(model) => setDialog({ kind: 'test', model })} onMakeLive={(model) => setDialog({ kind: 'versions', model })} />
         )}
 
         {expose.error && (
@@ -289,7 +308,7 @@ export function ModelsPage() {
               <Stack gap="lg">
                 {modelsTable}
                 <JobsPanel vhost={vhost} canEdit={canEdit} />
-                <DatasetsPanel vhost={vhost} />
+                <DatasetsPanel vhost={vhost} blockedReason={blockedReason} onSetup={openSetup} />
                 <QuotasPanel vhost={vhost} canEdit={role === 'Administrator'} />
               </Stack>
             </Tabs.Panel>
@@ -301,7 +320,7 @@ export function ModelsPage() {
           <>
             {modelsTable}
             {vhost && <JobsPanel vhost={vhost} canEdit={canEdit} />}
-            {vhost && canTrain && <DatasetsPanel vhost={vhost} />}
+            {vhost && <DatasetsPanel vhost={vhost} blockedReason={blockedReason} onSetup={openSetup} />}
             {vhost && <QuotasPanel vhost={vhost} canEdit={role === 'Administrator'} />}
           </>
         )}
@@ -314,6 +333,7 @@ export function ModelsPage() {
       {vhost && dialog?.kind === 'form' && <ModelFormModal vhost={vhost} model={dialog.model} onClose={() => setDialog(undefined)} />}
       {vhost && dialog?.kind === 'test' && <ModelTestModal vhost={vhost} model={dialog.model} onClose={() => setDialog(undefined)} />}
       {vhost && dialog?.kind === 'monitoring' && <MonitoringModal vhost={vhost} model={dialog.model} onClose={() => setDialog(undefined)} />}
+      {dialog?.kind === 'setup' && <WorkerSetupModal onClose={() => setDialog(undefined)} />}
       {vhost && dialog?.kind === 'key' && <ServingKeyModal vhost={vhost} model={dialog.model} onClose={() => setDialog(undefined)} />}
     </Box>
   )

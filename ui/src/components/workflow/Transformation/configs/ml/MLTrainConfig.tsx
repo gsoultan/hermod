@@ -5,6 +5,7 @@ import {
   useVHostScripts, useWorkerStatus, type GoLive, type TrainPreset,
 } from '@/lib/mlModels'
 import { FormRow } from '@/components/common/FormRow'
+import { algorithmDescription, algorithmOptionRenderer } from '@/pages/ml/algorithmOption'
 import { DeepParamsFields, readDeepParams } from '@/pages/ml/deepParams'
 import { GoLiveField } from '@/pages/ml/goLive'
 import { PresetPicker } from '@/pages/ml/presetPicker'
@@ -117,7 +118,8 @@ export function MLTrainConfig({ config, updateNodeConfig, nodeId, sources = [] }
               <FormRow cols={showDevice ? 3 : 2}>
                 <Select label="Task" data={TASK_OPTIONS} value={config.task || 'auto'} allowDeselect={false} onChange={(v) => set({ task: v ?? 'auto' })} />
                 {/* The worker refuses a quality with any algorithm but auto, so picking one clears it. */}
-                <Select label="Algorithm" data={algorithms} value={config.algorithm || 'auto'} allowDeselect={false}
+                <Select label="Algorithm" description={algorithmDescription(algorithms)} data={algorithms}
+                  renderOption={algorithmOptionRenderer(algorithms)} value={config.algorithm || 'auto'} allowDeselect={false}
                   onChange={(v) => {
                     const algorithm = v ?? 'auto'
                     set({ algorithm, ...(algorithm === 'auto' ? {} : { preset: '' }), ...(isCustomAlgorithm(v) ? { device: '' } : {}) })

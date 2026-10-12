@@ -3,7 +3,7 @@ import {
   ActionIcon, Alert, Button, Group, Loader, Modal, NumberInput, Paper, Select, Stack, Table, Text,
   TextInput, Textarea, Title, Tooltip,
 } from '@mantine/core'
-import { IconAlertCircle, IconClock, IconDatabase, IconEye, IconTable, IconTrash, IconUpload } from '@tabler/icons-react'
+import { IconAlertCircle, IconClock, IconDatabase, IconEye, IconPlugConnected, IconTable, IconTrash, IconUpload } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useConfirm } from '@/components/common/ConfirmProvider'
 import { EmptyState } from '@/components/common/EmptyState'
@@ -18,16 +18,25 @@ type Dialog = { kind: 'upload' } | { kind: 'query' } | { kind: 'view'; name: str
 
 const datasetNameRule = 'Letters, digits, "_", "." and "-".'
 
+/** The Datasets heading's id: Getting started moves focus to it. */
+export const DATASETS_HEADING_ID = 'ml-datasets-heading'
+
 /**
  * The vhost's datasets: tables of rows a model is trained on, kept on the ML
  * worker. One comes from a CSV or Excel file, or from a query on one of the
  * vhost's database sources; filling one again replaces its rows.
+ *
+ * Without a worker there is nowhere to keep them: `blockedReason` says why,
+ * the panel stays on the page with its buttons off, and `onSetup` opens the
+ * worker setup guide.
  */
-export function DatasetsPanel({ vhost }: { vhost: string }) {
+export function DatasetsPanel({ vhost, blockedReason, onSetup }: { vhost: string; blockedReason?: string; onSetup?: () => void }) {
   const confirm = useConfirm()
   const queryClient = useQueryClient()
   const [dialog, setDialog] = useState<Dialog | undefined>(undefined)
-  const { data: datasets = [], isLoading } = useVHostDatasets(vhost)
+  const blocked = !!blockedReason
+  const { data: datasets = [], isLoading } = useVHostDatasets(vhost, !blocked)
+  const reasonId = 'ml-datasets-blocked'
 
   const remove = useMutation({
     mutationFn: (name: string) => deleteDataset(vhost, name),
@@ -45,22 +54,28 @@ export function DatasetsPanel({ vhost }: { vhost: string }) {
   }
 
   return (
-    <Paper p="md" withBorder radius="md">
+    <Paper p="md" withBorder radius="md" component="section" aria-labelledby={DATASETS_HEADING_ID}>
       <Stack gap="md">
         <Group justify="space-between" align="flex-start">
           <div>
-            <Title order={3} size="h4">Datasets</Title>
+            <Title order={3} size="h4" id={DATASETS_HEADING_ID} tabIndex={-1}>Datasets</Title>
             <Text size="sm" c="dimmed">The rows models are trained on. Filling a dataset again replaces its rows.</Text>
           </div>
           <Group gap="xs">
-            <Button variant="light" leftSection={<IconUpload size="1rem" />} onClick={() => setDialog({ kind: 'upload' })}>Upload a file</Button>
-            <Button variant="light" leftSection={<IconDatabase size="1rem" />} onClick={() => setDialog({ kind: 'query' })}>From a database</Button>
+            <Button variant="light" leftSection={<IconUpload size="1rem" />} disabled={blocked}
+              aria-describedby={blocked ? reasonId : undefined} onClick={() => setDialog({ kind: 'upload' })}>Upload a file</Button>
+            <Button variant="light" leftSection={<IconDatabase size="1rem" />} disabled={blocked}
+              aria-describedby={blocked ? reasonId : undefined} onClick={() => setDialog({ kind: 'query' })}>From a database</Button>
           </Group>
         </Group>
         {remove.error && (
           <Alert color="red" icon={<IconAlertCircle size="1rem" />} title="The dataset was not deleted">{(remove.error as Error).message}</Alert>
         )}
-        {isLoading ? (
+        {blocked ? (
+          <EmptyState compact icon={<IconPlugConnected size="1.3rem" />} title="Datasets need the training worker"
+            description={<span id={reasonId}>{blockedReason} The worker keeps the datasets, so connect it first: step 1 of Getting started.</span>}
+            action={onSetup ? { label: 'How to connect the worker', onClick: onSetup } : undefined} />
+        ) : isLoading ? (
           <Group justify="center" p="md"><Loader size="sm" /></Group>
         ) : datasets.length === 0 ? (
           <EmptyState compact icon={<IconTable size="1.3rem" />} title="No datasets yet"

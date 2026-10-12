@@ -9,6 +9,7 @@ import {
   useDataset, useVHostDatasets, useVHostScripts, useWorkerStatus, type GoLive, type MLModel, type TrainAlgorithm,
   type TrainDevice, type TrainTask,
 } from '@/lib/mlModels'
+import { algorithmDescription, algorithmOptionRenderer } from './algorithmOption'
 import { GoLiveField } from './goLive'
 import { RetrainStatusLine } from './retrainStatus'
 
@@ -102,7 +103,8 @@ export function RetrainModal({ vhost, model, onClose }: { vhost: string; model: 
             value={features} onChange={setFeatures} />
           <Group grow align="flex-start">
             <Select label="Task" data={TASK_OPTIONS} value={task} allowDeselect={false} onChange={(v) => setTask((v ?? 'auto') as TrainTask)} />
-            <Select label="Algorithm" data={algorithms} value={algorithm} allowDeselect={false}
+            <Select label="Algorithm" description={algorithmDescription(algorithms)} data={algorithms}
+              renderOption={algorithmOptionRenderer(algorithms)} value={algorithm} allowDeselect={false}
               onChange={(v) => setAlgorithm((v ?? 'auto') as TrainAlgorithm)} />
             {showDevice && (
               <Select label="Device" description="GPU trains on the GPU worker pool." data={DEVICE_OPTIONS} value={device}

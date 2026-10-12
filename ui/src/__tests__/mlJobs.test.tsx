@@ -6,6 +6,7 @@ import { http, HttpResponse } from 'msw'
 import { useEffect } from 'react'
 import { describe, expect, it } from 'vitest'
 import { server, signInAs } from '../test/setupTests'
+import { findEnabledButton } from '../test/buttons'
 import { VHostProvider, useVHost } from '@/context/VHostContext'
 import { ConfirmProvider } from '@/components/common/ConfirmProvider'
 import { ModelsPage } from '@/pages/ml/ModelsPage'
@@ -117,7 +118,7 @@ async function pick(user: ReturnType<typeof userEvent.setup>, scope: HTMLElement
 
 /** Walks the Train dialog for model churn2 to its Train button and clicks it. */
 async function train(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(await screen.findByRole('button', { name: /train a model/i }))
+  await user.click(await findEnabledButton(/train a model/i))
   const dialog = await screen.findByRole('dialog')
   await user.type(within(dialog).getByRole('textbox', { name: /model name/i }), 'churn2')
   await pick(user, dialog, /^dataset/i, 'customers')
