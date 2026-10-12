@@ -25,7 +25,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -63,19 +62,17 @@ const (
 )
 
 // ConfigFromEnv reads the engine's settings: HERMOD_ML_BUILTIN (false turns
-// the engine off; on otherwise), HERMOD_ML_BUILTIN_DIR (default
-// configDir/ml), HERMOD_ML_BUILTIN_MAX_TRAININGS (default 1),
-// HERMOD_ML_BUILTIN_MAX_ROWS (default 1,000,000) and
+// the engine off; on otherwise), HERMOD_ML_BUILTIN_DIR (none by default:
+// Hermod keeps the engine's data in its metadata store, and uses the
+// directory only with a store that cannot), HERMOD_ML_BUILTIN_MAX_TRAININGS
+// (default 1), HERMOD_ML_BUILTIN_MAX_ROWS (default 1,000,000) and
 // HERMOD_ML_BUILTIN_THREADS (default: the CPUs Go may use). on is false when
 // the engine is turned off.
-func ConfigFromEnv(configDir string) (cfg Config, on bool) {
+func ConfigFromEnv() (cfg Config, on bool) {
 	if v, err := strconv.ParseBool(strings.TrimSpace(os.Getenv("HERMOD_ML_BUILTIN"))); err == nil && !v {
 		return Config{}, false
 	}
 	cfg = Config{Dir: strings.TrimSpace(os.Getenv("HERMOD_ML_BUILTIN_DIR"))}
-	if cfg.Dir == "" {
-		cfg.Dir = filepath.Join(configDir, "ml")
-	}
 	cfg.MaxTrainings = envInt("HERMOD_ML_BUILTIN_MAX_TRAININGS")
 	cfg.MaxTrainRows = envInt("HERMOD_ML_BUILTIN_MAX_ROWS")
 	cfg.Workers = envInt("HERMOD_ML_BUILTIN_THREADS")
@@ -104,6 +101,9 @@ type Engine struct {
 	cacheMu sync.Mutex
 	cache   map[string]*loaded
 	order   []string
+
+	// synced is what each worker last got of each dataset (Route).
+	synced syncState
 }
 
 // New returns an engine over cfg.Blobs, or else over cfg.Dir, which it
@@ -187,6 +187,9 @@ func capabilities() worker.Capabilities {
 // Capabilities is what the engine trains, as the worker's capabilities
 // route says it.
 func (e *Engine) Capabilities() worker.Capabilities { return capabilities() }
+
+// Capabilities is what the built-in engine trains, by itself.
+func Capabilities() worker.Capabilities { return capabilities() }
 
 // slot takes a training slot, or reports that every one is taken.
 func (e *Engine) slot() (func(), error) {

@@ -660,7 +660,7 @@ func (s *modelStore) file(ctx context.Context, vhost, name, version, file string
 		return worker.Version{}, nil, err
 	}
 	if !worker.IsBuiltinVersion(version) {
-		return worker.Version{}, nil, notFound("Model %q has no version %q.", name, version)
+		return worker.Version{}, nil, notBuiltin(name, version)
 	}
 	raw, err := s.blobs.Get(ctx, vhost, metaKey(name, version))
 	if errors.Is(err, ErrBlobNotFound) {

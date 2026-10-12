@@ -49,6 +49,9 @@ type Blob struct {
 var (
 	ErrBlobNotFound = errors.New("blob not found")
 	ErrBlobExists   = errors.New("blob already exists")
+	// ErrBlobTooLarge is a blob over what the store keeps in one: a dataset
+	// sent in one piece too large, or a model too large to keep.
+	ErrBlobTooLarge = errors.New("too large to keep")
 )
 
 // dirBlobs keeps blobs as files: DIR/{vhost}/{key}. It reaches them through

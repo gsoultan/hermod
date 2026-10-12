@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 
 	"github.com/gsoultan/hermod/pkg/ml/builtin/table"
 	"github.com/gsoultan/hermod/pkg/ml/worker"
@@ -32,6 +33,18 @@ func notFound(format string, args ...any) error {
 // needsWorker refuses what only the hermod-ml worker does.
 func needsWorker(what string) error {
 	return badRequest("%s %s: connect one on the Machine Learning page, or set HERMOD_ML_WORKER_URL.", what, NeedsWorker)
+}
+
+// notBuiltin refuses a version the engine did not train: the worker's
+// (numbered 1, 2, …), which only the worker serves, so it is unavailable
+// while no worker is connected rather than missing.
+func notBuiltin(model, version string) error {
+	if _, err := strconv.Atoi(version); err != nil {
+		return notFound("Model %q has no version %q.", model, version)
+	}
+	return &apiError{status: http.StatusServiceUnavailable, msg: fmt.Sprintf("Version %s of model %q was trained by "+
+		"the hermod-ml worker, so serving it %s: connect one on the Machine Learning page, or set HERMOD_ML_WORKER_URL.",
+		version, model, NeedsWorker)}
 }
 
 func (e *Engine) routes() {
@@ -62,6 +75,9 @@ func (e *Engine) routes() {
 		return map[string]any{"versions": vs}, err
 	}))
 	m.HandleFunc("GET /v1/models/{vhost}/{name}/versions/{version}/model.onnx", e.handle(func(r *http.Request) (any, error) {
+		if !worker.IsBuiltinVersion(r.PathValue("version")) {
+			return nil, notBuiltin(r.PathValue("name"), r.PathValue("version"))
+		}
 		return nil, notFound("Model %q was trained by Hermod's built-in engine, which keeps no ONNX graph: "+
 			"it is always scored in Hermod's own process.", r.PathValue("name"))
 	}))
@@ -112,7 +128,7 @@ func fail(w http.ResponseWriter, err error) {
 	switch {
 	case errors.As(err, &ae):
 		status, msg = ae.status, ae.msg
-	case errors.Is(err, errTooLarge):
+	case errors.Is(err, errTooLarge), errors.Is(err, ErrBlobTooLarge):
 		status, msg = http.StatusRequestEntityTooLarge, err.Error()
 	default:
 		slog.Error("ml: the built-in engine failed", "error", err)

@@ -45,6 +45,23 @@ func TestTrainTimeoutReachesTheEngine(t *testing.T) {
 	release()
 }
 
+func TestConfigFromEnvKeepsNothingOnDiskUnlessADirectoryIsGiven(t *testing.T) {
+	t.Setenv("HERMOD_ML_BUILTIN", "")
+	t.Setenv("HERMOD_ML_BUILTIN_DIR", "")
+	cfg, on := ConfigFromEnv()
+	if !on || cfg.Dir != "" {
+		t.Errorf("by default: on = %v, dir = %q; want on, with no directory (Hermod's store keeps the data)", on, cfg.Dir)
+	}
+	t.Setenv("HERMOD_ML_BUILTIN_DIR", " /data/ml ")
+	if cfg, _ := ConfigFromEnv(); cfg.Dir != "/data/ml" {
+		t.Errorf("dir = %q, want /data/ml", cfg.Dir)
+	}
+	t.Setenv("HERMOD_ML_BUILTIN", "false")
+	if _, on := ConfigFromEnv(); on {
+		t.Error("HERMOD_ML_BUILTIN=false did not turn the engine off")
+	}
+}
+
 func TestNumericStatsAreNumpyDeciles(t *testing.T) {
 	st := numericStats([]float64{10, 9, 8, 7, 6, 5, 4, 3, 2, 1, math.NaN()})
 	want := []float64{1.9, 2.8, 3.7, 4.6, 5.5, 6.4, 7.3, 8.2, 9.1}

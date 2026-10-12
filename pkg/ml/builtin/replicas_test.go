@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -136,6 +137,35 @@ func TestReplicasAppendingToOneDatasetLoseNoRows(t *testing.T) {
 	wg.Wait()
 	if info, err := a.Client().Dataset(ctx, "v", "events"); err != nil || info.Rows != 200 {
 		t.Errorf("dataset = %+v, %v; want the 200 rows all 8 appends sent", info, err)
+	}
+}
+
+// smallBlobs refuses a blob over max bytes, as a store with a limit does.
+type smallBlobs struct {
+	Blobs
+	max int
+}
+
+func (s smallBlobs) Put(ctx context.Context, vhost, key string, data []byte) error {
+	if len(data) > s.max {
+		return fmt.Errorf("%w: %s", ErrBlobTooLarge, key)
+	}
+	return s.Blobs.Put(ctx, vhost, key, data)
+}
+
+func TestABlobTheStoreCannotKeepIsRefusedAsTooLarge(t *testing.T) {
+	dir, err := DirBlobs(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = CloseBlobs(dir) })
+	e, err := New(Config{Blobs: smallBlobs{Blobs: dir, max: 64}, Workers: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = e.Client().AppendRows(context.Background(), "v", "lin", linearRows(50), true)
+	if err == nil || !strings.Contains(err.Error(), "413") || !strings.Contains(err.Error(), "too large") {
+		t.Errorf("a part over the store's limit: %v; want a 413 that says it is too large", err)
 	}
 }
 
