@@ -1,15 +1,15 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import {
   Accordion, Alert, Button, Checkbox, Group, List, Loader, Modal, Radio, ScrollArea, Select, SimpleGrid, Stack, Stepper, Text, TextInput,
 } from '@mantine/core'
 import { IconAlertCircle, IconInfoCircle } from '@tabler/icons-react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { FormRow } from '@/components/common/FormRow'
 import {
   DEFAULT_PRESET, DEVICE_OPTIONS, LEAVE_OUT_ROLES, MODEL_NAME_PATTERN, PRESET_OPTIONS, RECOMMENDATION, RECOMMEND_ALGORITHM_OPTIONS,
   TASK_OPTIONS, algorithmLabel, algorithmOptions, isCustomAlgorithm, isDeepAlgorithm, listVersions, mlModelsKey, modelNameRule,
-  trainCheck, trainModel, useDataset, useVHostDatasets, useVHostScripts, useWorkerStatus, versionsKey, type GoLive,
-  type RecommendAlgorithm, type TrainAlgorithm, type TrainCheck, type TrainDevice, type TrainPreset, type TrainSpec, type TrainTask,
+  trainCheck, useDataset, useVHostDatasets, useVHostScripts, useWorkerStatus, versionsKey, type GoLive,
+  type RecommendAlgorithm, type TrainAlgorithm, type TrainCheck, type TrainResult, type TrainSpec, type TrainDevice, type TrainPreset, type TrainTask,
 } from '@/lib/mlModels'
 import {
   DEFAULT_WEIGHTS, ROLES, defaultRuleChoices, isScenarioVersion, rulesFromChoices, scenarioLabel, scenariosSupported,
@@ -23,6 +23,7 @@ import {
   HealthStep, RoleMappingStep, RulesStep, ScenarioPicker, healthAllowsNext, rolesComplete, rulesValid, useRecommendCheck,
 } from './recommendSteps'
 import { TrainResultView } from './TrainResultView'
+import { TrainingProgress, useTraining } from './trainingJob'
 
 /** The steps in order: predicting and the one-table recommender, or a recommendation scenario. */
 type StepName = 'data' | 'target' | 'care' | 'needs' | 'health' | 'rules' | 'train' | 'result'
@@ -196,58 +197,61 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
 
   const notes = new Map((checked?.columns ?? []).filter((c) => c.note).map((c) => [c.name, c.note as string]))
 
-  const train = useMutation({
-    mutationFn: () => {
-      if (scenarioFlow && scenario) {
-        const spec: ScenarioTrainSpec = {
-          dataset: recData.transactions?.dataset ?? (dataset as string),
-          target: '',
-          task: RECOMMENDATION,
-          scenario,
-          data: recData,
-          ...(scenario === 'visits' ? { weights } : {}),
-          rules: rulesFromChoices(scenario, choices, recData),
-          algorithm: recAlgorithm,
-          go_live: goLive,
-        }
-        // The scenario fields are the contract's (ml-plan phase9-contract.md), beyond TrainSpec.
-        return trainModel(vhost, name.trim(), spec as unknown as TrainSpec)
-      }
-      if (recommending) {
-        // No preset: Auto always tries both methods, and the server refuses one.
-        return trainModel(vhost, name.trim(), {
-          dataset: dataset as string,
-          target: '',
-          task: RECOMMENDATION,
-          algorithm: recAlgorithm as TrainAlgorithm,
-          recommend: {
-            user: cols.user as string,
-            item: cols.item as string,
-            ...(cols.strength ? { strength: cols.strength } : {}),
-            ...(cols.time ? { time: cols.time } : {}),
-          },
-          go_live: goLive,
-        })
-      }
-      const { params } = deep ? readDeepParams(deepText) : { params: undefined }
-      return trainModel(vhost, name.trim(), {
-        dataset: dataset as string,
-        target: target as string,
-        features: left.length ? learnFrom : undefined,
-        task,
-        algorithm,
-        device: showDevice && device === 'gpu' ? 'gpu' : undefined,
-        params: deep ? params : undefined,
-        preset: algorithm === 'auto' ? preset : undefined,
+  // What the Train button sends.
+  const spec = (): TrainSpec => {
+    if (scenarioFlow && scenario) {
+      const scenarioSpec: ScenarioTrainSpec = {
+        dataset: recData.transactions?.dataset ?? (dataset as string),
+        target: '',
+        task: RECOMMENDATION,
+        scenario,
+        data: recData,
+        ...(scenario === 'visits' ? { weights } : {}),
+        rules: rulesFromChoices(scenario, choices, recData),
+        algorithm: recAlgorithm,
         go_live: goLive,
-      })
-    },
-    onSuccess: (res) => {
-      setAt('result')
-      queryClient.invalidateQueries({ queryKey: mlModelsKey(vhost) })
-      queryClient.invalidateQueries({ queryKey: versionsKey(vhost, res.model?.name ?? name.trim()) })
-    },
-  })
+      }
+      // The scenario fields are the contract's (ml-plan phase9-contract.md), beyond TrainSpec.
+      return scenarioSpec as unknown as TrainSpec
+    }
+    if (recommending) {
+      // No preset: Auto always tries both methods, and the server refuses one.
+      return {
+        dataset: dataset as string,
+        target: '',
+        task: RECOMMENDATION,
+        algorithm: recAlgorithm as TrainAlgorithm,
+        recommend: {
+          user: cols.user as string,
+          item: cols.item as string,
+          ...(cols.strength ? { strength: cols.strength } : {}),
+          ...(cols.time ? { time: cols.time } : {}),
+        },
+        go_live: goLive,
+      }
+    }
+    const { params } = deep ? readDeepParams(deepText) : { params: undefined }
+    return {
+      dataset: dataset as string,
+      target: target as string,
+      features: left.length ? learnFrom : undefined,
+      task,
+      algorithm,
+      device: showDevice && device === 'gpu' ? 'gpu' : undefined,
+      params: deep ? params : undefined,
+      preset: algorithm === 'auto' ? preset : undefined,
+      go_live: goLive,
+    }
+  }
+  // Training runs as a job: it goes on if this window closes, and the Jobs
+  // list on the Models page follows it there.
+  const trainedName = name.trim()
+  const onTrained = useCallback((res: TrainResult) => {
+    setAt('result')
+    queryClient.invalidateQueries({ queryKey: mlModelsKey(vhost) })
+    queryClient.invalidateQueries({ queryKey: versionsKey(vhost, res.model?.name ?? trainedName) })
+  }, [queryClient, vhost, trainedName])
+  const train = useTraining(vhost, onTrained)
 
   const pickDataset = (v: string | null) => {
     setDataset(v)
@@ -299,7 +303,7 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
     <Modal opened onClose={onClose} title={modelName ? `Train ${modelName} again` : 'Train a model'} centered size="xl">
       <Stack gap="md">
         <Stepper active={active} size="sm" allowNextStepsSelect={false}
-          onStepClick={(i) => { if (i < active && at !== 'result' && !train.isPending) setAt(steps[i]) }}>
+          onStepClick={(i) => { if (i < active && at !== 'result' && !train.running) setAt(steps[i]) }}>
           <Stepper.Step label="Your data">
             <Stack gap="md">
               {!modelName && (
@@ -538,37 +542,42 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
                 </List>
               )}
               <GoLiveField value={goLive} onChange={setGoLive} />
-              {train.isPending && (
-                <Group gap="xs" aria-live="polite">
-                  <Loader size="xs" />
-                  <Text size="sm">
-                    Training on the ML worker. {(recommending ? recAlgorithm : algorithm) === 'auto'
-                      ? `Hermod is trying ${recommending ? 'both methods and keeping the better' : 'a few methods and keeping the best'}. `
-                      : ''}
-                    This can take a few minutes; keep this window open.
-                  </Text>
-                </Group>
+              {train.running && (
+                <TrainingProgress job={train.job} cancelling={train.cancelling} onCancel={train.cancel}
+                  about={(recommending ? recAlgorithm : algorithm) === 'auto'
+                    ? `Hermod is trying ${recommending ? 'both methods and keeping the better' : 'a few methods and keeping the best'}. `
+                    : ''} />
               )}
               {train.error && (
                 <Alert color="red" icon={<IconAlertCircle size="1rem" />} title="The model was not trained">
-                  {(train.error as Error).message}
+                  {train.error.message}
+                </Alert>
+              )}
+              {train.cancelled && (
+                <Alert color="gray" icon={<IconInfoCircle size="1rem" />} title="The training was stopped">
+                  No new version was made. Train again when you are ready.
+                </Alert>
+              )}
+              {train.cancelError && (
+                <Alert color="red" icon={<IconAlertCircle size="1rem" />} title="The training was not stopped">
+                  {train.cancelError.message}
                 </Alert>
               )}
             </Stack>
           </Stepper.Step>
 
           <Stepper.Step label="Result">
-            {train.data && <TrainResultView vhost={vhost} result={train.data} exampleRow={info?.sample?.[0]} />}
+            {train.trained && <TrainResultView vhost={vhost} result={train.trained} exampleRow={info?.sample?.[0]} />}
           </Stepper.Step>
         </Stepper>
 
         <Group justify="flex-end">
           <Button variant="default" onClick={onClose}>{at === 'result' ? 'Close' : 'Cancel'}</Button>
           {active > 0 && at !== 'result' && (
-            <Button variant="default" disabled={train.isPending} onClick={() => setAt(steps[active - 1])}>Back</Button>
+            <Button variant="default" disabled={train.running} onClick={() => setAt(steps[active - 1])}>Back</Button>
           )}
           {active >= 0 && active < steps.indexOf('train') && <Button onClick={goOn} disabled={!canGoOn}>Next</Button>}
-          {at === 'train' && <Button loading={train.isPending} onClick={() => train.mutate()}>Train</Button>}
+          {at === 'train' && <Button loading={train.running} onClick={() => train.start(trainedName, spec())}>Train</Button>}
         </Group>
       </Stack>
     </Modal>

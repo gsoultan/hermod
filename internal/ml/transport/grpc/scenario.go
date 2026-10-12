@@ -118,6 +118,8 @@ func picks(in []recommend.Pick) ([]*proto.ScenarioPick, error) {
 // recommendStatus maps a recommendation error onto a gRPC status.
 func recommendStatus(err error) error {
 	switch {
+	case errors.Is(err, ml.ErrSyncTimeout):
+		return status.Error(codes.DeadlineExceeded, syncHint(err))
 	case errors.Is(err, ml.ErrBadRecommendRequest), errors.Is(err, ml.ErrNotRecommender):
 		return status.Error(codes.InvalidArgument, err.Error())
 	case errors.Is(err, ml.ErrQuotaExceeded):

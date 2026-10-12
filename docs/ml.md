@@ -1225,7 +1225,168 @@ hermod.ml.v1.InferenceService/Predict
   { vhost: "default", model: "fraud", instances: [{amount: 912.5, country: "ID"}] }
 ```
 
-One call takes at most 1000 rows.
+One call takes at most 1000 rows, and is given 10 seconds (see
+[The sync time limit](#the-sync-time-limit)). For more rows, or a slower
+model, send it as a [job](#asynchronous-jobs).
+
+## Asynchronous jobs
+
+A call that may take a while — many rows, a slow model, a training — can run
+as a **job**: Hermod answers at once with where to read it, runs it in the
+background, and keeps the answer for 7 days. Predict, recommend (the serving
+endpoint and `POST /api/vhosts/{vhost}/ml/models/{name}/predict`) and train
+take it. Ask for it with `"respond": "async"` in the body, or the header
+`Prefer: respond-async`; a `"respond"` in the body wins over the header, and
+anything but `"sync"` or `"async"` there is a 400.
+
+```bash
+curl -i -X POST https://hermod.example.com/api/ml/serve/default/fraud \
+  -H "X-API-Key: hml_…" \
+  -d '{"instances": [{"amount": 912.5, "country": "ID"}, …], "respond": "async"}'
+# HTTP/1.1 202 Accepted
+# Location: /api/ml/serve/default/jobs/job_5f0c…
+# Preference-Applied: respond-async
+# {"job_id":"job_5f0c…","status":"queued","status_url":"/api/ml/serve/default/jobs/job_5f0c…"}
+
+curl https://hermod.example.com/api/ml/serve/default/jobs/job_5f0c… -H "X-API-Key: hml_…"
+# {"id":"job_5f0c…","model":"fraud","kind":"predict","status":"running","progress":0.4,
+#  "progress_message":"2,000 of 5,000 rows","created_at":"…","expires_at":"…","status_url":"…"}
+# … and once it has finished:
+# {"id":"job_5f0c…","status":"succeeded","progress":1,
+#  "result":{"model":"fraud","predictions":[{"score":0.93}, …]}, …}
+```
+
+A job's `status` is `queued`, `running`, `succeeded`, `failed` (with `error`
+saying why, in words) or `cancelled`. `progress` runs from 0 to 1, with
+`progress_message`. The result is what the call would have answered. One over
+64 KiB is kept apart from the job: the job then has `result_url` instead of
+`result`, and that URL answers it (409 until the job has succeeded). A result
+over 12 MiB fails the job. A prediction job takes up to 50,000 rows and sends
+them to the model 1,000 at a time — fewer when the vhost's
+`max_predictions_per_second` quota is lower, so a job is paced by the quota
+rather than refused by it. Quotas apply to a job's calls as they do to the
+same calls sent sync.
+
+| Endpoint | Who |
+|---|---|
+| `GET /api/ml/serve/{vhost}/jobs/{id}` | The serving key of the model the job was submitted for, and only for a job submitted with a serving key. Any other key, and a job that does not exist, is the same 404. |
+| `GET /api/ml/serve/{vhost}/jobs/{id}/result` | As above. |
+| `POST /api/ml/serve/{vhost}/jobs/{id}/cancel` | As above. |
+| `GET /api/vhosts/{vhost}/ml/jobs?model=&status=&limit=&offset=` | Any role on the vhost. Newest first, `limit` 50 by default and at most 200; answers `{"data": […], "total": n}` without requests or results. |
+| `GET /api/vhosts/{vhost}/ml/jobs/{id}` | Editor: the job holds the model's output. |
+| `GET /api/vhosts/{vhost}/ml/jobs/{id}/result` | Editor. |
+| `POST /api/vhosts/{vhost}/ml/jobs/{id}/cancel` | Editor; audited. |
+
+Cancelling a queued job ends it at once; a running one is stopped within a
+few seconds and ends `cancelled`. Cancelling a finished job changes nothing
+and answers it as it is.
+
+**Training** sent async (`{"dataset": …, "target": …, "respond": "async"}` to
+`POST …/ml/models/{name}/train`) is queued as the user who sent it; the audit
+log records the queueing, and the job's result is the usual training result
+(`model`, `version`, `live`, `reason`). The **Train a model** dialog trains
+this way: the Train step shows the job's progress and can stop it, and closing
+the dialog leaves the training running. **Jobs** on the Models page lists the
+vhost's jobs with their status, progress and, for one that failed, why; an
+Editor can stop one there. The **Copy API call** and **Copy async call**
+buttons under a trained version give both forms of the call.
+
+### Running jobs
+
+Every Hermod replica runs jobs: `HERMOD_ML_JOB_WORKERS` at a time (default 2).
+A replica claims a job for a minute and renews the claim every few seconds
+while it runs, so a job whose replica stops — a restart, a crash — is taken
+up again by the next replica that looks once the claim has run out, and
+starts over. A job that has been started three times without finishing fails
+with that said. A vhost may have at most `HERMOD_ML_MAX_QUEUED_JOBS` jobs
+waiting to start (default 1000, 0 for no limit); one more is refused with a
+429 (`RESOURCE_EXHAUSTED` over gRPC) that names the quota `max_queued_jobs`.
+Jobs and their results are kept in the `ml_jobs` and `ml_job_results` tables
+(SQL) or collections (MongoDB), removed 7 days after the job was created, and
+removed with the vhost.
+
+### Callbacks
+
+Add `"callback_url"` to an async call and Hermod posts the finished job there
+— succeeded, failed or cancelled:
+
+```json
+{"job_id": "job_5f0c…", "vhost": "default", "model": "fraud", "kind": "predict",
+ "status": "succeeded", "finished_at": "2026-10-12T09:30:04Z",
+ "status_url": "/api/ml/serve/default/jobs/job_5f0c…",
+ "result": {"model": "fraud", "predictions": [ … ]}}
+```
+
+`result` is left out, and `result_url` given, when the result is kept apart.
+A callback is signed with the vhost secret **`ML_CALLBACK_SECRET`** (saved on
+the vhost's **Secrets** page); a call with a `callback_url` on a vhost without
+it is refused with a 400 (`FAILED_PRECONDITION` over gRPC) that names the
+secret. The request carries:
+
+| Header | Value |
+|---|---|
+| `X-Hermod-Timestamp` | Unix seconds when it was sent. |
+| `X-Hermod-Signature-256` | `sha256=` and the hex HMAC-SHA256, keyed with the secret, of the timestamp, a `.` and the raw body. |
+| `X-Hermod-Job-Id` | The job's id. |
+
+Check the signature over the raw body before parsing it, and refuse an old
+timestamp so a callback cannot be replayed:
+
+```python
+import hashlib, hmac, time
+
+def verify(secret: bytes, headers, body: bytes, max_age=300) -> bool:
+    ts = headers["X-Hermod-Timestamp"]
+    if abs(time.time() - int(ts)) > max_age:
+        return False
+    want = "sha256=" + hmac.new(secret, ts.encode() + b"." + body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(want, headers["X-Hermod-Signature-256"])
+```
+
+Any 2xx answer is a delivery. Anything else, or no answer in 10 seconds, is
+tried again after 30 s, then twice as long each time up to an hour, eight
+tries in all; the job shows `callback_status` (`pending`, `delivered` or
+`failed`), `callback_attempts` and the last `callback_error`. Redirects are
+not followed. The URL must be `http` or `https` without a user name or
+password, and may not name `localhost` or a loopback, private, link-local or
+unspecified address; a name that resolves to one is refused when Hermod
+connects, as for every outbound call Hermod makes on a user's say-so. So a
+callback cannot reach Hermod's own network — which also means a receiver on a
+private address cannot be used; there is no setting that allows one.
+
+### Over gRPC
+
+`InferenceService` has `SubmitJob` (a `predict` or `recommend` request, and
+an optional `callback_url`), `GetJob`, `CancelJob` and `WatchJob`, which
+streams the job each time its status or progress changes and ends after it
+has sent it finished. The serving key goes in the `x-api-key` metadata, as
+for `Predict`. Hermod's gRPC port has no reflection, so give grpcurl the
+proto:
+
+```bash
+grpcurl -import-path pkg/ml/proto -proto inference.proto -H 'x-api-key: hml_…' \
+  -d '{"predict": {"vhost": "default", "model": "fraud", "instances": [{"amount": 912.5, "country": "ID"}]}}' \
+  hermod.example.com:50051 hermod.ml.v1.InferenceService/SubmitJob
+# {"job": {"id": "job_5f0c…", "vhost": "default", "model": "fraud", "kind": "predict", "status": "queued", …}}
+
+grpcurl -import-path pkg/ml/proto -proto inference.proto -H 'x-api-key: hml_…' \
+  -d '{"vhost": "default", "job_id": "job_5f0c…"}' \
+  hermod.example.com:50051 hermod.ml.v1.InferenceService/WatchJob
+# {"job": {… "status": "running", "progress": 0.4, "progressMessage": "2,000 of 5,000 rows"}}
+# {"job": {… "status": "succeeded", "progress": 1, "predictResult": {"model": "fraud", "predictions": [ … ]}}}
+```
+
+A job's id, read with a key other than the one for its model, is `NOT_FOUND`.
+
+### The sync time limit
+
+A predict or recommend call sent sync is given 10 seconds. One that takes
+longer is stopped and answered **408** (`DEADLINE_EXCEEDED` over gRPC), with a
+message that says to send it with `"respond": "async"` instead. A model whose
+own timeout (`timeout_ms`) is longer keeps its own. `HERMOD_ML_SYNC_TIMEOUT`
+sets the limit (`30s`, or a number of seconds); `0` turns it off. The
+Predict node and the other workflow nodes are not held to it. Training sent
+sync waits for the training, as before.
 
 ## MCP clients
 
@@ -1396,3 +1557,9 @@ Hermod registers one yet.
 - `hermod_ml_prediction_logs_written_total{vhost,model}`
 - `hermod_ml_prediction_logs_dropped_total{vhost,model,reason}`
 - `hermod_ml_monitor_dropped_total{vhost,model,reason}`
+- `hermod_ml_jobs_submitted_total{vhost,kind}` and
+  `hermod_ml_jobs_finished_total{vhost,kind,status}`: asynchronous jobs
+- `hermod_ml_job_duration_seconds{kind}`: how long a job ran on the replica
+  that finished it
+- `hermod_ml_job_callbacks_total{outcome}`: callback deliveries, `outcome`
+  `delivered`, `retry` or `failed`

@@ -1,8 +1,8 @@
 import { useId, useState } from 'react'
 import {
-  Accordion, Alert, Badge, Button, CopyButton, Group, Modal, NumberInput, Paper, Radio, Select, Stack, Table, Text, TextInput, Title,
+  Accordion, Alert, Badge, Button, Group, Modal, NumberInput, Paper, Radio, Select, Stack, Table, Text, TextInput, Title,
 } from '@mantine/core'
-import { IconAlertCircle, IconCalendar, IconCheck, IconCopy, IconTableExport } from '@tabler/icons-react'
+import { IconAlertCircle, IconCalendar, IconTableExport } from '@tabler/icons-react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { FormRow } from '@/components/common/FormRow'
 import { RECOMMENDATION, listSQLSources, type TrainResult } from '@/lib/mlModels'
@@ -184,17 +184,11 @@ export function ScenarioResultView({ vhost, result }: { vhost: string; result: T
 
       {v.scenario === 'visits' && <PlanPreview vhost={vhost} name={name} />}
 
-      <NextSteps vhost={vhost} result={result} apiCall={recommendCurl(vhost, name, body)} onTry={() => setTrying(true)}
+      <NextSteps vhost={vhost} result={result} apiCall={recommendCurl(vhost, name, body)}
+        asyncCall={recommendCurl(vhost, name, asyncBody)} onTry={() => setTrying(true)}
         workflow={`To use it in a workflow, add a Predict node from Machine Learning and pick ${name}, or a Build Recommendations node to write every list at once.`} />
       <Stack gap={4}>
         <Group gap="xs">
-          <CopyButton value={recommendCurl(vhost, name, asyncBody)}>
-            {({ copied, copy }) => (
-              <Button variant="default" size="xs" leftSection={copied ? <IconCheck size="1rem" /> : <IconCopy size="1rem" />} onClick={copy}>
-                {copied ? 'Copied' : 'Copy async call'}
-              </Button>
-            )}
-          </CopyButton>
           <Button variant="light" size="xs" leftSection={<IconTableExport size="1rem" />} onClick={() => setBuilding(true)}>
             Build recommendations into a table
           </Button>

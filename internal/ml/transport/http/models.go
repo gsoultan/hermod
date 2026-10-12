@@ -4,10 +4,12 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gsoultan/hermod/internal/api/handlers"
 	"github.com/gsoultan/hermod/internal/ml"
@@ -35,6 +37,8 @@ type Handler struct {
 	noEnvWorker bool
 	pools       *ml.Pools
 	monitor     *monitor.Monitor
+	// syncTimeout replaces the sync time limit HERMOD_ML_SYNC_TIMEOUT sets.
+	syncTimeout *time.Duration
 }
 
 // NewHandler wraps the shared API handler.
@@ -45,7 +49,7 @@ func NewHandler(h *handlers.Handler) *Handler {
 // RegisterRoutes mounts the model routes. Writes are behind EditorOnly, and
 // access() then checks the vhost in the path, which a role wrapper cannot.
 // /api/ml/serve/ is public in AuthMiddleware: the serving key is its
-// credential, checked in Serve.
+// credential, checked in Serve and in the serving job routes.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/vhosts/{vhost}/ml/models", h.ListModels)
 	mux.HandleFunc("GET /api/vhosts/{vhost}/ml/models/{name}", h.GetModel)
@@ -68,6 +72,13 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("PUT /api/vhosts/{vhost}/ml/datasets/{name}/refresh", h.EditorOnly(h.PutDatasetRefresh))
 	mux.Handle("DELETE /api/vhosts/{vhost}/ml/datasets/{name}/refresh", h.EditorOnly(h.DeleteDatasetRefresh))
 	mux.Handle("POST /api/vhosts/{vhost}/ml/recommend-check", h.EditorOnly(h.RecommendCheck))
+	mux.HandleFunc("GET /api/ml/serve/{vhost}/jobs/{id}", h.ServeJob)
+	mux.HandleFunc("GET /api/ml/serve/{vhost}/jobs/{id}/result", h.ServeJobResult)
+	mux.HandleFunc("POST /api/ml/serve/{vhost}/jobs/{id}/cancel", h.ServeCancelJob)
+	mux.HandleFunc("GET /api/vhosts/{vhost}/ml/jobs", h.ListJobs)
+	mux.Handle("GET /api/vhosts/{vhost}/ml/jobs/{id}", h.EditorOnly(h.GetJob))
+	mux.Handle("GET /api/vhosts/{vhost}/ml/jobs/{id}/result", h.EditorOnly(h.GetJobResult))
+	mux.Handle("POST /api/vhosts/{vhost}/ml/jobs/{id}/cancel", h.EditorOnly(h.CancelJob))
 
 	mux.HandleFunc("GET /api/ml/worker", h.WorkerStatus)
 	mux.HandleFunc("GET /api/vhosts/{vhost}/ml/datasets", h.ListDatasets)
@@ -115,6 +126,9 @@ func (h *Handler) service() *ml.Service {
 	}
 	if h.monitor != nil {
 		svc.WithMonitor(h.monitor)
+	}
+	if h.syncTimeout != nil {
+		svc.WithSyncTimeout(*h.syncTimeout)
 	}
 	return svc
 }
@@ -176,8 +190,16 @@ func (h *Handler) fail(w http.ResponseWriter, err error) {
 		h.JsonError(w, err.Error(), http.StatusBadRequest)
 	case errors.Is(err, storage.ErrMLModelsUnsupported):
 		h.JsonError(w, err.Error(), http.StatusNotImplemented)
-	case errors.Is(err, ml.ErrTooManyRows):
+	case errors.Is(err, ml.ErrTooManyRows), errors.Is(err, ml.ErrBadJob):
 		h.JsonError(w, err.Error(), http.StatusBadRequest)
+	case errors.Is(err, ml.ErrJobNotFound):
+		h.JsonError(w, "this vhost has no job by that id", http.StatusNotFound)
+	case errors.Is(err, storage.ErrMLJobsUnsupported):
+		h.JsonError(w, err.Error(), http.StatusNotImplemented)
+	case errors.Is(err, ml.ErrSyncTimeout):
+		// 408: the call was not answered in the time a waiting call gets;
+		// the message says how to send it so that it need not wait.
+		h.JsonError(w, err.Error(), http.StatusRequestTimeout)
 	case errors.Is(err, ml.ErrRecommender), errors.Is(err, ml.ErrNotRecommender),
 		errors.Is(err, ml.ErrBadRecommendRequest):
 		h.JsonError(w, err.Error(), http.StatusBadRequest)
@@ -370,13 +392,17 @@ func (h *Handler) DisableServing(w http.ResponseWriter, r *http.Request) {
 // predictRequest is the body of a prediction call, in the TensorFlow Serving
 // "instances" shape: one object per row. A recommendation model is called
 // with "user" (a person's items) or "item" (items like it) instead, plus "k"
-// and, for a user, "exclude_seen".
+// and, for a user, "exclude_seen". "respond": "async" runs the call as a job,
+// which takes up to ml.MaxRowsPerJob rows, and "callback_url" is told when
+// it ends.
 type predictRequest struct {
 	Instances   []inference.Row `json:"instances"`
 	User        any             `json:"user"`
 	Item        any             `json:"item"`
 	K           int             `json:"k"`
 	ExcludeSeen *bool           `json:"exclude_seen"`
+	Respond     string          `json:"respond"`
+	CallbackURL string          `json:"callback_url"`
 }
 
 // recommends reports whether the body asks for recommendations.
@@ -384,11 +410,12 @@ func (r predictRequest) recommends() bool { return r.User != nil || r.Item != ni
 
 // Predict calls a model from the UI, as an Editor of its vhost.
 func (h *Handler) Predict(w http.ResponseWriter, r *http.Request) {
-	vhost, _, ok := h.access(w, r, true)
+	vhost, user, ok := h.access(w, r, true)
 	if !ok {
 		return
 	}
-	h.predict(w, r.WithContext(ml.WithCaller(r.Context(), storage.MLCallerUI, "")), vhost, r.PathValue("name"))
+	h.predict(w, r.WithContext(ml.WithCaller(r.Context(), storage.MLCallerUI, "")), vhost, r.PathValue("name"),
+		storage.MLCallerUI, user.Username)
 }
 
 // Serve is how an application calls a model: no session, the model's serving
@@ -396,45 +423,66 @@ func (h *Handler) Predict(w http.ResponseWriter, r *http.Request) {
 // endpoint does not say which models exist or which have serving turned on.
 func (h *Handler) Serve(w http.ResponseWriter, r *http.Request) {
 	vhost, name := r.PathValue("vhost"), r.PathValue("name")
-	key := r.Header.Get("X-API-Key")
-	if key == "" {
-		key = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	}
+	key := servingKey(r)
 	if key == "" || h.service().AuthorizeServing(r.Context(), vhost, name, key) != nil {
 		h.JsonError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	h.predict(w, r.WithContext(ml.WithCaller(r.Context(), storage.MLCallerREST, "")), vhost, name)
+	h.predict(w, r.WithContext(ml.WithCaller(r.Context(), storage.MLCallerREST, "")), vhost, name, storage.MLCallerREST, "")
 }
 
-func (h *Handler) predict(w http.ResponseWriter, r *http.Request, vhost, name string) {
+// predict answers a prediction or recommendation call: at once, within the
+// sync time limit, or as a job when the caller asks for one. callerKind and
+// by say who is calling, for a job.
+func (h *Handler) predict(w http.ResponseWriter, r *http.Request, vhost, name, callerKind, by string) {
 	var req predictRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxPredictBody)).Decode(&req); err != nil {
 		h.JsonError(w, `the request body must be JSON: {"instances": [{...}, ...]}`, http.StatusBadRequest)
 		return
 	}
-	if req.recommends() {
-		if len(req.Instances) > 0 {
-			h.JsonError(w, `give "instances" or a "user"/"item", not both`, http.StatusBadRequest)
-			return
-		}
-		items, id, err := h.service().RecommendWithID(r.Context(), vhost, name, ml.RecommendRequest{
-			User: req.User, Item: req.Item, K: req.K, ExcludeSeen: req.ExcludeSeen})
-		if err != nil {
-			h.fail(w, err)
-			return
-		}
-		writeJSON(w, map[string]any{"model": name, "items": items, "recommendation_id": id})
+	async, err := asyncWanted(r, req.Respond)
+	if err != nil {
+		h.JsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if len(req.Instances) == 0 {
+	if !async && req.CallbackURL != "" {
+		h.JsonError(w, `"callback_url" applies to a call sent with "respond": "async"`, http.StatusBadRequest)
+		return
+	}
+	if req.recommends() && len(req.Instances) > 0 {
+		h.JsonError(w, `give "instances" or a "user"/"item", not both`, http.StatusBadRequest)
+		return
+	}
+	if !req.recommends() && len(req.Instances) == 0 {
 		h.JsonError(w, `"instances" must hold at least one row`, http.StatusBadRequest)
 		return
 	}
-	preds, err := h.service().Predict(r.Context(), vhost, name, req.Instances)
+	if async {
+		sub := ml.JobSubmission{VHost: vhost, Model: name, Kind: storage.MLJobPredict, Rows: req.Instances,
+			CallbackURL: req.CallbackURL, CallerKind: callerKind, CreatedBy: by}
+		if req.recommends() {
+			sub.Kind, sub.Rows = storage.MLJobRecommend, nil
+			sub.Recommend = &ml.RecommendRequest{User: req.User, Item: req.Item, K: req.K, ExcludeSeen: req.ExcludeSeen}
+		}
+		h.submitJob(w, r, sub)
+		return
+	}
+	svc := h.service()
+	var answer map[string]any
+	err = svc.Sync(r.Context(), vhost, name, func(ctx context.Context) error {
+		if req.recommends() {
+			items, id, err := svc.RecommendWithID(ctx, vhost, name, ml.RecommendRequest{
+				User: req.User, Item: req.Item, K: req.K, ExcludeSeen: req.ExcludeSeen})
+			answer = map[string]any{"model": name, "items": items, "recommendation_id": id}
+			return err
+		}
+		preds, err := svc.Predict(ctx, vhost, name, req.Instances)
+		answer = map[string]any{"model": name, "predictions": preds}
+		return err
+	})
 	if err != nil {
 		h.fail(w, err)
 		return
 	}
-	writeJSON(w, map[string]any{"model": name, "predictions": preds})
+	writeJSON(w, answer)
 }

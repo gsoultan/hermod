@@ -45,6 +45,32 @@ var (
 	}, []string{"vhost", "quota"})
 )
 
+// Jobs: what was queued, how it ended and how long it ran, and how callbacks
+// went. A queue that grows (submitted far ahead of finished) or callbacks
+// that keep failing are what an operator looks at first.
+var (
+	jobsSubmitted = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "hermod_ml_jobs_submitted_total",
+		Help: "ML jobs queued, by kind (predict, recommend or train).",
+	}, []string{"vhost", "kind"})
+
+	jobsFinished = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "hermod_ml_jobs_finished_total",
+		Help: "ML jobs that ended, by kind and status (succeeded, failed or cancelled).",
+	}, []string{"vhost", "kind", "status"})
+
+	jobSeconds = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "hermod_ml_job_duration_seconds",
+		Help:    "How long an ML job ran on the Hermod that finished it.",
+		Buckets: []float64{.1, .5, 1, 5, 15, 60, 300, 900, 1800, 3600},
+	}, []string{"kind"})
+
+	callbacksTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "hermod_ml_job_callbacks_total",
+		Help: "Deliveries of ML job callbacks, by outcome (delivered, retry or failed).",
+	}, []string{"outcome"})
+)
+
 // recommendationsTotal counts a recommendation model's answers by what was
 // asked (user or item) and what answered: the model, or popular items for a
 // person or item it does not know.

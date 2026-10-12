@@ -48,6 +48,8 @@ GET /api/marketplace/plugins
 GET /api/marketplace/plugins/{id}
 GET /api/mcp
 GET /api/me
+GET /api/ml/serve/{vhost}/jobs/{id}
+GET /api/ml/serve/{vhost}/jobs/{id}/result
 GET /api/ml/worker
 GET /api/notifications/sse
 GET /api/schemas
@@ -73,6 +75,9 @@ GET /api/vhosts/{vhost}/lineage
 GET /api/vhosts/{vhost}/lineage/impact
 GET /api/vhosts/{vhost}/ml/datasets
 GET /api/vhosts/{vhost}/ml/datasets/{name}
+GET /api/vhosts/{vhost}/ml/jobs
+GET /api/vhosts/{vhost}/ml/jobs/{id}
+GET /api/vhosts/{vhost}/ml/jobs/{id}/result
 GET /api/vhosts/{vhost}/ml/models
 GET /api/vhosts/{vhost}/ml/models/{name}
 GET /api/vhosts/{vhost}/ml/models/{name}/build
@@ -154,6 +159,7 @@ POST /api/marketplace/install
 POST /api/marketplace/uninstall
 POST /api/mcp
 POST /api/mesh/clusters
+POST /api/ml/serve/{vhost}/jobs/{id}/cancel
 POST /api/ml/serve/{vhost}/{name}
 POST /api/ml/serve/{vhost}/{name}/recommend
 POST /api/proxy/fetch
@@ -189,6 +195,7 @@ POST /api/utils/token
 POST /api/vhosts
 POST /api/vhosts/
 POST /api/vhosts/{vhost}/ml/datasets/{name}/query
+POST /api/vhosts/{vhost}/ml/jobs/{id}/cancel
 POST /api/vhosts/{vhost}/ml/models/{name}/feedback
 POST /api/vhosts/{vhost}/ml/models/{name}/predict
 POST /api/vhosts/{vhost}/ml/models/{name}/recommend

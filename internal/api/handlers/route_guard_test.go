@@ -61,6 +61,7 @@ var unguardedMutatingRoutes = map[string]string{
 	"POST /api/forms/{path...}":                   "public form submission",
 	"POST /api/ml/serve/{vhost}/{name}":           "public model serving; authenticated by the model's own serving key",
 	"POST /api/ml/serve/{vhost}/{name}/recommend": "public recommendation serving; authenticated by the model's own serving key",
+	"POST /api/ml/serve/{vhost}/jobs/{id}/cancel": "public model serving; authenticated by the serving key of the job's own model",
 	"POST /api/chat/{path...}":                    "public chat endpoint; authenticated by the source's API key, widget key and origin, or Slack/Telegram signature",
 
 	// self-service: the handler checks caller identity, not role

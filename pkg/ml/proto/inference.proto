@@ -3,6 +3,7 @@ syntax = "proto3";
 package hermod.ml.v1;
 
 import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/gsoultan/hermod/pkg/ml/proto";
 
@@ -44,6 +45,116 @@ service InferenceService {
   // scenario; RESOURCE_EXHAUSTED over the vhost's quota; UNAVAILABLE when the
   // model could not be loaded.
   rpc RecommendScenario(RecommendScenarioRequest) returns (RecommendScenarioResponse);
+
+  // SubmitJob queues a Predict or Recommend call as a job and returns at
+  // once. It is the gRPC twin of a serve call with "respond": "async". A
+  // prediction job takes up to 50000 rows, sent to the model in calls the
+  // vhost's quota lets through. Read the job with GetJob or WatchJob; it and
+  // its result are kept for 7 days.
+  //
+  // Errors: UNAUTHENTICATED as for Predict; INVALID_ARGUMENT for a call
+  // Predict or Recommend would refuse in itself, or a callback_url that is not
+  // a public http or https URL; FAILED_PRECONDITION for a callback_url when
+  // the vhost holds no ML_CALLBACK_SECRET; RESOURCE_EXHAUSTED when the vhost
+  // has too many jobs waiting.
+  rpc SubmitJob(SubmitJobRequest) returns (SubmitJobResponse);
+
+  // GetJob returns a job submitted with the same model's serving key, with
+  // its result once it has one.
+  //
+  // Errors: UNAUTHENTICATED for no key; NOT_FOUND for a job that does not
+  // exist or was not submitted with this model's serving key (the same
+  // answer for each).
+  rpc GetJob(GetJobRequest) returns (GetJobResponse);
+
+  // CancelJob cancels a queued job at once, and stops a running one within
+  // seconds. A finished job is returned as it is. Errors as for GetJob.
+  rpc CancelJob(CancelJobRequest) returns (CancelJobResponse);
+
+  // WatchJob sends the job now, again each time its status or progress
+  // changes, and ends after sending it finished. Errors as for GetJob.
+  rpc WatchJob(WatchJobRequest) returns (stream WatchJobResponse);
+}
+
+message SubmitJobRequest {
+  // The call to run as a job. Its vhost and model are the job's.
+  oneof call {
+    PredictRequest predict = 1;
+    RecommendRequest recommend = 2;
+  }
+  // An http or https URL Hermod posts the finished job to, signed with the
+  // vhost's ML_CALLBACK_SECRET. Optional.
+  string callback_url = 3;
+}
+
+message SubmitJobResponse {
+  // The job, queued.
+  Job job = 1;
+}
+
+message GetJobRequest {
+  // The vhost the job belongs to.
+  string vhost = 1;
+  // The job's id, as SubmitJob returned it.
+  string job_id = 2;
+}
+
+message GetJobResponse {
+  Job job = 1;
+}
+
+message CancelJobRequest {
+  // The vhost the job belongs to.
+  string vhost = 1;
+  // The job's id.
+  string job_id = 2;
+}
+
+message CancelJobResponse {
+  // The job after cancelling: cancelled, or running with
+  // cancel_requested set until it stops.
+  Job job = 1;
+}
+
+message WatchJobRequest {
+  // The vhost the job belongs to.
+  string vhost = 1;
+  // The job's id.
+  string job_id = 2;
+}
+
+message WatchJobResponse {
+  Job job = 1;
+}
+
+// Job is an asynchronous call: where it stands and, once it succeeded, what
+// the call answered.
+message Job {
+  string id = 1;
+  string vhost = 2;
+  string model = 3;
+  // "predict", "recommend" or "train".
+  string kind = 4;
+  // "queued", "running", "succeeded", "failed" or "cancelled".
+  string status = 5;
+  // How far along the job is, from 0 to 1, and the same in words.
+  double progress = 6;
+  string progress_message = 7;
+  // Why the job failed, in words; empty otherwise.
+  string error = 8;
+  // Set once cancelling a running job was asked for, until it stops.
+  bool cancel_requested = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp started_at = 11;
+  google.protobuf.Timestamp finished_at = 12;
+  // When the job and its result are removed.
+  google.protobuf.Timestamp expires_at = 13;
+  // The answer of a succeeded job: what Predict or Recommend would have
+  // returned. Unset until then.
+  oneof result {
+    PredictResponse predict_result = 14;
+    RecommendResponse recommend_result = 15;
+  }
 }
 
 message RecommendScenarioRequest {

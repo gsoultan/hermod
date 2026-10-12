@@ -203,10 +203,13 @@ func (h *Handler) RecommendCheck(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, res)
 }
 
-// trainBody is a training asked for from the UI or the API.
+// trainBody is a training asked for from the UI or the API. "respond":
+// "async" queues it as a job, and "callback_url" is told when it ends.
 type trainBody struct {
 	worker.TrainSpec
-	GoLive ml.GoLive `json:"go_live"`
+	GoLive      ml.GoLive `json:"go_live"`
+	Respond     string    `json:"respond"`
+	CallbackURL string    `json:"callback_url"`
 }
 
 func (h *Handler) TrainModel(w http.ResponseWriter, r *http.Request) {
@@ -230,6 +233,27 @@ func (h *Handler) TrainModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := r.PathValue("name")
+	async, err := asyncWanted(r, req.Respond)
+	if err != nil {
+		h.JsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if async {
+		// The job trains as the user who queued it; the audit records the
+		// queueing, and the job holds what the training did.
+		j, ok := h.submitJob(w, r, ml.JobSubmission{VHost: vhost, Model: name, Kind: storage.MLJobTrain,
+			Train: &ml.TrainJob{Spec: req.TrainSpec, GoLive: req.GoLive}, CallbackURL: req.CallbackURL,
+			CallerKind: storage.MLCallerUI, CreatedBy: user.Username})
+		if ok {
+			h.RecordAuditLog(r, "INFO", "Queued training of model "+name+" in vhost "+vhost, "update", vhost, "vhost", "",
+				map[string]any{"model": name, "job": j.ID, "dataset": req.Dataset, "device": req.Device})
+		}
+		return
+	}
+	if req.CallbackURL != "" {
+		h.JsonError(w, `"callback_url" applies to a training sent with "respond": "async"`, http.StatusBadRequest)
+		return
+	}
 	res, err := h.service().Train(r.Context(), vhost, name, req.TrainSpec, req.GoLive, user.Username)
 	if err != nil {
 		h.fail(w, err)

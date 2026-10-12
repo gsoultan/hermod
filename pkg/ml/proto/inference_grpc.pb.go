@@ -22,6 +22,10 @@ const (
 	InferenceService_Predict_FullMethodName           = "/hermod.ml.v1.InferenceService/Predict"
 	InferenceService_Recommend_FullMethodName         = "/hermod.ml.v1.InferenceService/Recommend"
 	InferenceService_RecommendScenario_FullMethodName = "/hermod.ml.v1.InferenceService/RecommendScenario"
+	InferenceService_SubmitJob_FullMethodName         = "/hermod.ml.v1.InferenceService/SubmitJob"
+	InferenceService_GetJob_FullMethodName            = "/hermod.ml.v1.InferenceService/GetJob"
+	InferenceService_CancelJob_FullMethodName         = "/hermod.ml.v1.InferenceService/CancelJob"
+	InferenceService_WatchJob_FullMethodName          = "/hermod.ml.v1.InferenceService/WatchJob"
 )
 
 // InferenceServiceClient is the client API for InferenceService service.
@@ -64,6 +68,31 @@ type InferenceServiceClient interface {
 	// scenario; RESOURCE_EXHAUSTED over the vhost's quota; UNAVAILABLE when the
 	// model could not be loaded.
 	RecommendScenario(ctx context.Context, in *RecommendScenarioRequest, opts ...grpc.CallOption) (*RecommendScenarioResponse, error)
+	// SubmitJob queues a Predict or Recommend call as a job and returns at
+	// once. It is the gRPC twin of a serve call with "respond": "async". A
+	// prediction job takes up to 50000 rows, sent to the model in calls the
+	// vhost's quota lets through. Read the job with GetJob or WatchJob; it and
+	// its result are kept for 7 days.
+	//
+	// Errors: UNAUTHENTICATED as for Predict; INVALID_ARGUMENT for a call
+	// Predict or Recommend would refuse in itself, or a callback_url that is not
+	// a public http or https URL; FAILED_PRECONDITION for a callback_url when
+	// the vhost holds no ML_CALLBACK_SECRET; RESOURCE_EXHAUSTED when the vhost
+	// has too many jobs waiting.
+	SubmitJob(ctx context.Context, in *SubmitJobRequest, opts ...grpc.CallOption) (*SubmitJobResponse, error)
+	// GetJob returns a job submitted with the same model's serving key, with
+	// its result once it has one.
+	//
+	// Errors: UNAUTHENTICATED for no key; NOT_FOUND for a job that does not
+	// exist or was not submitted with this model's serving key (the same
+	// answer for each).
+	GetJob(ctx context.Context, in *GetJobRequest, opts ...grpc.CallOption) (*GetJobResponse, error)
+	// CancelJob cancels a queued job at once, and stops a running one within
+	// seconds. A finished job is returned as it is. Errors as for GetJob.
+	CancelJob(ctx context.Context, in *CancelJobRequest, opts ...grpc.CallOption) (*CancelJobResponse, error)
+	// WatchJob sends the job now, again each time its status or progress
+	// changes, and ends after sending it finished. Errors as for GetJob.
+	WatchJob(ctx context.Context, in *WatchJobRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchJobResponse], error)
 }
 
 type inferenceServiceClient struct {
@@ -103,6 +132,55 @@ func (c *inferenceServiceClient) RecommendScenario(ctx context.Context, in *Reco
 	}
 	return out, nil
 }
+
+func (c *inferenceServiceClient) SubmitJob(ctx context.Context, in *SubmitJobRequest, opts ...grpc.CallOption) (*SubmitJobResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SubmitJobResponse)
+	err := c.cc.Invoke(ctx, InferenceService_SubmitJob_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *inferenceServiceClient) GetJob(ctx context.Context, in *GetJobRequest, opts ...grpc.CallOption) (*GetJobResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetJobResponse)
+	err := c.cc.Invoke(ctx, InferenceService_GetJob_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *inferenceServiceClient) CancelJob(ctx context.Context, in *CancelJobRequest, opts ...grpc.CallOption) (*CancelJobResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CancelJobResponse)
+	err := c.cc.Invoke(ctx, InferenceService_CancelJob_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *inferenceServiceClient) WatchJob(ctx context.Context, in *WatchJobRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchJobResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &InferenceService_ServiceDesc.Streams[0], InferenceService_WatchJob_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[WatchJobRequest, WatchJobResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type InferenceService_WatchJobClient = grpc.ServerStreamingClient[WatchJobResponse]
 
 // InferenceServiceServer is the server API for InferenceService service.
 // All implementations must embed UnimplementedInferenceServiceServer
@@ -144,6 +222,31 @@ type InferenceServiceServer interface {
 	// scenario; RESOURCE_EXHAUSTED over the vhost's quota; UNAVAILABLE when the
 	// model could not be loaded.
 	RecommendScenario(context.Context, *RecommendScenarioRequest) (*RecommendScenarioResponse, error)
+	// SubmitJob queues a Predict or Recommend call as a job and returns at
+	// once. It is the gRPC twin of a serve call with "respond": "async". A
+	// prediction job takes up to 50000 rows, sent to the model in calls the
+	// vhost's quota lets through. Read the job with GetJob or WatchJob; it and
+	// its result are kept for 7 days.
+	//
+	// Errors: UNAUTHENTICATED as for Predict; INVALID_ARGUMENT for a call
+	// Predict or Recommend would refuse in itself, or a callback_url that is not
+	// a public http or https URL; FAILED_PRECONDITION for a callback_url when
+	// the vhost holds no ML_CALLBACK_SECRET; RESOURCE_EXHAUSTED when the vhost
+	// has too many jobs waiting.
+	SubmitJob(context.Context, *SubmitJobRequest) (*SubmitJobResponse, error)
+	// GetJob returns a job submitted with the same model's serving key, with
+	// its result once it has one.
+	//
+	// Errors: UNAUTHENTICATED for no key; NOT_FOUND for a job that does not
+	// exist or was not submitted with this model's serving key (the same
+	// answer for each).
+	GetJob(context.Context, *GetJobRequest) (*GetJobResponse, error)
+	// CancelJob cancels a queued job at once, and stops a running one within
+	// seconds. A finished job is returned as it is. Errors as for GetJob.
+	CancelJob(context.Context, *CancelJobRequest) (*CancelJobResponse, error)
+	// WatchJob sends the job now, again each time its status or progress
+	// changes, and ends after sending it finished. Errors as for GetJob.
+	WatchJob(*WatchJobRequest, grpc.ServerStreamingServer[WatchJobResponse]) error
 	mustEmbedUnimplementedInferenceServiceServer()
 }
 
@@ -162,6 +265,18 @@ func (UnimplementedInferenceServiceServer) Recommend(context.Context, *Recommend
 }
 func (UnimplementedInferenceServiceServer) RecommendScenario(context.Context, *RecommendScenarioRequest) (*RecommendScenarioResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RecommendScenario not implemented")
+}
+func (UnimplementedInferenceServiceServer) SubmitJob(context.Context, *SubmitJobRequest) (*SubmitJobResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SubmitJob not implemented")
+}
+func (UnimplementedInferenceServiceServer) GetJob(context.Context, *GetJobRequest) (*GetJobResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetJob not implemented")
+}
+func (UnimplementedInferenceServiceServer) CancelJob(context.Context, *CancelJobRequest) (*CancelJobResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CancelJob not implemented")
+}
+func (UnimplementedInferenceServiceServer) WatchJob(*WatchJobRequest, grpc.ServerStreamingServer[WatchJobResponse]) error {
+	return status.Error(codes.Unimplemented, "method WatchJob not implemented")
 }
 func (UnimplementedInferenceServiceServer) mustEmbedUnimplementedInferenceServiceServer() {}
 func (UnimplementedInferenceServiceServer) testEmbeddedByValue()                          {}
@@ -238,6 +353,71 @@ func _InferenceService_RecommendScenario_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _InferenceService_SubmitJob_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SubmitJobRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InferenceServiceServer).SubmitJob(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InferenceService_SubmitJob_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InferenceServiceServer).SubmitJob(ctx, req.(*SubmitJobRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InferenceService_GetJob_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetJobRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InferenceServiceServer).GetJob(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InferenceService_GetJob_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InferenceServiceServer).GetJob(ctx, req.(*GetJobRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InferenceService_CancelJob_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CancelJobRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InferenceServiceServer).CancelJob(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InferenceService_CancelJob_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InferenceServiceServer).CancelJob(ctx, req.(*CancelJobRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InferenceService_WatchJob_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(WatchJobRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(InferenceServiceServer).WatchJob(m, &grpc.GenericServerStream[WatchJobRequest, WatchJobResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type InferenceService_WatchJobServer = grpc.ServerStreamingServer[WatchJobResponse]
+
 // InferenceService_ServiceDesc is the grpc.ServiceDesc for InferenceService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -257,7 +437,25 @@ var InferenceService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "RecommendScenario",
 			Handler:    _InferenceService_RecommendScenario_Handler,
 		},
+		{
+			MethodName: "SubmitJob",
+			Handler:    _InferenceService_SubmitJob_Handler,
+		},
+		{
+			MethodName: "GetJob",
+			Handler:    _InferenceService_GetJob_Handler,
+		},
+		{
+			MethodName: "CancelJob",
+			Handler:    _InferenceService_CancelJob_Handler,
+		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "WatchJob",
+			Handler:       _InferenceService_WatchJob_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "inference.proto",
 }

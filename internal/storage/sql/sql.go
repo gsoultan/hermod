@@ -207,6 +207,8 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		s.queries.get(QueryInitMLPredictionLogsTable),
 		s.queries.get(QueryInitMLSchedulesTable),
 		s.queries.get(QueryInitMLFeedbackTable),
+		s.queries.get(QueryInitMLJobsTable),
+		s.queries.get(QueryInitMLJobResultsTable),
 		s.queries.get(QueryInitAIBudgetsTable),
 		s.queries.get(QueryInitAIUsageTable),
 		s.queries.get(QueryInitWorkersTable),
@@ -367,6 +369,14 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		// A model's feedback is counted by outcome since a day, always within
 		// one model of one vhost.
 		"CREATE INDEX IF NOT EXISTS idx_ml_feedback_model_ts ON ml_feedback(vhost, model, created_at)",
+		// A vhost's jobs are listed newest first. Runners look for queued
+		// jobs and expired claims by status, oldest first, and for callbacks
+		// that are due; the purge removes jobs by age.
+		"CREATE INDEX IF NOT EXISTS idx_ml_jobs_vhost_created ON ml_jobs(vhost, created_at DESC)",
+		"CREATE INDEX IF NOT EXISTS idx_ml_jobs_status_created ON ml_jobs(status, created_at)",
+		"CREATE INDEX IF NOT EXISTS idx_ml_jobs_callback ON ml_jobs(callback_status, callback_next_at)",
+		"CREATE INDEX IF NOT EXISTS idx_ml_jobs_expires ON ml_jobs(expires_at)",
+		"CREATE INDEX IF NOT EXISTS idx_ml_job_results_expires ON ml_job_results(expires_at)",
 	}
 
 	for _, q := range indexQueries {
@@ -1505,9 +1515,9 @@ func (s *sqlStorage) UpdateVHost(ctx context.Context, vhost storage.VHost) error
 }
 
 // DeleteVHost removes the vhost and the secrets, models, prediction logs,
-// training scripts, ML quotas and AI budget it holds. All are keyed by the
-// vhost's name, so one left behind would be inherited by the next vhost created
-// under that name.
+// training scripts, ML jobs, ML quotas and AI budget it holds. All are keyed
+// by the vhost's name, so one left behind would be inherited by the next vhost
+// created under that name.
 func (s *sqlStorage) DeleteVHost(ctx context.Context, id string) error {
 	vhost, err := s.GetVHost(ctx, id)
 	if err != nil && !errors.Is(err, storage.ErrNotFound) {
@@ -1524,6 +1534,9 @@ func (s *sqlStorage) DeleteVHost(ctx context.Context, id string) error {
 			return err
 		}
 		if err := s.DeleteMLScripts(ctx, vhost.Name); err != nil {
+			return err
+		}
+		if err := s.DeleteMLJobs(ctx, vhost.Name); err != nil {
 			return err
 		}
 		if err := s.DeleteMLQuotas(ctx, vhost.Name); err != nil {

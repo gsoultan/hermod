@@ -70,6 +70,44 @@ asks scenario models for a salesman, customer or product, and the palette gets
 **Build Recommendations** (`ml_recommend_build`). A server without the
 scenario routes keeps the one-table recommender.
 
+### Added — Asynchronous ML jobs
+
+Predict, recommend and train calls can run as **jobs**: send
+`"respond": "async"` (or `Prefer: respond-async`) and Hermod answers
+`202 {"job_id", "status", "status_url"}` at once, runs the call in the
+background and keeps the answer for 7 days. A job shows its status, progress
+in words ("2,000 of 5,000 rows") and, when it fails, why. A prediction job
+takes up to 50,000 rows and paces itself within the vhost's
+`max_predictions_per_second` quota instead of being refused by it. Jobs are
+read and cancelled under `/api/vhosts/{vhost}/ml/jobs` (listed by any role on
+the vhost, filtered by `model` and `status`; read and cancelled by an Editor)
+and, for a job sent with a serving key, under `/api/ml/serve/{vhost}/jobs/{id}`
+with that model's key only. A `callback_url` is posted the finished job,
+signed with HMAC-SHA256 under the vhost secret `ML_CALLBACK_SECRET`
+(`X-Hermod-Signature-256: sha256=…` over the timestamp and the body), retried
+with backoff for up to eight tries, and refused for loopback, private and
+link-local addresses. Over gRPC, `InferenceService` gains `SubmitJob`,
+`GetJob`, `CancelJob` and the streaming `WatchJob` (additive to
+`hermod.ml.v1`).
+
+Every replica runs jobs (`HERMOD_ML_JOB_WORKERS`, default 2), claiming each for
+a minute at a time, so a job whose replica restarts or dies is picked up again
+by another; a vhost may have `HERMOD_ML_MAX_QUEUED_JOBS` jobs waiting (default
+1000). Jobs live in the new `ml_jobs` and `ml_job_results` tables (SQL) or
+collections (MongoDB), and go with their vhost. The **Train a model** dialog
+now trains as a job, with a progress bar and a Stop button, and can be closed
+while it runs; the Models page lists the vhost's **Jobs**; and a trained
+version offers **Copy async call** beside **Copy API call**. New metrics:
+`hermod_ml_jobs_submitted_total`, `hermod_ml_jobs_finished_total`,
+`hermod_ml_job_duration_seconds` and `hermod_ml_job_callbacks_total`. See
+[Asynchronous jobs](docs/ml.md#asynchronous-jobs).
+
+**Behaviour change:** a predict or recommend call sent sync over REST or gRPC
+is now given 10 seconds, or the model's own `timeout_ms` when that is longer,
+and answers **408** (`DEADLINE_EXCEEDED` over gRPC) with a hint to send it
+async. Set `HERMOD_ML_SYNC_TIMEOUT` (`30s`, or seconds) to change it, or `0`
+for no limit as before. Workflow nodes and sync training are not affected.
+
 ## [1.18.0] — 2026-10-12
 
 AI automation and machine learning. Workflows can call LLM providers, retrieve
