@@ -188,6 +188,7 @@ POST /api/vhosts/{vhost}/ml/models/{name}/predict
 POST /api/vhosts/{vhost}/ml/models/{name}/serving-key
 POST /api/vhosts/{vhost}/ml/models/{name}/train
 POST /api/vhosts/{vhost}/ml/models/{name}/versions/{version}/promote
+POST /api/vhosts/{vhost}/ml/train-check
 POST /api/webhooks/requests/{id}/replay
 POST /api/webhooks/{path...}
 POST /api/worker/ai/check

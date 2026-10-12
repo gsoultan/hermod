@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import {
-  ActionIcon, Alert, Badge, Box, Button, Group, Loader, Paper, Select, Stack, Switch, Table, Tabs, Text, Title, Tooltip,
+  ActionIcon, Alert, Badge, Box, Button, Group, List, Loader, Paper, Select, Stack, Switch, Table, Tabs, Text, Title, Tooltip,
 } from '@mantine/core'
 import {
   IconActivityHeartbeat, IconAlertCircle, IconBrain, IconCode, IconCpu, IconHistory, IconInfoCircle, IconKey, IconPencil, IconPlayerPlay, IconPlus, IconRepeat, IconSchool, IconTrash,
@@ -189,6 +189,16 @@ export function ModelsPage() {
         <Alert m="md" color="red" icon={<IconAlertCircle size="1rem" />} title={`The models of ${vhost} could not be loaded`}>
           {(error as Error).message}
         </Alert>
+      ) : rows.length === 0 && canTrain ? (
+        <EmptyState icon={<IconSchool size="1.3rem" />} title="Train your first model"
+          description={
+            <List type="ordered" size="sm" spacing={4} ta="left">
+              <List.Item>Add a dataset: upload a CSV or Excel file, or read rows from a database, under Datasets below.</List.Item>
+              <List.Item>Train: pick the column to predict, and Hermod tries several methods and keeps the best.</List.Item>
+              <List.Item>Try it: send it one row and see what it predicts, then use it in a workflow.</List.Item>
+            </List>
+          }
+          action={{ label: 'Start training', onClick: () => setDialog({ kind: 'train' }) }} />
       ) : rows.length === 0 ? (
         <EmptyState compact icon={<IconBrain size="1.3rem" />} title={`No models in ${vhost} yet`}
           description="Add the address of a model server and the model's name on it. Then score records with a Predict node."

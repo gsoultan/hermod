@@ -12,7 +12,10 @@ from tests.helpers import classification_rows, load, regression_rows, train
 META_KEYS = {
     "model", "version", "task", "algorithm", "dataset", "target", "features",
     "feature_types", "fill", "feature_stats", "metrics", "rows", "created_at",
+    "importance", "baseline", "warnings",
 }
+# What only an "auto" training records.
+AUTO_KEYS = {"preset", "leaderboard"}
 
 
 @pytest.fixture
@@ -31,11 +34,11 @@ def test_classification_with_defaults(churn, tmp_path):
     resp = train(churn, "churn", dataset="orders", target="churned", features=["x1", "x2", "city", "flag"])
     assert resp.status_code == 200, resp.text
     meta = resp.json()
-    assert set(meta) == META_KEYS | {"labels"}
+    assert set(meta) == META_KEYS | AUTO_KEYS | {"labels"}
     assert meta["model"] == "churn"
     assert meta["version"] == "1"
     assert meta["task"] == "classification"
-    assert meta["algorithm"] == "random_forest"
+    assert meta["algorithm"] == next(e["algorithm"] for e in meta["leaderboard"] if e["chosen"])
     assert meta["dataset"] == "orders"
     assert meta["target"] == "churned"
     assert meta["features"] == ["x1", "x2", "city", "flag"]
@@ -43,7 +46,7 @@ def test_classification_with_defaults(churn, tmp_path):
     assert set(meta["fill"]) == {"x1", "x2", "flag"}
     assert all(isinstance(v, float) for v in meta["fill"].values())
     assert meta["labels"] == ["no", "yes"]
-    assert set(meta["metrics"]) == {"accuracy", "f1", "roc_auc", "score"}
+    assert set(meta["metrics"]) == {"accuracy", "balanced_accuracy", "f1", "roc_auc", "score"}
     assert meta["metrics"]["score"] == meta["metrics"]["accuracy"]
     assert meta["metrics"]["accuracy"] > 0.7
     assert meta["rows"] == {"train": 96, "test": 24}
@@ -86,7 +89,9 @@ def test_regression_auto_and_metrics(sales):
     assert meta["fill"]["x2"] == pytest.approx(meta["fill"]["x2"])
 
 
-@pytest.mark.parametrize("algorithm", ["random_forest", "gradient_boosting", "linear", "xgboost"])
+@pytest.mark.parametrize(
+    "algorithm", ["random_forest", "gradient_boosting", "linear", "xgboost", "extra_trees", "hist_gradient_boosting"]
+)
 def test_every_algorithm_trains_both_tasks(client, algorithm):
     load(client, "orders", classification_rows())
     load(client, "sales", regression_rows())
@@ -152,7 +157,7 @@ def test_versions_increment_and_list_newest_first(churn):
     assert resp.status_code == 200
     versions = resp.json()["versions"]
     assert [v["version"] for v in versions] == ["3", "2", "1"]
-    assert set(versions[0]) == META_KEYS | {"labels"}
+    assert set(versions[0]) == META_KEYS | AUTO_KEYS | {"labels"}
 
 
 def test_versions_sort_numerically(churn, tmp_path):
@@ -351,7 +356,7 @@ def test_xgboost_classification_keeps_string_labels(churn, tmp_path):
     assert meta["algorithm"] == "xgboost"
     assert meta["task"] == "classification"
     assert meta["labels"] == ["no", "yes"]
-    assert set(meta["metrics"]) == {"accuracy", "f1", "roc_auc", "score"}
+    assert set(meta["metrics"]) == {"accuracy", "balanced_accuracy", "f1", "roc_auc", "score"}
     assert meta["metrics"]["accuracy"] > 0.7
     model = onnx.load(str(tmp_path / "data/models/acme/xc/1/model.onnx"))
     assert [i.name for i in model.graph.input] == ["x1", "x2", "city", "flag"]

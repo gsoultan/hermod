@@ -121,9 +121,12 @@ type TrainSpec struct {
 	// Task is auto, classification or regression.
 	Task string `json:"task,omitempty"`
 	// Algorithm is auto, random_forest, gradient_boosting, linear, xgboost,
-	// pytorch_mlp or keras_mlp.
-	Algorithm string  `json:"algorithm,omitempty"`
-	TestSize  float64 `json:"test_size,omitempty"`
+	// extra_trees, hist_gradient_boosting, pytorch_mlp or keras_mlp.
+	Algorithm string `json:"algorithm,omitempty"`
+	// Preset is how hard auto tries: quick, balanced (the worker's default)
+	// or best. Only an auto training takes one.
+	Preset   string  `json:"preset,omitempty"`
+	TestSize float64 `json:"test_size,omitempty"`
 	Seed      *int    `json:"seed,omitempty"`
 	// Device is cpu (the default) or gpu. Hermod routes a gpu training to its
 	// GPU worker pool; the worker reads it as a hint for its own networks.
@@ -182,6 +185,70 @@ type Version struct {
 	// it printed; both are empty for a built-in algorithm.
 	Script *ScriptRef `json:"script,omitempty"`
 	Log    string     `json:"log,omitempty"`
+
+	// Preset and Leaderboard are an auto training's: how hard it tried, and
+	// every candidate it scored, best first.
+	Preset      string             `json:"preset,omitempty"`
+	Leaderboard []LeaderboardEntry `json:"leaderboard,omitempty"`
+	// Importance is each feature's permutation importance on the held-out
+	// rows, normalised to sum to 1, heaviest first, at most 20.
+	Importance []FeatureWeight `json:"importance,omitempty"`
+	// Baseline holds the Metrics keys, scored by a model that always answers
+	// the most common class or the mean.
+	Baseline map[string]float64 `json:"baseline,omitempty"`
+	// Warnings are notes on the data, in words.
+	Warnings []string `json:"warnings,omitempty"`
+}
+
+// LeaderboardEntry is one algorithm auto scored by cross-validation on the
+// training rows. Metric is balanced_accuracy for a classifier and r2 for a
+// regression; Folds is 1 for a single validation split.
+type LeaderboardEntry struct {
+	Algorithm string  `json:"algorithm"`
+	Score     float64 `json:"score"`
+	Metric    string  `json:"metric"`
+	Folds     int     `json:"folds"`
+	Seconds   float64 `json:"seconds"`
+	Chosen    bool    `json:"chosen"`
+}
+
+// FeatureWeight is one feature's share of what the model relies on.
+type FeatureWeight struct {
+	Feature string  `json:"feature"`
+	Weight  float64 `json:"weight"`
+}
+
+// TrainCheck is the pre-flight answer for a training: what the worker makes
+// of the dataset, without training anything.
+type TrainCheck struct {
+	// Task is classification or regression; TargetKind yes_no, category or
+	// number. Classes is set for a classification only.
+	Task       string         `json:"task"`
+	TargetKind string         `json:"target_kind"`
+	Classes    *int           `json:"classes,omitempty"`
+	Rows       int            `json:"rows"`
+	UsableRows int            `json:"usable_rows"`
+	Columns    []ColumnCheck  `json:"columns"`
+	Warnings   []CheckWarning `json:"warnings"`
+	// OK is false when a training would be refused; Warnings say why.
+	OK bool `json:"ok"`
+}
+
+// ColumnCheck is one column's role: use, id_like, constant, mostly_empty,
+// leak_suspect or target, with the reason in words (empty for use).
+type ColumnCheck struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+	Role string `json:"role"`
+	Note string `json:"note"`
+}
+
+// CheckWarning is one pre-flight note. Code is few_rows, imbalanced,
+// id_like, constant, mostly_empty, leak_suspect or many_classes.
+type CheckWarning struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Column  string `json:"column,omitempty"`
 }
 
 // The kinds of FeatureStats.
@@ -312,6 +379,21 @@ func (c *Client) Train(ctx context.Context, vhost, model string, spec TrainSpec)
 	var v Version
 	err = c.call(ctx, http.MethodPost, p+"/train", "application/json", bytes.NewReader(body), &v, c.TrainTimeout)
 	return v, err
+}
+
+// TrainCheck runs the pre-flight check of a training spec on a vhost's
+// dataset. It trains nothing and takes no training slot.
+func (c *Client) TrainCheck(ctx context.Context, vhost string, spec TrainSpec) (TrainCheck, error) {
+	if err := checkName("vhost", vhost); err != nil {
+		return TrainCheck{}, err
+	}
+	body, err := json.Marshal(spec)
+	if err != nil {
+		return TrainCheck{}, fmt.Errorf("encoding the training spec: %w", err)
+	}
+	var out TrainCheck
+	err = c.call(ctx, http.MethodPost, "/v1/train-check/"+vhost, "application/json", bytes.NewReader(body), &out, callTimeout)
+	return out, err
 }
 
 // Versions lists a model's versions, newest first.

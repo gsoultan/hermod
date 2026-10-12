@@ -257,6 +257,112 @@ func TestAVersionCarriesItsTrainingStats(t *testing.T) {
 	}
 }
 
+func TestTrainSendsThePresetOnlyWhenSet(t *testing.T) {
+	f := &fakeWorker{reply: `{"model":"m","version":"1"}`}
+	c := New(f.server(t).URL, "", nil)
+
+	if _, err := c.Train(t.Context(), "v", "m", TrainSpec{Dataset: "d", Target: "t"}); err != nil {
+		t.Fatalf("Train: %v", err)
+	}
+	if strings.Contains(string(f.body), `"preset"`) {
+		t.Errorf("preset sent for a spec without one: %s", f.body)
+	}
+	if _, err := c.Train(t.Context(), "v", "m", TrainSpec{Dataset: "d", Target: "t", Algorithm: "auto", Preset: "best"}); err != nil {
+		t.Fatalf("Train: %v", err)
+	}
+	if !strings.Contains(string(f.body), `"preset":"best"`) {
+		t.Errorf("body = %s, want the preset", f.body)
+	}
+}
+
+func TestAVersionCarriesWhatAutoTriedAndWhatMattered(t *testing.T) {
+	f := &fakeWorker{reply: `{"model":"churn","version":"4","algorithm":"hist_gradient_boosting","metrics":{"accuracy":0.9},
+		"preset":"balanced",
+		"leaderboard":[{"algorithm":"hist_gradient_boosting","score":0.91,"metric":"balanced_accuracy","folds":3,"seconds":1.5,"chosen":true},
+			{"algorithm":"linear","score":0.8,"metric":"balanced_accuracy","folds":3,"seconds":0.2,"chosen":false}],
+		"importance":[{"feature":"age","weight":0.7},{"feature":"plan","weight":0.3}],
+		"baseline":{"accuracy":0.6,"balanced_accuracy":0.5},
+		"warnings":["'id' has a different value on almost every row"]}`}
+	c := New(f.server(t).URL, "", nil)
+
+	v, err := c.Train(t.Context(), "v", "churn", TrainSpec{Dataset: "d", Target: "t"})
+	if err != nil {
+		t.Fatalf("Train: %v", err)
+	}
+	want := []LeaderboardEntry{
+		{Algorithm: "hist_gradient_boosting", Score: 0.91, Metric: "balanced_accuracy", Folds: 3, Seconds: 1.5, Chosen: true},
+		{Algorithm: "linear", Score: 0.8, Metric: "balanced_accuracy", Folds: 3, Seconds: 0.2},
+	}
+	if v.Preset != "balanced" || len(v.Leaderboard) != 2 || v.Leaderboard[0] != want[0] || v.Leaderboard[1] != want[1] {
+		t.Errorf("preset/leaderboard = %q %+v", v.Preset, v.Leaderboard)
+	}
+	if len(v.Importance) != 2 || v.Importance[0] != (FeatureWeight{Feature: "age", Weight: 0.7}) {
+		t.Errorf("importance = %+v", v.Importance)
+	}
+	if v.Baseline["balanced_accuracy"] != 0.5 || v.Baseline["accuracy"] != 0.6 {
+		t.Errorf("baseline = %+v", v.Baseline)
+	}
+	if len(v.Warnings) != 1 {
+		t.Errorf("warnings = %+v", v.Warnings)
+	}
+
+	// A version from before them leaves every one out when re-encoded.
+	raw, err := json.Marshal(Version{Model: "m", Version: "1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"preset", "leaderboard", "importance", "baseline", "warnings"} {
+		if strings.Contains(string(raw), `"`+key+`"`) {
+			t.Errorf("%s encoded for an old version: %s", key, raw)
+		}
+	}
+}
+
+func TestTrainCheckSendsTheSpecAndReadsTheAnswer(t *testing.T) {
+	f := &fakeWorker{reply: `{"task":"classification","target_kind":"yes_no","classes":2,"rows":120,"usable_rows":118,
+		"columns":[{"name":"id","type":"number","role":"id_like","note":"like an ID"},{"name":"churned","type":"string","role":"target","note":""}],
+		"warnings":[{"code":"id_like","message":"'id' is like an ID","column":"id"},{"code":"few_rows","message":"few"}],
+		"ok":true}`}
+	c := New(f.server(t).URL, "", nil)
+
+	got, err := c.TrainCheck(t.Context(), "v", TrainSpec{Dataset: "customers", Target: "churned", Preset: "quick"})
+	if err != nil {
+		t.Fatalf("TrainCheck: %v", err)
+	}
+	if f.method != http.MethodPost || f.path != "/v1/train-check/v" {
+		t.Errorf("called %s %s", f.method, f.path)
+	}
+	if !strings.Contains(string(f.body), `"dataset":"customers"`) || !strings.Contains(string(f.body), `"preset":"quick"`) {
+		t.Errorf("spec not sent: %s", f.body)
+	}
+	if got.Task != "classification" || got.TargetKind != "yes_no" || got.Classes == nil || *got.Classes != 2 ||
+		got.Rows != 120 || got.UsableRows != 118 || !got.OK {
+		t.Errorf("check = %+v", got)
+	}
+	if len(got.Columns) != 2 || got.Columns[0] != (ColumnCheck{Name: "id", Type: "number", Role: "id_like", Note: "like an ID"}) {
+		t.Errorf("columns = %+v", got.Columns)
+	}
+	if len(got.Warnings) != 2 || got.Warnings[0].Column != "id" || got.Warnings[1].Column != "" {
+		t.Errorf("warnings = %+v", got.Warnings)
+	}
+
+	// The answer goes back to the UI as the contract has it: a regression
+	// has no "classes", a warning without a column has none.
+	raw, err := json.Marshal(TrainCheck{Task: "regression", TargetKind: "number", Columns: []ColumnCheck{{Name: "x", Role: "use"}},
+		Warnings: []CheckWarning{{Code: "few_rows", Message: "few"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), `"classes"`) || strings.Contains(string(raw), `"column"`) ||
+		!strings.Contains(string(raw), `"note":""`) || !strings.Contains(string(raw), `"ok":false`) {
+		t.Errorf("encoded = %s", raw)
+	}
+
+	if _, err := c.TrainCheck(t.Context(), "../x", TrainSpec{Dataset: "d", Target: "t"}); err == nil {
+		t.Error("a bad vhost was sent")
+	}
+}
+
 func TestTrainSendsDeepLearningParamsOnlyWhenSet(t *testing.T) {
 	f := &fakeWorker{reply: `{"model":"m","version":"1"}`}
 	c := New(f.server(t).URL, "", nil)

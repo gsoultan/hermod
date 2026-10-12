@@ -2,7 +2,7 @@ import { Alert, Badge, Button, Group, Loader, Modal, Table, Text } from '@mantin
 import { IconAlertCircle } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { listVersions, mlModelsKey, promoteVersion, versionsKey, type MLModel } from '@/lib/mlModels'
-import { formatMetric } from './TrainModal'
+import { formatMetric } from './metrics'
 
 /**
  * A trained model's versions, newest first, with how each scored. Any one can

@@ -26,7 +26,7 @@ func TestMongoMLRetrain(t *testing.T) {
 	if err := st.PutMLModel(ctx, m); err != nil {
 		t.Fatal(err)
 	}
-	p := &storage.MLRetrainPolicy{Schedule: "@daily", NewRows: 10, Spec: worker.TrainSpec{Dataset: "d", Target: "y"}}
+	p := &storage.MLRetrainPolicy{Schedule: "@daily", NewRows: 10, Spec: worker.TrainSpec{Dataset: "d", Target: "y", Preset: "quick"}}
 	if err := rs.SetMLModelRetrain(ctx, "tenant-a", "churn", p); err != nil {
 		t.Fatalf("SetMLModelRetrain: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestMongoMLRetrain(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := st.GetMLModel(ctx, "tenant-a", "churn")
-	if got.Retrain == nil || got.Retrain.NewRows != 10 || got.RetrainStatus == nil || got.RetrainStatus.DatasetRows != 7 {
+	if got.Retrain == nil || got.Retrain.NewRows != 10 || got.Retrain.Spec.Preset != "quick" || got.RetrainStatus == nil || got.RetrainStatus.DatasetRows != 7 {
 		t.Errorf("an edit lost the policy or status: %+v", got)
 	}
 	if list, _ := rs.ListRetrainingMLModels(ctx); len(list) != 1 {
