@@ -81,7 +81,7 @@ export function PanmailProvidersConfig({ config, updateNodeConfig, nodeId, field
       />
       </FormRow>
       <Text size="xs" c="dimmed">
-        Writes a list of providers, each with id, name, type and allowedDomains, into the target field.
+        Writes a list of providers, each with id, name, type, allowedDomains and fromDomains (the domains it may send From), into the target field.
       </Text>
     </Stack>
   );

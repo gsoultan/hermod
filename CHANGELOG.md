@@ -31,6 +31,13 @@ workflows keep their shape.
   pgvector connection string, MCP server URL and headers) offer secrets only,
   since record data must never choose them.
 
+### Added — the domains each Panmail provider may send From
+
+The **Panmail Providers** node now also writes `fromDomains` on each provider:
+its allowed domains, trimmed, lower-cased, without a leading `@` and without
+repeats. The gateway returns no From address for a provider, so none is made
+up; a workflow picks its sender address from these domains.
+
 ### Changed — panmail sink on panmail-sdk 0.1.0, with gateway idempotency keys
 
 The panmail sink moves from panmail-sdk `v0.1.0-rc.3` to the stable `v0.1.0`.

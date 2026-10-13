@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -108,6 +109,36 @@ func TestPanmailProvidersWritesTheListToTheTargetField(t *testing.T) {
 	}
 	if g.apiKey.Load() != "key-1" {
 		t.Fatalf("X-API-Key = %v", g.apiKey.Load())
+	}
+}
+
+// Each result says which domains it may send From. The gateway returns no From
+// address, so none is made up: fromDomains is the allowed domains, tidied.
+func TestPanmailProvidersAddsTheFromDomains(t *testing.T) {
+	g := newPanmailGateway(t, http.StatusOK, `{"providers":[
+  {"id":"p1","name":"Primary","type":"PROVIDER_TYPE_SMTP",
+   "allowedDomains":[" Example.com","@mail.example.com","example.com",""]},
+  {"id":"p2","name":"Bulk","type":"PROVIDER_TYPE_SES"}
+]}`)
+	tr, reg := newPanmailProvidersFixture()
+
+	got, err := runPanmailProviders(t, tr, reg, map[string]any{"baseUrl": g.srv.URL, "apiKey": "k"}, nil)
+	if err != nil {
+		t.Fatalf("Transform: %v", err)
+	}
+	list := got["panmail_providers"].([]map[string]any)
+
+	from, ok := list[0]["fromDomains"].([]string)
+	if !ok || !slices.Equal(from, []string{"example.com", "mail.example.com"}) {
+		t.Fatalf("fromDomains = %#v", list[0]["fromDomains"])
+	}
+	// No allowed domains means none to send From, written as an empty list.
+	if d, ok := list[1]["fromDomains"].([]string); !ok || len(d) != 0 {
+		t.Fatalf("fromDomains with no allowed domains = %#v", list[1]["fromDomains"])
+	}
+	// No address is invented.
+	if _, ok := list[0]["from"]; ok {
+		t.Fatalf("a from address was invented: %#v", list[0])
 	}
 }
 

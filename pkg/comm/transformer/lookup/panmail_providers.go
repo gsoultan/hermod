@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -142,9 +143,24 @@ func (req panmailProvidersRequest) fetch(ctx context.Context) ([]map[string]any,
 			"name":           p.Name,
 			"type":           shortProviderType(p.Type),
 			"allowedDomains": domains,
+			"fromDomains":    fromDomains(domains),
 		})
 	}
 	return list, nil
+}
+
+// fromDomains is the domains a provider may send From, read off its allowed
+// domains: trimmed, lowered, without a leading "@", empties and repeats
+// dropped. The gateway returns no From address, so none is made up here.
+func fromDomains(allowed []string) []string {
+	out := make([]string, 0, len(allowed))
+	for _, d := range allowed {
+		d = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(d), "@"))
+		if d != "" && !slices.Contains(out, d) {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 func (t *PanmailProvidersTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
