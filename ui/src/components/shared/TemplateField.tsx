@@ -301,7 +301,7 @@ export function TemplateField({
       <Text size="xs" c="dimmed">
         {secretsOnly
           ? 'Only secrets: record fields are never read here.'
-          : `Inserted at the caret.${functions ? ' Use the builder to nest functions.' : ''}`}
+          : `Tip: Click a field to insert it at the caret.${functions ? ' Use the builder to nest functions.' : ''}`}
       </Text>
     </Stack>
   )
@@ -336,21 +336,6 @@ export function TemplateField({
           </MantineTooltip>
         )}
         {functions && <FunctionPicker onPick={insertFunction} />}
-        {functions && (
-          <MantineTooltip label={building ? 'Close the builder' : 'Build with nested functions'}>
-            <ActionIcon
-              aria-label="Build expression"
-              aria-expanded={building}
-              variant={building ? 'light' : 'subtle'}
-              onClick={(e) => {
-                e.preventDefault()
-                setBuilding((v) => !v)
-              }}
-            >
-              <IconBinaryTree2 size="1rem" />
-            </ActionIcon>
-          </MantineTooltip>
-        )}
         {/* The focus goes into the list when it opens: left on the button,
             Escape closed the node's settings and never reached the list. */}
         <Popover opened={opened} onChange={setOpened} withArrow position="bottom-end" trapFocus>
@@ -370,6 +355,22 @@ export function TemplateField({
           </Popover.Target>
           <Popover.Dropdown tabIndex={-1} {...ESCAPE_STOPS_HERE}>{FieldList}</Popover.Dropdown>
         </Popover>
+        {/* After both insert buttons, so Tab from the value reaches them first. */}
+        {functions && (
+          <MantineTooltip label={building ? 'Close the builder' : 'Build with nested functions'}>
+            <ActionIcon
+              aria-label="Build expression"
+              aria-expanded={building}
+              variant={building ? 'light' : 'subtle'}
+              onClick={(e) => {
+                e.preventDefault()
+                setBuilding((v) => !v)
+              }}
+            >
+              <IconBinaryTree2 size="1rem" />
+            </ActionIcon>
+          </MantineTooltip>
+        )}
       </Group>
     ),
     // One button per action; an input reserves the width of one.

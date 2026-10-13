@@ -121,6 +121,33 @@ describe('the nested builder inside a value input', () => {
     expect(screen.getByRole('textbox', { name: 'Body' })).toHaveValue('{{upper(source.after.id)}}')
   })
 
+  // Tab from the value reaches Insert function, then Insert variable: the
+  // builder comes after both, so the keyboard path to a field stays two Tabs.
+  it('sits after the insert buttons in the tab order', () => {
+    render(
+      <MantineProvider>
+        <Built />
+      </MantineProvider>,
+    )
+    const names = screen.getAllByRole('button').map((b) => b.getAttribute('aria-label'))
+    expect(names.filter((n) => /insert function|insert variable|build expression/i.test(n ?? ''))).toEqual([
+      'Insert function',
+      'Insert variable',
+      'Build expression',
+    ])
+  })
+
+  it('keeps the click-a-field tip in the variable list', async () => {
+    const user = userEvent.setup()
+    render(
+      <MantineProvider>
+        <Built />
+      </MantineProvider>,
+    )
+    const picker = await openPicker(user)
+    expect(within(picker).getByText(/^Tip: Click a field/)).toBeInTheDocument()
+  })
+
   it('is not offered where the value cannot hold a function', () => {
     render(
       <MantineProvider>
