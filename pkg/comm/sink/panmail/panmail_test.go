@@ -791,3 +791,117 @@ func TestWrite_KeepsTheGatewayItKeepsUsing(t *testing.T) {
 		t.Error("the gateway used on every message was evicted by one-off gateways")
 	}
 }
+
+// --- the gateway's own idempotency key ---------------------------------------
+
+func TestWrite_SendsTheClaimedKeyToTheGateway(t *testing.T) {
+	srv, received := gateway(t, accepted)
+	store := newMemStore()
+	sink, err := New(baseConfig(srv.URL), nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	sink.EnableIdempotency(true)
+	sink.SetIdempotencyStore(store)
+
+	if err := sink.Write(context.Background(), testMessage()); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	if len(*received) != 1 {
+		t.Fatalf("the gateway saw %d sends, want 1", len(*received))
+	}
+	got, _ := (*received)[0]["idempotencyKey"].(string)
+	if !strings.HasPrefix(got, "panmail:") {
+		t.Fatalf("idempotencyKey = %q, want the key the claim was taken on", got)
+	}
+	if len(store.sent) != 1 || !store.sent[got] {
+		t.Errorf("the gateway was sent %q but the store marked %v: the two guards disagree on which mail this is",
+			got, store.sent)
+	}
+}
+
+func TestWrite_WithoutIdempotencySendsNoKey(t *testing.T) {
+	srv, received := gateway(t, accepted)
+	sink, err := New(baseConfig(srv.URL), nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	if err := sink.Write(context.Background(), testMessage()); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if _, ok := (*received)[0]["idempotencyKey"]; ok {
+		t.Error("a key was sent with duplicate suppression off")
+	}
+}
+
+func TestWrite_AKeyTheGatewayWouldRefuseStaysLocal(t *testing.T) {
+	for name, tmpl := range map[string]string{
+		"non-ASCII": "commande-{{.name}}-é",
+		"too long":  strings.Repeat("k", 256),
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv, received := gateway(t, accepted)
+			sink, err := New(baseConfig(srv.URL), nil)
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			sink.EnableIdempotency(true)
+			sink.SetIdempotencyStore(newMemStore())
+			sink.SetIdempotencyKeyTemplate(tmpl)
+
+			// The local claim still guards it; only the gateway copy is
+			// dropped, because the SDK refuses such a key before sending and a
+			// local key that worked yesterday must not start failing sends.
+			if err := sink.Write(context.Background(), testMessage()); err != nil {
+				t.Fatalf("Write: %v", err)
+			}
+			if _, ok := (*received)[0]["idempotencyKey"]; ok {
+				t.Error("a key the gateway refuses was sent")
+			}
+		})
+	}
+}
+
+func TestWrite_TransportRetriesAskAgainUnderTheSameKey(t *testing.T) {
+	var mu sync.Mutex
+	attempts := 0
+	srv, received := gateway(t, func(w http.ResponseWriter, body []byte) {
+		mu.Lock()
+		attempts++
+		first := attempts == 1
+		mu.Unlock()
+		if first {
+			panic(http.ErrAbortHandler)
+		}
+		accepted(w, body)
+	})
+	srv.Config.ErrorLog = nil
+
+	cfg := baseConfig(srv.URL)
+	cfg.TransportRetries = 1
+	store := newMemStore()
+	sink, err := New(cfg, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	sink.EnableIdempotency(true)
+	sink.SetIdempotencyStore(store)
+
+	if err := sink.Write(context.Background(), testMessage()); err != nil {
+		t.Fatalf("Write: %v — the dropped connection should have been asked again", err)
+	}
+	if len(*received) != 2 {
+		t.Fatalf("the gateway saw %d requests, want the send and one repeat", len(*received))
+	}
+	if (*received)[0]["idempotencyKey"] != (*received)[1]["idempotencyKey"] {
+		t.Error("the repeat carried a different key, so the gateway would queue a second copy")
+	}
+	if len(store.sent) != 1 {
+		t.Errorf("the claim was not marked sent after the repeat succeeded (sent=%v)", store.sent)
+	}
+	if sink.LastMessageID() != "msg-9" {
+		t.Errorf("LastMessageID = %q, want msg-9", sink.LastMessageID())
+	}
+}

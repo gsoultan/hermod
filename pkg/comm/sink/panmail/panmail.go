@@ -24,10 +24,16 @@
 //
 // # Retries and duplicate mail
 //
-// Sending is not idempotent and the gateway has no de-duplication key, so a
-// retry after a timeout is a retry of a message that may already be on its way
-// to the recipient. The SDK refuses to make that call for you: it never repeats
-// a send whose outcome it does not know.
+// Sending is not idempotent on its own, so a retry after a timeout is a retry
+// of a message that may already be on its way to the recipient. The SDK
+// refuses to make that call for you: it never repeats a send whose outcome it
+// does not know, unless the send carries an idempotency key and the client was
+// built to repeat it (Config.TransportRetries).
+//
+// With duplicate suppression on, the claim's key is also sent as the gateway's
+// idempotency key. A gateway at v2.0.0 or later remembers it for a day and
+// answers a repeat with the message it already took; an older one ignores it.
+// The local claim below is therefore still the guard that holds everywhere.
 //
 // Hermod's RetrySink has no such discrimination — it retries every error the
 // same way. This sink therefore makes the distinction itself, using the
@@ -126,6 +132,17 @@ type Config struct {
 	// makes Write block for as long as the gateway asks, and Hermod's own retry
 	// is usually the better place for that.
 	RateLimitRetries int
+
+	// TransportRetries asks the gateway again, up to n times, about a send
+	// whose outcome is unknown — a dropped connection, a timeout. It only ever
+	// applies to a send carrying an idempotency key, which this sink attaches
+	// when duplicate suppression is on, and the gateway answers a repeated key
+	// with the message it already took rather than a second copy.
+	//
+	// Off by default, and only for a gateway at v2.0.0 or later: an older one
+	// discards the key as an unknown field, so asking again there sends the
+	// mail twice.
+	TransportRetries int
 
 	// Timeout bounds a single send. Zero uses the SDK's 30s default.
 	Timeout time.Duration
@@ -256,6 +273,9 @@ func New(cfg Config, formatter hermod.Formatter) (*Sink, error) {
 	opts := []sdk.Option{}
 	if cfg.RateLimitRetries > 0 {
 		opts = append(opts, sdk.WithRateLimitRetries(cfg.RateLimitRetries))
+	}
+	if cfg.TransportRetries > 0 {
+		opts = append(opts, sdk.WithTransportRetries(cfg.TransportRetries))
 	}
 	if cfg.Timeout > 0 {
 		opts = append(opts, sdk.WithTimeout(cfg.Timeout))
@@ -536,6 +556,13 @@ func (s *Sink) writeGuarded(ctx context.Context, client *sdk.Client, key string,
 		s.lastWriteDedup = true
 		s.mu.Unlock()
 		return nil
+	}
+
+	// The same key goes to the gateway, which remembers it for a day and
+	// answers a repeat with the message it already took. That is a second
+	// guard behind the claim, and what lets TransportRetries ask again.
+	if gatewayAcceptsKey(key) {
+		mail.IdempotencyKey = key
 	}
 
 	result, sendErr := client.Send(ctx, mail)
@@ -847,6 +874,26 @@ func (s *Sink) idempotencyKey(msg hermod.Message, mail sdk.Message) (string, err
 	write(mail.Text)
 	write(mail.TemplateID)
 	return fmt.Sprintf("panmail:%x", h.Sum(nil)), nil
+}
+
+// maxGatewayKeyLength is the gateway's bound on an idempotency key.
+const maxGatewayKeyLength = 255
+
+// gatewayAcceptsKey applies the gateway's rule for a key: at most 255
+// printable ASCII characters. A key template can render something else, and
+// the SDK refuses such a key before sending; that key still guards the local
+// claim, so it is simply not forwarded rather than failing a send that worked
+// before the gateway learned about keys.
+func gatewayAcceptsKey(key string) bool {
+	if key == "" || len(key) > maxGatewayKeyLength {
+		return false
+	}
+	for i := 0; i < len(key); i++ {
+		if key[i] < 0x20 || key[i] > 0x7e {
+			return false
+		}
+	}
+	return true
 }
 
 // stated reports whether the gateway told us it did not take the message.

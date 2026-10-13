@@ -7,6 +7,19 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Changed — panmail sink on panmail-sdk 0.1.0, with gateway idempotency keys
+
+The panmail sink moves from panmail-sdk `v0.1.0-rc.3` to the stable `v0.1.0`.
+With **Suppress duplicate sends** on, the key the sink claims locally is now
+also sent as the gateway's idempotency key, so a gateway at v2.0.0 or later
+answers a repeat with the message it already took instead of queueing a
+second copy. A key template that renders something the gateway would refuse
+(more than 255 characters, or anything but printable ASCII) still guards the
+local claim and is simply not forwarded. The new **Transport retries** setting
+(`transport_retries`) asks the gateway again under the same key when a send's
+outcome is unknown; leave it at 0 for a gateway older than v2.0.0, which
+ignores the key.
+
 ### Added — Built-in Go ML engine: train models with no hermod-ml worker
 
 Hermod now trains machine-learning models itself. Its built-in engine (pure
