@@ -4,6 +4,7 @@ import { MantineProvider } from '@mantine/core'
 import { useState } from 'react'
 import { describe, it, expect, vi } from 'vitest'
 import { SwitchConfig } from '@/components/workflow/Transformation/configs/logic/SwitchConfig'
+import { SecretNamesContext } from '@/components/shared/TemplateField'
 import { simulateTransformation } from '@/utils/transformationUtils'
 
 // A case compares the switch field against either a fixed value or another
@@ -11,7 +12,7 @@ import { simulateTransformation } from '@/utils/transformationUtils'
 // form the engine's condition evaluator already resolves, so saved configs
 // keep their shape and nothing on the backend has to learn a new key.
 // Stateful like the real editor, so typed input accumulates.
-const renderConfig = (initial: any) => {
+const renderConfig = (initial: any, secretNames: string[] = []) => {
   const updateNodeConfig = vi.fn()
   function Harness() {
     const [config, setConfig] = useState(initial)
@@ -29,14 +30,16 @@ const renderConfig = (initial: any) => {
   }
   render(
     <MantineProvider>
-      <Harness />
+      <SecretNamesContext.Provider value={secretNames}>
+        <Harness />
+      </SecretNamesContext.Provider>
     </MantineProvider>,
   )
   return updateNodeConfig
 }
 
 // Choose an option from one combobox; each Select keeps its own list mounted.
-const pick = async (user: ReturnType<typeof userEvent.setup>, input: HTMLElement, name: string) => {
+const pick = async (user: ReturnType<typeof userEvent.setup>, input: HTMLElement, name: string | RegExp) => {
   await user.click(input)
   const list = await waitFor(() => {
     const el = document.getElementById(input.getAttribute('aria-controls') ?? '')
@@ -49,18 +52,18 @@ const pick = async (user: ReturnType<typeof userEvent.setup>, input: HTMLElement
 const caseCard = (n: number) => within(screen.getByRole('group', { name: `Case ${n}` }))
 
 describe('SwitchConfig case value source', () => {
-  it('shows a static value in Value mode', () => {
+  it('shows a static value as text', () => {
     renderConfig({ field: 'amount', cases: [{ label: 'high', operator: '>', value: '100' }] })
 
-    expect(caseCard(1).getByRole('radio', { name: 'Value' })).toBeChecked()
-    expect(caseCard(1).getByLabelText('Compare to')).toHaveValue('100')
+    expect(caseCard(1).getByRole('combobox', { name: 'Compare to type' })).toHaveValue('Text')
+    expect(caseCard(1).getByRole('textbox', { name: 'Compare to text' })).toHaveValue('100')
   })
 
-  it('shows a saved field reference in Field mode with the field name', () => {
+  it('shows a saved field reference as a field with its name', () => {
     renderConfig({ field: 'amount', cases: [{ label: 'high', operator: '>', value: '{{limit}}' }] })
 
-    expect(caseCard(1).getByRole('radio', { name: 'Field' })).toBeChecked()
-    expect(caseCard(1).getByLabelText('Compare to field')).toHaveValue('limit')
+    expect(caseCard(1).getByRole('combobox', { name: 'Compare to type' })).toHaveValue('Field')
+    expect(caseCard(1).getByRole('combobox', { name: 'Compare to field' })).toHaveValue('limit')
   })
 
   it('saves a picked field as a {{path}} reference', async () => {
@@ -70,24 +73,37 @@ describe('SwitchConfig case value source', () => {
       cases: [{ label: 'high', operator: '>', value: '' }],
     })
 
-    await user.click(caseCard(1).getByRole('radio', { name: 'Field' }))
-    await user.type(caseCard(1).getByLabelText('Compare to field'), 'customer.region')
+    await pick(user, caseCard(1).getByRole('combobox', { name: 'Compare to type' }), 'Field')
+    await user.type(caseCard(1).getByRole('combobox', { name: 'Compare to field' }), 'customer.region')
 
     const patch = updateNodeConfig.mock.calls.at(-1)?.[1]
     expect(patch.cases[0].value).toBe('{{customer.region}}')
     expect(patch.cases[0].label).toBe('high')
   })
 
-  it('switching back to Value clears the field reference', async () => {
+  it('switching back to text clears the field reference', async () => {
     const user = userEvent.setup()
     const updateNodeConfig = renderConfig({
       field: 'amount',
       cases: [{ label: 'high', operator: '>', value: '{{limit}}' }],
     })
 
-    await user.click(caseCard(1).getByRole('radio', { name: 'Value' }))
+    await pick(user, caseCard(1).getByRole('combobox', { name: 'Compare to type' }), 'Text')
 
     expect(updateNodeConfig.mock.calls.at(-1)?.[1].cases[0].value).toBe('')
+  })
+
+  it('compares against a secret of the vhost', async () => {
+    const user = userEvent.setup()
+    const updateNodeConfig = renderConfig({
+      field: 'amount',
+      cases: [{ label: 'vip', operator: '=', value: '' }],
+    }, ['VIP_CODE'])
+
+    await pick(user, caseCard(1).getByRole('combobox', { name: 'Compare to type' }), 'Secret')
+    await pick(user, caseCard(1).getByRole('combobox', { name: 'Compare to secret' }), 'VIP_CODE')
+
+    expect(updateNodeConfig.mock.calls.at(-1)?.[1].cases[0].value).toBe('{{secret("VIP_CODE")}}')
   })
 })
 
@@ -96,12 +112,11 @@ describe('SwitchConfig functions', () => {
     const user = userEvent.setup()
     const updateNodeConfig = renderConfig({
       field: 'amount',
-      cases: [{ label: 'eu', operator: '=', value: '' }],
+      cases: [{ label: 'eu', operator: '=', value: '{{customer.region}}' }],
     })
 
-    await user.click(caseCard(1).getByRole('radio', { name: 'Field' }))
-    await pick(user, caseCard(1).getByRole('combobox', { name: 'Compare to function' }), 'lower')
-    await user.type(caseCard(1).getByLabelText('Compare to field'), 'customer.region')
+    await pick(user, caseCard(1).getByRole('combobox', { name: 'Compare to type' }), 'Function')
+    await pick(user, caseCard(1).getByRole('combobox', { name: 'Compare to function' }), /^lower/)
 
     expect(updateNodeConfig.mock.calls.at(-1)?.[1].cases[0].value).toBe('{{lower(source.customer.region)}}')
   })
@@ -113,35 +128,52 @@ describe('SwitchConfig functions', () => {
       cases: [{ label: 'eu', operator: '=', value: 'EU' }],
     })
 
-    await pick(user, caseCard(1).getByRole('combobox', { name: 'Compare to function' }), 'lower')
+    await pick(user, caseCard(1).getByRole('combobox', { name: 'Compare to type' }), 'Function')
+    await pick(user, caseCard(1).getByRole('combobox', { name: 'Compare to function' }), /^lower/)
 
     expect(updateNodeConfig.mock.calls.at(-1)?.[1].cases[0].value).toBe('{{lower("EU")}}')
   })
 
-  it('shows a saved function of a field', () => {
+  it('shows a saved function of a field on both sides', () => {
     renderConfig({ field: 'lower(source.status)', cases: [{ label: 'x', operator: '=', value: '{{upper(source.code)}}' }] })
 
-    expect(caseCard(1).getByRole('radio', { name: 'Field' })).toBeChecked()
-    expect(caseCard(1).getByLabelText('Compare to field')).toHaveValue('code')
     expect(caseCard(1).getByRole('combobox', { name: 'Compare to function' })).toHaveValue('upper')
-    expect(screen.getByRole('combobox', { name: 'Switch field' })).toHaveValue('status')
+    expect(caseCard(1).getByRole('combobox', { name: 'Compare to › text field' })).toHaveValue('code')
     expect(screen.getByRole('combobox', { name: 'Switch field function' })).toHaveValue('lower')
+    expect(screen.getByRole('combobox', { name: 'Switch field › text field' })).toHaveValue('status')
   })
 
   it('applies a function to the switch field', async () => {
     const user = userEvent.setup()
     const updateNodeConfig = renderConfig({ field: 'status', cases: [] })
 
-    await pick(user, screen.getByRole('combobox', { name: 'Switch field function' }), 'trim')
+    await pick(user, screen.getByRole('combobox', { name: 'Switch field type' }), 'Function')
+    await pick(user, screen.getByRole('combobox', { name: 'Switch field function' }), /^trim/)
 
     expect(updateNodeConfig.mock.calls.at(-1)?.[1]).toEqual({ field: 'trim(source.status)' })
   })
 
-  it('keeps a hand-written value untouched and offers no function for it', () => {
-    renderConfig({ field: 'amount', cases: [{ label: 'x', operator: '=', value: '{{concat(source.a, source.b)}}' }] })
+  it('nests one function inside another', async () => {
+    const user = userEvent.setup()
+    const updateNodeConfig = renderConfig({
+      field: 'amount',
+      cases: [{ label: 'x', operator: '=', value: '{{upper(source.code)}}' }],
+    })
 
-    expect(caseCard(1).getByLabelText('Compare to')).toHaveValue('{{concat(source.a, source.b)}}')
-    expect(caseCard(1).getByRole('combobox', { name: 'Compare to function' })).toBeDisabled()
+    await pick(user, caseCard(1).getByRole('combobox', { name: 'Compare to › text type' }), 'Function')
+    await pick(user, caseCard(1).getByRole('combobox', { name: 'Compare to › text function' }), /^trim/)
+
+    expect(updateNodeConfig.mock.calls.at(-1)?.[1].cases[0].value).toBe('{{upper(trim(source.code))}}')
+  })
+
+  it('keeps text mixed with tokens editable as typed', async () => {
+    const user = userEvent.setup()
+    const updateNodeConfig = renderConfig({ field: 'amount', cases: [{ label: 'x', operator: '=', value: 'id-{{limit}}' }] })
+
+    const box = caseCard(1).getByRole('textbox', { name: 'Compare to text' })
+    expect(box).toHaveValue('id-{{limit}}')
+    await user.type(box, '!')
+    expect(updateNodeConfig.mock.calls.at(-1)?.[1].cases[0].value).toBe('id-{{limit}}!')
   })
 })
 

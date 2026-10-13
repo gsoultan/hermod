@@ -85,3 +85,48 @@ describe('secret names in the variable picker', () => {
     expect(within(picker).queryByRole('group', { name: /secrets/i, hidden: true })).toBeNull()
   })
 })
+
+describe('the nested builder inside a value input', () => {
+  function Built() {
+    const [value, setValue] = useState('{{.after.id}}')
+    return (
+      <SecretNamesContext.Provider value={['API_KEY']}>
+        <TemplateField
+          label="Body"
+          value={value}
+          onChange={setValue}
+          availableFields={['after.id']}
+          functions="token"
+        />
+      </SecretNamesContext.Provider>
+    )
+  }
+
+  it('opens from inside the input and writes a nested call back into it', async () => {
+    const user = userEvent.setup()
+    render(
+      <MantineProvider>
+        <Built />
+      </MantineProvider>,
+    )
+
+    await user.click(screen.getByRole('button', { name: /build expression/i }))
+    const type = await screen.findByRole('combobox', { name: 'Body type' }, { timeout: 5000 })
+    await user.click(type)
+    await user.click(await screen.findByRole('option', { name: 'Function', hidden: true }))
+    const fn = screen.getByRole('combobox', { name: 'Body function' })
+    await user.click(fn)
+    await user.click(await screen.findByRole('option', { name: /^upper/, hidden: true }))
+
+    expect(screen.getByRole('textbox', { name: 'Body' })).toHaveValue('{{upper(source.after.id)}}')
+  })
+
+  it('is not offered where the value cannot hold a function', () => {
+    render(
+      <MantineProvider>
+        <TemplateField label="Name" value="" onChange={() => {}} />
+      </MantineProvider>,
+    )
+    expect(screen.queryByRole('button', { name: /build expression/i })).toBeNull()
+  })
+})

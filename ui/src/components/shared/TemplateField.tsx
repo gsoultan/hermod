@@ -1,10 +1,13 @@
-import { createContext, useContext, useMemo, useRef, useState } from 'react'
-import { ActionIcon, Group, Popover, Stack, Text, TextInput, Textarea, Tooltip as MantineTooltip, ScrollArea, Badge, UnstyledButton } from '@mantine/core'
-import { IconKey, IconSearch, IconVariable } from '@tabler/icons-react'
+import { Suspense, createContext, lazy, useContext, useMemo, useRef, useState } from 'react'
+import { ActionIcon, Box, Collapse, Group, Popover, Stack, Text, TextInput, Textarea, Tooltip as MantineTooltip, ScrollArea, Badge, UnstyledButton } from '@mantine/core'
+import { IconBinaryTree2, IconBraces, IconKey, IconSearch, IconVariable } from '@tabler/icons-react'
 import { applyFunction, isInsideToken } from '@/lib/expressionInsert'
 import type { ExpressionFunction } from '@/lib/functionCatalog'
 import { FunctionPicker } from './FunctionPicker'
 import { ESCAPE_STOPS_HERE } from './escapeStopsHere'
+
+// Module scope, and only loaded when opened: it carries the function catalog.
+const ValueBuilder = lazy(() => import('./ValueBuilder'))
 
 /**
  * The names of the secrets the workflow being edited can read: its vhost's.
@@ -85,6 +88,7 @@ export function TemplateField({
   'aria-label': ariaLabel,
 }: TemplateFieldProps) {
   const [opened, setOpened] = useState(false)
+  const [building, setBuilding] = useState(false)
   const [q, setQ] = useState('')
   const inputRef = useRef<HTMLInputElement & HTMLTextAreaElement>(null as any)
 
@@ -196,7 +200,7 @@ export function TemplateField({
                 {...ESCAPE_STOPS_HERE}
                 style={{
                   borderRadius: 6,
-                  border: '1px solid var(--mantine-color-gray-3)',
+                  border: '1px solid var(--mantine-color-default-border)',
                 }}
                 onClick={() => {
                   insertReference(`source.${path}`, buildToken(path))
@@ -205,9 +209,12 @@ export function TemplateField({
               >
                 <Group justify="space-between" wrap="nowrap">
                   <Stack gap={0} style={{ overflow: 'hidden' }}>
-                    <Text size="xs" fw={500} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {path}
-                    </Text>
+                    <Group gap={6} wrap="nowrap" style={{ overflow: 'hidden' }}>
+                      <IconBraces size="0.8rem" style={{ flexShrink: 0 }} />
+                      <Text size="xs" fw={500} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {path}
+                      </Text>
+                    </Group>
                     {type && (
                       <Text size="xs" c="dimmed">
                         {type}
@@ -261,7 +268,7 @@ export function TemplateField({
         </Stack>
       </ScrollArea>
       <Text size="xs" c="dimmed">
-        Tip: Click a field to insert a template token.
+        Inserted at the caret.{functions ? ' Use the builder to nest functions.' : ''}
       </Text>
     </Stack>
   )
@@ -282,6 +289,21 @@ export function TemplateField({
     rightSection: (
       <Group gap={0} wrap="nowrap">
         {functions && <FunctionPicker onPick={insertFunction} />}
+        {functions && (
+          <MantineTooltip label={building ? 'Close the builder' : 'Build with nested functions'}>
+            <ActionIcon
+              aria-label="Build expression"
+              aria-expanded={building}
+              variant={building ? 'light' : 'subtle'}
+              onClick={(e) => {
+                e.preventDefault()
+                setBuilding((v) => !v)
+              }}
+            >
+              <IconBinaryTree2 size="1rem" />
+            </ActionIcon>
+          </MantineTooltip>
+        )}
         {/* The focus goes into the list when it opens: left on the button,
             Escape closed the node's settings and never reached the list. */}
         <Popover opened={opened} onChange={setOpened} withArrow position="bottom-end" trapFocus>
@@ -303,15 +325,47 @@ export function TemplateField({
         </Popover>
       </Group>
     ),
-    // Two buttons do not fit the width an input reserves for one.
-    rightSectionWidth: functions ? 60 : undefined,
+    // Three buttons do not fit the width an input reserves for one.
+    rightSectionWidth: functions ? 92 : undefined,
     ref: inputRef as any,
   }
 
-  return multiline ? (
+  const input = multiline ? (
     <Textarea autosize minRows={2} {...commonProps} />
   ) : (
     <TextInput {...commonProps} />
+  )
+
+  if (!functions) return input
+
+  return (
+    <Stack gap={6}>
+      {input}
+      <Collapse expanded={building}>
+        {building && (
+          <Box
+            p="sm"
+            style={{
+              border: '1px solid var(--mantine-color-default-border)',
+              borderRadius: 'var(--mantine-radius-md)',
+            }}
+          >
+            <Suspense fallback={<Text size="xs" c="dimmed">Loading the builder…</Text>}>
+              <ValueBuilder
+                label={label || ariaLabel || 'Value'}
+                value={value}
+                onChange={onChange}
+                mode={functions}
+                fieldPaths={(availableFields || []).map((f: any) => (typeof f === 'string' ? f : f.path))}
+                secretNames={secretNames}
+                tokens={{ field: buildToken, secret: buildSecretToken }}
+                onEditAsText={() => setBuilding(false)}
+              />
+            </Suspense>
+          </Box>
+        )}
+      </Collapse>
+    </Stack>
   )
 }
 
