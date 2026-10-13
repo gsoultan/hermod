@@ -45,12 +45,17 @@ describe('execute_sql live preview', () => {
 
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+  // The node's form is loaded lazily, and the first test in this file pays for
+  // that import: under a full parallel run it can take longer than
+  // findByTestId's default second.
+  const livePreview = () => screen.findByTestId('live-preview', {}, { timeout: 10000 })
+
   it('does not run the statement on its own', async () => {
     const calls = setup({
       transType: 'execute_sql', sourceId: 'ops',
       queryTemplate: 'INSERT INTO t (code) VALUES ({{.code}}) RETURNING id', resultField: 'inserted',
     })
-    await screen.findByTestId('live-preview')
+    await livePreview()
     await wait(900)
     expect(calls).toHaveLength(0)
   })
@@ -60,7 +65,7 @@ describe('execute_sql live preview', () => {
       transType: 'execute_sql', sourceId: 'ops',
       queryTemplate: 'INSERT INTO t (code) VALUES ({{.code}}) RETURNING id', resultField: 'inserted',
     })
-    const panel = await screen.findByTestId('live-preview')
+    const panel = await livePreview()
     fireEvent.click(within(panel).getByRole('button', { name: /run preview/i }))
     await waitFor(() => expect(calls).toHaveLength(1))
     expect(await within(panel).findByText(/"inserted"/)).toBeInTheDocument()
@@ -92,7 +97,7 @@ describe('execute_sql live preview', () => {
   // reads the message.
   it('still previews other nodes as they are edited', async () => {
     const calls = setup({ transType: 'mask', field: 'code', maskType: 'all' })
-    await screen.findByTestId('live-preview')
+    await livePreview()
     await waitFor(() => expect(calls.length).toBeGreaterThan(0), { timeout: 3000 })
   })
 })

@@ -142,6 +142,80 @@ func TestPanmailProvidersAddsTheFromDomains(t *testing.T) {
 	}
 }
 
+// The from email is the node's From mailbox at each domain the provider may
+// send From: the gateway returns no address, so the mailbox is the user's.
+func TestPanmailProvidersAddsTheFromEmails(t *testing.T) {
+	g := newPanmailGateway(t, http.StatusOK, `{"providers":[
+  {"id":"p1","name":"Primary","type":"PROVIDER_TYPE_SMTP","allowedDomains":["Example.com","mail.example.com"]},
+  {"id":"p2","name":"Bulk","type":"PROVIDER_TYPE_SES"}
+]}`)
+
+	for name, tc := range map[string]struct {
+		mailbox string
+		want    string
+	}{
+		"defaults to noreply": {mailbox: "", want: "noreply"},
+		"the mailbox set":     {mailbox: " Billing ", want: "Billing"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			tr, reg := newPanmailProvidersFixture()
+			got, err := runPanmailProviders(t, tr, reg, map[string]any{
+				"baseUrl": g.srv.URL, "apiKey": "k", "fromMailbox": tc.mailbox,
+			}, nil)
+			if err != nil {
+				t.Fatalf("Transform: %v", err)
+			}
+			list := got["panmail_providers"].([]map[string]any)
+
+			wantAll := []string{tc.want + "@example.com", tc.want + "@mail.example.com"}
+			if e, ok := list[0]["fromEmails"].([]string); !ok || !slices.Equal(e, wantAll) {
+				t.Fatalf("fromEmails = %#v, want %v", list[0]["fromEmails"], wantAll)
+			}
+			if list[0]["fromEmail"] != wantAll[0] {
+				t.Fatalf("fromEmail = %#v, want %q", list[0]["fromEmail"], wantAll[0])
+			}
+			// No allowed domain, no address to compose.
+			if list[1]["fromEmail"] != "" {
+				t.Fatalf("fromEmail with no allowed domains = %#v", list[1]["fromEmail"])
+			}
+			if e, ok := list[1]["fromEmails"].([]string); !ok || len(e) != 0 {
+				t.Fatalf("fromEmails with no allowed domains = %#v", list[1]["fromEmails"])
+			}
+		})
+	}
+}
+
+func TestPanmailProvidersRefusesAMailboxThatIsNotOne(t *testing.T) {
+	for _, mailbox := range []string{"no reply", "a@b.com", "<x>", "a,b"} {
+		tr, reg := newPanmailProvidersFixture()
+		_, err := runPanmailProviders(t, tr, reg, map[string]any{
+			"baseUrl": "https://mail.example.com", "apiKey": "k", "fromMailbox": mailbox,
+		}, nil)
+		if err == nil || !strings.Contains(err.Error(), "mailbox") {
+			t.Fatalf("fromMailbox %q: err = %v, want a mailbox error", mailbox, err)
+		}
+	}
+}
+
+// Two nodes on one tenant with different mailboxes must not share a list.
+func TestPanmailProvidersCacheIsPerMailbox(t *testing.T) {
+	g := newPanmailGateway(t, http.StatusOK, twoProviders)
+	tr, reg := newPanmailProvidersFixture()
+	cfg := func(m string) map[string]any {
+		return map[string]any{"baseUrl": g.srv.URL, "apiKey": "k", "fromMailbox": m}
+	}
+	if _, err := runPanmailProviders(t, tr, reg, cfg("sales"), nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err := runPanmailProviders(t, tr, reg, cfg("billing"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := got["panmail_providers"].([]map[string]any)[0]["fromEmail"]; e != "billing@example.com" {
+		t.Fatalf("fromEmail = %#v, want billing@example.com", e)
+	}
+}
+
 func TestPanmailProvidersDefaultsTheTargetField(t *testing.T) {
 	g := newPanmailGateway(t, http.StatusOK, twoProviders)
 	tr, reg := newPanmailProvidersFixture()

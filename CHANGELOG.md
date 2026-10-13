@@ -31,6 +31,16 @@ workflows keep their shape.
   pgvector connection string, MCP server URL and headers) offer secrets only,
   since record data must never choose them.
 
+### Added — a from email on each Panmail provider
+
+The **Panmail Providers** node has a new **From mailbox** setting (default
+`noreply`) and writes `fromEmail` and `fromEmails` on each provider: that
+mailbox at each of its `fromDomains`, so `noreply` on a provider allowed
+`example.com` gives `noreply@example.com`. `fromEmail` is the first, or empty
+when the provider has no allowed domains. The gateway stores no From address,
+so the mailbox is what the node is told; a value that cannot stand before an
+`@` stops the node with an error that names it.
+
 ### Added — the domains each Panmail provider may send From
 
 The **Panmail Providers** node now also writes `fromDomains` on each provider:
