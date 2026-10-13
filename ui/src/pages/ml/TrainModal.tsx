@@ -15,7 +15,11 @@ import {
   DEFAULT_WEIGHTS, ROLES, defaultRuleChoices, isScenarioVersion, rulesFromChoices, scenarioLabel, scenariosSupported,
   type RecommendData, type RoleKey, type Scenario, type ScenarioTrainSpec, type ScenarioVersion, type Weights,
 } from '@/lib/mlRecommend'
+import {
+  checklistBlocker, predictChecklist, recommendChecklist, scenarioChecklist, type ChecklistItem, type GuideKind,
+} from '@/lib/mlDataGuide'
 import { algorithmDescription, algorithmOptionRenderer } from './algorithmOption'
+import { DataChecklist, DataNeedsLink } from './dataNeeds'
 import { DatasetPreview } from './datasetPreview'
 import { DeepParamsFields, readDeepParams, type DeepParamsText } from './deepParams'
 import { GoLiveField } from './goLive'
@@ -38,13 +42,13 @@ type Goal = 'predict' | 'recommend'
 type RecommendCols = { user: string | null; item: string | null; strength: string | null; time: string | null }
 const NO_COLS: RecommendCols = { user: null, item: null, strength: null, time: null }
 
-const GOALS: Array<{ value: Goal; label: string; description: string }> = [
+const GOALS: Array<{ value: Goal; label: string; description: string; guide: GuideKind }> = [
   {
-    value: 'predict', label: 'Predict a column',
+    value: 'predict', label: 'Predict a column', guide: 'classification',
     description: 'Learn the answer in one column from the others, such as whether a customer will leave.',
   },
   {
-    value: 'recommend', label: 'Recommend items to people',
+    value: 'recommend', label: 'Recommend items to people', guide: 'recommend',
     description: 'Learn who had what, such as order lines, and suggest each person what they are likely to pick next.',
   },
 ]
@@ -197,6 +201,21 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
   }
   const health = useRecommendCheck(vhost, scenario, recData, scenarioFlow && at === 'health')
 
+  // The checklist of the chosen data against what the model needs, for each
+  // step that has one; red stops Next (and Train), and says why.
+  const predictItems = predictChecklist({ target, learnFrom: learnFrom.length, check: checked })
+  const recommendItems = recommendChecklist({ rows: info?.rows, user: cols.user, item: cols.item, time: cols.time })
+  const scenarioItems = (withCheck: boolean): ChecklistItem[] =>
+    scenario ? scenarioChecklist(scenario, recData, withCheck ? health.data : undefined) : []
+  const flowItems = scenarioFlow ? scenarioItems(true) : recommending ? recommendItems : predictItems
+  const stepBlocker = at === 'target'
+    ? (scenarioFlow ? (scenario ? null : 'Pick what you want to recommend.') : recommending ? checklistBlocker(recommendItems) : checklistBlocker(predictItems))
+    : at === 'needs' ? checklistBlocker(scenarioItems(false))
+      : at === 'health' ? checklistBlocker(scenarioItems(true))
+        : at === 'train' ? checklistBlocker(flowItems)
+          : null
+  const blockedId = 'ml-train-blocked'
+
   const notes = new Map((checked?.columns ?? []).filter((c) => c.note).map((c) => [c.name, c.note as string]))
 
   // What the Train button sends.
@@ -273,7 +292,7 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
   }
   const leaveOut = (column: string, out: boolean) => setLeft((l) => (out ? [...new Set([...l, column])] : l.filter((c) => c !== column)))
 
-  const canGoOn = at === 'data' ? !!dataset && (!!modelName || !!name.trim())
+  const canGoOn = stepBlocker ? false : at === 'data' ? !!dataset && (!!modelName || !!name.trim())
     : at === 'target'
       ? (recommending
         ? (scenarioFlow ? !!scenario : !probe.isPending && !!cols.user && !!cols.item)
@@ -335,15 +354,18 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
                 <Radio.Group label="What do you want to do?" value={goal} onChange={(v) => setGoal(v as Goal)}>
                   <SimpleGrid cols={{ base: 1, sm: 2 }} mt="xs">
                     {GOALS.map((g) => (
-                      <Radio.Card key={g.value} value={g.value} radius="md" p="sm">
-                        <Group wrap="nowrap" align="flex-start" gap="sm">
-                          <Radio.Indicator mt={2} />
-                          <Stack gap={4}>
-                            <Text fw={600} size="sm">{g.label}</Text>
-                            <Text size="xs" c="dimmed">{g.description}</Text>
-                          </Stack>
-                        </Group>
-                      </Radio.Card>
+                      <Stack key={g.value} gap={4}>
+                        <Radio.Card value={g.value} radius="md" p="sm" style={{ flex: 1 }}>
+                          <Group wrap="nowrap" align="flex-start" gap="sm">
+                            <Radio.Indicator mt={2} />
+                            <Stack gap={4}>
+                              <Text fw={600} size="sm">{g.label}</Text>
+                              <Text size="xs" c="dimmed">{g.description}</Text>
+                            </Stack>
+                          </Group>
+                        </Radio.Card>
+                        <DataNeedsLink kind={g.guide} />
+                      </Stack>
                     ))}
                   </SimpleGrid>
                 </Radio.Group>
@@ -369,6 +391,7 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
                     <Select label="When did it happen?" description="Optional: with it, Hermod tests on each person's latest picks."
                       searchable clearable disabled={!dataset} data={free('time')} value={cols.time} onChange={setCol('time')} />
                   </FormRow>
+                  {(cols.user || cols.item) && <DataChecklist items={recommendItems} />}
                   <Alert color="blue" variant="light" icon={<IconInfoCircle size="1rem" />} title="No check is needed">
                     Hermod holds back {cols.time ? 'each person\'s latest picks' : 'a random share of each person\'s picks'} and
                     tests whether the top 10 it recommends hold them, next to recommending everyone the most popular items.
@@ -389,6 +412,7 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
                   </Text>
                 </Stack>
               )}
+              {target && checked && <DataChecklist items={predictItems} />}
               {check.error && (
                 <Alert color="yellow" variant="light" icon={<IconInfoCircle size="1rem" />} title="Your data was not checked">
                   {(check.error as Error).message} You can still train.
@@ -503,12 +527,18 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
 
           {scenarioFlow && scenario && (
             <Stepper.Step label="Data you need">
-              <RoleMappingStep vhost={vhost} scenario={scenario} data={recData} datasets={datasets} onChange={setRecData} />
+              <Stack gap="md">
+                <RoleMappingStep vhost={vhost} scenario={scenario} data={recData} datasets={datasets} onChange={setRecData} />
+                <DataChecklist items={scenarioItems(false)} />
+              </Stack>
             </Stepper.Step>
           )}
           {scenarioFlow && (
             <Stepper.Step label="Data health">
-              <HealthStep check={health} />
+              <Stack gap="md">
+                {health.data && <DataChecklist items={scenarioItems(true)} />}
+                <HealthStep check={health} />
+              </Stack>
             </Stepper.Step>
           )}
           {scenarioFlow && scenario && (
@@ -578,12 +608,20 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
         </Stepper>
 
         <Group justify="flex-end">
+          {stepBlocker && at !== 'result' && (
+            <Text size="sm" c="dimmed" id={blockedId} style={{ flex: 1 }}>{stepBlocker}</Text>
+          )}
           <Button variant="default" onClick={onClose}>{at === 'result' ? 'Close' : 'Cancel'}</Button>
           {active > 0 && at !== 'result' && (
             <Button variant="default" disabled={train.running} onClick={() => setAt(steps[active - 1])}>Back</Button>
           )}
-          {active >= 0 && active < steps.indexOf('train') && <Button onClick={goOn} disabled={!canGoOn}>Next</Button>}
-          {at === 'train' && <Button loading={train.running} onClick={() => train.start(trainedName, spec())}>Train</Button>}
+          {active >= 0 && active < steps.indexOf('train') && (
+            <Button onClick={goOn} disabled={!canGoOn} aria-describedby={stepBlocker ? blockedId : undefined}>Next</Button>
+          )}
+          {at === 'train' && (
+            <Button loading={train.running} disabled={!!stepBlocker} aria-describedby={stepBlocker ? blockedId : undefined}
+              onClick={() => train.start(trainedName, spec())}>Train</Button>
+          )}
         </Group>
       </Stack>
     </Modal>

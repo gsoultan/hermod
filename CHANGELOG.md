@@ -41,6 +41,30 @@ A call without `within_days` answers as before.
   (2 weeks, 1 month, a custom number of days, or any time) and lists the
   customers with their expected date, "Overdue since …", the products due
   and why; the build dialog can keep only the customers due within some days.
+- **What data do I need?** under every card of **Train a model** (predict a
+  category, predict a number, recommend items to people, and each of the
+  five recommendation questions) opens a plain-language guide: the question
+  it answers, the columns it needs and the ones that make it better, the
+  amounts training requires and the ones it recommends, a small example with
+  CSV templates, a query for a database, and common mistakes. For **When will
+  they buy again** it explains the usual gap, due date, overdue, the next N
+  days, and that a product needs two different purchase days to get a date.
+- The dialog checks the chosen dataset against that guide as you go: columns
+  chosen, column types and the amounts (rows with an answer; or customers,
+  order lines, orders per customer and months of history from the data
+  health check), each green, amber or red with a fix. Only red stops **Next**
+  or **Train**, and the button says why.
+- **Upload a file** and **From a database** ask what the dataset is for and
+  show the columns it should have, the CSV template or an example query
+  (with a smaller one-row-per-customer-product-day version for big tables),
+  and the limits: 1,000,000 rows per read unless you set more, the vhost's
+  quotas, rows read 1,000 at a time, the built-in engine's
+  `HERMOD_ML_BUILTIN_MAX_ROWS` sample for prediction models, and its
+  256 MB-per-piece storage (which a database read never reaches).
+- The guide, the checklist and the guides in `docs/ml.md` and
+  `docs/ml-recommendations-data-guide.md` come from one file
+  (`ui/src/lib/mlDataGuide.ts`); a test reads every amount back from the Go
+  and Python code that enforces it and keeps the docs in step.
 
 ### Added — secret and env references in every source, sink and node setting
 

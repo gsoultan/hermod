@@ -8,6 +8,7 @@ import {
 } from '@tabler/icons-react'
 import { useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { FormRow } from '@/components/common/FormRow'
+import { missingMappings } from '@/lib/mlDataGuide'
 import { useDataset, type DatasetInfo } from '@/lib/mlModels'
 import {
   DEFAULT_WEIGHTS, ROLES, SCENARIOS, WEEKDAYS, WEIGHT_QUESTIONS, csvTemplate, guessColumns, recommendCheck, ruleOptions,
@@ -16,6 +17,7 @@ import {
 } from '@/lib/mlRecommend'
 import { UploadModal } from './DatasetsPanel'
 import { DataGuideDrawer } from './dataGuide'
+import { DataNeedsLink, saveCsv } from './dataNeeds'
 
 /** The five scenario cards, each with a real example, and the data guide. */
 export function ScenarioPicker({ value, onChange }: { value: Scenario | null; onChange: (s: Scenario) => void }) {
@@ -25,15 +27,18 @@ export function ScenarioPicker({ value, onChange }: { value: Scenario | null; on
       <Radio.Group label="What do you want to recommend?" value={value} onChange={(v) => onChange(v as Scenario)}>
         <SimpleGrid cols={{ base: 1, sm: 2 }} mt="xs">
           {SCENARIOS.map((s) => (
-            <Radio.Card key={s.value} value={s.value} radius="md" p="sm">
-              <Group wrap="nowrap" align="flex-start" gap="sm">
-                <Radio.Indicator mt={2} />
-                <Stack gap={4}>
-                  <Text fw={600} size="sm">{s.label}</Text>
-                  <Text size="xs" c="dimmed">{s.example}</Text>
-                </Stack>
-              </Group>
-            </Radio.Card>
+            <Stack key={s.value} gap={4}>
+              <Radio.Card value={s.value} radius="md" p="sm" style={{ flex: 1 }}>
+                <Group wrap="nowrap" align="flex-start" gap="sm">
+                  <Radio.Indicator mt={2} />
+                  <Stack gap={4}>
+                    <Text fw={600} size="sm">{s.label}</Text>
+                    <Text size="xs" c="dimmed">{s.example}</Text>
+                  </Stack>
+                </Group>
+              </Radio.Card>
+              <DataNeedsLink kind={s.value} />
+            </Stack>
           ))}
         </SimpleGrid>
       </Radio.Group>
@@ -48,27 +53,10 @@ export function ScenarioPicker({ value, onChange }: { value: Scenario | null; on
 }
 
 /** Whether every required role has a dataset, and every mapped role its required columns. */
-export function rolesComplete(scenario: Scenario, data: RecommendData): boolean {
-  return scenarioRoles(scenario).every((r) => {
-    const m = data[r.role]
-    if (!m?.dataset) return !r.required
-    return r.columns.every((c) => !c.required || !!m[c.key])
-  })
-}
+export const rolesComplete = (scenario: Scenario, data: RecommendData): boolean => missingMappings(scenario, data).length === 0
 
 /** Saves a role's CSV template, made here from its example rows. */
-function downloadTemplate(role: RoleKey) {
-  try {
-    const url = URL.createObjectURL(new Blob([csvTemplate(role) + '\n'], { type: 'text/csv' }))
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${role}-template.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-  } catch {
-    // A browser without object URLs has nothing to save to; the example table is still shown.
-  }
-}
+const downloadTemplate = (role: RoleKey) => saveCsv(`${role}-template.csv`, csvTemplate(role))
 
 /**
  * "What data you need": per role, what it holds and why this scenario wants it,

@@ -1,5 +1,8 @@
 import { Drawer, List, Stack, Table, Text, Title } from '@mantine/core'
+import { LIMITS } from '@/lib/mlDataGuide'
 import { ROLES, SCENARIOS, scenarioRoles, type RoleKey } from '@/lib/mlRecommend'
+
+const n = (v: number) => v.toLocaleString('en-US')
 
 const ROLE_ORDER: RoleKey[] = ['transactions', 'customers', 'products', 'visits', 'salesmen']
 
@@ -55,12 +58,18 @@ export function DataGuideDrawer({ opened, onClose }: { opened: boolean; onClose:
         <Stack gap="xs">
           <Title order={4}>How much data is enough</Title>
           <List size="sm" spacing={4}>
-            <List.Item>Product recommendations: at least 1,000 customers, with about 3 or more orders each.</List.Item>
-            <List.Item>Spotting customers who may stop buying: at least 500 customers.</List.Item>
+            <List.Item>
+              Product recommendations: at least {n(LIMITS.minCustomersProducts)} customers, with about{' '}
+              {LIMITS.minOrdersPerCustomerProducts} or more orders each.
+            </List.Item>
+            <List.Item>
+              Visits and reorder timing: at least {n(LIMITS.minCustomersTiming)} customers, with {LIMITS.minOrdersPerCustomer} or more orders each.
+            </List.Item>
             <List.Item>
               History at least twice the planning period: to plan the next 3 months, give at least 6 months of orders.
             </List.Item>
-            <List.Item>Fewer than 50,000 products. With more, group them (by family or size) first.</List.Item>
+            <List.Item>Fewer than {n(LIMITS.maxProducts)} products. With more, group them (by family or size) first.</List.Item>
+            <List.Item>Each card's "What data do I need?" has the exact amounts for that question.</List.Item>
           </List>
         </Stack>
 
