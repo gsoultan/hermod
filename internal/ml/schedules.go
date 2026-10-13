@@ -79,21 +79,31 @@ type BuildTarget struct {
 	Mode     string `json:"mode,omitempty"`
 }
 
-// ModelBuild is a recommendation model's scheduled build.
+// ModelBuild is a recommendation model's scheduled build. WithinDays, for a
+// reorder model, builds only the customers due to order within that many
+// days of the build, overdue ones included.
 type ModelBuild struct {
 	Schedule   string      `json:"schedule"`
 	For        string      `json:"for"`
 	PeriodDays int         `json:"period_days,omitempty"`
+	WithinDays int         `json:"within_days,omitempty"`
 	K          int         `json:"k,omitempty"`
 	Target     BuildTarget `json:"target"`
 }
 
-// BuildColumns are the columns a build writes, in order.
+// BuildColumns are the columns a build writes, in order. A target table
+// must have them all; BuildDueDateColumn it may have, after them.
 var BuildColumns = []string{"model", "version", "recommendation_id", "for_id", "item_id", "rank", "score", "plan_date",
 	"reasons_text", "built_at"}
 
+// BuildDueDateColumn is the optional column a build writes a reorder item's
+// due date to, when the target table has it: a table made before it existed
+// keeps working.
+const BuildDueDateColumn = "due_date"
+
 // BuildRow is one written row: one item of one subject's answer. PlanDate
-// is the day a visit plan puts it on, empty otherwise.
+// is the day a visit plan puts it on, DueDate the day a reorder customer is
+// due to order; each empty otherwise.
 type BuildRow struct {
 	Model            string    `json:"model"`
 	Version          string    `json:"version"`
@@ -103,6 +113,7 @@ type BuildRow struct {
 	Rank             int       `json:"rank"`
 	Score            float64   `json:"score"`
 	PlanDate         string    `json:"plan_date,omitempty"`
+	DueDate          string    `json:"due_date,omitempty"`
 	ReasonsText      string    `json:"reasons_text"`
 	BuiltAt          time.Time `json:"built_at"`
 }
@@ -246,7 +257,10 @@ func buildQueries(rec *recommend.Model, b ModelBuild, today time.Time) ([]recomm
 	if !slices.Contains(allowed[b.For], scenario) {
 		return nil, badSchedule("a %s model is not built for %q", scenario, b.For)
 	}
-	base := recommend.Query{Today: today, K: b.K, ExcludeSeen: true}
+	if b.WithinDays > 0 && scenario != recommend.ScenarioReorder {
+		return nil, badSchedule(`"within_days" applies to a reorder model, not %s`, scenario)
+	}
+	base := recommend.Query{Today: today, K: b.K, ExcludeSeen: true, WithinDays: b.WithinDays}
 	if scenario == recommend.ScenarioVisits && b.PeriodDays > 0 {
 		base.From, base.To = today, today.AddDate(0, 0, b.PeriodDays-1)
 	}
@@ -290,6 +304,9 @@ func (b ModelBuild) Validate(scheduled bool) error {
 	}
 	if b.PeriodDays < 0 || b.PeriodDays > 366 {
 		return badSchedule("period_days is between 1 and 366")
+	}
+	if b.WithinDays < 0 || b.WithinDays > recommend.MaxWithinDays {
+		return badSchedule("within_days is between 1 and %d", recommend.MaxWithinDays)
 	}
 	if scheduled || b.Target.SourceID != "" || b.Target.Table != "" {
 		return b.Target.validate()
@@ -372,8 +389,8 @@ func (s *Service) BuildRecommendations(ctx context.Context, vhost, name string, 
 }
 
 // appendBuildRows appends one row per item of r to rows, each base with the
-// item's fields: its plan day when r is a visit plan, its reasons' texts
-// joined with "; ".
+// item's fields: its plan day when r is a visit plan, its due date for
+// reorder, its reasons' texts joined with "; ".
 func appendBuildRows(rows []BuildRow, base BuildRow, r recommend.Result) []BuildRow {
 	days := map[string]string{}
 	for _, d := range r.Plan {
@@ -388,7 +405,7 @@ func appendBuildRows(rows []BuildRow, base BuildRow, r recommend.Result) []Build
 		}
 		row := base
 		row.ForID, row.ItemID, row.Rank, row.Score = r.For, p.ID, p.Rank, p.Score
-		row.PlanDate, row.ReasonsText = days[p.ID], strings.Join(texts, "; ")
+		row.PlanDate, row.DueDate, row.ReasonsText = days[p.ID], p.DueDate, strings.Join(texts, "; ")
 		rows = append(rows, row)
 	}
 	return rows
@@ -396,8 +413,9 @@ func appendBuildRows(rows []BuildRow, base BuildRow, r recommend.Result) []Build
 
 // WriteBuild writes rows to a build's target table in one transaction: with
 // mode replace, the model's earlier rows are deleted first. driver is the
-// source's type. The table's columns are BuildColumns; plan_date is NULL
-// outside a visit plan.
+// source's type. The table's columns are BuildColumns, and
+// BuildDueDateColumn when the table has it; plan_date is NULL outside a
+// visit plan and due_date outside reorder.
 func WriteBuild(ctx context.Context, db *sql.DB, driver string, t BuildTarget, model string, rows []BuildRow) error {
 	canonical, ok := sqlutil.CanonicalDriver(driver)
 	if !ok {
@@ -407,19 +425,27 @@ func WriteBuild(ctx context.Context, db *sql.DB, driver string, t BuildTarget, m
 	if err != nil {
 		return badSchedule("target table %q: %v", t.Table, err)
 	}
-	cols := make([]string, len(BuildColumns))
-	marks := make([]string, len(BuildColumns))
-	for i, c := range BuildColumns {
-		if cols[i], err = sqlutil.QuoteIdent(canonical, c); err != nil {
-			return err
-		}
-		marks[i] = sqlutil.Placeholder(canonical, i+1)
-	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	withDue, err := hasColumn(ctx, tx, table, BuildDueDateColumn)
+	if err != nil {
+		return fmt.Errorf("reading the columns of %s: %w", t.Table, err)
+	}
+	columns := BuildColumns
+	if withDue {
+		columns = append(slices.Clone(BuildColumns), BuildDueDateColumn)
+	}
+	cols := make([]string, len(columns))
+	marks := make([]string, len(columns))
+	for i, c := range columns {
+		if cols[i], err = sqlutil.QuoteIdent(canonical, c); err != nil {
+			return err
+		}
+		marks[i] = sqlutil.Placeholder(canonical, i+1)
+	}
 	if t.Mode == "" || t.Mode == BuildReplace {
 		//nolint:gosec // G202: table and column are quoted by sqlutil.QuoteIdent; the model is a placeholder.
 		del := "DELETE FROM " + table + " WHERE " + cols[0] + " = " + sqlutil.Placeholder(canonical, 1)
@@ -435,16 +461,43 @@ func WriteBuild(ctx context.Context, db *sql.DB, driver string, t BuildTarget, m
 	}
 	defer func() { _ = stmt.Close() }()
 	for _, r := range rows {
-		var planDate any
-		if r.PlanDate != "" {
-			planDate = r.PlanDate
+		values := []any{r.Model, r.Version, r.RecommendationID, r.ForID, r.ItemID, r.Rank, r.Score,
+			nullIfEmpty(r.PlanDate), r.ReasonsText, r.BuiltAt}
+		if withDue {
+			values = append(values, nullIfEmpty(r.DueDate))
 		}
-		if _, err := stmt.ExecContext(ctx, r.Model, r.Version, r.RecommendationID, r.ForID, r.ItemID, r.Rank, r.Score,
-			planDate, r.ReasonsText, r.BuiltAt); err != nil {
+		if _, err := stmt.ExecContext(ctx, values...); err != nil {
 			return fmt.Errorf("writing to %s: %w", t.Table, err)
 		}
 	}
 	return tx.Commit()
+}
+
+// nullIfEmpty is s, or NULL for "".
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// hasColumn reports whether the quoted table has the column, by its name in
+// any case, from the columns a query of no rows names.
+func hasColumn(ctx context.Context, tx *sql.Tx, table, column string) (bool, error) {
+	//nolint:gosec // G202: table is quoted by sqlutil.QuoteIdent.
+	rows, err := tx.QueryContext(ctx, "SELECT * FROM "+table+" WHERE 1 = 0")
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = rows.Close() }()
+	names, err := rows.Columns()
+	if err != nil {
+		return false, err
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(names, func(n string) bool { return strings.EqualFold(n, column) }), nil
 }
 
 // RunBuild builds and writes b, through runner's connection to the target

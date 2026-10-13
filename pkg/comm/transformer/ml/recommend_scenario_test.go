@@ -32,9 +32,23 @@ func TestRecommendModeForAScenarioSubject(t *testing.T) {
 			t.Errorf("%s: request = %v, want %v", to, reg.req, want)
 		}
 	}
+	// withinDays asks a reorder model for the customers due in that window.
+	for _, to := range []string{"salesman", "product", "customer"} {
+		reg := &fakeRecommender{}
+		if _, err := run(t, reg, "", map[string]any{"model": "due", "mode": "recommend", "recommendFor": to, "idField": "id",
+			"withinDays": "14"}, map[string]any{"id": "x"}); err != nil {
+			t.Fatal(err)
+		}
+		if want := map[string]any{"for": map[string]any{to: "x"}, "within_days": 14}; !reflect.DeepEqual(reg.req, want) {
+			t.Errorf("%s: request = %v, want %v", to, reg.req, want)
+		}
+	}
 	for _, cfg := range []map[string]any{
 		{"recommendFor": "user", "periodDays": 7},
 		{"recommendFor": "salesman", "periodDays": 400},
+		{"recommendFor": "user", "withinDays": 14},
+		{"recommendFor": "salesman", "withinDays": 367},
+		{"recommendFor": "salesman", "withinDays": "soon"},
 		{"recommendFor": "item", "rules": "[]"},
 		{"recommendFor": "salesman", "rules": "{not json"},
 	} {

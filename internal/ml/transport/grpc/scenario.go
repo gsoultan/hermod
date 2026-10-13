@@ -73,7 +73,8 @@ func scenarioRequest(req *proto.RecommendScenarioRequest) (ml.ScenarioRequest, e
 		return v
 	}
 	call.For = ml.ScenarioFor{Customer: set(sub.GetCustomer()), Product: set(sub.GetProduct()),
-		Salesman: set(sub.GetSalesman()), Territory: set(sub.GetTerritory())}
+		Salesman: set(sub.GetSalesman()), Territory: set(sub.GetTerritory()), AllCustomers: sub.GetAllCustomers()}
+	call.WithinDays = int(req.GetWithinDays())
 	for _, c := range sub.GetCustomers() {
 		call.For.Customers = append(call.For.Customers, c)
 	}
@@ -99,26 +100,42 @@ func scenarioRequest(req *proto.RecommendScenarioRequest) (ml.ScenarioRequest, e
 func picks(in []recommend.Pick) ([]*proto.ScenarioPick, error) {
 	out := make([]*proto.ScenarioPick, len(in))
 	for i, p := range in {
-		pick := &proto.ScenarioPick{Id: p.ID, Score: p.Score, Rank: int32(p.Rank), DueDate: p.DueDate}
+		pick := &proto.ScenarioPick{Id: p.ID, Score: p.Score, Rank: int32(p.Rank), DueDate: p.DueDate, Overdue: p.Overdue}
 		for _, r := range p.Reasons {
 			pick.Reasons = append(pick.Reasons, &proto.Reason{Code: r.Code, Text: r.Text})
 		}
-		if len(p.Fields) > 0 {
-			// Through JSON, so a field of any JSON type (a time, a number
-			// type structpb does not know) arrives as the REST answer has it.
-			raw, err := json.Marshal(p.Fields)
+		var err error
+		if pick.Fields, err = fieldsStruct(p.ID, p.Fields); err != nil {
+			return nil, err
+		}
+		for _, d := range p.Products {
+			fields, err := fieldsStruct(d.ID, d.Fields)
 			if err != nil {
-				return nil, status.Errorf(codes.Internal, "item %s cannot be sent: %v", p.ID, err)
+				return nil, err
 			}
-			fields := &structpb.Struct{}
-			if err := fields.UnmarshalJSON(raw); err != nil {
-				return nil, status.Errorf(codes.Internal, "item %s cannot be sent: %v", p.ID, err)
-			}
-			pick.Fields = fields
+			pick.Products = append(pick.Products, &proto.DueProduct{Id: d.ID, DueDate: d.DueDate, Overdue: d.Overdue, Fields: fields})
 		}
 		out[i] = pick
 	}
 	return out, nil
+}
+
+// fieldsStruct is an item's fields as a Struct; nil for none. Through JSON,
+// so a field of any JSON type (a time, a number type structpb does not
+// know) arrives as the REST answer has it.
+func fieldsStruct(id string, in map[string]any) (*structpb.Struct, error) {
+	if len(in) == 0 {
+		return nil, nil
+	}
+	raw, err := json.Marshal(in)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "item %s cannot be sent: %v", id, err)
+	}
+	fields := &structpb.Struct{}
+	if err := fields.UnmarshalJSON(raw); err != nil {
+		return nil, status.Errorf(codes.Internal, "item %s cannot be sent: %v", id, err)
+	}
+	return fields, nil
 }
 
 // recommendStatus maps a recommendation error onto a gRPC status.

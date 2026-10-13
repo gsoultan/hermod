@@ -40,7 +40,7 @@ service InferenceService {
   // answer carries a recommendation_id to send feedback with.
   //
   // Errors: UNAUTHENTICATED as for Predict; INVALID_ARGUMENT for a subject
-  // the scenario does not take, a bad period, k or rule, a rule that loosens
+  // the scenario does not take, a bad period, within_days, k or rule, a rule that loosens
   // the model's own rules, more than 1000 customers, or a model without a
   // scenario; RESOURCE_EXHAUSTED over the vhost's quota; UNAVAILABLE when the
   // model could not be loaded.
@@ -182,16 +182,23 @@ message RecommendScenarioRequest {
   // Whether to leave out products the customer already bought; the model's
   // default when unset.
   optional bool exclude_seen = 8;
+  // For reorder: only the customers due to order within this many days
+  // from today (1 to 366), overdue ones included and marked, most likely
+  // first. 0 is no window.
+  int32 within_days = 9;
 }
 
 message ScenarioSubject {
   string customer = 1;
   // Up to 1000 customers in one call: one result each.
   repeated string customers = 2;
+  // For reorder, the customers who buy this product again and again.
   string product = 3;
   string salesman = 4;
   // The territory a rule's from_request "territory" binds to.
   string territory = 5;
+  // For reorder: every customer, in one result.
+  bool all_customers = 6;
 }
 
 message RecommendScenarioResponse {
@@ -221,6 +228,22 @@ message ScenarioPick {
   google.protobuf.Struct fields = 5;
   // For reorder: when the customer is due to order it, YYYY-MM-DD.
   string due_date = 6;
+  // For reorder: due_date has passed with no order since.
+  bool overdue = 7;
+  // For reorder: the products the customer is due to buy again, soonest
+  // first: those due within the window, or the one product asked about.
+  repeated DueProduct products = 8;
+}
+
+// A product a reorder customer is due to buy again.
+message DueProduct {
+  string id = 1;
+  // YYYY-MM-DD, from the customer's own gap between buying it.
+  string due_date = 2;
+  // due_date has passed.
+  bool overdue = 3;
+  // The product's own fields from the model's data (name, category).
+  google.protobuf.Struct fields = 4;
 }
 
 message Reason {

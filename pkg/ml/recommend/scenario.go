@@ -23,7 +23,12 @@ const (
 	// whitespaceReason is the share of similar customers that makes "bought
 	// by N of M similar customers" a reason.
 	whitespaceReason = 0.2
+	// MaxWithinDays bounds a reorder window, as a visit plan's period.
+	MaxWithinDays = 366
 )
+
+// AllCustomers is the For of a reorder answer for every customer.
+const AllCustomers = "all_customers"
 
 // The re-ranking weights of the product scenarios, as the worker's
 // PRODUCT_WEIGHTS and AUDIENCE_WEIGHTS.
@@ -61,14 +66,28 @@ type Reason struct {
 
 // Pick is one result: a customer or a product, its score (higher is
 // stronger; scores compare within one list only), its rank from 1, why, and
-// what the model knows of it. DueDate is set by the reorder scenario.
+// what the model knows of it. DueDate is set by the reorder scenario, and
+// Overdue when that day has passed with no order since. Products are the
+// products a reorder customer is due to buy again: those due within the
+// window, or the one product asked about.
 type Pick struct {
+	ID       string         `json:"id"`
+	Score    float64        `json:"score"`
+	Rank     int            `json:"rank"`
+	Reasons  []Reason       `json:"reasons"`
+	Fields   map[string]any `json:"fields"`
+	DueDate  string         `json:"due_date,omitempty"`
+	Overdue  bool           `json:"overdue,omitempty"`
+	Products []DueProduct   `json:"products,omitempty"`
+}
+
+// DueProduct is a product a customer is due to buy again: when, from the
+// customer's own gap between buying it, and whether that day has passed.
+type DueProduct struct {
 	ID      string         `json:"id"`
-	Score   float64        `json:"score"`
-	Rank    int            `json:"rank"`
-	Reasons []Reason       `json:"reasons"`
-	Fields  map[string]any `json:"fields"`
-	DueDate string         `json:"due_date,omitempty"`
+	DueDate string         `json:"due_date"`
+	Overdue bool           `json:"overdue,omitempty"`
+	Fields  map[string]any `json:"fields,omitempty"`
 }
 
 // PlanDay is one working day of a visit plan.
@@ -91,15 +110,20 @@ type Result struct {
 // territory most of the salesman's customers are in. From and To bound a
 // visit plan (both days included); zero means the model's period from Today.
 // K is how many results, 0 for the default. Rules are the request's, added
-// to the model's own.
+// to the model's own. AllCustomers asks a reorder model about every
+// customer. WithinDays, for reorder, keeps the customers due to order before
+// Today plus that many days, overdue ones included, ranked by how likely
+// they are to order; 0 is no window.
 type Query struct {
 	Customer, Product, Salesman, Territory string
 	Customers                              []string
+	AllCustomers                           bool
 	From, To                               time.Time
 	Today                                  time.Time
 	K                                      int
 	Rules                                  []Rule
 	ExcludeSeen                            bool
+	WithinDays                             int
 }
 
 // Answer answers a call of the model's scenario: one Result per subject.
@@ -108,8 +132,11 @@ type Query struct {
 //     across the working days of the period.
 //   - products: for a customer (or a batch of customers), products to offer;
 //     for a product, products like it.
-//   - reorder: for a customer, a batch of them or a salesman's customers,
-//     when each will order again (DueDate), most overdue first.
+//   - reorder: for a customer, a batch of them, a salesman's customers or
+//     every customer, when each will order again (DueDate), most overdue
+//     first; for a product, its repeat buyers by when they will buy it
+//     again. With WithinDays, only those due before the window ends,
+//     overdue ones included, most likely to order first.
 //   - audience: for a product, the customers likely to want it.
 //   - similar: for a product, products like it.
 func (m *Model) Answer(q Query) ([]Result, error) {
@@ -123,18 +150,24 @@ func (m *Model) Answer(q Query) ([]Result, error) {
 	if len(q.Customers) > MaxBatch {
 		return nil, badQuery("at most %d customers per call, not %d", MaxBatch, len(q.Customers))
 	}
+	if q.WithinDays < 0 || q.WithinDays > MaxWithinDays {
+		return nil, badQuery(`"within_days" is between 1 and %d days`, MaxWithinDays)
+	}
+	if q.WithinDays > 0 && scenario != ScenarioReorder {
+		return nil, badQuery(`"within_days" applies to a reorder model ("When will they buy again"), not %s`, scenario)
+	}
 	if q.Today.IsZero() {
 		q.Today = time.Now()
 	}
 	c := &call{m: m, q: q, today: dayOf(q.Today), scenario: scenario}
 	subjects := 0
-	for _, set := range []bool{q.Customer != "", len(q.Customers) > 0, q.Product != "", q.Salesman != ""} {
+	for _, set := range []bool{q.Customer != "", len(q.Customers) > 0, q.Product != "", q.Salesman != "", q.AllCustomers} {
 		if set {
 			subjects++
 		}
 	}
 	if subjects != 1 {
-		return nil, badQuery(`give one of "customer", "customers", "product" or "salesman" in "for"`)
+		return nil, badQuery(`give one of "customer", "customers", "product", "salesman" or "all_customers" in "for"`)
 	}
 	return c.answer()
 }
@@ -148,6 +181,10 @@ func (c *call) answer() ([]Result, error) {
 		return one(c.visits())
 	case scenario == ScenarioReorder && q.Salesman != "":
 		return one(c.reorderSalesman())
+	case scenario == ScenarioReorder && q.AllCustomers:
+		return one(c.reorderAll())
+	case scenario == ScenarioReorder && q.Product != "":
+		return one(c.reorderProduct())
 	case (scenario == ScenarioProducts || scenario == ScenarioReorder) && (q.Customer != "" || len(q.Customers) > 0):
 		return c.perCustomer()
 	case scenario == ScenarioAudience && q.Product != "":
@@ -190,7 +227,7 @@ func allowedFor(scenario string) string {
 	case ScenarioProducts:
 		return `"for": {"customer": ...}, {"customers": [...]} or {"product": ...}`
 	case ScenarioReorder:
-		return `"for": {"customer": ...}, {"customers": [...]} or {"salesman": ...}`
+		return `"for": {"customer": ...}, {"customers": [...]}, {"salesman": ...}, {"product": ...} or {"all_customers": true}`
 	}
 	return `"for": {"product": ...}`
 }
@@ -205,13 +242,17 @@ type call struct {
 	norms map[string][2]float64
 }
 
-// cand is a scored candidate: an index of a customer or an item.
+// cand is a scored candidate: an index of a customer or an item. A reorder
+// candidate has its due day, as a number and as text, and the products it
+// is due for.
 type cand struct {
-	idx     int
-	score   float64
-	reasons []Reason
-	due     string
-	pinned  bool
+	idx      int
+	score    float64
+	reasons  []Reason
+	due      string
+	dueDay   int
+	products []DueProduct
+	pinned   bool
 }
 
 // rules is the model's rules then the request's, without those whose
@@ -608,7 +649,8 @@ func boostText(r Rule, add float64) string {
 func (c *call) picks(cands []cand, customers bool) []Pick {
 	out := make([]Pick, len(cands))
 	for i, cd := range cands {
-		p := Pick{Score: float64(float32(cd.score)), Rank: i + 1, Reasons: cd.reasons, DueDate: cd.due}
+		p := Pick{Score: float64(float32(cd.score)), Rank: i + 1, Reasons: cd.reasons, DueDate: cd.due,
+			Overdue: cd.due != "" && cd.dueDay < c.today, Products: cd.products}
 		if p.Reasons == nil {
 			p.Reasons = []Reason{}
 		}

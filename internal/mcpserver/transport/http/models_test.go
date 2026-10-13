@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -12,10 +14,12 @@ import (
 	"time"
 
 	"github.com/gsoultan/hermod/internal/api/handlers"
+	"github.com/gsoultan/hermod/internal/mcpserver"
 	"github.com/gsoultan/hermod/internal/ml"
 	"github.com/gsoultan/hermod/internal/ml/monitor"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/ml/inference"
+	"github.com/gsoultan/hermod/pkg/ml/worker"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -274,5 +278,46 @@ func TestAModelToolsPredictionIsLoggedAsMCP(t *testing.T) {
 			t.Fatal("the prediction was never logged")
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// A recommend tool's window and all_customers reach the reorder model.
+func TestARecommendToolsWindowReachesTheModel(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "pkg", "ml", "recommend", "testdata", "scenario", "reorder.rec"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/due/versions/1/model.rec") {
+			_, _ = w.Write(raw)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	st := &modelStore{store: &store{}, models: map[string]storage.MLModel{
+		"a/due": {VHost: "a", Name: "due", Backend: storage.MLBackendWorker, RemoteVersion: "1", Task: storage.MLTaskRecommendation},
+	}}
+	svc := ml.NewService(func() any { return st }, nil, nil).WithWorker(worker.New(srv.URL, "", nil))
+	m := models{svc: svc}
+	window, err := m.RecommendScenario(t.Context(), "a", "due", mcpserver.RecommendArgs{
+		For: &mcpserver.ScenarioFor{AllCustomers: true}, WithinDays: 14, K: 500})
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, err := m.RecommendScenario(t.Context(), "a", "due", mcpserver.RecommendArgs{
+		For: &mcpserver.ScenarioFor{AllCustomers: true}, K: 500})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(window.Results) != 1 || window.Results[0].For != "all_customers" || len(window.Results[0].Items) == 0 ||
+		len(window.Results[0].Items) >= len(all.Results[0].Items) {
+		t.Fatalf("%d customers due in 14 days of %d", len(window.Results[0].Items), len(all.Results[0].Items))
+	}
+	end := time.Now().UTC().AddDate(0, 0, 14).Format(time.DateOnly)
+	for _, p := range window.Results[0].Items {
+		if p.DueDate >= end {
+			t.Errorf("%s due %s, after the window", p.ID, p.DueDate)
+		}
 	}
 }

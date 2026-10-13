@@ -1044,7 +1044,7 @@ products, visits and salesmen. Each model is trained for one **scenario**:
 |---|---|---|
 | `visits` | Which customers a salesman should visit in a period, as a day-by-day plan. | `{"salesman"}` |
 | `products` | Which products to offer a customer. | `{"customer"}` or `{"customers": [...]}` |
-| `reorder` | When each customer will order each product again. | `{"customer"}`, `{"customers"}` or `{"salesman"}` (their customers) |
+| `reorder` | When each customer will order again, and which customers will buy in the next N days. | `{"customer"}`, `{"customers"}`, `{"salesman"}` (their customers), `{"product"}` (its repeat buyers) or `{"all_customers": true}` |
 | `audience` | Which customers are likely to want a product. | `{"product"}` |
 | `similar` | Which products are like a product. | `{"product"}` |
 
@@ -1082,7 +1082,9 @@ what. Send `task: "recommendation"` with `scenario` and `data`:
   `visits` needs `customers.salesman`. Every other role and column is
   optional and makes the answers better: amounts make "value" mean money,
   visits stop a customer being sent to twice, coordinates order each day's
-  route.
+  route, and for `reorder` `transactions.product` gives each customer's
+  products their own due dates (a reorder model keeps its products, with no
+  recommender fitted on them).
 - `weights` apply to `visits`: how much a customer being due to order, at
   risk of leaving, valuable, likely to buy more, and not visited lately
   count. Each is between 0 and 1; they are rescaled to add up to 1.
@@ -1187,15 +1189,18 @@ curl -X POST https://hermod.example.com/api/ml/serve/default/visit-plan/recommen
 ```
 
 - `for` takes exactly one of `customer`, `customers` (up to 1000: one result
-  each, in order), `product` or `salesman`, as the table above allows; ids are
-  strings or numbers. `territory` (in `for` or at the top) only feeds
-  `from_request`.
+  each, in order), `product`, `salesman` or `all_customers: true`, as the
+  table above allows; ids are strings or numbers. `territory` (in `for` or at
+  the top) only feeds `from_request`.
 - `period` is for visits: `from` (today when left out) and `to` (the model's
   period from `from` when left out). The plan fills each working day with up
   to the salesman's capacity, most urgent first, and orders each day by
   distance when customers have coordinates.
+- `within_days` is for reorder: see
+  [Customers likely to buy in the next N days](#customers-likely-to-buy-in-the-next-n-days).
 - `k` is the results per subject: up to 100, and up to 500 for a visit plan or
-  a salesman's reorders. Over that is a 400.
+  a reorder list (a salesman's customers, a product's buyers, or everyone).
+  Over that is a 400.
 - `exclude_seen` (true by default) leaves out products the customer already
   bought.
 - `"respond": "async"` (or the header `Prefer: respond-async`) runs the call
@@ -1208,7 +1213,8 @@ curl -X POST https://hermod.example.com/api/ml/serve/default/visit-plan/recommen
   [sync time limit](#the-sync-time-limit).
 
 Each item has `id`, `score` (compares within one list only), `rank` from 1,
-`reasons`, the `fields` the model has for it, and for `reorder` a `due_date`.
+`reasons`, the `fields` the model has for it, and for `reorder` a `due_date`,
+`overdue: true` once that day has passed, and `products` (below).
 The reason codes are `reorder_due`, `churn_risk`, `high_value`, `whitespace`
 (similar customers buy it), `not_visited`, `similar_customers`,
 `bought_together`, `popular`, `boosted` and `pinned`; the text is plain
@@ -1220,20 +1226,73 @@ subject (each customer of a batch) counts as one row against
 `recommendation_id` too.
 
 **gRPC:** `hermod.ml.v1.InferenceService/RecommendScenario` takes the same
-call with `subject` for `for`, `period_from` and `period_to`, and each rule as
-a `google.protobuf.Struct`; each result names its subject in `subject`.
-`Recommend` answers carry `recommendation_id`.
+call with `subject` for `for` (`all_customers` a bool), `period_from` and
+`period_to`, `within_days`, and each rule as a `google.protobuf.Struct`; each
+result names its subject in `subject`, and each `ScenarioPick` carries
+`due_date`, `overdue` and `products` (`DueProduct`: `id`, `due_date`,
+`overdue`, `fields`). `Recommend` answers carry `recommendation_id`.
 
-**MCP:** the `recommend_<model>` tool also takes `for`, `territory`,
-`period`, `k`, `rules` and `exclude_seen`, and answers `{"model", "vhost",
-"recommendation_id", "results"}`.
+**MCP:** the `recommend_<model>` tool also takes `for` (with
+`all_customers`), `territory`, `period`, `within_days`, `k`, `rules` and
+`exclude_seen`, and answers `{"model", "vhost", "recommendation_id",
+"results"}`.
 
 **Workflows:** the **Predict** node's Recommend mode takes `recommendFor`
 `salesman`, `customer` or `product` (and `user` or `item` as before),
-`periodDays` (a visit plan from today), `rules` (a JSON list), `idField`, `k`,
-`excludeSeen` and `outputField`. It writes the first result's items to
-`outputField`, each with `id`, `score`, `rank`, `reasons`, `fields`, the
-call's `recommendation_id`, and `plan_date` or `due_date` where set.
+`periodDays` (a visit plan from today), `withinDays` (a reorder window from
+today, 1 to 366), `rules` (a JSON list), `idField`, `k`, `excludeSeen` and
+`outputField`. It writes the first result's items to `outputField`, each with
+`id`, `score`, `rank`, `reasons`, `fields`, the call's `recommendation_id`,
+and `plan_date`, or `due_date` with `overdue` and `products`, where set.
+
+### Customers likely to buy in the next N days
+
+A `reorder` model answers "which customers will buy in the next two weeks, or
+month" with `within_days` (1 to 366; leave it out for the answers above,
+unchanged):
+
+```bash
+curl -X POST https://hermod.example.com/api/ml/serve/default/due/recommend \
+  -H "X-API-Key: hml_…" \
+  -d '{"for": {"all_customers": true}, "within_days": 14, "k": 200}'
+```
+
+```json
+{"recommendation_id": "rec_7qp…",
+ "results": [{"for": "all_customers",
+   "items": [{"id": "C-1042", "score": 1, "rank": 1, "due_date": "2026-10-09", "overdue": true,
+              "reasons": [{"code": "reorder_due", "text": "Usually orders every 14 days; last order 18 days ago"}],
+              "fields": {"name": "Toko Maju", "salesman": "rep7"},
+              "products": [{"id": "SKU-881", "due_date": "2026-10-07", "overdue": true, "fields": {"name": "Coffee 1kg"}},
+                           {"id": "SKU-12", "due_date": "2026-10-20", "fields": {"name": "Sugar 5kg"}}]}, …]}]}
+```
+
+- The list holds the customers whose expected next order (`due_date`, their
+  last order plus their usual gap between orders) falls before today plus
+  `within_days`. Customers whose date has already passed without an order are
+  **kept and marked `overdue`**, not dropped.
+- One row per customer. `products` lists the products that customer is due to
+  buy again in the window, soonest first: each product's date comes from the
+  customer's own gap between buying it, so only products they bought on two
+  days or more have one, and a product not bought for three of those gaps
+  counts as one they stopped buying and is left out.
+- It is ranked by how likely the customer is to order, as `score` from 0 to
+  1: 1 up to one and a half usual gaps since their last order, falling to 0 at
+  three, where an order is no longer due but lost (the reason `churn_risk`
+  says so). Ties go to the soonest `due_date`. So the customers overdue by a
+  few days come first, then those due soon, and long-lapsed customers last.
+  Without `within_days` the order is as before: most overdue first.
+- `for` is everyone (`{"all_customers": true}`, blocked customers left out),
+  a salesman's customers (`{"salesman"}`), one customer or a batch, or a
+  product (`{"product"}`): the customers who buy that product again and again
+  and when each will buy it next, from their gap between buying it.
+  `{"product"}` needs a model trained with `transactions.product`; a reorder
+  model trained before this release has no products and answers it with a 400
+  that says to train it again (its customers, salesmen and windows still
+  work, with no `products`).
+- The filtering happens in Hermod's in-process answer, so the REST, gRPC,
+  MCP, Predict node and build answers are the same list. `within_days` on a
+  model of another scenario is a 400.
 
 ### Feedback
 
@@ -1289,21 +1348,31 @@ curl -X PUT https://hermod.example.com/api/vhosts/default/ml/models/visit-plan/b
 ```
 
 `for` is `all_salesmen` (visits, reorder), `all_customers` (products,
-reorder) or `all_products` (audience, similar, products). The table must
-exist with the columns `model, version, recommendation_id, for_id, item_id,
-rank, score, plan_date, reasons_text, built_at` (`plan_date` NULL outside a
-visit plan; `reasons_text` the reasons joined with `; `). `replace` deletes
+reorder) or `all_products` (audience, similar, products). `within_days`
+(reorder only) builds only the customers due within that many days of the
+run, overdue ones included, as in
+[Customers likely to buy in the next N days](#customers-likely-to-buy-in-the-next-n-days).
+The table must exist with the columns `model, version, recommendation_id,
+for_id, item_id, rank, score, plan_date, reasons_text, built_at` (`plan_date`
+NULL outside a visit plan; `reasons_text` the reasons joined with `; `). It
+may also have a `due_date` column (a date or text): a build writes a reorder
+customer's due date there, and NULL for other scenarios. The column is
+optional: Hermod reads the table's columns on every run and writes `due_date`
+only when it is there, so a table made before it existed keeps working; add
+it with, for example, `ALTER TABLE visit_plan ADD COLUMN due_date DATE`. The
+products a customer is due for are in the API answer, not in the table. `replace` deletes
 the model's earlier rows in the same transaction; `append` keeps them. A
 build of more than 1,000,000 rows is refused. `GET .../build` shows it with
 its status, `DELETE .../build` stops it. Builds are not counted against the
 per-second quota.
 
 The **Build recommendations** workflow node (`ml_recommend_build`) does the
-same from a workflow: `model`, `for`, `periodDays`, `k`, and optionally
-`targetSourceId`, `targetTable`, `targetMode` and `maxRows` (10,000 by
-default). It emits one message per row, with the row's fields on the
-incoming record, after writing them when a target is set; more rows than
-`maxRows` fails the record before anything is written.
+same from a workflow: `model`, `for`, `periodDays`, `withinDays`, `k`, and
+optionally `targetSourceId`, `targetTable`, `targetMode` and `maxRows`
+(10,000 by default). It emits one message per row, with the row's fields
+(`due_date` among them) on the incoming record, after writing them when a
+target is set; more rows than `maxRows` fails the record before anything is
+written.
 
 Dataset refreshes and builds are checked every minute by every Hermod serving
 the API; each run is claimed in storage first, so it happens once across
@@ -1337,16 +1406,22 @@ enough and what the health check looks for.
    with the data health summary and sample answers. A visit model previews one
    salesman's plan as a list of days with reasons.
 5. **Use it.** **Try it** asks in the scenario's terms and lets you mark each
-   answer useful or not (posted as feedback); **Copy API call** and **Copy
+   answer useful or not (posted as feedback). For **When will they buy
+   again** it asks who (everyone, a salesman's customers, a product's buyers
+   or one customer) and when (**2 weeks**, **1 month**, a custom number of
+   days, or any time), and lists the customers with the date each is
+   expected to order, "Overdue since …" where it has passed, the products
+   they are due for and why; **Copy API call** and **Copy
    async call** (the async one needs Hermod with async jobs); **Build
-   recommendations into a table** saves a weekly build (`PUT …/build`).
+   recommendations into a table** saves a weekly build (`PUT …/build`); for
+   a reorder model it can keep only the customers due within some days.
 
 Monitoring shows the acceptance rate of the last 30 days from the feedback.
 On the **Data** tab, the clock button refreshes a dataset from a database query
 on a cron schedule and shows the last run and error. In a workflow, **Predict**
 asks a scenario model for a salesman (with the days to plan), a customer or a
-product, and **Build Recommendations** builds every list and emits one message
-per row. A server without the scenario routes gets the one-table recommender
+product (a reorder model for any of them, with **Due within (days)**), and
+**Build Recommendations** builds every list and emits one message per row. A server without the scenario routes gets the one-table recommender
 above.
 
 ## Feature engineering nodes

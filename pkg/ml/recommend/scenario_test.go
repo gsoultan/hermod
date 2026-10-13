@@ -89,9 +89,14 @@ func TestParseReadsAScenarioArtifact(t *testing.T) {
 	if got := m.Salesmen(); !slices.Equal(got, []string{"R01", "R02", "R03", "R04"}) {
 		t.Fatalf("salesmen %v", got)
 	}
+	// A reorder model keeps its products for their due dates, with no
+	// recommender; one trained without products has none.
 	r := scenarioModel(t, "reorder")
-	if r.Algorithm() != AlgorithmNone || r.Items() != 0 {
+	if r.Algorithm() != AlgorithmNone || r.Items() == 0 {
 		t.Fatalf("reorder: algorithm %q with %d items", r.Algorithm(), r.Items())
+	}
+	if c := scenarioModel(t, "reorder_customers"); c.Algorithm() != AlgorithmNone || c.Items() != 0 {
+		t.Fatalf("reorder without products: algorithm %q with %d items", c.Algorithm(), c.Items())
 	}
 	// A format 1 model answers the products scenario.
 	if v1 := mustParse(t, factorsArtifact()); v1.Scenario() != ScenarioProducts || v1.DefaultRules() != nil {
@@ -430,5 +435,216 @@ func TestValidateRules(t *testing.T) {
 		if err := ValidateRules(tc.scenario, []Rule{tc.rule}); err != nil {
 			t.Errorf("%s %+v: %v", tc.scenario, tc.rule, err)
 		}
+	}
+}
+
+// windowEnd is the first day after a window of days from fixtureToday.
+func windowEnd(days int) string {
+	return fixtureToday.AddDate(0, 0, days).Format(time.DateOnly)
+}
+
+// checkWindow asserts what every answer of a window holds: each item due
+// before the window's end, marked overdue exactly when due before today,
+// ranked by likelihood and then by due date, with reasons.
+func checkWindow(t *testing.T, items []Pick, days int) {
+	t.Helper()
+	today, end := fixtureToday.Format(time.DateOnly), windowEnd(days)
+	for i, p := range items {
+		if p.DueDate == "" || p.DueDate >= end {
+			t.Errorf("%s: due %q, outside the %d-day window ending %s", p.ID, p.DueDate, days, end)
+		}
+		if p.Overdue != (p.DueDate < today) {
+			t.Errorf("%s: due %s, overdue %v on %s", p.ID, p.DueDate, p.Overdue, today)
+		}
+		if p.Score < 0 || p.Score > 1 {
+			t.Errorf("%s: likelihood %v outside [0, 1]", p.ID, p.Score)
+		}
+		if len(p.Reasons) == 0 {
+			t.Errorf("%s: no reasons", p.ID)
+		}
+		if p.Rank != i+1 {
+			t.Errorf("%s: rank %d at %d", p.ID, p.Rank, i)
+		}
+		if i > 0 {
+			prev := items[i-1]
+			if prev.Score < p.Score || (prev.Score == p.Score && prev.DueDate > p.DueDate) {
+				t.Errorf("%s (%v, %s) ranked after %s (%v, %s)", p.ID, p.Score, p.DueDate, prev.ID, prev.Score, prev.DueDate)
+			}
+		}
+	}
+}
+
+func TestReorderWithinDaysKeepsTheSalesmansCustomersDueInTheWindow(t *testing.T) {
+	m := scenarioModel(t, "reorder")
+	all := answer(t, m, Query{Salesman: "R01", K: MaxPlan})
+	for _, days := range []int{14, 30} {
+		got := answer(t, m, Query{Salesman: "R01", K: MaxPlan, WithinDays: days})
+		checkWindow(t, got.Items, days)
+		// The window is the unwindowed list's customers due before its end:
+		// overdue customers stay in, marked.
+		var want []string
+		for _, p := range all.Items {
+			if p.DueDate < windowEnd(days) {
+				want = append(want, p.ID)
+			}
+		}
+		gotIDs := ids(got.Items)
+		slices.Sort(gotIDs)
+		slices.Sort(want)
+		if !slices.Equal(gotIDs, want) {
+			t.Fatalf("%d days: customers %v, want %v", days, gotIDs, want)
+		}
+		overdue, upcoming := 0, 0
+		for _, p := range got.Items {
+			if p.Overdue {
+				overdue++
+			} else {
+				upcoming++
+			}
+		}
+		if overdue == 0 || upcoming == 0 {
+			t.Fatalf("%d days: %d overdue and %d upcoming; the fixture has both", days, overdue, upcoming)
+		}
+	}
+	// Each customer lists the products due in the window, soonest first,
+	// leaving out those they stopped buying: three of their usual gaps and
+	// more without one.
+	got := answer(t, m, Query{Salesman: "R01", K: MaxPlan, WithinDays: 30})
+	c := &call{m: m, today: dayOf(fixtureToday)}
+	listed := 0
+	for _, p := range got.Items {
+		for j, d := range p.Products {
+			listed++
+			last, gap, ok := c.pairCadence(m.userIndex[p.ID], m.itemIndex[d.ID])
+			if !ok || (float64(c.today)-last)/gap >= 3 {
+				t.Errorf("%s: product %s is listed, %v gaps since it was last bought", p.ID, d.ID, (float64(c.today)-last)/gap)
+			}
+			if d.ID == "" || d.DueDate == "" || d.DueDate >= windowEnd(30) || d.Overdue != (d.DueDate < fixtureToday.Format(time.DateOnly)) {
+				t.Errorf("%s: product %+v", p.ID, d)
+			}
+			if j > 0 && p.Products[j-1].DueDate > d.DueDate {
+				t.Errorf("%s: products not soonest first: %+v", p.ID, p.Products)
+			}
+		}
+	}
+	if listed == 0 {
+		t.Fatal("no customer lists a product due")
+	}
+}
+
+func TestReorderWithoutAWindowAnswersAsBefore(t *testing.T) {
+	m := scenarioModel(t, "reorder")
+	got := answer(t, m, Query{Salesman: "R01", K: MaxPlan})
+	for i, p := range got.Items {
+		if len(p.Products) != 0 {
+			t.Fatalf("%s lists products without a window", p.ID)
+		}
+		if p.Overdue != (p.DueDate < fixtureToday.Format(time.DateOnly)) {
+			t.Errorf("%s: due %s, overdue %v", p.ID, p.DueDate, p.Overdue)
+		}
+		if i > 0 && got.Items[i-1].Score < p.Score {
+			t.Fatalf("not most overdue first at %d", i)
+		}
+	}
+}
+
+func TestReorderForAProductListsItsBuyersDueAgain(t *testing.T) {
+	m := scenarioModel(t, "reorder")
+	product := m.items[0]
+	i := m.itemIndex[product]
+	// What the model knows: each customer's last day and usual gap for it.
+	due := map[string]string{}
+	for u := range m.users {
+		seen := m.seenBy(u)
+		k, found := slices.BinarySearch(seen, uint32(i))
+		if !found {
+			continue
+		}
+		pos := int(m.seenOff[u]) + k
+		if g := float64(m.sc.seenGap[pos]); finite(g) && g > 0 {
+			due[m.users[u]] = dayText(int(math.Ceil(float64(m.sc.seenLast[pos]) + g)))
+		}
+	}
+	if len(due) < 2 {
+		t.Fatalf("product %s has %d repeat buyers in the fixture", product, len(due))
+	}
+	all := answer(t, m, Query{Product: product, K: MaxPlan})
+	if all.For != product || len(all.Items) != len(due) {
+		t.Fatalf("for %q: %d customers, want %d", all.For, len(all.Items), len(due))
+	}
+	for _, p := range all.Items {
+		if p.DueDate != due[p.ID] || len(p.Products) != 1 || p.Products[0].ID != product || p.Products[0].DueDate != p.DueDate {
+			t.Errorf("%s: due %s with %+v, want %s", p.ID, p.DueDate, p.Products, due[p.ID])
+		}
+		if p.Reasons[0].Code != ReasonReorderDue && p.Reasons[0].Code != ReasonChurnRisk {
+			t.Errorf("%s: reasons %+v", p.ID, p.Reasons)
+		}
+	}
+	got := answer(t, m, Query{Product: product, K: MaxPlan, WithinDays: 30})
+	checkWindow(t, got.Items, 30)
+	want := 0
+	for _, d := range due {
+		if d < windowEnd(30) {
+			want++
+		}
+	}
+	if len(got.Items) != want {
+		t.Fatalf("%d customers due within 30 days, want %d", len(got.Items), want)
+	}
+	if empty := answer(t, m, Query{Product: "no-such-product", WithinDays: 30}); len(empty.Items) != 0 {
+		t.Fatalf("an unknown product: %+v", empty.Items)
+	}
+}
+
+func TestReorderForAllCustomers(t *testing.T) {
+	m := scenarioModel(t, "reorder")
+	got := answer(t, m, Query{AllCustomers: true, K: MaxPlan, WithinDays: 14})
+	if got.For != AllCustomers {
+		t.Fatalf("for %q", got.For)
+	}
+	checkWindow(t, got.Items, 14)
+	// Everyone is every salesman's customers together.
+	var want []string
+	for _, s := range m.Salesmen() {
+		want = append(want, ids(answer(t, m, Query{Salesman: s, K: MaxPlan, WithinDays: 14}).Items)...)
+	}
+	gotIDs := ids(got.Items)
+	slices.Sort(gotIDs)
+	slices.Sort(want)
+	if len(gotIDs) == 0 || !slices.Equal(gotIDs, want) {
+		t.Fatalf("all customers %v, want %v", gotIDs, want)
+	}
+	if few := answer(t, m, Query{AllCustomers: true, K: 3, WithinDays: 14}); len(few.Items) != 3 {
+		t.Fatalf("k 3: %d", len(few.Items))
+	}
+}
+
+func TestReorderWindowRefusals(t *testing.T) {
+	cases := []struct {
+		model string
+		q     Query
+		want  string
+	}{
+		{"visits", Query{Salesman: "R01", WithinDays: 14}, "within_days"},
+		{"products", Query{Customer: "C0001", WithinDays: 14}, "within_days"},
+		{"reorder", Query{Salesman: "R01", WithinDays: -1}, "within_days"},
+		{"reorder", Query{Salesman: "R01", WithinDays: MaxWithinDays + 1}, "within_days"},
+		{"products", Query{AllCustomers: true}, "customer"},
+		{"reorder", Query{AllCustomers: true, Salesman: "R01"}, "one of"},
+		// A reorder model trained without products cannot answer for one.
+		{"reorder_customers", Query{Product: "S001", WithinDays: 14}, "products"},
+	}
+	for _, tc := range cases {
+		tc.q.Today = fixtureToday
+		_, err := scenarioModel(t, tc.model).Answer(tc.q)
+		if !errors.Is(err, ErrBadQuery) || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s %+v: %v, want ErrBadQuery mentioning %q", tc.model, tc.q, err, tc.want)
+		}
+	}
+	// A reorder model trained without products still answers its customers.
+	old := answer(t, scenarioModel(t, "reorder_customers"), Query{Salesman: "R01", K: MaxPlan, WithinDays: 30})
+	checkWindow(t, old.Items, 30)
+	if len(old.Items) == 0 || len(old.Items[0].Products) != 0 {
+		t.Fatalf("a model without products: %+v", old.Items)
 	}
 }

@@ -13,13 +13,20 @@ knowledge is needed. The technical reference is "Recommendation scenarios" in
 |---|---|---|
 | Which customers should this salesman visit next week? | Visits | A day-by-day visit list, most urgent first, each with the reasons. |
 | What should we offer this customer? | Products | A short list of products, with why each one fits. |
-| When will this customer order again? | Reorder | For each product they buy, the day they are due. |
+| When will this customer order again? | Reorder | The day they are due to order, and whether it has passed. |
+| Which customers will buy in the next 2 weeks, or month? | Reorder | Everyone (or a salesman's customers, or a product's buyers) due in that period, overdue ones marked, each with the products they are due for. |
 | Who should we offer this product to? | Audience | The customers most likely to want it. |
 | What is like this product? | Similar | Products bought by the same kind of customers. |
 
 Every answer comes with reasons in plain words, such as *"Usually orders every
 30 days; last order 41 days ago"*, so a salesman can see why a customer is on
 the list.
+
+For "who will buy in the next 2 weeks", Reorder needs the **Product** column
+too: the date a customer will buy a product again comes from how often they
+bought that product before, so only products a customer bought on at least
+two different days get a date. A reorder model trained without the product
+column still lists the customers, just without their products.
 
 ## The data, table by table
 

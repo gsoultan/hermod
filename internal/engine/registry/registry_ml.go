@@ -118,9 +118,10 @@ func (r *Registry) MLRecommend(ctx context.Context, vhost, model string, req map
 }
 
 // mlRecommendScenario is MLRecommend for a scenario subject: req's "for",
-// with "k", "exclude_seen", "rules" and "period_days" (a visit plan's days
-// from today). The answer is the first result's items, each with the day a
-// visit plan puts it on as "plan_date".
+// with "k", "exclude_seen", "rules", "within_days" (a reorder window) and
+// "period_days" (a visit plan's days from today). The answer is the first
+// result's items, each with the day a visit plan puts it on as "plan_date",
+// and a reorder's "due_date", "overdue" and "products".
 func (r *Registry) mlRecommendScenario(ctx context.Context, vhost, model string, req map[string]any) ([]map[string]any, error) {
 	raw, err := json.Marshal(req)
 	if err != nil {
@@ -154,7 +155,14 @@ func (r *Registry) mlRecommendScenario(ctx context.Context, vhost, model string,
 		item := map[string]any{"id": p.ID, "score": p.Score, "rank": p.Rank, "reasons": p.Reasons, "fields": p.Fields,
 			"recommendation_id": ans.RecommendationID}
 		if p.DueDate != "" {
-			item["due_date"] = p.DueDate
+			item["due_date"], item["overdue"] = p.DueDate, p.Overdue
+		}
+		if len(p.Products) > 0 {
+			products := make([]map[string]any, len(p.Products))
+			for j, d := range p.Products {
+				products[j] = map[string]any{"id": d.ID, "due_date": d.DueDate, "overdue": d.Overdue, "fields": d.Fields}
+			}
+			item["products"] = products
 		}
 		if d := days[p.ID]; d != "" {
 			item["plan_date"] = d
@@ -189,13 +197,16 @@ func (r *Registry) OpenMLTarget(ctx context.Context, vhost, sourceID string) (*s
 // MLRecommendBuild is what the Build Recommendations node calls: the
 // model's answers for every salesman, customer or product as rows, written
 // to the target table when the config names one. config is the node's:
-// for, periodDays, k, targetSourceId, targetTable, targetMode, and maxRows,
+// for, periodDays, withinDays, k, targetSourceId, targetTable, targetMode, and maxRows,
 // over which the build is refused before anything is written.
 func (r *Registry) MLRecommendBuild(ctx context.Context, vhost, model string, config map[string]any) ([]map[string]any, int, error) {
 	b := ml.ModelBuild{For: stringOf(config["for"]), Target: ml.BuildTarget{
 		SourceID: stringOf(config["targetSourceId"]), Table: stringOf(config["targetTable"]), Mode: stringOf(config["targetMode"])}}
 	if v, ok := config["periodDays"].(int); ok {
 		b.PeriodDays = v
+	}
+	if v, ok := config["withinDays"].(int); ok {
+		b.WithinDays = v
 	}
 	if v, ok := config["k"].(int); ok {
 		b.K = v
@@ -225,7 +236,7 @@ func (r *Registry) MLRecommendBuild(ctx context.Context, vhost, model string, co
 	for i, row := range rows {
 		out[i] = map[string]any{"model": row.Model, "version": row.Version, "recommendation_id": row.RecommendationID,
 			"for_id": row.ForID, "item_id": row.ItemID, "rank": row.Rank, "score": row.Score, "plan_date": row.PlanDate,
-			"reasons_text": row.ReasonsText, "built_at": row.BuiltAt}
+			"due_date": row.DueDate, "reasons_text": row.ReasonsText, "built_at": row.BuiltAt}
 	}
 	return out, written, nil
 }

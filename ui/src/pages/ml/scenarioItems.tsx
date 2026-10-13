@@ -3,7 +3,7 @@ import { Badge, Button, Group, List, Stack, Table, Text } from '@mantine/core'
 import { IconThumbDown, IconThumbUp } from '@tabler/icons-react'
 import { useMutation } from '@tanstack/react-query'
 import type { RecommendedItem } from '@/lib/mlModels'
-import { postFeedback, type FeedbackOutcome, type RecommendResponse, type ScenarioItem } from '@/lib/mlRecommend'
+import { postFeedback, type DueProduct, type FeedbackOutcome, type RecommendResponse, type ScenarioItem } from '@/lib/mlRecommend'
 import { formatMetric } from './metrics'
 
 /** What a recommended thing is called: its name when the data has one, else its id. */
@@ -59,6 +59,43 @@ export function ScenarioItemList({ items, feedback, label }: { items: ScenarioIt
             {it.due_date && <Badge size="xs" variant="light" tt="none">Due {it.due_date}</Badge>}
             {feedback && <Feedback target={feedback} id={it.id} />}
           </Group>
+          {!!it.reasons?.length && (
+            <Text size="xs" c="dimmed" pl={32}>{it.reasons.map((r) => r.text).join(' · ')}</Text>
+          )}
+        </List.Item>
+      ))}
+    </List>
+  )
+}
+
+/** What a due product is called: its name when the data has one, else its id. */
+const productName = (p: DueProduct) => (typeof p.fields?.name === 'string' && p.fields.name ? p.fields.name : p.id)
+
+/**
+ * A reorder answer as the customers likely to buy: each with the date they are
+ * expected to order (or, when it has passed, since when they are overdue), the
+ * products they are due for, why, and optionally feedback buttons.
+ */
+export function DueCustomerList({ items, feedback }: { items: ScenarioItem[]; feedback?: FeedbackTarget }) {
+  if (!items.length) return <Text size="sm" c="dimmed">Nobody is due to buy in this period.</Text>
+  return (
+    <List spacing="xs" listStyleType="none" aria-label="Customers likely to buy">
+      {items.map((it) => (
+        <List.Item key={it.id}>
+          <Group gap="xs" wrap="wrap" align="baseline">
+            <Text size="sm" c="dimmed" w={24}>{it.rank}.</Text>
+            <Text size="sm" fw={500}>{itemName(it)}</Text>
+            {itemName(it) !== it.id && <Text size="xs" c="dimmed" ff="var(--mantine-font-family-monospace)">{it.id}</Text>}
+            {it.due_date && (it.overdue
+              ? <Badge size="xs" variant="light" color="red" tt="none">Overdue since {it.due_date}</Badge>
+              : <Badge size="xs" variant="light" tt="none">Expected {it.due_date}</Badge>)}
+            {feedback && <Feedback target={feedback} id={it.id} />}
+          </Group>
+          {!!it.products?.length && (
+            <Text size="xs" pl={32}>
+              Due for: {it.products.map((p) => `${productName(p)} (${p.overdue ? `overdue since ${p.due_date}` : p.due_date})`).join(', ')}
+            </Text>
+          )}
           {!!it.reasons?.length && (
             <Text size="xs" c="dimmed" pl={32}>{it.reasons.map((r) => r.text).join(' · ')}</Text>
           )}

@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -42,6 +43,43 @@ func TestRecommendScenarioAnswersAVisitPlan(t *testing.T) {
 	first := res.GetItems()[0]
 	if first.GetId() == "" || first.GetRank() != 1 || len(first.GetReasons()) == 0 || first.GetReasons()[0].GetCode() == "" {
 		t.Errorf("first item = %v", first)
+	}
+}
+
+// within_days and all_customers reach a reorder model, and its answer
+// carries due dates, overdue marks and the products due.
+func TestRecommendScenarioWithinDays(t *testing.T) {
+	c, key := dial(t, servingFixture(t, filepath.Join("scenario", "reorder.rec")))
+	resp, err := c.RecommendScenario(withKey(key), &proto.RecommendScenarioRequest{Vhost: "a", Model: "double",
+		Subject: &proto.ScenarioSubject{AllCustomers: true}, WithinDays: 30, K: 500})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := resp.GetResults()[0]
+	if res.GetSubject() != "all_customers" || len(res.GetItems()) == 0 {
+		t.Fatalf("result = %v", res)
+	}
+	end := time.Now().UTC().AddDate(0, 0, 30).Format(time.DateOnly)
+	today := time.Now().UTC().Format(time.DateOnly)
+	products := 0
+	for _, p := range res.GetItems() {
+		if p.GetDueDate() == "" || p.GetDueDate() >= end || p.GetOverdue() != (p.GetDueDate() < today) {
+			t.Errorf("%s: due %q, overdue %v", p.GetId(), p.GetDueDate(), p.GetOverdue())
+		}
+		for _, d := range p.GetProducts() {
+			products++
+			if d.GetId() == "" || d.GetDueDate() == "" || d.GetFields().AsMap()["name"] == nil {
+				t.Errorf("%s: product %v", p.GetId(), d)
+			}
+		}
+	}
+	if products == 0 {
+		t.Error("no product due")
+	}
+	_, err = c.RecommendScenario(withKey(key), &proto.RecommendScenarioRequest{Vhost: "a", Model: "double",
+		Subject: &proto.ScenarioSubject{Salesman: "R01"}, WithinDays: 400})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Errorf("400 days: %v", err)
 	}
 }
 

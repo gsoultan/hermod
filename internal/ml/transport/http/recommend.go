@@ -160,7 +160,7 @@ func (h *Handler) PutModelBuild(w http.ResponseWriter, r *http.Request) {
 	}
 	var req ml.ModelBuild
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxModelBody)).Decode(&req); err != nil {
-		h.JsonError(w, `the request body must be JSON: {"schedule", "for", "period_days", "k", "target": {"source_id", "table", "mode"}}`,
+		h.JsonError(w, `the request body must be JSON: {"schedule", "for", "period_days", "within_days", "k", "target": {"source_id", "table", "mode"}}`,
 			http.StatusBadRequest)
 		return
 	}

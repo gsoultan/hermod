@@ -144,6 +144,78 @@ func TestRecommendAnswersAScenario(t *testing.T) {
 	}
 }
 
+// The customers likely to buy in the next N days: within_days on the editor
+// and serving routes of a reorder model, and on its build.
+func TestRecommendWithinDaysListsTheCustomersDue(t *testing.T) {
+	h, store, stub := scenarioAPI(t)
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "pkg", "ml", "recommend", "testdata", "scenario", "reorder.rec"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stub.rec = raw
+	store.models["tenant-a/plan"] = storage.MLModel{VHost: "tenant-a", Name: "plan", Backend: storage.MLBackendWorker,
+		RemoteVersion: "2", Task: storage.MLTaskRecommendation}
+	end := time.Now().UTC().AddDate(0, 0, 14).Format(time.DateOnly)
+	for _, body := range []string{`{"for":{"salesman":"R01"},"within_days":14,"k":500}`, `{"for":{"all_customers":true},"within_days":14,"k":500}`} {
+		w := call(h.RecommendScenario, editorA, http.MethodPost, "tenant-a", "plan", body)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: %d %s", body, w.Code, w.Body)
+		}
+		var out struct {
+			Results []struct {
+				Items []struct {
+					ID       string           `json:"id"`
+					DueDate  string           `json:"due_date"`
+					Overdue  *bool            `json:"overdue"`
+					Products []map[string]any `json:"products"`
+				} `json:"items"`
+			} `json:"results"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		items := out.Results[0].Items
+		if len(items) == 0 {
+			t.Fatalf("%s: nobody due: %s", body, w.Body)
+		}
+		overdue := 0
+		for _, it := range items {
+			if it.DueDate == "" || it.DueDate >= end {
+				t.Errorf("%s: %s due %q", body, it.ID, it.DueDate)
+			}
+			if it.Overdue != nil && *it.Overdue {
+				overdue++
+			}
+		}
+		if overdue == 0 {
+			t.Errorf("%s: no customer marked overdue", body)
+		}
+	}
+	for body, want := range map[string]string{
+		`{"for":{"salesman":"R01"},"within_days":400}`:                     "within_days",
+		`{"for":{"salesman":"R01"},"within_days":-3}`:                      "within_days",
+		`{"for":{"all_customers":true,"salesman":"R01"},"within_days":14}`: "one of",
+	} {
+		w := call(h.RecommendScenario, editorA, http.MethodPost, "tenant-a", "plan", body)
+		if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), want) {
+			t.Errorf("%s: %d %s, want 400 mentioning %q", body, w.Code, w.Body, want)
+		}
+	}
+
+	model := map[string]string{"vhost": "tenant-a", "name": "plan"}
+	build := `{"schedule":"0 5 * * 1","for":"all_customers","within_days":30,"target":{"source_id":"pg","table":"due_soon"}}`
+	if w := do(h.PutModelBuild, editorA, http.MethodPut, "/x", strings.NewReader(build), model); w.Code != http.StatusOK {
+		t.Fatalf("build: %d %s", w.Code, w.Body)
+	}
+	if w := do(h.GetModelBuild, viewerA, http.MethodGet, "/x", nil, model); !strings.Contains(w.Body.String(), `"within_days":30`) {
+		t.Fatalf("get build: %d %s", w.Code, w.Body)
+	}
+	bad := `{"schedule":"0 5 * * 1","for":"all_customers","within_days":367,"target":{"source_id":"pg","table":"due_soon"}}`
+	if w := do(h.PutModelBuild, editorA, http.MethodPut, "/x", strings.NewReader(bad), model); w.Code != http.StatusBadRequest {
+		t.Fatalf("367 days: %d %s", w.Code, w.Body)
+	}
+}
+
 func TestLegacyPredictCarriesARecommendationID(t *testing.T) {
 	h, _ := recommenderAPI(t)
 	w := call(h.Predict, editorA, http.MethodPost, "tenant-a", "recs", `{"user":"1000","k":2}`)

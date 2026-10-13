@@ -14,7 +14,8 @@ and answers one of five questions (`scenario`):
 
     visits    which customers a salesman should visit in a period
     products  which products to offer a customer
-    reorder   when each customer will order again
+    reorder   when each customer will order again, and each product they
+              buy again and again (its pair cadence; no recommender)
     audience  which customers are likely to want a product
     similar   which products are like a product
 
@@ -832,14 +833,14 @@ def build(tables: Tables, users: list[str], items: list[str], today: int, algori
             margin = pd.Series(earned).groupby(tx["customer"].map(user_index).to_numpy()).sum()
             feats[margin.index.to_numpy(dtype=np.int64), col["margin"]] = margin.to_numpy()
 
-    if items and len(data.user):
+    if items and len(data.user) and algorithm != "none":
         model = recommend.fit(algorithm, data, None, seed)
     else:
         popular, scores = np.empty(0, np.uint32), np.empty(0, np.float32)
         model = recommend.Model("none", users, items, recommend._seen(matrix), popular, scores)
 
     has_opportunity = False
-    if items and len(users) <= MAX_NEIGHBOR_CUSTOMERS and len(data.user):
+    if items and algorithm != "none" and len(users) <= MAX_NEIGHBOR_CUSTOMERS and len(data.user):
         nbrs, scores = recommend.fit_neighbors(matrix.T.tocsr(), CUSTOMER_NEIGHBORS)
         model.customer_neighbors, model.customer_neighbor_scores = nbrs, scores
         has_opportunity = True
@@ -1425,9 +1426,11 @@ def train(load, req: ScenarioRequest, name: str) -> tuple[bytes, dict[str, Any]]
     if tables.customers is not None:
         customer_ids |= set(tables.customers["id"])
     users = sorted(customer_ids)
-    items = sorted(set(tx["product"].dropna())) if tables.has_product and req.scenario != "reorder" else []
-    if req.scenario == "visits" and tables.has_product:
-        items = sorted(set(tx["product"].dropna()))
+    # Every scenario keeps the products it was given: reorder fits no
+    # recommender on them, but keeps each customer and product's last day and
+    # median gap (_pair_cadence), so Hermod can say who will buy a product
+    # again within a window.
+    items = sorted(set(tx["product"].dropna())) if tables.has_product else []
     as_of = int(tx["day"].max()) if tables.has_date else _today() - 1
 
     algorithm, candidates = "none", {}

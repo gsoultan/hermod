@@ -126,6 +126,48 @@ func TestRecommendScenarioBindsTerritory(t *testing.T) {
 	}
 }
 
+func TestRecommendScenarioWithinDays(t *testing.T) {
+	svc := scenarioService(t, "reorder", storage.MLQuotas{})
+	// Today is 2026-10-01: a 14-day window ends before 2026-10-15.
+	for _, f := range []ScenarioFor{{Salesman: "R01"}, {AllCustomers: true}, {Product: "S007"}} {
+		out, err := svc.RecommendScenario(t.Context(), "v", "recs", ScenarioRequest{For: f, WithinDays: 14, K: recommend.MaxPlan})
+		if err != nil {
+			t.Fatalf("%+v: %v", f, err)
+		}
+		items := out.Results[0].Items
+		if len(items) == 0 {
+			t.Fatalf("%+v: nobody due in 14 days", f)
+		}
+		for _, p := range items {
+			if p.DueDate >= "2026-10-15" || p.Overdue != (p.DueDate < "2026-10-01") {
+				t.Errorf("%+v: %s due %s, overdue %v", f, p.ID, p.DueDate, p.Overdue)
+			}
+		}
+	}
+	cases := []struct {
+		fixture string
+		req     ScenarioRequest
+		want    string
+	}{
+		{"reorder", ScenarioRequest{For: ScenarioFor{Salesman: "R01"}, WithinDays: -1}, "within_days"},
+		{"reorder", ScenarioRequest{For: ScenarioFor{Salesman: "R01"}, WithinDays: recommend.MaxWithinDays + 1}, "within_days"},
+		{"visits", ScenarioRequest{For: ScenarioFor{Salesman: "R01"}, WithinDays: 14}, "reorder"},
+		{"reorder", ScenarioRequest{For: ScenarioFor{AllCustomers: true}, K: recommend.MaxPlan + 1}, "k"},
+		{"reorder", ScenarioRequest{For: ScenarioFor{AllCustomers: true, Salesman: "R01"}}, "one of"},
+	}
+	for _, tc := range cases {
+		svc := scenarioService(t, tc.fixture, storage.MLQuotas{})
+		_, err := svc.RecommendScenario(t.Context(), "v", "recs", tc.req)
+		if !errors.Is(err, ErrBadRecommendRequest) || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s %+v: %v, want ErrBadRecommendRequest mentioning %q", tc.fixture, tc.req, err, tc.want)
+		}
+	}
+	// A window is checked before an async job is queued.
+	if err := (ScenarioRequest{For: ScenarioFor{Salesman: "R01"}, WithinDays: 400}).check(); !errors.Is(err, ErrBadRecommendRequest) {
+		t.Errorf("check: %v", err)
+	}
+}
+
 func TestLegacyRecommendCarriesAnID(t *testing.T) {
 	svc := scenarioService(t, "products", storage.MLQuotas{})
 	items, id, err := svc.RecommendWithID(t.Context(), "v", "recs", RecommendRequest{User: "C0001"})

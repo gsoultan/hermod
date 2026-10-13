@@ -7,7 +7,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { FormRow } from '@/components/common/FormRow'
 import { RECOMMENDATION, listSQLSources, type TrainResult } from '@/lib/mlModels'
 import {
-  BASELINE_WORDS, buildForScenario, exampleRequest, isMissingRoute, nextPeriod, putBuild, recommendScenario,
+  BASELINE_WORDS, MAX_WITHIN_DAYS, buildForScenario, exampleRequest, isMissingRoute, nextPeriod, putBuild, recommendScenario,
   recommendServingUrl, scenarioLabel, type BaselineName, type BuildFor, type RecommendRequest, type Scenario,
   type ScenarioItem, type ScenarioVersion,
 } from '@/lib/mlRecommend'
@@ -275,7 +275,9 @@ const BUILD_FOR_OPTIONS: Array<{ value: BuildFor; label: string }> = [
 /** "Build recommendations weekly into a table": the model's build schedule (PUT .../build). */
 function BuildModal({ vhost, name, scenario, onClose }: { vhost: string; name: string; scenario: Scenario; onClose: () => void }) {
   const visits = scenario === 'visits'
+  const reorder = scenario === 'reorder'
   const [schedule, setSchedule] = useState('0 6 * * 1')
+  const [withinDays, setWithinDays] = useState<number | string>('')
   const [buildFor, setBuildFor] = useState<BuildFor>(buildForScenario(scenario))
   const [periodDays, setPeriodDays] = useState<number | string>(7)
   const [k, setK] = useState<number | string>(20)
@@ -292,6 +294,7 @@ function BuildModal({ vhost, name, scenario, onClose }: { vhost: string; name: s
       schedule: schedule.trim(),
       for: buildFor,
       ...(visits ? { period_days: typeof periodDays === 'number' ? periodDays : 7 } : {}),
+      ...(reorder && typeof withinDays === 'number' && withinDays > 0 ? { within_days: withinDays } : {}),
       k: typeof k === 'number' ? k : 20,
       target: { source_id: source as string, table: table.trim(), mode },
     }),
@@ -308,6 +311,7 @@ function BuildModal({ vhost, name, scenario, onClose }: { vhost: string; name: s
           <Text size="sm" c="dimmed">
             On every run Hermod works out the lists for everyone and writes one row per recommendation: model, version,
             recommendation_id, for_id, item_id, rank, score, plan_date, reasons_text and built_at.
+            {reorder && ' Add a due_date column to the table to get the date each customer is expected to order.'}
           </Text>
           <FormRow cols={2}>
             <TextInput label="Schedule" required description='Cron: "0 6 * * 1" is every Monday at 06:00.' value={schedule}
@@ -317,6 +321,10 @@ function BuildModal({ vhost, name, scenario, onClose }: { vhost: string; name: s
           </FormRow>
           <FormRow cols={2}>
             {visits && <NumberInput label="Days to plan" min={1} max={92} value={periodDays} onChange={setPeriodDays} />}
+            {reorder && (
+              <NumberInput label="Only customers due within (days)" description="14 for 2 weeks, 30 for a month; empty for everyone."
+                min={1} max={MAX_WITHIN_DAYS} allowDecimal={false} value={withinDays} onChange={setWithinDays} />
+            )}
             <NumberInput label="How many per list" min={1} max={visits ? 500 : 100} value={k} onChange={setK} />
           </FormRow>
           <FormRow cols={2}>

@@ -240,21 +240,36 @@ const SCENARIO_FOR: Record<Scenario, 'salesman' | 'customer' | 'product'> = {
   visits: 'salesman', products: 'customer', reorder: 'customer', audience: 'product', similar: 'product',
 }
 
+/** Who a reorder model may be asked about from a record. */
+const REORDER_FOR = [
+  { value: 'customer', label: 'One customer' },
+  { value: 'salesman', label: "A salesman's customers" },
+  { value: 'product', label: "A product's buyers" },
+]
+
 /**
  * Recommend mode for a scenario model: the id it is asked for (a salesman, a
- * customer or a product, as the scenario decides) is read from a record field,
- * a visit plan covers the next days from when the record arrives, and the
- * answer, with its reasons, is written onto the record.
+ * customer or a product, as the scenario decides; a reorder model takes any of
+ * them) is read from a record field, a visit plan covers the next days from
+ * when the record arrives, a reorder answer can keep the customers due within
+ * some days, and the answer, with its reasons, is written onto the record.
  */
 function ScenarioFields({ scenario, config, set, fieldPaths }: {
   scenario: Scenario; config: any; set: (patch: Record<string, unknown>) => void; fieldPaths: string[]
 }) {
-  const forKey = SCENARIO_FOR[scenario]
+  const reorder = scenario === 'reorder'
+  const chosen = reorder && REORDER_FOR.some((o) => o.value === config.recommendFor)
+  const forKey = chosen ? (config.recommendFor as 'salesman' | 'customer' | 'product') : SCENARIO_FOR[scenario]
   useEffect(() => {
     if (config.recommendFor !== forKey) set(forKey === 'customer' ? { recommendFor: forKey } : { recommendFor: forKey, excludeSeen: undefined })
   }, [config.recommendFor, forKey, set])
   return (
     <Stack gap="sm">
+      {reorder && (
+        <Select label="Ask for" data={REORDER_FOR} value={forKey} allowDeselect={false}
+          description="When one customer will buy again, or which of a salesman's customers or a product's buyers will."
+          onChange={(v) => set(v === 'customer' ? { recommendFor: 'customer' } : { recommendFor: v ?? 'customer', excludeSeen: undefined })} />
+      )}
       <Autocomplete
         label={`Field with the ${forKey} id`}
         description={`The record field holding the ${forKey} id, as in the training data.`}
@@ -273,9 +288,20 @@ function ScenarioFields({ scenario, config, set, fieldPaths }: {
           onChange={(e) => set({ periodDays: e.currentTarget.value })}
         />
       )}
+      {reorder && (
+        <TextInput
+          label="Due within (days)"
+          description="Only the customers due to buy within this many days from when the record arrives, overdue ones included: 14 for 2 weeks, 30 for a month. Empty for no limit."
+          placeholder="14"
+          value={config.withinDays ?? ''}
+          onChange={(e) => set({ withinDays: e.currentTarget.value })}
+        />
+      )}
       <TextInput
         label="How many"
-        description={scenario === 'visits' ? 'Visits in the plan: 10 when empty, at most 500.' : 'Items to return: 10 when empty, at most 100.'}
+        description={scenario === 'visits'
+          ? 'Visits in the plan: 10 when empty, at most 500.'
+          : reorder && forKey !== 'customer' ? 'Customers to return: 10 when empty, at most 500.' : 'Items to return: 10 when empty, at most 100.'}
         placeholder="10"
         value={config.k ?? ''}
         onChange={(e) => set({ k: e.currentTarget.value })}

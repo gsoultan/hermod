@@ -404,3 +404,80 @@ func TestMLRecommendWritesTheModelsItems(t *testing.T) {
 		t.Errorf("recommendations = %#v, want the popular fallback", got["recommendations"])
 	}
 }
+
+// reorderRegistry is a registry whose vhost "default" holds the reorder
+// scenario fixture of pkg/ml/recommend as model "due".
+func reorderRegistry(t *testing.T) *Registry {
+	t.Helper()
+	reg := newSimRegistry(t)
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "pkg", "ml", "recommend", "testdata", "scenario", "reorder.rec"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/due/versions/1/model.rec") {
+			_, _ = w.Write(raw)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	reg.mlWorker = worker.New(srv.URL, "", nil)
+	if err := reg.store().(storage.MLModelStore).PutMLModel(t.Context(), storage.MLModel{VHost: "default", Name: "due",
+		Backend: storage.MLBackendWorker, RemoteVersion: "1", Task: storage.MLTaskRecommendation}); err != nil {
+		t.Fatal(err)
+	}
+	return reg
+}
+
+// The Predict node's Recommend mode with withinDays: a salesman's customers
+// due to order within the window, overdue ones marked, each with the
+// products they are due for.
+func TestMLRecommendWithinDaysListsTheCustomersDue(t *testing.T) {
+	reg := reorderRegistry(t)
+	today := time.Now().UTC().Format(time.DateOnly)
+	end := time.Now().UTC().AddDate(0, 0, 14).Format(time.DateOnly)
+	got := transform(t, reg, map[string]any{"rep": "R01"}, map[string]any{
+		"transType": "ml_predict", "model": "due", "mode": "recommend", "recommendFor": "salesman", "idField": "rep",
+		"withinDays": "14", "k": "500", "outputField": "due_soon",
+	})
+	items, _ := got["due_soon"].([]map[string]any)
+	if len(items) == 0 {
+		t.Fatalf("due_soon = %#v, want R01's customers due in 14 days", got["due_soon"])
+	}
+	products := 0
+	for _, it := range items {
+		due, _ := it["due_date"].(string)
+		if due == "" || due >= end || it["overdue"] != (due < today) {
+			t.Errorf("%v: due %q, overdue %v", it["id"], due, it["overdue"])
+		}
+		list, _ := it["products"].([]map[string]any)
+		products += len(list)
+	}
+	if products == 0 {
+		t.Error("no customer lists a product due")
+	}
+}
+
+// The Build Recommendations node's withinDays reaches the build, and its
+// rows carry due_date.
+func TestMLRecommendBuildWithinDaysCarriesDueDates(t *testing.T) {
+	reg := reorderRegistry(t)
+	end := time.Now().UTC().AddDate(0, 0, 30).Format(time.DateOnly)
+	rows, written, err := reg.MLRecommendBuild(t.Context(), "default", "due", map[string]any{"for": "all_customers", "withinDays": 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, _, err := reg.MLRecommendBuild(t.Context(), "default", "due", map[string]any{"for": "all_customers"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if written != 0 || len(rows) == 0 || len(rows) >= len(all) {
+		t.Fatalf("%d rows due in 30 days of %d, %d written", len(rows), len(all), written)
+	}
+	for _, row := range rows {
+		if due, _ := row["due_date"].(string); due == "" || due >= end {
+			t.Errorf("%v: due_date %v", row["item_id"], row["due_date"])
+		}
+	}
+}

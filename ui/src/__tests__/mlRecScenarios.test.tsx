@@ -619,3 +619,132 @@ describe('Workflow nodes for scenarios', () => {
     expect(last).toMatchObject({ model: 'plan', for: 'all_salesmen', targetTable: 'visit_plan' })
   })
 })
+
+describe('Customers likely to buy in the next N days', () => {
+  const due = {
+    recommendation_id: 'rec_9',
+    results: [{
+      for: 'all_customers',
+      items: [
+        item('c-3', 1, 'Usually orders every 14 days; last order 16 days ago', {
+          due_date: '2026-10-11', overdue: true,
+          products: [{ id: 'sku-1', due_date: '2026-10-09', overdue: true, fields: { name: 'Coffee 1kg' } }],
+        }),
+        item('c-8', 2, 'Usually orders every 30 days; last order 20 days ago', {
+          due_date: '2026-10-23',
+          products: [{ id: 'sku-2', due_date: '2026-10-24', fields: { name: 'Sugar 5kg' } }],
+        }),
+      ],
+    }],
+  }
+  const reorderModel: MLModel = { ...planModel, name: 'due' }
+
+  function dueApi() {
+    const calls = api()
+    server.use(http.post('/api/vhosts/:vhost/ml/models/:name/recommend', async ({ request }) => {
+      calls.push({ path: 'recommend', body: await request.json() })
+      return HttpResponse.json(due)
+    }))
+    return calls
+  }
+
+  it('lists everyone due in the next 2 weeks, overdue ones marked, with the products due', async () => {
+    const calls = dueApi()
+    wrap(<ModelTestModal vhost="tenant-a" model={reorderModel} scenario="reorder" onClose={() => {}} />)
+    const user = userEvent.setup()
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('radio', { name: /everyone/i })).toBeChecked()
+    expect(within(dialog).getByRole('radio', { name: /2 weeks/i })).toBeChecked()
+    await user.click(within(dialog).getByRole('button', { name: /find customers/i }))
+    await waitFor(() => expect(calls.find((c) => c.path === 'recommend')).toBeTruthy())
+    expect(calls.find((c) => c.path === 'recommend')!.body).toEqual({ for: { all_customers: true }, within_days: 14, k: 100 })
+    const list = await within(dialog).findByRole('list', { name: /customers likely to buy/i })
+    expect(within(list).getByText('Shop c-3')).toBeInTheDocument()
+    expect(within(list).getByText(/overdue since 2026-10-11/i)).toBeInTheDocument()
+    expect(within(list).getByText(/expected 2026-10-23/i)).toBeInTheDocument()
+    expect(within(list).getByText(/coffee 1kg/i)).toBeInTheDocument()
+    expect(within(list).getByText(/usually orders every 14 days/i)).toBeInTheDocument()
+  })
+
+  it("asks a month, a custom number of days, and a salesman's or a product's customers", async () => {
+    const calls = dueApi()
+    wrap(<ModelTestModal vhost="tenant-a" model={reorderModel} scenario="reorder" onClose={() => {}} />)
+    const user = userEvent.setup()
+    const dialog = await screen.findByRole('dialog')
+    const asked = () => calls.filter((c) => c.path === 'recommend').map((c) => c.body)
+
+    await user.click(within(dialog).getByRole('radio', { name: /1 month/i }))
+    await user.click(within(dialog).getByRole('radio', { name: /a salesman's customers/i }))
+    await user.type(within(dialog).getByRole('textbox', { name: /^salesman/i }), 'rep7')
+    await user.click(within(dialog).getByRole('button', { name: /find customers/i }))
+    await waitFor(() => expect(asked()).toHaveLength(1))
+    expect(asked()[0]).toEqual({ for: { salesman: 'rep7' }, within_days: 30, k: 100 })
+
+    await user.click(within(dialog).getByRole('radio', { name: /^custom$/i }))
+    const days = within(dialog).getByRole('textbox', { name: /^days/i })
+    await user.clear(days)
+    await user.type(days, '45')
+    await user.click(within(dialog).getByRole('radio', { name: /a product's buyers/i }))
+    await user.type(within(dialog).getByRole('textbox', { name: /^product/i }), 'sku-1')
+    await user.click(within(dialog).getByRole('button', { name: /find customers/i }))
+    await waitFor(() => expect(asked()).toHaveLength(2))
+    expect(asked()[1]).toEqual({ for: { product: 'sku-1' }, within_days: 45, k: 100 })
+
+    // "Any time" is the call as before: one customer's next order date.
+    await user.click(within(dialog).getByRole('radio', { name: /any time/i }))
+    await user.click(within(dialog).getByRole('radio', { name: /one customer/i }))
+    await user.type(within(dialog).getByRole('textbox', { name: /^customer/i }), 'c-3')
+    await user.click(within(dialog).getByRole('button', { name: /find customers/i }))
+    await waitFor(() => expect(asked()).toHaveLength(3))
+    expect(asked()[2]).toEqual({ for: { customer: 'c-3' }, k: 100 })
+  })
+
+  it('builds only the customers due within a window into a table', async () => {
+    const reorderVersion = { ...visitsVersion, scenario: 'reorder', metrics: { mae_days: 4, on_time_share: 0.9 },
+      baseline: { mae_days: 9 }, baselines_named: [{ name: 'popular', metrics: { mae_days: 9 } }] }
+    const calls = api({ version: reorderVersion })
+    wrap(<TrainModal vhost="tenant-a" modelName="due" task="recommendation" onClose={() => {}} />)
+    const user = userEvent.setup()
+    const dialog = await screen.findByRole('dialog')
+    await within(dialog).findByRole('group', { name: /orders or invoice lines/i })
+    await waitFor(() => expect(nextButton(dialog)).toBeEnabled())
+    await next(user, dialog)
+    await waitFor(() => expect(nextButton(dialog)).toBeEnabled())
+    await next(user, dialog)
+    await next(user, dialog)
+    await user.click(within(dialog).getByRole('button', { name: /^train$/i }))
+    await user.click(await within(dialog).findByRole('button', { name: /build recommendations into a table/i }))
+    const form = await screen.findByRole('dialog', { name: /build recommendations/i })
+    expect(within(form).getByText(/due_date/)).toBeInTheDocument()
+    await user.type(within(form).getByRole('textbox', { name: /only customers due within/i }), '14')
+    await pick(user, form, /^database/i, 'warehouse')
+    await user.click(within(form).getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(calls.find((c) => c.path === 'build')).toBeTruthy())
+    expect(calls.find((c) => c.path === 'build')!.body).toEqual({
+      schedule: '0 6 * * 1', for: 'all_customers', within_days: 14, k: 20,
+      target: { source_id: 'pg1', table: 'recommendations', mode: 'replace' },
+    })
+  })
+
+  it('asks a reorder model for the customers due within N days in the Predict and Build nodes', async () => {
+    const reorderVersion = { ...visitsVersion, scenario: 'reorder' }
+    api({ version: reorderVersion })
+    server.use(http.get('/api/vhosts/:vhost/ml/models', () => HttpResponse.json({ data: [reorderModel], total: 1 })))
+    useWorkflowStore.setState({ vhost: 'tenant-a' } as any)
+    let last: any = {}
+    const { unmount } = wrap(<Harness Editor={MLPredictConfig} initial={{ model: 'due' }} onConfig={(c) => { last = c }} />)
+    const user = userEvent.setup()
+    await waitFor(() => expect(last.recommendFor).toBe('customer'))
+    await pick(user, document.body, /^ask for/i, "A salesman's customers")
+    await waitFor(() => expect(last.recommendFor).toBe('salesman'))
+    await user.type(screen.getByRole('textbox', { name: /due within/i }), '14')
+    expect(last).toMatchObject({ recommendFor: 'salesman', withinDays: '14' })
+    unmount()
+
+    let built: any = {}
+    wrap(<Harness Editor={MLRecommendBuildConfig} initial={{ model: 'due' }} onConfig={(c) => { built = c }} />)
+    await waitFor(() => expect(built.for).toBe('all_customers'))
+    await user.type(screen.getByRole('textbox', { name: /only customers due within/i }), '30')
+    expect(built).toMatchObject({ for: 'all_customers', withinDays: '30' })
+  })
+})

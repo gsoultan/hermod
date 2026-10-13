@@ -258,6 +258,91 @@ func TestABuildWritesEverySalesmansPlan(t *testing.T) {
 	}
 }
 
+func TestAReorderBuildWithinDaysWritesDueDates(t *testing.T) {
+	svc := scenarioService(t, "reorder", storage.MLQuotas{})
+	// Today is 2026-10-01: a 14-day window ends before 2026-10-15.
+	b := ModelBuild{For: BuildAllSalesmen, WithinDays: 14, K: 500}
+	rows, err := svc.BuildRecommendations(t.Context(), "v", "recs", b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) == 0 {
+		t.Fatal("nobody due in 14 days")
+	}
+	for _, r := range rows {
+		if r.DueDate == "" || r.DueDate >= "2026-10-15" || r.PlanDate != "" {
+			t.Errorf("%s/%s: due %q, plan %q", r.ForID, r.ItemID, r.DueDate, r.PlanDate)
+		}
+	}
+	everyone, err := svc.BuildRecommendations(t.Context(), "v", "recs", ModelBuild{For: BuildAllCustomers, WithinDays: 14})
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, err := svc.BuildRecommendations(t.Context(), "v", "recs", ModelBuild{For: BuildAllCustomers})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(everyone) == 0 || len(everyone) >= len(all) {
+		t.Fatalf("all customers: %d due in 14 days of %d", len(everyone), len(all))
+	}
+
+	// A table with a due_date column gets it; a table without one, as built
+	// before it existed, still takes the build.
+	withDue := newTargetDB(t)
+	if _, err := withDue.ExecContext(t.Context(), `ALTER TABLE recs_out ADD COLUMN due_date TEXT`); err != nil {
+		t.Fatal(err)
+	}
+	target := BuildTarget{SourceID: "target", Table: "recs_out"}
+	if err := WriteBuild(t.Context(), withDue, "sqlite", target, "recs", rows); err != nil {
+		t.Fatal(err)
+	}
+	var n, due int
+	var first string
+	if err := withDue.QueryRowContext(t.Context(), `SELECT COUNT(*), COUNT(due_date), MIN(due_date) FROM recs_out`).Scan(&n, &due, &first); err != nil {
+		t.Fatal(err)
+	}
+	if n != len(rows) || due != n || first != minDue(rows) {
+		t.Fatalf("%d rows, %d with due_date, first %s", n, due, first)
+	}
+	t.Run("without due_date", func(t *testing.T) {
+		without := newTargetDB(t)
+		if err := WriteBuild(t.Context(), without, "sqlite", target, "recs", rows); err != nil {
+			t.Fatalf("a table without due_date: %v", err)
+		}
+		if err := without.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM recs_out`).Scan(&n); err != nil || n != len(rows) {
+			t.Fatalf("%d rows, %v", n, err)
+		}
+	})
+	// Outside reorder the column is NULL.
+	plan, err := recService(t, newRecStore(trainedRecs())).BuildRecommendations(t.Context(), "v", "recs", ModelBuild{For: BuildAllSalesmen})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteBuild(t.Context(), withDue, "sqlite", BuildTarget{SourceID: "target", Table: "recs_out", Mode: BuildAppend}, "plan", plan); err != nil {
+		t.Fatal(err)
+	}
+	if err := withDue.QueryRowContext(t.Context(), `SELECT COUNT(due_date) FROM recs_out WHERE model = 'plan'`).Scan(&due); err != nil || due != 0 {
+		t.Fatalf("a visit plan's due dates: %d, %v", due, err)
+	}
+
+	// A window is for reorder, and bounded.
+	if _, err := recService(t, newRecStore(trainedRecs())).BuildRecommendations(t.Context(), "v", "recs",
+		ModelBuild{For: BuildAllSalesmen, WithinDays: 14}); !errors.Is(err, ErrBadSchedule) || !strings.Contains(err.Error(), "within_days") {
+		t.Errorf("a visit plan within 14 days: %v", err)
+	}
+	if err := (ModelBuild{For: BuildAllCustomers, WithinDays: 367}).Validate(false); !errors.Is(err, ErrBadSchedule) {
+		t.Errorf("367 days: %v", err)
+	}
+}
+
+func minDue(rows []BuildRow) string {
+	first := rows[0].DueDate
+	for _, r := range rows {
+		first = min(first, r.DueDate)
+	}
+	return first
+}
+
 func TestTheSchedulerRunsDueSchedulesOnce(t *testing.T) {
 	st := newRecStore(trainedRecs())
 	svc := recService(t, st)
