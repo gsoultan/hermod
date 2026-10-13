@@ -168,3 +168,20 @@ describe('a credential input', () => {
     expect(screen.getByLabelText('Token')).toHaveValue('{{secret("API_TOKEN")}}')
   })
 })
+
+describe('a value whose tokens are bound as SQL parameters', () => {
+  it('offers fields but no secrets, which would bind NULL there', async () => {
+    const user = userEvent.setup()
+    render(
+      <MantineProvider>
+        <SecretNamesContext.Provider value={['API_KEY']}>
+          <TemplateField aria-label="Query" value="" onChange={() => {}} availableFields={['after.id']} noSecrets />
+        </SecretNamesContext.Provider>
+      </MantineProvider>,
+    )
+    await user.click(screen.getByRole('button', { name: /insert variable/i }))
+    const picker = await screen.findByRole('dialog', { hidden: true }, { timeout: 5000 })
+    expect(within(picker).getByText('after.id')).toBeInTheDocument()
+    expect(within(picker).queryByRole('group', { name: /secrets/i, hidden: true })).toBeNull()
+  })
+})

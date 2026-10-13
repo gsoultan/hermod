@@ -23,8 +23,9 @@ workflows keep their shape.
 - **API Lookup**: URL, header and query values, username, password and token
   take fields, secrets and functions; password and token are hidden until
   revealed. The body's insert menu offers secrets and functions too.
-- **AI prompt, AI embed, AI retrieve, Panmail providers, DB Lookup** use the
-  same input. **AI prompt's system instructions are now templated like the
+- **AI prompt, AI embed, AI retrieve and Panmail providers** use the same
+  input. DB Lookup's SQL template and filter no longer offer secrets: every
+  token there is bound as a parameter by path, so a secret bound NULL. **AI prompt's system instructions are now templated like the
   prompt**, so `{{.field}}` and `{{secret("X")}}` resolve there.
 - Inputs that decide where a credential goes (gateway URLs, API keys, a
   pgvector connection string, MCP server URL and headers) offer secrets only,

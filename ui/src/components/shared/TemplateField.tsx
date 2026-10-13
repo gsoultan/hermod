@@ -71,6 +71,12 @@ export interface TemplateFieldProps extends CommonProps {
    * record data must not choose (evaluator.ResolveTemplateScoped).
    */
   secretsOnly?: boolean
+  /**
+   * Offers no secrets: a value whose tokens are read as plain paths, such as
+   * a SQL template whose every token becomes a bound parameter, where a
+   * secret token would bind NULL.
+   */
+  noSecrets?: boolean
 }
 
 function defaultBuildSecretToken(name: string) {
@@ -100,6 +106,7 @@ export function TemplateField({
   masked,
   mono,
   secretsOnly,
+  noSecrets,
   'aria-label': ariaLabel,
 }: TemplateFieldProps) {
   const [revealed, setRevealed] = useState(false)
@@ -118,7 +125,8 @@ export function TemplateField({
     })
   }, [q, availableFields, secretsOnly])
 
-  const secretNames = useContext(SecretNamesContext)
+  const vhostSecrets = useContext(SecretNamesContext)
+  const secretNames = noSecrets ? [] : vhostSecrets
   const filteredSecrets = useMemo(() => {
     const query = q.trim().toLowerCase()
     return secretNames.filter((name) => !query || name.toLowerCase().includes(query))

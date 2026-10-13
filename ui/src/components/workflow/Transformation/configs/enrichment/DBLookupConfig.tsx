@@ -267,7 +267,7 @@ export function DBLookupConfig({
                   value={config.whereClause || ''}
                   onChange={(val: string) => updateNodeConfig(nodeId, { whereClause: val })}
                   availableFields={availableFields}
-                  functions="token"
+                  noSecrets
                   multiline
                   mono
                   description="Optional SQL conditions appended to the lookup."
@@ -298,12 +298,12 @@ export function DBLookupConfig({
                     value={config.queryTemplate || ''}
                     onChange={(val: string) => updateNodeConfig(nodeId, { queryTemplate: val })}
                     availableFields={availableFields}
-                    functions="token"
+                    noSecrets
                     multiline
                     mono
                   />
                   <Text size="xs" c="dimmed">
-                    Insert fields, secrets and functions from the buttons in the box; each becomes a bound parameter.
+                    Insert fields from the button in the box. Each becomes a bound parameter, so functions and secrets are not read here.
                   </Text>
                 </Stack>
               </Stack>
