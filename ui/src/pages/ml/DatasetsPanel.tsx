@@ -12,7 +12,9 @@ import {
   useVHostDatasets, type DatasetInfo,
 } from '@/lib/mlModels'
 import { clearDatasetRefresh, putDatasetRefresh, type DatasetRefresh } from '@/lib/mlRecommend'
+import { LIMITS } from '@/lib/mlDataGuide'
 import { DatasetPreview } from './datasetPreview'
+import { FileHelp, QueryHelp } from './dataNeeds'
 
 type Dialog = { kind: 'upload' } | { kind: 'query' } | { kind: 'view'; name: string } | { kind: 'refresh'; name: string }
 
@@ -173,8 +175,11 @@ export function UploadModal({ vhost, initialName, onClose }: { vhost: string; in
             <Text size="sm" fw={500}>File</Text>
             <input type="file" aria-label="File" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               onChange={(e) => setFile(e.currentTarget.files?.[0] ?? null)} />
-            <Text size="xs" c="dimmed">CSV, or Excel .xlsx (the first sheet, with a header row). At most 200 MB.</Text>
+            <Text size="xs" c="dimmed">
+              CSV, or Excel .xlsx (the first sheet, with a header row). At most {LIMITS.uploadMaxBytes / 2 ** 20} MB.
+            </Text>
           </Stack>
+          <FileHelp />
           {upload.error && (
             <Alert color="red" icon={<IconAlertCircle size="1rem" />} title="The file was not uploaded">{(upload.error as Error).message}</Alert>
           )}
@@ -221,7 +226,10 @@ function QueryModal({ vhost, onClose }: { vhost: string; onClose: () => void }) 
           <Textarea label="Query" required autosize minRows={4} placeholder="SELECT age, plan, churned FROM customers"
             description="A SELECT, run read-only with the source's own credentials." value={query}
             onChange={(e) => setQuery(e.currentTarget.value)} styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)' } }} />
-          <NumberInput label="At most this many rows" placeholder="1000000" min={1} value={maxRows} onChange={setMaxRows} maw={260} />
+          <QueryHelp onUseQuery={setQuery} />
+          <NumberInput label="At most this many rows" placeholder={String(LIMITS.defaultMaxQueryRows)} min={1} value={maxRows}
+            onChange={setMaxRows} maw={360}
+            description={`Empty reads up to ${LIMITS.defaultMaxQueryRows.toLocaleString('en-US')}. Set more to read more; the vhost's quota still applies.`} />
           {read.error && (
             <Alert color="red" icon={<IconAlertCircle size="1rem" />} title="No rows were read">{(read.error as Error).message}</Alert>
           )}

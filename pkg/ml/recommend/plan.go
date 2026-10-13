@@ -368,8 +368,53 @@ func haversine(lat1, lon1, lat2, lon2 float64) float64 {
 // Reorder
 // ---------------------------------------------------------------------------
 
-// reorderPick is a customer's due date and overdue ratio; ok is false for a
-// customer with no order.
+// windowEnd is the first day after the request's reorder window; 0 for no
+// window.
+func (c *call) windowEnd() int {
+	if c.q.WithinDays <= 0 {
+		return 0
+	}
+	return c.today + c.q.WithinDays
+}
+
+// likelihood is how likely a customer is to order in a window, from how
+// many of their usual gaps have passed since they last did: 1 up to 1.5,
+// falling to 0 at 3, where an order is no longer due but lost (the
+// churn_risk signal of a visit plan).
+func likelihood(ratio float64) float64 {
+	return 1 - clip01((ratio-1.5)/1.5)
+}
+
+// reorderScore is a reorder candidate's score: its overdue ratio (most
+// overdue first), or in a window its likelihood.
+func (c *call) reorderScore(ratio float64) float64 {
+	if c.windowEnd() > 0 {
+		return float64(float32(likelihood(ratio)))
+	}
+	return float64(float32(ratio))
+}
+
+// sortReorder ranks reorder candidates: most overdue first, or in a window
+// most likely first, then soonest due; a tie by index.
+func (c *call) sortReorder(cands []cand) {
+	if c.windowEnd() == 0 {
+		slices.SortFunc(cands, byScoreThenIndex)
+		return
+	}
+	slices.SortFunc(cands, func(a, b cand) int {
+		if s := byScore(a, b); s != 0 {
+			return s
+		}
+		if a.dueDay != b.dueDay {
+			return a.dueDay - b.dueDay
+		}
+		return a.idx - b.idx
+	})
+}
+
+// reorderPick is a customer's due date and overdue ratio, and in a window
+// the products they are due for; ok is false for a customer with no order,
+// or due after the window.
 func (c *call) reorderPick(u int) (cand, bool) {
 	m := c.m
 	last := m.cf(u, featLastOrder)
@@ -377,9 +422,70 @@ func (c *call) reorderPick(u int) (cand, bool) {
 		return cand{}, false
 	}
 	gap := m.gap(u)
-	due := dayText(int(math.Ceil(last + gap)))
+	dueDay := int(math.Ceil(last + gap))
+	end := c.windowEnd()
+	if end > 0 && dueDay >= end {
+		return cand{}, false
+	}
 	ratio := (float64(c.today) - last) / gap
-	return cand{idx: u, score: float64(float32(ratio)), reasons: m.reorderReasons(u, c.today), due: due}, true
+	cd := cand{idx: u, score: c.reorderScore(ratio), reasons: m.reorderReasons(u, c.today), due: dayText(dueDay), dueDay: dueDay}
+	if end > 0 {
+		cd.products = c.dueProducts(u, end)
+	}
+	return cd, true
+}
+
+// pairCadence is customer u's last day and median gap of buying item; ok is
+// false when they bought it on fewer than two days, so there is no gap.
+func (c *call) pairCadence(u, item int) (float64, float64, bool) {
+	m := c.m
+	if m.sc == nil || len(m.sc.seenGap) == 0 {
+		return 0, 0, false
+	}
+	k, found := slices.BinarySearch(m.seenBy(u), uint32(item))
+	if !found {
+		return 0, 0, false
+	}
+	pos := int(m.seenOff[u]) + k
+	last, gap := m.sc.seenLast[pos], float64(m.sc.seenGap[pos])
+	if last == empty || !finite(gap) || gap <= 0 {
+		return 0, 0, false
+	}
+	return float64(last), gap, true
+}
+
+// dueProduct is item as a product customer u is due for on dueDay.
+func (c *call) dueProduct(item, dueDay int) DueProduct {
+	return DueProduct{ID: c.m.items[item], DueDate: dayText(dueDay), Overdue: dueDay < c.today, Fields: c.itemFields(item)}
+}
+
+// dueProducts are the products customer u is due to buy again before end,
+// soonest first: those they bought on two days or more and have not
+// stopped buying (likelihood above 0, under three of their usual gaps since
+// they last did).
+func (c *call) dueProducts(u, end int) []DueProduct {
+	type due struct{ item, day int }
+	var list []due
+	for _, item := range c.m.seenBy(u) {
+		last, gap, ok := c.pairCadence(u, int(item))
+		if !ok || likelihood((float64(c.today)-last)/gap) <= 0 {
+			continue
+		}
+		if day := int(math.Ceil(last + gap)); day < end {
+			list = append(list, due{int(item), day})
+		}
+	}
+	slices.SortFunc(list, func(a, b due) int {
+		if a.day != b.day {
+			return a.day - b.day
+		}
+		return a.item - b.item
+	})
+	out := make([]DueProduct, len(list))
+	for i, d := range list {
+		out[i] = c.dueProduct(d.item, d.day)
+	}
+	return out
 }
 
 // reorderReasons are a customer's reorder_due and churn_risk reasons, as the
@@ -426,19 +532,94 @@ func (c *call) reorderSalesman() (Result, error) {
 	if err != nil {
 		return res, err
 	}
+	return c.reorderList(res, pool)
+}
+
+// reorderAll is every customer who is not blocked, by when they will order
+// again.
+func (c *call) reorderAll() (Result, error) {
+	var pool []int
+	for u := range c.m.users {
+		if c.m.cattr(u, "blocked") != "true" {
+			pool = append(pool, u)
+		}
+	}
+	return c.reorderList(Result{For: AllCustomers, Items: []Pick{}}, pool)
+}
+
+// reorderList is res with the customers of pool who have ordered, ranked by
+// when they will order again, the rules applied.
+func (c *call) reorderList(res Result, pool []int) (Result, error) {
 	var cands []cand
 	for _, u := range pool {
 		if cd, ok := c.reorderPick(u); ok {
 			cands = append(cands, cd)
 		}
 	}
-	slices.SortFunc(cands, byScoreThenIndex)
+	c.sortReorder(cands)
 	final, err := c.finish(cands, c.k(DefaultK, MaxPlan), c.ordered)
 	if err != nil {
 		return res, err
 	}
 	res.Items = c.picks(final, true)
 	return res, nil
+}
+
+// reorderProduct is the customers who buy the request's product again and
+// again (on two days or more), not blocked, by when each will buy it again
+// from their own gap between buying it.
+func (c *call) reorderProduct() (Result, error) {
+	m := c.m
+	id := c.q.Product
+	res := Result{For: id, Items: []Pick{}}
+	if m.sc == nil || len(m.items) == 0 {
+		return res, badQuery("this reorder model was trained without products: train it again with transactions.product " +
+			"to ask which customers will buy a product")
+	}
+	item, known := m.itemIndex[id]
+	if !known || !c.subjectAllowed(entityProducts, item) {
+		return res, nil
+	}
+	name := id
+	if n := m.iattr(item, "name"); n != "" {
+		name = n
+	}
+	end := c.windowEnd()
+	var cands []cand
+	for u := range m.users {
+		if m.cattr(u, "blocked") == "true" {
+			continue
+		}
+		last, gap, ok := c.pairCadence(u, item)
+		if !ok {
+			continue
+		}
+		dueDay := int(math.Ceil(last + gap))
+		if end > 0 && dueDay >= end {
+			continue
+		}
+		ratio := (float64(c.today) - last) / gap
+		cands = append(cands, cand{idx: u, score: c.reorderScore(ratio), reasons: productReorderReasons(name, ratio, gap, float64(c.today)-last),
+			due: dayText(dueDay), dueDay: dueDay, products: []DueProduct{c.dueProduct(item, dueDay)}})
+	}
+	c.sortReorder(cands)
+	final, err := c.finish(cands, c.k(DefaultK, MaxPlan), func(u, days int) bool { return c.boughtWithin(u, item, days) })
+	if err != nil {
+		return res, err
+	}
+	res.Items = c.picks(final, true)
+	return res, nil
+}
+
+// productReorderReasons say why a customer is due to buy a product again:
+// their rhythm of buying it, and a churn_risk when it is long overdue, as a
+// customer's reorder reasons do.
+func productReorderReasons(name string, ratio, gap, since float64) []Reason {
+	out := []Reason{{ReasonReorderDue, fmt.Sprintf("Buys %s every %d days; last bought %d days ago", name, round(gap), round(since))}}
+	if ratio > 1.5 {
+		out = append(out, Reason{ReasonChurnRisk, fmt.Sprintf("No %s for %d days, %.1f times the usual %d-day gap", name, round(since), ratio, round(gap))})
+	}
+	return out
 }
 
 // ordered reports whether customer u ordered within days days (0: ever).

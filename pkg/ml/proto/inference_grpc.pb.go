@@ -63,7 +63,7 @@ type InferenceServiceClient interface {
 	// answer carries a recommendation_id to send feedback with.
 	//
 	// Errors: UNAUTHENTICATED as for Predict; INVALID_ARGUMENT for a subject
-	// the scenario does not take, a bad period, k or rule, a rule that loosens
+	// the scenario does not take, a bad period, within_days, k or rule, a rule that loosens
 	// the model's own rules, more than 1000 customers, or a model without a
 	// scenario; RESOURCE_EXHAUSTED over the vhost's quota; UNAVAILABLE when the
 	// model could not be loaded.
@@ -217,7 +217,7 @@ type InferenceServiceServer interface {
 	// answer carries a recommendation_id to send feedback with.
 	//
 	// Errors: UNAUTHENTICATED as for Predict; INVALID_ARGUMENT for a subject
-	// the scenario does not take, a bad period, k or rule, a rule that loosens
+	// the scenario does not take, a bad period, within_days, k or rule, a rule that loosens
 	// the model's own rules, more than 1000 customers, or a model without a
 	// scenario; RESOURCE_EXHAUSTED over the vhost's quota; UNAVAILABLE when the
 	// model could not be loaded.

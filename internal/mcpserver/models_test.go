@@ -197,7 +197,7 @@ func TestARecommenderIsARecommendTool(t *testing.T) {
 		t.Fatalf("tools = %v", byName)
 	}
 	props, _ := tool.InputSchema["properties"].(map[string]any)
-	for _, p := range []string{"user", "item", "for", "period", "rules", "territory", "k", "exclude_seen"} {
+	for _, p := range []string{"user", "item", "for", "period", "within_days", "rules", "territory", "k", "exclude_seen"} {
 		if _, ok := props[p]; !ok {
 			t.Errorf("schema has no %q: %v", p, tool.InputSchema)
 		}
@@ -226,6 +226,7 @@ func TestARecommenderIsARecommendTool(t *testing.T) {
 		"fractional k":  `{"item": "a", "k": 2.5}`,
 		"user and for":  `{"user": "1", "for": {"salesman": "R1"}}`,
 		"rules, no for": `{"user": "1", "rules": [{"kind": "pin", "ids": ["a"]}]}`,
+		"window, no for": `{"user": "1", "within_days": 14}`,
 		"unknown for":   `{"for": {"region": "N"}}`,
 	} {
 		if _, err := svc.RecommendTool(t.Context(), caller, tool, json.RawMessage(args)); err == nil {
@@ -248,6 +249,17 @@ func TestARecommenderIsARecommendTool(t *testing.T) {
 	if sc.For == nil || sc.For.Salesman != "R1" || sc.Period == nil || sc.Period.From != "2026-10-05" || sc.K != 8 ||
 		len(sc.Rules) != 1 || sc.Rules[0].PerDay != 4 {
 		t.Errorf("scenario request = %+v", sc)
+	}
+	// The customers due to order within 14 days, of everyone.
+	if _, err := svc.RecommendTool(t.Context(), caller, tool, json.RawMessage(`{"for": {"all_customers": true}, "within_days": 14}`)); err != nil {
+		t.Fatal(err)
+	}
+	if w := models.recs[2]; w.For == nil || !w.For.AllCustomers || w.WithinDays != 14 {
+		t.Errorf("window request = %+v", w)
+	}
+	forProps, _ := props["for"].(map[string]any)["properties"].(map[string]any)
+	if _, ok := forProps["all_customers"]; !ok {
+		t.Errorf("for has no all_customers: %v", forProps)
 	}
 	models.calls = models.calls[:1]
 	if _, err := svc.RecommendTool(t.Context(), editorOf("tenant-b"), tool, json.RawMessage(`{"user":"1"}`)); !errors.Is(err, mcpserver.ErrModelNotFound) {

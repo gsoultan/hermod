@@ -33,15 +33,17 @@ const defaultMaxBuildMessages = 10000
 // salesman, customer or product of its vhost and emits one message per
 // result row, each the incoming record with the row's fields on it: model,
 // version, recommendation_id, for_id, item_id, rank, score, plan_date,
-// reasons_text, built_at. With a target it also writes the rows to that
-// table first, as a scheduled build does (docs/ml.md, "Build
-// recommendations").
+// due_date, reasons_text, built_at. With a target it also writes the rows to
+// that table first, as a scheduled build does (docs/ml.md, "Build
+// recommendations"); due_date only when the table has that column.
 //
 // Config:
 //   - model: the recommendation model. Required.
 //   - for: all_salesmen, all_customers or all_products. Required.
 //   - periodDays: a visit plan's days from today; the model's period when
 //     empty.
+//   - withinDays: for a reorder model, only the customers due to order
+//     within that many days from today, overdue ones included.
 //   - k: results per subject; the model's default when empty.
 //   - targetSourceId, targetTable, targetMode (replace or append): the
 //     table to write; optional, both of the first two or neither.
@@ -63,7 +65,7 @@ func (n *RecommendBuildNode) Execute(ctx context.Context, _ interfaces.NodeConte
 		s, _ := node.Config[key].(string)
 		config[key] = strings.TrimSpace(s)
 	}
-	for _, key := range []string{"periodDays", "k", "maxRows"} {
+	for _, key := range []string{"periodDays", "withinDays", "k", "maxRows"} {
 		v, err := wholeNumber(node.Config[key])
 		if err != nil {
 			return nil, "", fmt.Errorf("ml_recommend_build: %s: %w", key, err)
@@ -100,7 +102,7 @@ func (n *RecommendBuildNode) Execute(ctx context.Context, _ interfaces.NodeConte
 }
 
 // buildFields are a build row's fields, in the order the table has them.
-var buildFields = []string{"model", "version", "recommendation_id", "for_id", "item_id", "rank", "score", "plan_date",
+var buildFields = []string{"model", "version", "recommendation_id", "for_id", "item_id", "rank", "score", "plan_date", "due_date",
 	"reasons_text", "built_at"}
 
 // wholeNumber reads a setting the editor may save as a number or text; 0

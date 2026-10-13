@@ -13,7 +13,7 @@ export type Scenario = 'visits' | 'products' | 'reorder' | 'audience' | 'similar
 export const SCENARIOS: Array<{ value: Scenario; label: string; example: string }> = [
   { value: 'visits', label: 'Customers to visit or call', example: "Next week's visit list for each salesman, most urgent first." },
   { value: 'products', label: 'Products to offer a customer', example: 'Cross-sell on a call: "shops like this one also buy…"' },
-  { value: 'reorder', label: 'When will they buy again', example: 'Warn when a customer who orders every 30 days has not ordered for 41.' },
+  { value: 'reorder', label: 'When will they buy again', example: 'List the customers likely to buy in the next 2 weeks or month, and warn when one who orders every 30 days has not ordered for 41.' },
   { value: 'audience', label: 'Who will want this product', example: 'The 200 customers to tell about the new product line.' },
   { value: 'similar', label: 'Similar products', example: 'Out of stock? Offer the closest substitute.' },
 ]
@@ -444,7 +444,18 @@ export async function scenariosSupported(vhost: string, signal?: AbortSignal): P
   }
 }
 
-/** One recommended thing, with its reasons (contract "Item"). */
+/** A product a reorder customer is due to buy again. */
+export interface DueProduct {
+  id: string
+  due_date: string
+  overdue?: boolean
+  fields?: Record<string, unknown>
+}
+
+/**
+ * One recommended thing, with its reasons (contract "Item"). A reorder item
+ * has its due date, whether that date has passed, and the products due.
+ */
 export interface ScenarioItem {
   id: string
   score: number
@@ -452,15 +463,28 @@ export interface ScenarioItem {
   reasons?: Array<{ code: string; text: string }>
   fields?: Record<string, unknown>
   due_date?: string
+  overdue?: boolean
+  products?: DueProduct[]
 }
 
 /** Who or what a recommendation is for; the scenario decides which keys apply. */
 export type RecommendFor =
-  | { customer: string } | { product: string } | { salesman: string } | { customers: string[] }
+  | { customer: string } | { product: string } | { salesman: string } | { customers: string[] } | { all_customers: true }
+
+/** The windows a reorder question offers, in days: "who will buy in the next 2 weeks". */
+export const DUE_WINDOWS: Array<{ days: number; label: string }> = [
+  { days: 14, label: '2 weeks' },
+  { days: 30, label: '1 month' },
+]
+
+/** The longest window a reorder call takes, in days. */
+export const MAX_WITHIN_DAYS = 366
 
 export interface RecommendRequest {
   for: RecommendFor
   period?: { from: string; to: string }
+  /** For reorder: only the customers due to buy within this many days, overdue ones included. */
+  within_days?: number
   k?: number
   rules?: Rule[]
   exclude_seen?: boolean
@@ -517,6 +541,7 @@ export interface BuildSchedule {
   schedule: string
   for: BuildFor
   period_days?: number
+  within_days?: number
   k: number
   target: { source_id: string; table: string; mode: 'replace' | 'append' }
 }

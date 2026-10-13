@@ -29,27 +29,30 @@ type ModelSource interface {
 
 // RecommendArgs are a recommend tool's arguments: "user" for a person's
 // items or "item" for items like it, "k" and, for a user, "exclude_seen"; or
-// a scenario call's "for", "territory", "period", "k", "rules" and
-// "exclude_seen", as POST .../recommend takes them.
+// a scenario call's "for", "territory", "period", "within_days", "k",
+// "rules" and "exclude_seen", as POST .../recommend takes them.
 type RecommendArgs struct {
 	User        any              `json:"user,omitempty"`
 	Item        any              `json:"item,omitempty"`
 	For         *ScenarioFor     `json:"for,omitempty"`
 	Territory   any              `json:"territory,omitempty"`
 	Period      *ScenarioPeriod  `json:"period,omitempty"`
+	WithinDays  int              `json:"within_days,omitempty"`
 	K           int              `json:"k,omitempty"`
 	Rules       []recommend.Rule `json:"rules,omitempty"`
 	ExcludeSeen *bool            `json:"exclude_seen,omitempty"`
 }
 
 // ScenarioFor is who or what a scenario call is for: one of customer,
-// customers, product or salesman, and the territory a rule binds to.
+// customers, product, salesman or all_customers, and the territory a rule
+// binds to.
 type ScenarioFor struct {
-	Customer  any   `json:"customer,omitempty"`
-	Customers []any `json:"customers,omitempty"`
-	Product   any   `json:"product,omitempty"`
-	Salesman  any   `json:"salesman,omitempty"`
-	Territory any   `json:"territory,omitempty"`
+	Customer     any   `json:"customer,omitempty"`
+	Customers    []any `json:"customers,omitempty"`
+	Product      any   `json:"product,omitempty"`
+	Salesman     any   `json:"salesman,omitempty"`
+	Territory    any   `json:"territory,omitempty"`
+	AllCustomers bool  `json:"all_customers,omitempty"`
 }
 
 // ScenarioPeriod is a visit plan's days, YYYY-MM-DD, both included.
@@ -199,7 +202,10 @@ func recommendTool(m storage.MLModel) ModelTool {
 	desc := fmt.Sprintf("Asks Hermod recommendation model %q of vhost %q. A scenario model takes \"for\": "+
 		"{\"salesman\"} for a visit plan (with \"period\"), {\"customer\"} or {\"customers\"} for products to offer "+
 		"or reorders due, {\"product\"} for the customers to offer it to or similar products; each result item "+
-		"carries its reasons. A model of a person's items takes \"user\" for their top items or \"item\" for the "+
+		"carries its reasons. A reorder model (when will they buy again) also takes {\"product\"} or "+
+		"{\"all_customers\": true}, and \"within_days\" (14 for two weeks, 30 for a month) to list only the customers "+
+		"due to buy within that window, overdue ones marked \"overdue\", each with its due_date and the products it is "+
+		"due for. A model of a person's items takes \"user\" for their top items or \"item\" for the "+
 		"items most like one item; an id it never saw gets the most popular items, marked reason \"popular\".",
 		m.Name, m.VHost)
 	if d := strings.TrimSpace(m.Description); d != "" {
@@ -212,13 +218,15 @@ func recommendTool(m storage.MLModel) ModelTool {
 			"user": mergeDesc(id, "The person's id, as in the training data."),
 			"item": mergeDesc(id, "An item's id: answers the items most like it."),
 			"for": map[string]any{"type": "object", "additionalProperties": false,
-				"description": "A scenario model's subject: give one of customer, customers, product or salesman.",
+				"description": "A scenario model's subject: give one of customer, customers, product, salesman or all_customers.",
 				"properties": map[string]any{
 					"customer":  mergeDesc(id, "A customer's id."),
 					"customers": map[string]any{"type": "array", "items": id, "maxItems": recommend.MaxBatch, "description": "Several customers: one result each."},
 					"product":   mergeDesc(id, "A product's id."),
 					"salesman":  mergeDesc(id, "A salesman's id: their visit plan, or their customers' reorders."),
 					"territory": mergeDesc(id, "The territory a rule's from_request \"territory\" binds to."),
+					"all_customers": map[string]any{"type": "boolean",
+						"description": "A reorder model: every customer, by when they will buy again."},
 				}},
 			"territory": mergeDesc(id, "The territory a rule's from_request \"territory\" binds to."),
 			"period": map[string]any{"type": "object", "additionalProperties": false, "required": []any{"from"},
@@ -227,6 +235,8 @@ func recommendTool(m storage.MLModel) ModelTool {
 					"from": map[string]any{"type": "string", "format": "date"},
 					"to":   map[string]any{"type": "string", "format": "date"},
 				}},
+			"within_days": map[string]any{"type": "integer", "minimum": 1, "maximum": recommend.MaxWithinDays,
+				"description": "A reorder model: only the customers due to buy within this many days from today (14 for two weeks, 30 for a month), overdue ones included and marked."},
 			"rules": map[string]any{"type": "array", "items": map[string]any{"type": "object"},
 				"description": "Rules for this call (filter, exclude, boost, diversity, pin, block, capacity); they may only tighten the model's own."},
 			"k": map[string]any{"type": "integer", "minimum": 1, "maximum": recommend.MaxPlan,
@@ -273,8 +283,8 @@ func (s *Service) RecommendTool(ctx context.Context, c Caller, t ModelTool, args
 		return RecommendResult{}, errors.New(`give "for" for a scenario model, or "user" for a person's items, or "item" for items like it`)
 	}
 	if req.For == nil {
-		if req.Territory != nil || req.Period != nil || len(req.Rules) > 0 {
-			return RecommendResult{}, errors.New(`"territory", "period" and "rules" go with "for", a scenario call`)
+		if req.Territory != nil || req.Period != nil || req.WithinDays != 0 || len(req.Rules) > 0 {
+			return RecommendResult{}, errors.New(`"territory", "period", "within_days" and "rules" go with "for", a scenario call`)
 		}
 		items, id, err := s.Models.Recommend(ctx, t.VHost, t.Model, req)
 		if err != nil {

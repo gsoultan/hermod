@@ -103,13 +103,15 @@ func (s *Service) RecommendCheck(ctx context.Context, vhost string, spec worker.
 // ScenarioFor names who or what a scenario call is for. Ids are as JSON
 // gives them: a string, or a number for an id column that held numbers.
 // Territory, given here or at the top of the request, is what a rule's
-// from_request "territory" binds to.
+// from_request "territory" binds to. AllCustomers asks a reorder model about
+// every customer.
 type ScenarioFor struct {
-	Customer  any   `json:"customer,omitempty"`
-	Customers []any `json:"customers,omitempty"`
-	Product   any   `json:"product,omitempty"`
-	Salesman  any   `json:"salesman,omitempty"`
-	Territory any   `json:"territory,omitempty"`
+	Customer     any   `json:"customer,omitempty"`
+	Customers    []any `json:"customers,omitempty"`
+	Product      any   `json:"product,omitempty"`
+	Salesman     any   `json:"salesman,omitempty"`
+	Territory    any   `json:"territory,omitempty"`
+	AllCustomers bool  `json:"all_customers,omitempty"`
 }
 
 // ScenarioPeriod is a visit plan's days, both included, as YYYY-MM-DD. To
@@ -122,11 +124,13 @@ type ScenarioPeriod struct {
 // ScenarioRequest is one call of POST .../recommend. Respond and
 // CallbackURL ask for an asynchronous answer, which the REST API gives by
 // queueing the call as a job; RecommendScenario itself answers at once, and
-// refuses them.
+// refuses them. WithinDays, for a reorder model, keeps the customers due to
+// order within that many days from today, overdue ones included.
 type ScenarioRequest struct {
 	For         ScenarioFor      `json:"for"`
 	Territory   any              `json:"territory,omitempty"`
 	Period      *ScenarioPeriod  `json:"period,omitempty"`
+	WithinDays  int              `json:"within_days,omitempty"`
 	K           int              `json:"k,omitempty"`
 	Rules       []recommend.Rule `json:"rules,omitempty"`
 	ExcludeSeen *bool            `json:"exclude_seen,omitempty"`
@@ -160,7 +164,7 @@ func (r ScenarioRequest) query(scenario string, today time.Time) (recommend.Quer
 		return q, 0, err
 	}
 	limit := recommend.MaxK
-	if scenario == recommend.ScenarioVisits || (scenario == recommend.ScenarioReorder && q.Salesman != "") {
+	if scenario == recommend.ScenarioVisits || (scenario == recommend.ScenarioReorder && (q.Salesman != "" || q.Product != "" || q.AllCustomers)) {
 		limit = recommend.MaxPlan
 	}
 	if r.K < 0 || r.K > limit {
@@ -169,8 +173,26 @@ func (r ScenarioRequest) query(scenario string, today time.Time) (recommend.Quer
 	if err := r.period(scenario, &q); err != nil {
 		return q, 0, err
 	}
+	if err := r.window(scenario, &q); err != nil {
+		return q, 0, err
+	}
 	rows := max(1, len(q.Customers))
 	return q, rows, nil
+}
+
+// window reads a reorder call's "within_days" into q.
+func (r ScenarioRequest) window(scenario string, q *recommend.Query) error {
+	if r.WithinDays == 0 {
+		return nil
+	}
+	if r.WithinDays < 0 || r.WithinDays > recommend.MaxWithinDays {
+		return badRecommend(`"within_days" is between 1 and %d days`, recommend.MaxWithinDays)
+	}
+	if scenario != recommend.ScenarioReorder {
+		return badRecommend(`"within_days" applies to a reorder model ("When will they buy again")`)
+	}
+	q.WithinDays = r.WithinDays
+	return nil
 }
 
 // checkRespond refuses an asynchronous answer: one is asked for on POST
@@ -191,7 +213,8 @@ func (r ScenarioRequest) checkRespond() error {
 }
 
 // check reads what of the request does not depend on the model's scenario
-// (the ids, k up to the largest any scenario takes, and the period's dates),
+// (the ids, k up to the largest any scenario takes, the window's bounds and
+// the period's dates),
 // so a job is refused for it before it is queued. query reads the rest.
 func (r ScenarioRequest) check() error {
 	var q recommend.Query
@@ -200,6 +223,9 @@ func (r ScenarioRequest) check() error {
 	}
 	if limit := max(recommend.MaxK, recommend.MaxPlan); r.K < 0 || r.K > limit {
 		return badRecommend(`"k" is how many results, 1 to %d`, limit)
+	}
+	if err := r.window(recommend.ScenarioReorder, &q); err != nil {
+		return err
 	}
 	return r.period(recommend.ScenarioVisits, &q)
 }
@@ -234,6 +260,7 @@ func (r ScenarioRequest) subjects(q *recommend.Query) error {
 		}
 		*f.to = s
 	}
+	q.AllCustomers = r.For.AllCustomers
 	if len(r.For.Customers) > recommend.MaxBatch {
 		return badRecommend("at most %d customers per call, not %d", recommend.MaxBatch, len(r.For.Customers))
 	}

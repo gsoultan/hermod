@@ -1,15 +1,16 @@
 import { useState } from 'react'
-import { Alert, Button, Checkbox, Code, Group, Loader, Modal, Radio, Stack, Text, TextInput, Textarea } from '@mantine/core'
+import { Alert, Button, Checkbox, Code, Group, Loader, Modal, NumberInput, Radio, Stack, Text, TextInput, Textarea } from '@mantine/core'
 import { IconAlertCircle, IconPlayerPlay } from '@tabler/icons-react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import {
   isRecommender, listVersions, predict, recommend, versionsKey, type MLModel, type RecommendCall,
 } from '@/lib/mlModels'
 import {
-  isMissingRoute, isScenarioVersion, nextPeriod, recommendScenario, type RecommendRequest, type RecommendResponse, type Scenario,
+  DUE_WINDOWS, MAX_WITHIN_DAYS, isMissingRoute, isScenarioVersion, nextPeriod, recommendScenario, type RecommendRequest,
+  type RecommendResponse, type Scenario,
 } from '@/lib/mlRecommend'
 import { FormRow } from '@/components/common/FormRow'
-import { RecommendAnswer, RecommendedList } from './scenarioItems'
+import { DueCustomerList, RecommendAnswer, RecommendedList } from './scenarioItems'
 
 /** A starting row: the model's declared features, each set to 0. */
 function sampleRow(model: MLModel): string {
@@ -165,6 +166,87 @@ type ScenarioAnswer = { kind: 'scenario'; answer: RecommendResponse } | { kind: 
  * asked through predict, the way a one-table recommender is.
  */
 function ScenarioTest({ vhost, model, scenario }: { vhost: string; model: MLModel; scenario: Scenario }) {
+  if (scenario === 'reorder') return <ReorderTest vhost={vhost} model={model} />
+  return <ScenarioIdTest vhost={vhost} model={model} scenario={scenario} />
+}
+
+/** How many customers a reorder question lists. */
+const DUE_K = 100
+
+type DueWho = 'everyone' | 'salesman' | 'product' | 'customer'
+
+const DUE_WHO: Array<{ value: DueWho; label: string }> = [
+  { value: 'everyone', label: 'Everyone' },
+  { value: 'salesman', label: "A salesman's customers" },
+  { value: 'product', label: "A product's buyers" },
+  { value: 'customer', label: 'One customer' },
+]
+
+/**
+ * "Which customers will buy in the next 2 weeks, or month?": a reorder model
+ * asked for everyone, a salesman's customers, a product's buyers or one
+ * customer, in a period from today. The answer lists the customers with the
+ * date each is expected to order (overdue ones marked), the products due and
+ * why. "Any time" asks as before, with no period.
+ */
+function ReorderTest({ vhost, model }: { vhost: string; model: MLModel }) {
+  const [who, setWho] = useState<DueWho>('everyone')
+  const [id, setId] = useState('')
+  const [span, setSpan] = useState<string>(String(DUE_WINDOWS[0].days))
+  const [customDays, setCustomDays] = useState<number | string>(7)
+  const run = useMutation({ mutationFn: (body: RecommendRequest) => recommendScenario(vhost, model.name, body) })
+  const days = span === 'any' ? 0 : span === 'custom' ? (typeof customDays === 'number' ? customDays : 0) : Number(span)
+  const ready = (who === 'everyone' || !!id.trim()) && (span !== 'custom' || (days >= 1 && days <= MAX_WITHIN_DAYS))
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!ready) return
+    const subject = (who === 'everyone' ? { all_customers: true } : { [who]: id.trim() }) as RecommendRequest['for']
+    run.mutate({ for: subject, ...(days > 0 ? { within_days: days } : {}), k: DUE_K })
+  }
+  const label = { everyone: '', salesman: 'Salesman', product: 'Product', customer: 'Customer' }[who]
+  return (
+    <form onSubmit={submit} noValidate>
+      <Stack gap="md">
+        <Radio.Group label="Who" value={who} onChange={(v) => { setWho(v as DueWho); setId(''); run.reset() }}>
+          <Group gap="lg" mt={4}>
+            {DUE_WHO.map((o) => <Radio key={o.value} value={o.value} label={o.label} />)}
+          </Group>
+        </Radio.Group>
+        {who !== 'everyone' && (
+          <TextInput label={label} description="Their id, as in your data." placeholder={`${who} id`} required
+            value={id} onChange={(e) => setId(e.currentTarget.value)} />
+        )}
+        <Radio.Group label="Likely to buy within" value={span} onChange={setSpan}
+          description="From today. Customers whose date has already passed are listed too, marked overdue.">
+          <Group gap="lg" mt={4}>
+            {DUE_WINDOWS.map((w) => <Radio key={w.days} value={String(w.days)} label={w.label} />)}
+            <Radio value="custom" label="Custom" />
+            <Radio value="any" label="Any time" />
+          </Group>
+        </Radio.Group>
+        {span === 'custom' && (
+          <NumberInput label="Days" description={`1 to ${MAX_WITHIN_DAYS} days from today.`} min={1} max={MAX_WITHIN_DAYS}
+            allowDecimal={false} value={customDays} onChange={setCustomDays} w={160} />
+        )}
+        <Group justify="flex-end">
+          <Button type="submit" leftSection={<IconPlayerPlay size="1rem" />} loading={run.isPending} disabled={!ready}>Find customers</Button>
+        </Group>
+        {run.error && (
+          <Alert color="red" icon={<IconAlertCircle size="1rem" />} title="The model did not answer">
+            {isMissingRoute(run.error) ? 'This Hermod cannot answer this question yet: it needs a newer server.' : (run.error as Error).message}
+          </Alert>
+        )}
+        {run.data && (
+          <DueCustomerList items={run.data.results?.[0]?.items ?? []}
+            feedback={{ vhost, model: model.name, recommendationId: run.data.recommendation_id }} />
+        )}
+      </Stack>
+    </form>
+  )
+}
+
+/** A scenario asked for one id: a salesman's plan, a customer's products, or a product's customers or look-alikes. */
+function ScenarioIdTest({ vhost, model, scenario }: { vhost: string; model: MLModel; scenario: Scenario }) {
   const forKey = scenario === 'visits' ? 'salesman' : scenario === 'products' || scenario === 'reorder' ? 'customer' : 'product'
   const [id, setId] = useState('')
   const [period, setPeriod] = useState(() => nextPeriod(7))

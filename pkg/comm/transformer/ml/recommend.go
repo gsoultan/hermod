@@ -11,6 +11,7 @@ import (
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/transformer/core"
 	"github.com/gsoultan/hermod/pkg/infra/evaluator"
+	"github.com/gsoultan/hermod/pkg/ml/recommend"
 )
 
 // The node's modes.
@@ -24,11 +25,11 @@ const defaultRecommendField = "recommendations"
 
 // recommender is the registry's call to a recommendation model. req holds
 // "user" or "item" (#268), or "for" with a scenario subject ({"salesman"},
-// {"customer"} or {"product"}) and "period_days" and "rules" when the node
-// sets them; and "k" and "exclude_seen" when set. The answer is the items,
-// best first: {"item", "score", "reason"?} for "user" or "item", and
-// {"id", "score", "rank", "reasons", "fields", "due_date"?, "plan_date"?}
-// for "for".
+// {"customer"} or {"product"}) and "period_days", "within_days" and "rules"
+// when the node sets them; and "k" and "exclude_seen" when set. The answer
+// is the items, best first: {"item", "score", "reason"?} for "user" or
+// "item", and {"id", "score", "rank", "reasons", "fields", "due_date"?,
+// "overdue"?, "products"?, "plan_date"?} for "for".
 type recommender interface {
 	MLRecommend(ctx context.Context, vhost, model string, req map[string]any) ([]map[string]any, error)
 }
@@ -50,6 +51,9 @@ type recommender interface {
 //     already had; true when unset.
 //   - periodDays: a visit plan's days from today; the model's period when
 //     empty.
+//   - withinDays: for a reorder model, only the customers due to order
+//     within that many days from today, overdue ones included, most likely
+//     first, each with the products they are due for (1 to 366).
 //   - rules: request rules (docs/ml.md, "Rules"), a list or its JSON text.
 //   - outputField: where the items go, default "recommendations".
 func recommendInto(ctx context.Context, msg hermod.Message, model string, config map[string]any) (hermod.Message, error) {
@@ -127,6 +131,19 @@ func recommendRequest(config map[string]any) (map[string]any, string, error) {
 			return nil, "", errors.New(`ml_predict: periodDays applies to recommendFor "salesman" (a visit plan)`)
 		}
 		req["period_days"] = days
+	}
+	within, err := configInt(config["withinDays"])
+	if err != nil {
+		return nil, "", fmt.Errorf("ml_predict: withinDays: %w", err)
+	}
+	if within < 0 || within > recommend.MaxWithinDays {
+		return nil, "", fmt.Errorf("ml_predict: withinDays is between 1 and %d", recommend.MaxWithinDays)
+	}
+	if within > 0 {
+		if !scenario {
+			return nil, "", errors.New(`ml_predict: withinDays applies to a reorder model's recommendFor "salesman", "customer" or "product"`)
+		}
+		req["within_days"] = within
 	}
 	rules, err := configRules(config["rules"])
 	if err != nil {

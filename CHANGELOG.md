@@ -7,6 +7,65 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — Customers likely to buy in the next N days
+
+A **When will they buy again** (`reorder`) model now answers "which customers
+will buy our products in the next 2 weeks, or month": a call with
+`within_days` (1 to 366) lists the customers whose expected next order falls
+in that window from today, one row per customer with its `due_date`, the
+products it is due for and the reasons. Customers whose date has already
+passed are kept and marked `overdue`. The list is ranked by how likely each
+customer is to order (long-lapsed customers last), then by the soonest date.
+A call without `within_days` answers as before.
+
+- Ask it for everyone (`"for": {"all_customers": true}`), a salesman's
+  customers, one customer or a batch, or a product (`"for": {"product"}`:
+  the customers who buy it again and again, by when each will buy it next).
+- The window is applied in Hermod's in-process answer, so REST (editor and
+  serving routes), gRPC (`within_days`, `ScenarioSubject.all_customers`,
+  `ScenarioPick.overdue` and `products`, new message `DueProduct`; additive
+  fields only), the MCP `recommend_<model>` tool, the **Predict** node
+  (`withinDays`; a reorder model can be asked for a salesman, a customer or a
+  product) and builds all give the same list.
+- **Build recommendations** (API and the **Build Recommendations** node)
+  take `within_days` / `withinDays`, and write a reorder row's due date to a
+  `due_date` column when the target table has one. The column is optional: a
+  table without it keeps working.
+- The worker keeps a reorder model's products and each customer's rhythm of
+  buying each one, so the products a customer is due for have their own
+  dates. A reorder model trained before this release still answers windows
+  for its customers, without products; asking it for a product is a 400 that
+  says to train it again.
+- In the console, **Try it** on a reorder model asks who (everyone, a
+  salesman's customers, a product's buyers or one customer) and when
+  (2 weeks, 1 month, a custom number of days, or any time) and lists the
+  customers with their expected date, "Overdue since …", the products due
+  and why; the build dialog can keep only the customers due within some days.
+- **What data do I need?** under every card of **Train a model** (predict a
+  category, predict a number, recommend items to people, and each of the
+  five recommendation questions) opens a plain-language guide: the question
+  it answers, the columns it needs and the ones that make it better, the
+  amounts training requires and the ones it recommends, a small example with
+  CSV templates, a query for a database, and common mistakes. For **When will
+  they buy again** it explains the usual gap, due date, overdue, the next N
+  days, and that a product needs two different purchase days to get a date.
+- The dialog checks the chosen dataset against that guide as you go: columns
+  chosen, column types and the amounts (rows with an answer; or customers,
+  order lines, orders per customer and months of history from the data
+  health check), each green, amber or red with a fix. Only red stops **Next**
+  or **Train**, and the button says why.
+- **Upload a file** and **From a database** ask what the dataset is for and
+  show the columns it should have, the CSV template or an example query
+  (with a smaller one-row-per-customer-product-day version for big tables),
+  and the limits: 1,000,000 rows per read unless you set more, the vhost's
+  quotas, rows read 1,000 at a time, the built-in engine's
+  `HERMOD_ML_BUILTIN_MAX_ROWS` sample for prediction models, and its
+  256 MB-per-piece storage (which a database read never reaches).
+- The guide, the checklist and the guides in `docs/ml.md` and
+  `docs/ml-recommendations-data-guide.md` come from one file
+  (`ui/src/lib/mlDataGuide.ts`); a test reads every amount back from the Go
+  and Python code that enforces it and keeps the docs in step.
+
 ### Added — secret and env references in every source, sink and node setting
 
 Every setting of every source, sink and transformation now takes secret and

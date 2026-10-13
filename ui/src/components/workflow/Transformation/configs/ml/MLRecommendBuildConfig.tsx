@@ -26,8 +26,10 @@ const FOR_OPTIONS: Array<{ value: BuildFor; label: string }> = [
  * recommendation model's lists for everyone (every salesman's visit plan,
  * every customer's products, every product's customers) and emits one
  * message per row: model, version, recommendation_id, for_id, item_id, rank,
- * score, plan_date, reasons_text, built_at. With a table, it also writes them
- * there. The settings are the model build schedule's (PUT .../build).
+ * score, plan_date, due_date, reasons_text, built_at. With a table, it also
+ * writes them there (due_date when the table has that column). A reorder
+ * model can keep only the customers due within some days. The settings are
+ * the model build schedule's (PUT .../build).
  */
 export function MLRecommendBuildConfig({ config, updateNodeConfig, nodeId, sources = [] }: MLRecommendBuildConfigProps) {
   const vhost = useWorkflowStore((s) => s.vhost) || 'default'
@@ -53,7 +55,8 @@ export function MLRecommendBuildConfig({ config, updateNodeConfig, nodeId, sourc
   const dbSources = (Array.isArray(sources) ? sources : [])
     .filter((s: any) => SQL_SOURCE_TYPES.includes(s.type) && (s.vhost || 'default') === vhost)
     .map((s: any) => ({ value: s.id, label: s.name }))
-  const plans = config.for === 'all_salesmen'
+  const plans = config.for === 'all_salesmen' && scenario !== 'reorder'
+  const reorder = scenario === 'reorder'
 
   return (
     <Stack gap="sm">
@@ -70,12 +73,17 @@ export function MLRecommendBuildConfig({ config, updateNodeConfig, nodeId, sourc
           Train one on the Machine Learning page: Add model, Train a new model from my data, then Recommend items to people.
         </Alert>
       )}
-      <FormRow cols={plans ? 3 : 2}>
+      <FormRow cols={plans || reorder ? 3 : 2}>
         <Select label="For" data={FOR_OPTIONS} value={config.for || null} allowDeselect={false}
           onChange={(v) => set({ for: v ?? '' })} />
         {plans && (
           <TextInput label="Days to plan" placeholder="7" value={config.periodDays ?? ''}
             onChange={(e) => set({ periodDays: e.currentTarget.value })} />
+        )}
+        {reorder && (
+          <TextInput label="Only customers due within (days)" placeholder="14" value={config.withinDays ?? ''}
+            description="Overdue ones included; empty for everyone."
+            onChange={(e) => set({ withinDays: e.currentTarget.value })} />
         )}
         <TextInput label="How many per list" placeholder="20" value={config.k ?? ''} onChange={(e) => set({ k: e.currentTarget.value })} />
       </FormRow>

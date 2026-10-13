@@ -43,20 +43,20 @@ func runBuild(t *testing.T, reg any, cfg map[string]any) ([]hermod.Message, erro
 func TestRecommendBuildEmitsOneRecordPerRow(t *testing.T) {
 	reg := &fakeBuilder{rows: []map[string]any{
 		{"model": "plan", "for_id": "R1", "item_id": "C1", "rank": 1, "plan_date": "2026-10-13"},
-		{"model": "plan", "for_id": "R1", "item_id": "C2", "rank": 2, "plan_date": "2026-10-13"},
+		{"model": "plan", "for_id": "R1", "item_id": "C2", "rank": 2, "plan_date": "2026-10-13", "due_date": "2026-10-20"},
 	}}
-	msgs, err := runBuild(t, reg, map[string]any{"model": "plan", "for": "all_salesmen", "periodDays": "5", "k": 20.0,
+	msgs, err := runBuild(t, reg, map[string]any{"model": "plan", "for": "all_salesmen", "periodDays": "5", "withinDays": "14", "k": 20.0,
 		"targetSourceId": "pg", "targetTable": "visit_plan", "targetMode": "replace"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]any{"for": "all_salesmen", "periodDays": 5, "k": 20, "maxRows": defaultMaxBuildMessages,
+	want := map[string]any{"for": "all_salesmen", "periodDays": 5, "withinDays": 14, "k": 20, "maxRows": defaultMaxBuildMessages,
 		"targetSourceId": "pg", "targetTable": "visit_plan", "targetMode": "replace"}
 	if reg.model != "plan" || reg.vhost != "default" || !reflect.DeepEqual(reg.config, want) {
 		t.Fatalf("called %s/%s with %v", reg.vhost, reg.model, reg.config)
 	}
 	if len(msgs) != 2 || msgs[1].Data()["item_id"] != "C2" || msgs[1].Data()["trigger"] != "nightly" ||
-		msgs[0].Metadata()["_fanout_total"] != "2" {
+		msgs[0].Metadata()["_fanout_total"] != "2" || msgs[1].Data()["due_date"] != "2026-10-20" {
 		t.Fatalf("messages %v", explodeData(msgs))
 	}
 }
@@ -69,6 +69,7 @@ func TestRecommendBuildRefusals(t *testing.T) {
 	}{
 		{&fakeBuilder{}, map[string]any{"for": "all_salesmen"}, "model"},
 		{&fakeBuilder{}, map[string]any{"model": "m", "for": "all_salesmen", "k": "many"}, "k"},
+		{&fakeBuilder{}, map[string]any{"model": "m", "for": "all_customers", "withinDays": "soon"}, "withinDays"},
 		{&fakeBuilder{}, map[string]any{"model": "m", "for": "all_salesmen", "targetTable": "t"}, "target"},
 		{&fakeBuilder{err: errors.New("boom")}, map[string]any{"model": "m", "for": "all_salesmen"}, "boom"},
 		{struct{}{}, map[string]any{"model": "m", "for": "all_salesmen"}, "cannot build"},

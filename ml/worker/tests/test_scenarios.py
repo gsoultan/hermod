@@ -301,6 +301,23 @@ def test_reorder_needs_no_products_and_gives_due_dates(b2b):
     assert meta["metrics"]["mae_days"] >= 0 and 0 <= meta["metrics"]["on_time_share"] <= 1
     assert set(meta["baseline"]) == {"mae_days", "on_time_share"}
     assert meta["samples"] and all("due_date" in it for s in meta["samples"] for it in s["items"])
+    model = recommend.decode(b2b.get(f"/v1/models/{VHOST}/due/versions/{meta['version']}/model.rec").content)
+    assert model.items == [] and meta["catalog"]["items"] == 0
+
+
+def test_reorder_with_products_keeps_each_customers_rhythm_per_product(b2b):
+    """Hermod answers "which customers will buy this product in the next N
+    days" from each customer and product's last day and median gap, so a
+    reorder model trained with transactions.product keeps its products and
+    their pair cadence, still without a recommender."""
+    meta = train(b2b, "due_products", body("reorder")).json()
+    assert meta["algorithm"] == "none" and meta["catalog"]["items"] > 0
+    assert meta["metrics"]["mae_days"] >= 0 and meta["samples"]
+    model = recommend.decode(b2b.get(f"/v1/models/{VHOST}/due_products/versions/{meta['version']}/model.rec").content)
+    assert model.algorithm == "none" and len(model.items) == meta["catalog"]["items"]
+    assert model.seen.nnz > 0 and len(model.seen_gap) == model.seen.nnz
+    assert np.isfinite(model.seen_gap).any()
+    assert (model.seen_last_day != recommend.EMPTY).all()
 
 
 @pytest.mark.parametrize("scenario", ["audience", "similar"])
