@@ -1,4 +1,5 @@
-import { Alert, Anchor, List, MultiSelect, Stack, Text, TextInput } from '@mantine/core';
+import { Alert, Anchor, List, MultiSelect, Stack, Text } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { IconAlertTriangle, IconInfoCircle } from '@tabler/icons-react';
 import { useEffect, useState, type FC } from 'react';
 import { apiFetch } from '@/api';

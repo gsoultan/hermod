@@ -1,4 +1,5 @@
-import { PasswordInput, TextInput, Stack, Alert } from '@mantine/core';
+import { Stack, Alert } from '@mantine/core';
+import { PasswordInput, TextInput } from '@/components/shared/ReferenceInputs';
 import { IconInfoCircle } from '@tabler/icons-react';
 import { FormRow } from '@/components/common/FormRow';
 

@@ -1,4 +1,5 @@
-import { Stack, Switch, Text, TextInput } from '@mantine/core'
+import { Stack, Switch, Text } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 
 interface FieldDiffConfigProps {
   config: any

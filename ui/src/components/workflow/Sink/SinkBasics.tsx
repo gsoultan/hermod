@@ -1,7 +1,8 @@
 import { toGroupedSelectData } from '@/utils/selectData';
 import { useState } from 'react';
 import { validateName, validateType, validateVHost } from '@/hooks/useEntityBasicsForm';
-import { Select, Stack, TextInput, Switch } from '@mantine/core';
+import { Select, Stack, Switch } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { WorkspaceSelect } from '@/components/common/WorkspaceSelect';
 import type { Workspace } from '@/types';
 
@@ -54,6 +55,7 @@ export function SinkBasics({
     <Stack gap="sm">
       <TextInput
         label="Name"
+        references={false}
         description="How this destination appears in workflows"
         placeholder="NATS Sink"
         value={name}

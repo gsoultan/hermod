@@ -1,4 +1,5 @@
-import { TextInput, PasswordInput, Select, Stack, Switch, Checkbox, Divider } from '@mantine/core';
+import { Select, Stack, Switch, Checkbox, Divider } from '@mantine/core';
+import { PasswordInput, TextInput } from '@/components/shared/ReferenceInputs';
 import { IconAntenna } from '@tabler/icons-react';
 import { FormRow } from '@/components/common/FormRow';
 

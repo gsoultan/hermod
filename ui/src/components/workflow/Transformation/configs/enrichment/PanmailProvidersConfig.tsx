@@ -1,4 +1,5 @@
-import { Select, Stack, Text, TextInput } from '@mantine/core';
+import { Select, Stack, Text } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { TemplateField } from '@/components/shared/TemplateField';
 import { FormRow } from '@/components/common/FormRow';
 

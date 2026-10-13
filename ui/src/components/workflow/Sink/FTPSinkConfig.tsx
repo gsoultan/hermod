@@ -1,4 +1,5 @@
-import { TextInput, Group, Select, Divider, Text, Code, Button, Checkbox } from '@mantine/core';
+import { Group, Select, Divider, Text, Code, Button, Checkbox } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { FormRow } from '@/components/common/FormRow';
 
 interface FTPSinkConfigProps {

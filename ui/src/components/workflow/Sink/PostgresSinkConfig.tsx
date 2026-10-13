@@ -1,7 +1,8 @@
 import { IconRefresh } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
 import { FormRow } from '@/components/common/FormRow';
-import { ActionIcon, Autocomplete, Group, TextInput, Switch, Stack, Divider, Select, Button, Loader, Checkbox } from '@mantine/core'
+import { ActionIcon, Autocomplete, Group, Switch, Stack, Divider, Select, Button, Loader, Checkbox } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 import { useState, type FC, useEffect } from 'react'
 import { ColumnMappingEditor, type ColumnMapping } from './ColumnMappingEditor'
 import { apiFetch } from '@/api'

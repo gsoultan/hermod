@@ -1,4 +1,5 @@
-import { Stack, TextInput, Alert, Text, Card, Group, rem, ThemeIcon } from '@mantine/core';
+import { Stack, Alert, Text, Card, Group, rem, ThemeIcon } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { IconInfoCircle, IconCopyOff, IconTag } from '@tabler/icons-react';
 
 interface DeduplicateConfigProps {

@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
-import { Button, Group, Select, Stack, Text, TextInput } from '@mantine/core'
+import { Button, Group, Select, Stack, Text } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 import { findDateFormat, type DateFormatGroup } from './dateFormatOptions'
 import { goLayoutProblem } from './goLayoutLint'
 

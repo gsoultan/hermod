@@ -1,4 +1,5 @@
-import { TextInput, Stack, Group, Select, JsonInput, Text, Divider, Button, Badge, List, Paper, Box, Fieldset, SimpleGrid, Code, PasswordInput } from '@mantine/core';
+import { Stack, Group, Select, JsonInput, Text, Divider, Button, Badge, List, Paper, Box, Fieldset, SimpleGrid, Code } from '@mantine/core';
+import { PasswordInput, TextInput } from '@/components/shared/ReferenceInputs';
 import { CronInput } from '../../shared/CronInput';
 import { GenerateToken } from '../../shared/GenerateToken';
 import { GrpcCallGuide } from './GrpcCallGuide';

@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react'
-import { Alert, Divider, Radio, Group, Select, Stack, Text, TextInput } from '@mantine/core'
+import { Alert, Divider, Radio, Group, Select, Stack, Text } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 import { IconInfoCircle } from '@tabler/icons-react'
 import { useQuery } from '@tanstack/react-query'
 import { FormRow } from '@/components/common/FormRow'

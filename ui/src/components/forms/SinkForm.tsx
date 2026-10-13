@@ -1,6 +1,8 @@
 import { lazy } from 'react';
 import { Stack, Alert, Text, Group, ActionIcon, Tooltip, List } from '@mantine/core';
 import { useVHost } from '@/context/VHostContext';
+import { SecretNamesContext } from '@/components/shared/TemplateField';
+import { useVHostSecretNames } from '@/lib/vhostSecrets';
 import { useNavigate } from '@tanstack/react-router';
 import type { Sink } from '@/types';
 import { IconAlertCircle, IconExternalLink } from '@tabler/icons-react';
@@ -230,6 +232,8 @@ export function SinkForm({
     vhost,
     workerID
   });
+  // The vhost whose secrets this sink's settings can reference.
+  const secretNames = useVHostSecretNames(sink.vhost || vhost);
 
   const availableVHostsList = role === 'Administrator' 
     ? (availableVHosts || []).map((v: any) => typeof v === 'string' ? v : v.name)
@@ -310,34 +314,37 @@ export function SinkForm({
         </Alert>
       )}
 
-      <SinkWizard 
-        sink={sink}
-        isEditing={isEditing}
-        embedded={embedded}
-        availableVHostsList={availableVHostsList}
-        workers={workers}
-        workspaces={workspaces}
-        sinkTypes={SINK_TYPES}
-        testMutation={testMutation}
-        submitMutation={submitMutation}
-        testResult={testResult}
-        setTestResult={setTestResult}
-        updateConfig={updateConfig}
-        handleSinkChange={handleSinkChange}
-        onCancel={() => {
-          if (onCancel) { onCancel(); return; }
-          // Never fall back to onSave(null): the save path treats its argument
-          // as a real config and corrupts (or crashes on) the node.
-          if (!embedded) navigate({ to: '/sinks' });
-        }}
-        configComponents={configComponents}
-        availableFields={availableFields}
-        incomingPayload={incomingPayload}
-        upstreamSource={upstreamSource}
-        onRefreshFields={onRefreshFields}
-        isRefreshing={isRefreshing}
-        discovery={{ tables, loadingTables, tablesError, discoverTables, discoveredDatabases, isFetchingDBs, fetchDatabases }}
-      />
+      {/* Every setting below can insert a secret of this vhost. */}
+      <SecretNamesContext.Provider value={secretNames}>
+        <SinkWizard 
+          sink={sink}
+          isEditing={isEditing}
+          embedded={embedded}
+          availableVHostsList={availableVHostsList}
+          workers={workers}
+          workspaces={workspaces}
+          sinkTypes={SINK_TYPES}
+          testMutation={testMutation}
+          submitMutation={submitMutation}
+          testResult={testResult}
+          setTestResult={setTestResult}
+          updateConfig={updateConfig}
+          handleSinkChange={handleSinkChange}
+          onCancel={() => {
+            if (onCancel) { onCancel(); return; }
+            // Never fall back to onSave(null): the save path treats its argument
+            // as a real config and corrupts (or crashes on) the node.
+            if (!embedded) navigate({ to: '/sinks' });
+          }}
+          configComponents={configComponents}
+          availableFields={availableFields}
+          incomingPayload={incomingPayload}
+          upstreamSource={upstreamSource}
+          onRefreshFields={onRefreshFields}
+          isRefreshing={isRefreshing}
+          discovery={{ tables, loadingTables, tablesError, discoverTables, discoveredDatabases, isFetchingDBs, fetchDatabases }}
+        />
+      </SecretNamesContext.Provider>
     </Stack>
   );
 }

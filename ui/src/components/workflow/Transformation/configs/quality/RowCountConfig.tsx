@@ -1,4 +1,5 @@
-import { NumberInput, Stack, Switch, TextInput } from '@mantine/core';
+import { NumberInput, Stack, Switch } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 
 interface RowCountConfigProps {
   config: any;

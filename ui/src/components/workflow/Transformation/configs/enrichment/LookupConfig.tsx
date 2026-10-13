@@ -3,15 +3,14 @@ import {
   Tabs,
   Group,
   Select,
-  TextInput,
   Button,
   JsonInput,
-  PasswordInput,
   rem,
   Text,
   Alert,
   Card,
 } from '@mantine/core';
+import { PasswordInput, TextInput } from '@/components/shared/ReferenceInputs';
 import {
   IconPlayerPlay,
   IconInfoCircle,

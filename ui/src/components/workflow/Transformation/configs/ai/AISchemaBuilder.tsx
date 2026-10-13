@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { ActionIcon, Box, Button, Checkbox, Group, Select, Stack, Text, TextInput } from '@mantine/core'
+import { ActionIcon, Box, Button, Checkbox, Group, Select, Stack, Text } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 import { IconPlus, IconTrash } from '@tabler/icons-react'
 
 type FieldType = 'string' | 'number' | 'integer' | 'boolean' | 'string[]'

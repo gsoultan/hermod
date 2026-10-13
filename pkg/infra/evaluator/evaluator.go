@@ -105,11 +105,17 @@ func isSecretFunction(name string) bool {
 }
 
 // secretFunction is secret(key[, fallback]) and env(key[, fallback]) for vhost.
-func secretFunction(vhost string, args []any) any {
+// env() reads the secret manager too, as it always has, and then the server
+// variable the operator put under secrets.EnvVarPrefix -- never any other.
+func secretFunction(name, vhost string, args []any) any {
 	if len(args) == 0 {
 		return ""
 	}
-	val := readSecret(vhost, fmt.Sprintf("%v", args[0]))
+	key := fmt.Sprintf("%v", args[0])
+	val := readSecret(vhost, key)
+	if val == "" && strings.EqualFold(name, "env") {
+		val = secrets.LookupEnvVar(key)
+	}
 	if val == "" && len(args) > 1 {
 		return args[1]
 	}
@@ -265,7 +271,7 @@ func (e *Evaluator) ParseAndEvaluate(msg hermod.Message, expr string) any {
 				// CallFunction is not handed the message, and these two
 				// answer for the vhost the message is running in.
 				if isSecretFunction(funcName) {
-					return secretFunction(messageVHost(msg), evaluatedArgs)
+					return secretFunction(funcName, messageVHost(msg), evaluatedArgs)
 				}
 				// hmac_sha256 reads its key from the secret manager as
 				// secret() does, so it answers for the same vhost.
@@ -436,7 +442,7 @@ func (e *Evaluator) CallFunction(name string, args []any) any {
 		// Called here there is no message, so no vhost: the global manager
 		// only. ParseAndEvaluate answers these two itself, for the message's
 		// vhost, before it would reach this.
-		return secretFunction("", args)
+		return secretFunction(name, "", args)
 	case "add":
 		if len(args) >= 2 {
 			v1, _ := ToFloat64(args[0])

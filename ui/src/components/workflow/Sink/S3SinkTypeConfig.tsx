@@ -1,4 +1,5 @@
-import { TextInput, Text } from '@mantine/core';
+import { Text } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { FormRow } from '@/components/common/FormRow';
 
 interface S3SinkTypeConfigProps {

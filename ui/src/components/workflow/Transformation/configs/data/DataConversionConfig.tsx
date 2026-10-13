@@ -1,4 +1,5 @@
-import { ActionIcon, Autocomplete, Box, Button, Group, Select, Stack, Text, TextInput } from '@mantine/core';
+import { ActionIcon, Autocomplete, Box, Button, Group, Select, Stack, Text } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { IconPlus, IconTrash } from '@tabler/icons-react';
 import { DateFormatPicker } from './dateFormat/DateFormatPicker';
 import { TimeZonePicker } from './dateFormat/TimeZonePicker';

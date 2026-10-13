@@ -40,7 +40,10 @@ func (r *Registry) PreviewBranch(ctx context.Context, nodeType string, config ma
 		return nil, "", fmt.Errorf("%q is not a routing node", nodeType)
 	}
 
-	node := &storage.WorkflowNode{Type: nodeType, Config: config}
+	node, err := r.withExpandedConfig(ctx, &storage.WorkflowNode{Type: nodeType, Config: config}, msg)
+	if err != nil {
+		return nil, "", err
+	}
 	return executor.Execute(r.ContextWithPipelineSnapshot(ctx), r, "", node, msg)
 }
 

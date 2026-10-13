@@ -4,7 +4,6 @@ import {
   Tabs,
   Group,
   Select,
-  TextInput,
   Button,
   Divider,
   Text,
@@ -17,6 +16,7 @@ import {
   Switch,
   Box,
 } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import {
   IconDatabase,
   IconSettings,

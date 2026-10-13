@@ -1,4 +1,5 @@
-import { ActionIcon, Button, Checkbox, Group, Select, Stack, Text, TextInput } from '@mantine/core'
+import { ActionIcon, Button, Checkbox, Group, Select, Stack, Text } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 import { IconPlus, IconTrash } from '@tabler/icons-react'
 import { PARAM_TYPES, type AgentParam } from './agentTools'
 

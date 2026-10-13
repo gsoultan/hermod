@@ -1,4 +1,5 @@
-import { TextInput, Group, ActionIcon, Title, Stack, Badge, Autocomplete, Switch, Divider, SimpleGrid, Select, Button, Loader } from '@mantine/core';
+import { Group, ActionIcon, Title, Stack, Badge, Autocomplete, Switch, Divider, SimpleGrid, Select, Button, Loader } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { FormRow } from '@/components/common/FormRow';
 import { IconRefresh } from '@tabler/icons-react';
 import { useState, type FC } from 'react';

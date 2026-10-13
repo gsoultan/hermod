@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { Alert, Autocomplete, Divider, Input, SegmentedControl, Stack, Text, TextInput } from '@mantine/core'
+import { Alert, Autocomplete, Divider, Input, SegmentedControl, Stack, Text } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 import { TemplateField } from '@/components/shared/TemplateField'
 import { IconAlertTriangle, IconInfoCircle } from '@tabler/icons-react'
 import { AIConnectionSection, type AISectionProps } from './AIConnectionSection'

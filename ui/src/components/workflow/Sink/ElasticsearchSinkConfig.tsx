@@ -1,5 +1,6 @@
 import { IconRefresh } from '@tabler/icons-react';
-import { TextInput, Stack, PasswordInput, Group, Autocomplete, ActionIcon, Loader } from '@mantine/core'
+import { Stack, Group, Autocomplete, ActionIcon, Loader } from '@mantine/core'
+import { PasswordInput, TextInput } from '@/components/shared/ReferenceInputs'
 import type { FC } from 'react'
 
 export type ElasticsearchSinkConfigProps = {

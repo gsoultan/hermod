@@ -4,16 +4,15 @@ import {
   Card,
   Group,
   NumberInput,
-  PasswordInput,
   Select,
   Stack,
   Switch,
   TagsInput,
   Text,
-  TextInput,
   ThemeIcon,
   rem,
 } from '@mantine/core'
+import { PasswordInput, TextInput } from '@/components/shared/ReferenceInputs'
 import { useMemo } from 'react'
 import {
   IconAlertTriangle,

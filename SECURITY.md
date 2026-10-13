@@ -309,6 +309,35 @@ message. `HERMOD_SECRETS_ALLOW_UNPREFIXED=true` restores the bare-name fallback
 for one release; it is set in the process environment, which no workflow can
 write.
 
+### Secret and env references in every setting
+
+Every setting of a source, a sink and a workflow node can hold secret and env
+references, anywhere in its value: `{{secret:NAME}}`, `{{secret("NAME")}}`,
+`{{env("NAME")}}`, each with an optional fallback (`{{env("REGION", "eu")}}`),
+and the legacy bare `secret:NAME` on connectors
+(`secrets.ExpandReferences`).
+
+- **When:** a connector resolves them once, when it connects, for its own
+  vhost. A node resolves them per message for its workflow's vhost, through the
+  expression cache. Field and function tokens are left alone, so record data
+  still cannot pick a credential or a destination.
+- **Env** means `HERMOD_ENV_<NAME>` on the server, after the secret manager
+  (what `env()` has always read). No other variable can be reached.
+- **SQL templates** (`queryTemplate`, `whereClause`, `query`, `queries`) are
+  not expanded: their tokens are bound parameters, and a secret is never
+  spliced into a statement.
+- **Missing:** a reference that resolves to nothing, with no fallback, fails
+  the connector or the node. The error names the setting and the reference,
+  never a value. A bare `secret:NAME` with no match still passes through as
+  written, as it always has.
+- **One pass:** a resolved value is never scanned again. A JSON setting stays
+  JSON, because the inserted text is escaped.
+- **`${NAME}`** in a connector setting reads `HERMOD_ENV_NAME` only. Up to this
+  release it read any variable, so `${HERMOD_JWT_SECRET}` in a Test connection
+  that pointed at the editor's own host handed them the key.
+  `HERMOD_ENV_ALLOW_ANY=true` in the process environment restores the bare
+  fallback for one release. Hermod's own config file keeps full `${NAME}`.
+
 ### A vhost's secrets
 
 A vhost can hold its own secrets (`vhost_secrets`), saved from the Secrets page.

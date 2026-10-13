@@ -1,4 +1,5 @@
-import { Code, Input, SegmentedControl, Stack, Text, TextInput } from '@mantine/core';
+import { Code, Input, SegmentedControl, Stack, Text } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 
 interface ResponseModeFieldsProps {
   config: Record<string, any>;

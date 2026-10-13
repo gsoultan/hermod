@@ -1,4 +1,5 @@
-import { Stack, TextInput, NumberInput, Alert, Card, Group, rem, ThemeIcon, Text } from '@mantine/core';
+import { Stack, NumberInput, Alert, Card, Group, rem, ThemeIcon, Text } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { IconInfoCircle, IconGitMerge, IconKey, IconNumbers } from '@tabler/icons-react';
 
 interface JoinConfigProps {

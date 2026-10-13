@@ -1,4 +1,5 @@
-import { TextInput, Textarea, Stack, Select, Text, Divider, Button, ActionIcon, Group, Paper, Badge, Modal, Alert } from '@mantine/core';
+import { Textarea, Stack, Select, Text, Divider, Button, ActionIcon, Group, Paper, Badge, Modal, Alert } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { useDisclosure } from '@mantine/hooks';
 import { CronInput } from '../../shared/CronInput';
 import { SQLQueryBuilder } from '../../forms/SQLQueryBuilder';

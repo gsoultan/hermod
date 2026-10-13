@@ -1,5 +1,6 @@
 import { Suspense, lazy, type ReactNode } from 'react';
-import { Stack, Select, Text, TextInput, rem, Alert, Title, Paper, SimpleGrid, Divider } from '@mantine/core';
+import { Stack, Select, Text, rem, Alert, Title, Paper, SimpleGrid, Divider } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { sourceAllowsDirectQueries } from '@/lib/sourceCdc';
 import { IconDatabase, IconInfoCircle } from '@tabler/icons-react';
 

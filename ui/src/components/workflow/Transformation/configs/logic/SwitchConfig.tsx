@@ -9,10 +9,10 @@ import {
   Select,
   Stack,
   Text,
-  TextInput,
   ThemeIcon,
   Tooltip,
 } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { useContext, useMemo } from 'react';
 import { IconArrowRight, IconGitBranch, IconPlus, IconTrash } from '@tabler/icons-react';
 import { SecretNamesContext } from '@/components/shared/TemplateField';

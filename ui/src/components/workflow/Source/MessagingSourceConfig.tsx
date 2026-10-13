@@ -1,4 +1,5 @@
-import { TextInput, Stack, PasswordInput, Text, SimpleGrid, Checkbox } from '@mantine/core';
+import { Stack, Text, SimpleGrid, Checkbox } from '@mantine/core';
+import { PasswordInput, TextInput } from '@/components/shared/ReferenceInputs';
 
 interface MessagingSourceConfigProps {
   type: string;

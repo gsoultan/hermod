@@ -1,4 +1,5 @@
-import { TextInput, SimpleGrid } from '@mantine/core';
+import { SimpleGrid } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 
 interface RetryPolicyFieldsProps {
   maxRetries: string | number | undefined;

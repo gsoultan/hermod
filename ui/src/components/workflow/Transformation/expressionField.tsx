@@ -1,4 +1,5 @@
-import { TextInput, type TextInputProps } from '@mantine/core'
+import { type TextInputProps } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 import { FunctionPicker } from '@/components/shared/FunctionPicker'
 import { applyFunction } from '@/lib/expressionInsert'
 
