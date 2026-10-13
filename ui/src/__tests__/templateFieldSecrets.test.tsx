@@ -130,3 +130,41 @@ describe('the nested builder inside a value input', () => {
     expect(screen.queryByRole('button', { name: /build expression/i })).toBeNull()
   })
 })
+
+describe('a credential input', () => {
+  function Credential({ initial }: { initial: string }) {
+    const [value, setValue] = useState(initial)
+    return <TemplateField label="Token" value={value} onChange={setValue} masked secretsOnly />
+  }
+
+  const renderCredential = (initial: string) =>
+    render(
+      <MantineProvider>
+        <SecretNamesContext.Provider value={['API_TOKEN']}>
+          <Credential initial={initial} />
+        </SecretNamesContext.Provider>
+      </MantineProvider>,
+    )
+
+  it('hides a typed-in value until it is revealed', async () => {
+    const user = userEvent.setup()
+    renderCredential('abc123')
+    expect(screen.getByLabelText('Token')).toHaveAttribute('type', 'password')
+    await user.click(screen.getByRole('button', { name: 'Show value' }))
+    expect(screen.getByLabelText('Token')).toHaveAttribute('type', 'text')
+  })
+
+  it('shows a secret reference as written, since it is only a name', () => {
+    renderCredential('{{secret("API_TOKEN")}}')
+    expect(screen.getByLabelText('Token')).toHaveAttribute('type', 'text')
+  })
+
+  it('offers only secrets, never record fields', async () => {
+    const user = userEvent.setup()
+    renderCredential('')
+    await user.click(screen.getByRole('button', { name: 'Insert secret' }))
+    const picker = await screen.findByRole('dialog', { hidden: true }, { timeout: 5000 })
+    await user.click(within(picker).getByText('API_TOKEN'))
+    expect(screen.getByLabelText('Token')).toHaveValue('{{secret("API_TOKEN")}}')
+  })
+})

@@ -100,8 +100,18 @@ export function insertBodyToken(
   end: number,
   path: string
 ): { text: string; caret: number } {
-  const token = insideJsonString(text, start) ? fieldToken(path) : `"${fieldToken(path)}"`;
-  return { text: text.slice(0, start) + token + text.slice(end), caret: start + token.length };
+  return insertBodyText(text, start, end, fieldToken(path));
+}
+
+/** insertBodyToken for any whole {{ }} token: a secret, or a function call. */
+export function insertBodyText(
+  text: string,
+  start: number,
+  end: number,
+  token: string
+): { text: string; caret: number } {
+  const quoted = insideJsonString(text, start) ? token : `"${token}"`;
+  return { text: text.slice(0, start) + quoted + text.slice(end), caret: start + quoted.length };
 }
 
 /** One name/value row of a headers or query-params object. */

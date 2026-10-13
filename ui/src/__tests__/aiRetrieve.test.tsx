@@ -92,7 +92,8 @@ describe('AI Retrieve settings', () => {
 
   it('shows the pgvector fields with the engine defaults as placeholders', () => {
     renderConfig({ provider: 'openai', store: 'pgvector' })
-    expect(screen.getByRole('textbox', { name: /connection string/i })).toBeInTheDocument()
+    // Masked until revealed: a typed-in URL can carry a password.
+    expect(screen.getByLabelText(/connection string/i)).toHaveAttribute('type', 'password')
     expect(screen.getByRole('textbox', { name: /^table/i })).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: /vector column/i })).toHaveAttribute('placeholder', 'embedding')
     expect(screen.getByRole('textbox', { name: /id column/i })).toHaveAttribute('placeholder', 'id')
@@ -110,7 +111,7 @@ describe('AI Retrieve settings', () => {
     fireEvent.change(screen.getByRole('combobox', { name: /pinecone api key secret/i }), { target: { value: 'PINECONE_KEY' } })
     expect(saved.storeApiKey).toBe('{{secret("PINECONE_KEY")}}')
     expect(saved.apiKey).toBeUndefined()
-    expect(screen.queryByRole('textbox', { name: /connection string/i })).toBeNull()
+    expect(screen.queryByLabelText(/connection string/i)).toBeNull()
   })
 
   it('saves topK and minScore as text', () => {

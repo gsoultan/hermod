@@ -267,7 +267,9 @@ export function DBLookupConfig({
                   value={config.whereClause || ''}
                   onChange={(val: string) => updateNodeConfig(nodeId, { whereClause: val })}
                   availableFields={availableFields}
+                  functions="token"
                   multiline
+                  mono
                   description="Optional SQL conditions appended to the lookup."
                 />
               </Stack>
@@ -292,13 +294,16 @@ export function DBLookupConfig({
                   </Group>
                   <TemplateField
                     placeholder="SELECT * FROM users WHERE tenant_id = {{.tenant_id}} AND status = 'active'"
+                    aria-label="SQL Query Template"
                     value={config.queryTemplate || ''}
                     onChange={(val: string) => updateNodeConfig(nodeId, { queryTemplate: val })}
                     availableFields={availableFields}
+                    functions="token"
                     multiline
+                    mono
                   />
                   <Text size="xs" c="dimmed">
-                    Use <code>{`{{.field}}`}</code> to inject values from the message.
+                    Insert fields, secrets and functions from the buttons in the box; each becomes a bound parameter.
                   </Text>
                 </Stack>
               </Stack>

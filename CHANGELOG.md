@@ -7,6 +7,29 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Changed — one value input: fields, secrets and nested functions everywhere
+
+Value inputs in the workflow editor now share one design. Every input whose
+value the engine resolves per message offers, from inside the box, the
+record's fields, the vhost's secrets, the function library, and a new
+**builder** that composes a value as slots (text, a field, a secret, or a
+function whose arguments are slots again), so functions nest to any depth:
+`{{upper(trim(coalesce(source.nickname, source.first_name, "friend")))}}`.
+Each edit is saved in the spelling the engine already reads, so saved
+workflows keep their shape.
+
+- **Switch** builds both sides with the builder: a case can nest functions
+  and compare against a secret.
+- **API Lookup**: URL, header and query values, username, password and token
+  take fields, secrets and functions; password and token are hidden until
+  revealed. The body's insert menu offers secrets and functions too.
+- **AI prompt, AI embed, AI retrieve, Panmail providers, DB Lookup** use the
+  same input. **AI prompt's system instructions are now templated like the
+  prompt**, so `{{.field}}` and `{{secret("X")}}` resolve there.
+- Inputs that decide where a credential goes (gateway URLs, API keys, a
+  pgvector connection string, MCP server URL and headers) offer secrets only,
+  since record data must never choose them.
+
 ### Changed — panmail sink on panmail-sdk 0.1.0, with gateway idempotency keys
 
 The panmail sink moves from panmail-sdk `v0.1.0-rc.3` to the stable `v0.1.0`.

@@ -1,4 +1,5 @@
-import { Divider, Group, Input, SegmentedControl, Stack, Textarea, TextInput } from '@mantine/core'
+import { Divider, Group, Input, SegmentedControl, Stack, TextInput } from '@mantine/core'
+import { TemplateField } from '@/components/shared/TemplateField'
 import { AIConnectionSection, type AISectionProps } from './AIConnectionSection'
 import { AIDataSection } from './AIDataSection'
 
@@ -12,7 +13,7 @@ const DEFAULT_TEXT_FIELD = 'ai_output'
  * as text into one field, or as a JSON object merged into (or nested under a
  * field of) the record.
  */
-export function AIPromptConfig({ config, nodeId, updateNodeConfig }: AISectionProps) {
+export function AIPromptConfig({ config, nodeId, updateNodeConfig, fieldPaths = [] }: AISectionProps) {
   const set = (patch: Record<string, unknown>) => updateNodeConfig(nodeId, patch)
   const json = config.outputMode === 'json'
   const promptMissing = str(config.prompt).trim() === ''
@@ -22,25 +23,27 @@ export function AIPromptConfig({ config, nodeId, updateNodeConfig }: AISectionPr
       <AIConnectionSection config={config} nodeId={nodeId} updateNodeConfig={updateNodeConfig} />
 
       <Divider label="Prompt" labelPosition="center" />
-      <Textarea
+      <TemplateField
         label="System instructions"
         placeholder="e.g. You are a support analyst. Answer briefly."
         value={str(config.system)}
-        onChange={(e) => set({ system: e.currentTarget.value })}
-        autosize
-        minRows={2}
-        description="Optional. How the model should behave, sent before the prompt."
+        onChange={(system) => set({ system })}
+        availableFields={fieldPaths}
+        functions="token"
+        multiline
+        description="Optional. How the model should behave, sent before the prompt. Fields, secrets and functions work here too."
       />
-      <Textarea
+      <TemplateField
         label="Prompt"
         placeholder={'e.g. Classify the sentiment of this review: {{.comment}}'}
         value={str(config.prompt)}
-        onChange={(e) => set({ prompt: e.currentTarget.value })}
-        autosize
-        minRows={4}
+        onChange={(prompt) => set({ prompt })}
+        availableFields={fieldPaths}
+        functions="token"
+        multiline
         required
         error={promptMissing ? 'A prompt is required.' : undefined}
-        description={'Use {{.field}} to insert a field of the record, e.g. {{.customer.name}}.'}
+        description="Insert fields of the record, secrets and functions from the buttons in the box."
       />
 
       <Divider label="Answer" labelPosition="center" />

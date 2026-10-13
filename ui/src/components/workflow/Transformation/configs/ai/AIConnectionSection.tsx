@@ -14,6 +14,8 @@ export interface AISectionProps {
   config: any
   nodeId: string
   updateNodeConfig: (id: string, config: any) => void
+  /** The record's fields, offered in every value input. */
+  fieldPaths?: string[]
 }
 
 interface AIConnectionSectionProps extends AISectionProps {

@@ -1,4 +1,5 @@
 import { render, screen, within, fireEvent } from '@testing-library/react'
+import { SecretNamesContext } from '@/components/shared/TemplateField'
 import userEvent from '@testing-library/user-event'
 import { MantineProvider } from '@mantine/core'
 import { useState } from 'react'
@@ -20,6 +21,7 @@ function Harness({ initial, testLookup = () => {}, lastTest }: { initial: any; t
   // env="test": no transitions, so a dropdown that opens is visible to role queries.
   return (
     <MantineProvider env="test">
+      <SecretNamesContext.Provider value={['SIGNING_KEY']}>
       <APILookupConfig
         config={config}
         nodeId="n1"
@@ -32,6 +34,7 @@ function Harness({ initial, testLookup = () => {}, lastTest }: { initial: any; t
         testing={false}
         lastTest={lastTest}
       />
+      </SecretNamesContext.Provider>
       <pre data-testid="stored">{JSON.stringify(config)}</pre>
     </MantineProvider>
   )
@@ -155,6 +158,28 @@ describe('api_lookup request body', () => {
     fireEvent.select(box)
     await insert(user, 'after.entity_id')
     expect(stored().body).toBe('{"entity_id": "{{.after.entity_id}}"}')
+  })
+
+  it('inserts a secret as a quoted token', async () => {
+    const { user, box } = await openBody('{"key": }')
+    box.focus()
+    box.setSelectionRange(8, 8)
+    fireEvent.select(box)
+    await user.click(screen.getByRole('button', { name: /insert field into body/i }))
+    await user.click(await screen.findByRole('option', { name: 'SIGNING_KEY' }))
+    expect(stored().body).toBe(`{"key": "{{secret('SIGNING_KEY')}}"}`)
+  })
+
+  it('inserts a function as a quoted token whose text placeholders keep the JSON valid', async () => {
+    const { user, box } = await openBody('{"name": }')
+    box.focus()
+    box.setSelectionRange(9, 9)
+    fireEvent.select(box)
+    await user.click(screen.getByRole('button', { name: 'Insert function into body' }))
+    await user.type(await screen.findByRole('textbox', { name: /search functions/i, hidden: true }), 'coalesce')
+    await user.click(screen.getByRole('button', { name: /^insert coalesce\(/i, hidden: true }))
+    expect(stored().body).toBe(`{"name": "{{coalesce(value, 'default')}}"}`)
+    expect(() => JSON.parse(stored().body)).not.toThrow()
   })
 
   it('formats valid JSON without touching its numbers', async () => {

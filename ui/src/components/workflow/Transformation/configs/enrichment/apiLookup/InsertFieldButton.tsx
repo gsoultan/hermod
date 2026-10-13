@@ -1,6 +1,10 @@
-import { useMemo, useState } from 'react';
-import { ActionIcon, Button, Combobox, ScrollArea, Tooltip, useCombobox } from '@mantine/core';
-import { IconBraces } from '@tabler/icons-react';
+import { useContext, useMemo, useState } from 'react';
+import { ActionIcon, Button, Combobox, Group, ScrollArea, Tooltip, useCombobox } from '@mantine/core';
+import { IconBraces, IconKey } from '@tabler/icons-react';
+import { SecretNamesContext } from '@/components/shared/TemplateField';
+
+/** An option value no field path can collide with. */
+const SECRET = '\u0000secret:';
 
 /** More than this is a list nobody scrolls; the search narrows it instead. */
 const MAX_SHOWN = 200;
@@ -16,9 +20,12 @@ export function InsertFieldButton({
   onPick,
   label,
   compact = false,
+  onPickSecret,
 }: {
   fieldPaths: string[];
   onPick: (path: string) => void;
+  /** Offers the vhost's secrets too, handing back the picked name. */
+  onPickSecret?: (name: string) => void;
   /** The accessible name, which also says where the token goes. */
   label: string;
   /** An icon, for inside an input; otherwise a labelled button. */
@@ -39,6 +46,13 @@ export function InsertFieldButton({
     return matches.slice(0, MAX_SHOWN);
   }, [fieldPaths, search]);
 
+  const secretNames = useContext(SecretNamesContext);
+  const secrets = useMemo(() => {
+    if (!onPickSecret) return [];
+    const query = search.trim().toLowerCase();
+    return secretNames.filter((n) => !query || n.toLowerCase().includes(query));
+  }, [onPickSecret, secretNames, search]);
+
   return (
     <Combobox
       store={combobox}
@@ -47,14 +61,15 @@ export function InsertFieldButton({
       // each opens over its own field rather than over the next column.
       position={compact ? 'bottom-end' : 'bottom-start'}
       withinPortal
-      onOptionSubmit={(path) => {
-        onPick(path);
+      onOptionSubmit={(value) => {
+        if (value.startsWith(SECRET)) onPickSecret?.(value.slice(SECRET.length));
+        else onPick(value);
         combobox.closeDropdown();
       }}
     >
       <Combobox.Target withAriaAttributes={false}>
         {compact ? (
-          <Tooltip label="Insert a field" withArrow>
+          <Tooltip label={onPickSecret ? 'Insert a field or secret' : 'Insert a field'} withArrow>
             <ActionIcon
               aria-label={label}
               variant="subtle"
@@ -98,6 +113,18 @@ export function InsertFieldButton({
                   {path}
                 </Combobox.Option>
               ))
+            )}
+            {secrets.length > 0 && (
+              <Combobox.Group label="Secrets of this vhost">
+                {secrets.map((name) => (
+                  <Combobox.Option value={SECRET + name} key={name}>
+                    <Group gap={6} wrap="nowrap">
+                      <IconKey size="0.8rem" />
+                      {name}
+                    </Group>
+                  </Combobox.Option>
+                ))}
+              </Combobox.Group>
             )}
           </ScrollArea.Autosize>
         </Combobox.Options>

@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
 import {
-  Alert, Autocomplete, Code, Divider, Group, Input, NumberInput, SegmentedControl, Select, Stack, Text, Textarea, TextInput,
+  Alert, Autocomplete, Code, Divider, Group, Input, NumberInput, SegmentedControl, Select, Stack, Text, TextInput,
 } from '@mantine/core'
 import { IconAlertTriangle, IconInfoCircle } from '@tabler/icons-react'
 import { AIConnectionSection, type AISectionProps } from '../ai/AIConnectionSection'
 import { AIKeyField } from '../ai/AIKeyField'
+import { TemplateField } from '@/components/shared/TemplateField'
 import { canEmbed, providerLabel } from '../ai/aiProviders'
 import { PGVECTOR_METRICS, RETRIEVE_DEFAULTS, retrieveIssues, retrieveStore } from './retrieveIssues'
 
@@ -92,11 +93,14 @@ export function AIRetrieveConfig({ config, nodeId, updateNodeConfig, availableFi
 
       {store === 'pgvector' && (
         <>
-          <TextInput
+          <TemplateField
             label="Connection string"
             placeholder={'{{secret("PGVECTOR_URL")}}'}
             value={str(config.connectionString)}
-            onChange={(e) => set({ connectionString: e.currentTarget.value })}
+            onChange={(connectionString) => set({ connectionString })}
+            secretsOnly
+            masked
+            mono
             required
             error={errorFor('connectionString')}
             description={
@@ -165,11 +169,13 @@ export function AIRetrieveConfig({ config, nodeId, updateNodeConfig, availableFi
 
       {store === 'pinecone' && (
         <>
-          <TextInput
+          <TemplateField
             label="Index host"
             placeholder="https://my-index-abc123.svc.pinecone.io"
             value={str(config.indexHost)}
-            onChange={(e) => set({ indexHost: e.currentTarget.value })}
+            onChange={(indexHost) => set({ indexHost })}
+            secretsOnly
+            mono
             required
             error={errorFor('indexHost')}
             description={
@@ -210,15 +216,16 @@ export function AIRetrieveConfig({ config, nodeId, updateNodeConfig, availableFi
         />
       </Input.Wrapper>
       {mode === 'template' ? (
-        <Textarea
+        <TemplateField
           label="Query template"
           placeholder={'e.g. {{.subject}} {{.body}}'}
           value={str(config.query)}
-          onChange={(e) => set({ query: e.currentTarget.value })}
-          autosize
-          minRows={2}
+          onChange={(query) => set({ query })}
+          availableFields={fieldPaths}
+          functions="token"
+          multiline
           error={errorFor('query')}
-          description={'Use {{.field}} to insert a field of the record.'}
+          description="Insert fields of the record, secrets and functions from the buttons in the box."
         />
       ) : (
         <Autocomplete

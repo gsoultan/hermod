@@ -1,6 +1,6 @@
-import { Suspense, createContext, lazy, useContext, useMemo, useRef, useState } from 'react'
+import { Suspense, createContext, lazy, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ActionIcon, Box, Collapse, Group, Popover, Stack, Text, TextInput, Textarea, Tooltip as MantineTooltip, ScrollArea, Badge, UnstyledButton } from '@mantine/core'
-import { IconBinaryTree2, IconBraces, IconKey, IconSearch, IconVariable } from '@tabler/icons-react'
+import { IconBinaryTree2, IconBraces, IconEye, IconEyeOff, IconKey, IconSearch, IconVariable } from '@tabler/icons-react'
 import { applyFunction, isInsideToken } from '@/lib/expressionInsert'
 import type { ExpressionFunction } from '@/lib/functionCatalog'
 import { FunctionPicker } from './FunctionPicker'
@@ -20,7 +20,7 @@ export const SecretNamesContext = createContext<string[]>([])
 type CommonProps = {
   label?: string
   placeholder?: string
-  description?: string
+  description?: ReactNode
   required?: boolean
   disabled?: boolean
   error?: string
@@ -59,6 +59,18 @@ export interface TemplateFieldProps extends CommonProps {
    * the field, and not every template is resolved by something that does.
    */
   functions?: 'expression' | 'token'
+  /**
+   * A credential: typed text is hidden until revealed. A secret reference --
+   * {{secret("NAME")}} -- is only a name, so it is shown as written.
+   */
+  masked?: boolean
+  /** Monospace text, for URLs, headers and other machine-read values. */
+  mono?: boolean
+  /**
+   * Offers secrets only: a value that decides where a credential goes, which
+   * record data must not choose (evaluator.ResolveTemplateScoped).
+   */
+  secretsOnly?: boolean
 }
 
 function defaultBuildSecretToken(name: string) {
@@ -85,8 +97,13 @@ export function TemplateField({
   buildSecretToken = defaultBuildSecretToken,
   multiline,
   functions,
+  masked,
+  mono,
+  secretsOnly,
   'aria-label': ariaLabel,
 }: TemplateFieldProps) {
+  const [revealed, setRevealed] = useState(false)
+  const hidden = masked && !revealed && !/^\s*\{\{\s*secret[(:]/.test(value || '')
   const [opened, setOpened] = useState(false)
   const [building, setBuilding] = useState(false)
   const [q, setQ] = useState('')
@@ -94,11 +111,12 @@ export function TemplateField({
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase()
+    if (secretsOnly) return []
     return (availableFields || []).filter((f) => {
       const path = typeof f === 'string' ? f : f.path
       return !query || path.toLowerCase().includes(query)
     })
-  }, [q, availableFields])
+  }, [q, availableFields, secretsOnly])
 
   const secretNames = useContext(SecretNamesContext)
   const filteredSecrets = useMemo(() => {
@@ -177,7 +195,7 @@ export function TemplateField({
     <Stack gap={6} style={{ width: 260 }}>
       <TextInput
         size="xs"
-        placeholder="Search fields..."
+        placeholder={secretsOnly ? 'Search secrets...' : 'Search fields...'}
         value={q}
         data-autofocus
         {...ESCAPE_STOPS_HERE}
@@ -226,9 +244,14 @@ export function TemplateField({
               </UnstyledButton>
             );
           })}
-          {filtered.length === 0 && (
+          {filtered.length === 0 && !secretsOnly && (
             <Text size="xs" c="dimmed" px={4}>
               No fields match "{q}"
+            </Text>
+          )}
+          {secretsOnly && filteredSecrets.length === 0 && (
+            <Text size="xs" c="dimmed" px={4}>
+              {secretNames.length === 0 ? 'This vhost has no secrets yet.' : `No secrets match "${q}"`}
             </Text>
           )}
           {filteredSecrets.length > 0 && (
@@ -268,7 +291,9 @@ export function TemplateField({
         </Stack>
       </ScrollArea>
       <Text size="xs" c="dimmed">
-        Inserted at the caret.{functions ? ' Use the builder to nest functions.' : ''}
+        {secretsOnly
+          ? 'Only secrets: record fields are never read here.'
+          : `Inserted at the caret.${functions ? ' Use the builder to nest functions.' : ''}`}
       </Text>
     </Stack>
   )
@@ -288,6 +313,20 @@ export function TemplateField({
     },
     rightSection: (
       <Group gap={0} wrap="nowrap">
+        {masked && (
+          <MantineTooltip label={revealed ? 'Hide' : 'Show'}>
+            <ActionIcon
+              aria-label={revealed ? 'Hide value' : 'Show value'}
+              variant="subtle"
+              onClick={(e) => {
+                e.preventDefault()
+                setRevealed((v) => !v)
+              }}
+            >
+              {revealed ? <IconEyeOff size="1rem" /> : <IconEye size="1rem" />}
+            </ActionIcon>
+          </MantineTooltip>
+        )}
         {functions && <FunctionPicker onPick={insertFunction} />}
         {functions && (
           <MantineTooltip label={building ? 'Close the builder' : 'Build with nested functions'}>
@@ -308,9 +347,9 @@ export function TemplateField({
             Escape closed the node's settings and never reached the list. */}
         <Popover opened={opened} onChange={setOpened} withArrow position="bottom-end" trapFocus>
           <Popover.Target>
-            <MantineTooltip label="Insert variable">
+            <MantineTooltip label={secretsOnly ? 'Insert secret' : 'Insert variable'}>
               <ActionIcon
-                aria-label="Insert variable"
+                aria-label={secretsOnly ? 'Insert secret' : 'Insert variable'}
                 variant="subtle"
                 onClick={(e) => {
                   e.preventDefault()
@@ -325,15 +364,16 @@ export function TemplateField({
         </Popover>
       </Group>
     ),
-    // Three buttons do not fit the width an input reserves for one.
-    rightSectionWidth: functions ? 92 : undefined,
+    // One button per action; an input reserves the width of one.
+    rightSectionWidth: 4 + 28 * (1 + (functions ? 2 : 0) + (masked ? 1 : 0)),
+    styles: mono ? { input: { fontFamily: 'var(--mantine-font-family-monospace)' } } : undefined,
     ref: inputRef as any,
   }
 
   const input = multiline ? (
     <Textarea autosize minRows={2} {...commonProps} />
   ) : (
-    <TextInput {...commonProps} />
+    <TextInput {...commonProps} type={hidden ? 'password' : 'text'} autoComplete={masked ? 'off' : undefined} />
   )
 
   if (!functions) return input

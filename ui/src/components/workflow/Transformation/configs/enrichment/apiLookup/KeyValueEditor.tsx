@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ActionIcon, Autocomplete, Button, Group, SegmentedControl, Stack, Text, TextInput, Textarea } from '@mantine/core';
+import { ActionIcon, Autocomplete, Box, Button, Group, SegmentedControl, Stack, Text, TextInput, Textarea } from '@mantine/core';
 import { IconPlus, IconTrash } from '@tabler/icons-react';
-import { InsertFieldButton } from './InsertFieldButton';
-import { fieldToken, formatJsonText, jsonObjectFromRows, repeatedNames, rowsFromJsonObject, type NameValue } from './jsonText';
+import { TemplateField } from '@/components/shared/TemplateField';
+import { formatJsonText, jsonObjectFromRows, repeatedNames, rowsFromJsonObject, type NameValue } from './jsonText';
 
 type Row = NameValue & { id: number };
 
@@ -182,27 +182,17 @@ export function KeyValueEditor({
                     style={{ flex: '0 0 38%', minWidth: 0 }}
                   />
                 )}
-                <TextInput
-                  aria-label={valueLabel}
-                  placeholder="Value, or a {{ }} field"
-                  value={row.value}
-                  onChange={(event) => {
-                    const next = event.currentTarget.value;
-                    setRow(i, { value: next });
-                  }}
-                  styles={MONO}
-                  style={{ flex: 1, minWidth: 0 }}
-                  rightSection={
-                    fieldPaths.length > 0 ? (
-                      <InsertFieldButton
-                        compact
-                        label={`Insert field into ${lower} ${i + 1} value`}
-                        fieldPaths={fieldPaths}
-                        onPick={(path) => setRow(i, { value: row.value + fieldToken(path) })}
-                      />
-                    ) : undefined
-                  }
-                />
+                <Box style={{ flex: 1, minWidth: 0 }}>
+                  <TemplateField
+                    aria-label={valueLabel}
+                    placeholder="Value, field, secret or function"
+                    value={row.value}
+                    onChange={(next) => setRow(i, { value: next })}
+                    availableFields={fieldPaths}
+                    functions="token"
+                    mono
+                  />
+                </Box>
                 <ActionIcon
                   aria-label={`Remove ${lower} ${i + 1}`}
                   variant="subtle"
