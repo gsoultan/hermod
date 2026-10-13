@@ -1,4 +1,5 @@
-import { Autocomplete, Group, Input, SegmentedControl, Stack, Text, TextInput } from '@mantine/core'
+import { Autocomplete, Group, Input, SegmentedControl, Stack, Text } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 
 interface FlattenConfigProps {
   config: any

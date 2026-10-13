@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/factory"
 	"github.com/gsoultan/hermod/internal/storage"
 )
@@ -96,7 +97,13 @@ func (w *Worker) checkSourceHealth(ctx context.Context, src storage.Source) {
 	defer cancel()
 
 	status := "running"
-	s, err := factory.CreateSource(factory.SourceConfig{Type: src.Type, Config: src.Config})
+	// Resolved the way a running source is, so a source whose password is a
+	// secret reference is not reported down for sending the reference.
+	cfg, err := w.resolveConfig(checkCtx, src.VHost, src.Config)
+	var s hermod.Source
+	if err == nil {
+		s, err = factory.CreateSource(factory.SourceConfig{Type: src.Type, VHost: src.VHost, Config: cfg})
+	}
 	if err != nil || s.Ping(checkCtx) != nil {
 		status = "error"
 	}
@@ -114,7 +121,11 @@ func (w *Worker) checkSinkHealth(ctx context.Context, snk storage.Sink) {
 	defer cancel()
 
 	status := "running"
-	s, err := factory.CreateSink(factory.SinkConfig{Type: snk.Type, Config: snk.Config})
+	cfg, err := w.resolveConfig(checkCtx, snk.VHost, snk.Config)
+	var s hermod.Sink
+	if err == nil {
+		s, err = factory.CreateSink(factory.SinkConfig{Type: snk.Type, VHost: snk.VHost, Config: cfg})
+	}
 	if err != nil || s.Ping(checkCtx) != nil {
 		status = "error"
 	}
@@ -125,4 +136,18 @@ func (w *Worker) checkSinkHealth(ctx context.Context, snk storage.Sink) {
 		snk.Status = status
 		_ = w.storage.UpdateSink(ctx, snk)
 	}
+}
+
+// resolveConfig is a stored connector config with its secret and env
+// references resolved for its vhost, as a copy: the factory substitutes into
+// the map it is given, and that must not be the stored one.
+func (w *Worker) resolveConfig(ctx context.Context, vhost string, config map[string]string) (map[string]string, error) {
+	if w.registry != nil {
+		return w.registry.ResolveSecrets(ctx, vhost, config)
+	}
+	copied := make(map[string]string, len(config))
+	for k, v := range config {
+		copied[k] = v
+	}
+	return copied, nil
 }

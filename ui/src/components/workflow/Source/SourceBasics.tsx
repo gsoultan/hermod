@@ -1,7 +1,8 @@
 import { toGroupedSelectData } from '@/utils/selectData';
 import { useState } from 'react';
 import { validateName, validateType, validateVHost } from '@/hooks/useEntityBasicsForm';
-import { TextInput, Group, Select, Button, Stack, Fieldset, SimpleGrid } from '@mantine/core';
+import { Group, Select, Button, Stack, Fieldset, SimpleGrid } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import type { Worker, Source, Workspace } from '@/types';
 import type { FC } from 'react';
 import { IconInfoCircle } from '@tabler/icons-react';
@@ -40,6 +41,7 @@ export const SourceBasics: FC<SourceBasicsProps> = ({
       <Stack gap="sm">
         <TextInput
           label="Name"
+          references={false}
           description="How this connection appears in workflows"
           placeholder="Production DB"
           value={source.name}

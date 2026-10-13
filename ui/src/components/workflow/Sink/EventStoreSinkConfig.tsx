@@ -1,4 +1,5 @@
-import { TextInput, Select, Stack, Code, Text } from '@mantine/core';
+import { Select, Stack, Code, Text } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { IconDatabase } from '@tabler/icons-react';
 import { FormRow } from '@/components/common/FormRow';
 

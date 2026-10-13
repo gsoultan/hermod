@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Alert, Autocomplete, Button, FileButton, Group, Select, Stack, Text, TextInput } from '@mantine/core'
+import { Alert, Autocomplete, Button, FileButton, Group, Select, Stack, Text } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 import { IconAlertCircle, IconUpload } from '@tabler/icons-react'
 import { apiFetch } from '@/api'
 

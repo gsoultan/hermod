@@ -1,4 +1,5 @@
-import { TextInput, NumberInput, Switch, Stack, Alert, Text } from '@mantine/core';
+import { NumberInput, Switch, Stack, Alert, Text } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { IconCircles, IconInfoCircle } from '@tabler/icons-react';
 
 interface ForeachConfigProps {

@@ -147,10 +147,7 @@ func CreateSource(cfg SourceConfig) (hermod.Source, error) {
 }
 
 func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
-	// Substitute environment variables in config
-	for k, v := range cfg.Config {
-		cfg.Config[k] = config.SubstituteEnvVars(v)
-	}
+	cfg.Config = substituteConnectorEnv(cfg.Config)
 
 	connString := BuildConnectionString(cfg.Config, cfg.Type)
 
@@ -946,10 +943,7 @@ func buildSchemaRegistryFormatter(cfg hermod.StringMap) (hermod.Formatter, error
 }
 
 func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
-	// Substitute environment variables in config
-	for k, v := range cfg.Config {
-		cfg.Config[k] = config.SubstituteEnvVars(v)
-	}
+	cfg.Config = substituteConnectorEnv(cfg.Config)
 
 	fmttr, err := buildFormatter(cfg.Config)
 	if err != nil {
@@ -1682,4 +1676,18 @@ func buildWSTLSConfig(m map[string]string) (*tls.Config, string) {
 		}
 	}
 	return cfg, pin
+}
+
+// substituteConnectorEnv expands ${NAME} in every setting from the HERMOD_ENV_
+// variables (config.SubstituteConnectorEnvVars), into a copy: the map belongs
+// to the caller, and writing into it put resolved values into a stored config.
+func substituteConnectorEnv(in map[string]string) map[string]string {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = config.SubstituteConnectorEnvVars(v)
+	}
+	return out
 }

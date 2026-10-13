@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { FormRow } from '@/components/common/FormRow';
-import { TextInput, Group, Select, Checkbox, Textarea, Button, Stack, Tabs, ActionIcon, Tooltip, Divider, Text, Code, List, Modal, Alert } from '@mantine/core';
+import { Group, Select, Checkbox, Textarea, Button, Stack, Tabs, ActionIcon, Tooltip, Divider, Text, Code, List, Modal, Alert } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { apiFetch } from '@/api';
 
 import { EmailLayoutBuilder } from '../../forms/EmailLayoutBuilder';

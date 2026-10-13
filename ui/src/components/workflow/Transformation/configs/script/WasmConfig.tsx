@@ -1,5 +1,4 @@
 import {
-  TextInput,
   Textarea,
   Alert,
   Text,
@@ -10,6 +9,7 @@ import {
   ThemeIcon,
   Paper,
 } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { IconInfoCircle, IconPuzzle, IconCpu, IconActivity } from '@tabler/icons-react';
 
 interface WasmConfigProps {

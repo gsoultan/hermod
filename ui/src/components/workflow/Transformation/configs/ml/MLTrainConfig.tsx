@@ -1,4 +1,5 @@
-import { Accordion, Alert, Divider, MultiSelect, Select, Stack, Text, TextInput, Textarea } from '@mantine/core'
+import { Accordion, Alert, Divider, MultiSelect, Select, Stack, Text, Textarea } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 import { IconInfoCircle } from '@tabler/icons-react'
 import {
   CUSTOM_PREFIX, DEVICE_OPTIONS, SQL_SOURCE_TYPES, TASK_OPTIONS, algorithmOptions, isCustomAlgorithm, takesTrainParams, useDataset, useVHostDatasets,

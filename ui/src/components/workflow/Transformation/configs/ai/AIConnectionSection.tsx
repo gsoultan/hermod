@@ -1,4 +1,5 @@
-import { Accordion, Alert, Autocomplete, Divider, Group, NumberInput, Select, Stack, Text, TextInput } from '@mantine/core'
+import { Accordion, Alert, Autocomplete, Divider, Group, NumberInput, Select, Stack, Text } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 import { IconInfoCircle } from '@tabler/icons-react'
 import { AIKeyField } from './AIKeyField'
 import {

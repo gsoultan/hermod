@@ -603,3 +603,30 @@ func TestSecretFunctionsAnswerForTheMessagesVHost(t *testing.T) {
 		})
 	}
 }
+
+// env() reads a server variable the operator put under HERMOD_ENV_, after the
+// secret manager it has always read, and still nothing outside that namespace.
+func TestEnvFunctionReadsTheHermodEnvNamespace(t *testing.T) {
+	SetSecretSource(nil)
+	t.Setenv("HERMOD_ENV_EVAL_REGION", "eu-west-1")
+	t.Setenv("HERMOD_SECRET_EVAL_BOTH", "from-secret")
+	t.Setenv("HERMOD_ENV_EVAL_BOTH", "from-env")
+	t.Setenv("HERMOD_EVAL_TEST_PLAIN", "plain")
+	msg := message.AcquireMessage()
+	t.Cleanup(msg.Release)
+	e := NewEvaluator()
+
+	for expr, want := range map[string]any{
+		"env('EVAL_REGION')":            "eu-west-1",
+		"env('EVAL_BOTH')":              "from-secret",
+		"env('HERMOD_EVAL_TEST_PLAIN')": "",
+		"secret('EVAL_REGION')":         "",
+	} {
+		if got := e.ParseAndEvaluate(msg, expr); got != want {
+			t.Errorf("%s = %#v, want %#v", expr, got, want)
+		}
+	}
+	if got := ResolveTemplateMsg(`{{env("EVAL_REGION")}}`, msg); got != "eu-west-1" {
+		t.Errorf("template env() = %q", got)
+	}
+}

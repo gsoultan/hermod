@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ActionIcon, Autocomplete, Box, Button, Group, SegmentedControl, Stack, Text, TextInput, Textarea } from '@mantine/core';
+import { ActionIcon, Autocomplete, Box, Button, Group, SegmentedControl, Stack, Text, Textarea } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { IconPlus, IconTrash } from '@tabler/icons-react';
 import { TemplateField } from '@/components/shared/TemplateField';
 import { formatJsonText, jsonObjectFromRows, repeatedNames, rowsFromJsonObject, type NameValue } from './jsonText';

@@ -1,4 +1,5 @@
-import { Select, Stack, TextInput } from '@mantine/core';
+import { Select, Stack } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 
 interface SCDConfigProps {
   config: any;

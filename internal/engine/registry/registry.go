@@ -1003,6 +1003,7 @@ func (r *Registry) GetOrOpenDB(src storage.Source) (*sql.DB, error) {
 
 		sourceType := src.Type
 		config := src.Config
+		vhost := src.VHost
 
 		if sourceType == "batch_sql" {
 			// Resolve the underlying database source
@@ -1010,11 +1011,15 @@ func (r *Registry) GetOrOpenDB(src storage.Source) (*sql.DB, error) {
 			if underlying, err := r.GetSourceConfig(context.Background(), underlyingID); err == nil {
 				sourceType = underlying.Type
 				config = underlying.Config
+				// Its references are its own vhost's to answer.
+				vhost = underlying.VHost
 			}
 		}
 
-		// Resolve secrets in config
-		resolvedConfig := r.resolveSecrets(context.Background(), src.VHost, config)
+		resolvedConfig, err := r.resolveSecrets(context.Background(), vhost, config)
+		if err != nil {
+			return nil, err
+		}
 		connStr := factory.BuildConnectionString(resolvedConfig, sourceType)
 
 		// Resolve the actual database/sql driver name from the user-facing type using
@@ -1063,25 +1068,41 @@ func (r *Registry) SetFactories(sourceFactory SourceFactory, sinkFactory SinkFac
 	r.sinkFactory = sinkFactory
 }
 
-// resolveSecrets replaces every `secret:NAME` value in a connector's config,
-// reading the secrets of the vhost the connector belongs to and then the
-// global manager.
-func (r *Registry) resolveSecrets(ctx context.Context, vhost string, config map[string]string) map[string]string {
+// resolveSecrets expands the secret and env references in every value of a
+// connector's config -- `secret:NAME`, `{{secret:NAME}}`, `{{env("NAME")}}`
+// and the rest secrets.ExpandReferences reads -- for the vhost the connector
+// belongs to: that vhost's secrets, then the global manager, then (env only)
+// the HERMOD_ENV_ variables. Every other {{ }} token is left for whatever
+// resolves the value per message. The config passed in is not modified.
+//
+// A reference that resolves to nothing fails the connector, naming the field
+// and the reference: building it with the literal token as a password or a
+// host would only fail later, and less clearly.
+func (r *Registry) resolveSecrets(ctx context.Context, vhost string, config map[string]string) (map[string]string, error) {
 	if config == nil {
-		return config
+		return config, nil
 	}
 	mgr := r.vhostSecrets()
-	resolved := make(map[string]string)
+	resolved := make(map[string]string, len(config))
+	var errs []error
 	for k, v := range config {
-		resolved[k] = secrets.ResolveSecretScoped(ctx, mgr, vhost, v)
+		out, err := secrets.ExpandReferences(ctx, mgr, vhost, v)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("config %q: %w", k, err))
+			continue
+		}
+		resolved[k] = out
 	}
-	return resolved
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
+	}
+	return resolved, nil
 }
 
 // ResolveSecrets is resolveSecrets for a transport that checks a source's
 // credentials itself, outside a running workflow (a chat source's endpoint).
 // The config passed in is not modified.
-func (r *Registry) ResolveSecrets(ctx context.Context, vhost string, config map[string]string) map[string]string {
+func (r *Registry) ResolveSecrets(ctx context.Context, vhost string, config map[string]string) (map[string]string, error) {
 	return r.resolveSecrets(ctx, vhost, config)
 }
 
@@ -1117,8 +1138,11 @@ func (r *Registry) requireNonCDCDelegate(ctx context.Context, cfg factory.Source
 }
 
 func (r *Registry) createSource(ctx context.Context, cfg factory.SourceConfig) (hermod.Source, error) {
-	// Resolve secrets in config
-	cfg.Config = r.resolveSecrets(ctx, cfg.VHost, cfg.Config)
+	resolved, err := r.resolveSecrets(ctx, cfg.VHost, cfg.Config)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Config = resolved
 
 	r.mu.Lock()
 	logger := r.logger
@@ -1126,7 +1150,6 @@ func (r *Registry) createSource(ctx context.Context, cfg factory.SourceConfig) (
 	r.mu.Unlock()
 
 	var src hermod.Source
-	var err error
 
 	if cfg.Type == "batch_sql" {
 		if err := r.requireNonCDCDelegate(ctx, cfg); err != nil {
@@ -1157,11 +1180,13 @@ func (r *Registry) createSource(ctx context.Context, cfg factory.SourceConfig) (
 }
 
 func (r *Registry) createSourceInternal(ctx context.Context, cfg factory.SourceConfig) (hermod.Source, error) {
-	// Resolve secrets in config
-	cfg.Config = r.resolveSecrets(ctx, cfg.VHost, cfg.Config)
+	resolved, err := r.resolveSecrets(ctx, cfg.VHost, cfg.Config)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Config = resolved
 
 	var src hermod.Source
-	var err error
 
 	if cfg.Type == "batch_sql" {
 		if err := r.requireNonCDCDelegate(ctx, cfg); err != nil {
@@ -1218,8 +1243,11 @@ func (r *Registry) createSink(ctx context.Context, cfg factory.SinkConfig) (herm
 }
 
 func (r *Registry) createSinkInternal(ctx context.Context, cfg factory.SinkConfig) (hermod.Sink, error) {
-	// Resolve secrets in config
-	cfg.Config = r.resolveSecrets(ctx, cfg.VHost, cfg.Config)
+	resolved, err := r.resolveSecrets(ctx, cfg.VHost, cfg.Config)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Config = resolved
 
 	if cfg.Type == "txgroup" {
 		return r.createTxGroupSink(ctx, cfg)
@@ -1677,6 +1705,10 @@ func (r *Registry) applyTransformation(ctx context.Context, modifiedMsg hermod.M
 func (r *Registry) doApplyTransformation(ctx context.Context, modifiedMsg hermod.Message, transType string, config map[string]any) (hermod.Message, error) {
 	if modifiedMsg == nil {
 		return nil, nil
+	}
+	config, _, err := r.expandNodeConfig(ctx, modifiedMsg, config)
+	if err != nil {
+		return nil, err
 	}
 
 	// Try to use the new Transformer Registry

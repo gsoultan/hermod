@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Button, Divider, Group, Stack, Textarea, TextInput } from '@mantine/core'
+import { Button, Divider, Group, Stack, Textarea } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 import { IconListDetails } from '@tabler/icons-react'
 import { AIConnectionSection, type AISectionProps } from './AIConnectionSection'
 import { AIDataSection } from './AIDataSection'

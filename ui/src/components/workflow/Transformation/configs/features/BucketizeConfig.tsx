@@ -1,4 +1,5 @@
-import { Select, Stack, TagsInput, TextInput } from '@mantine/core'
+import { Select, Stack, TagsInput } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 import { type FeatureConfigProps, FieldInput, OnMissingSelect } from './shared'
 
 /** edges is saved as the text typed; a list from the API is shown as text. */

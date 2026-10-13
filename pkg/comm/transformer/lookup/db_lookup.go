@@ -205,7 +205,7 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 	} else {
 		if src.Type == "mongodb" {
 			// queryTemplate not supported for Mongo; use whereClause
-			resultVal, err = t.lookupMongoDB(ctx, src, table, keyColumn, keyVal, whereClause, valueColumn, clause)
+			resultVal, err = t.lookupMongoDBResolved(ctx, src, table, keyColumn, keyVal, whereClause, valueColumn, clause)
 		} else {
 			// If mode is explicit, follow it. Otherwise fallback to queryTemplate presence.
 			useTemplate := false
@@ -374,6 +374,31 @@ func applyLookupResult(msg hermod.Message, targetField, flattenInto string, valu
 			msg.SetData(prefix+"."+k, v)
 		}
 	}
+}
+
+// resolvedSourceConfig is src's config with its secret and env references
+// resolved for its vhost, by the registry on ctx -- the way a running source
+// and the SQL path's pool (GetOrOpenDB) read it. The Mongo path read the
+// stored values as written, so a password of secret:NAME was sent as that
+// text.
+func resolvedSourceConfig(ctx context.Context, src storage.Source) (map[string]string, error) {
+	r, ok := ctx.Value(hermod.RegistryKey).(interface {
+		ResolveSecrets(ctx context.Context, vhost string, config map[string]string) (map[string]string, error)
+	})
+	if !ok {
+		return src.Config, nil
+	}
+	return r.ResolveSecrets(ctx, src.VHost, src.Config)
+}
+
+// lookupMongoDBResolved is lookupMongoDB on src's resolved config.
+func (t *DBLookupTransformer) lookupMongoDBResolved(ctx context.Context, src storage.Source, table, keyColumn string, keyVal any, whereClause, valueColumn string, clause clauseResolver) (any, error) {
+	cfg, err := resolvedSourceConfig(ctx, src)
+	if err != nil {
+		return nil, fmt.Errorf("db lookup source %q: %w", src.Name, err)
+	}
+	src.Config = cfg
+	return t.lookupMongoDB(ctx, src, table, keyColumn, keyVal, whereClause, valueColumn, clause)
 }
 
 func (t *DBLookupTransformer) lookupMongoDB(ctx context.Context, src storage.Source, table, keyColumn string, keyVal any, whereClause, valueColumn string, clause clauseResolver) (any, error) {

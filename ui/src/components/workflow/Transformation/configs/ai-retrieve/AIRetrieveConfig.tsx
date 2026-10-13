@@ -1,7 +1,18 @@
 import { useMemo, useState } from 'react'
 import {
-  Alert, Autocomplete, Code, Divider, Group, Input, NumberInput, SegmentedControl, Select, Stack, Text, TextInput,
+  Alert,
+  Autocomplete,
+  Code,
+  Divider,
+  Group,
+  Input,
+  NumberInput,
+  SegmentedControl,
+  Select,
+  Stack,
+  Text,
 } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 import { IconAlertTriangle, IconInfoCircle } from '@tabler/icons-react'
 import { AIConnectionSection, type AISectionProps } from '../ai/AIConnectionSection'
 import { AIKeyField } from '../ai/AIKeyField'

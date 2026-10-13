@@ -1,4 +1,5 @@
-import { TextInput, Stack, Group, Tabs, FileButton, Button, Divider, Checkbox, PasswordInput, NumberInput, Fieldset, Select } from '@mantine/core';
+import { Stack, Group, Tabs, FileButton, Button, Divider, Checkbox, NumberInput, Fieldset, Select } from '@mantine/core';
+import { PasswordInput, TextInput } from '@/components/shared/ReferenceInputs';
 import { FormRow } from '@/components/common/FormRow';
 import { useState } from 'react';
 import { IconCloud, IconFileImport, IconLink, IconServer, IconUpload } from '@tabler/icons-react';

@@ -1,4 +1,5 @@
-import { Stack, TextInput, PasswordInput, JsonInput } from '@mantine/core'
+import { Stack, JsonInput } from '@mantine/core'
+import { PasswordInput, TextInput } from '@/components/shared/ReferenceInputs'
 import { FormRow } from '@/components/common/FormRow';
 
 interface S3ParquetSinkConfigProps {

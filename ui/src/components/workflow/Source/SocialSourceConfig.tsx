@@ -1,4 +1,5 @@
-import { TextInput, Stack, PasswordInput, Fieldset } from '@mantine/core';
+import { Stack, Fieldset } from '@mantine/core';
+import { PasswordInput, TextInput } from '@/components/shared/ReferenceInputs';
 
 interface SocialSourceConfigProps {
   type: string;

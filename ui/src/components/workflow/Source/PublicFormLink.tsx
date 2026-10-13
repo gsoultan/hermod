@@ -1,4 +1,5 @@
-import { Card, Stack, Text, TextInput, ActionIcon, Button } from '@mantine/core';
+import { Card, Stack, Text, ActionIcon, Button } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { notifications } from '@mantine/notifications';
 import { IconCopy } from '@tabler/icons-react';
 interface PublicFormLinkProps {

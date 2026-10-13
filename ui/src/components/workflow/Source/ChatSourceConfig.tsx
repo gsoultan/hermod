@@ -1,4 +1,5 @@
-import { Code, Divider, Input, PasswordInput, SegmentedControl, SimpleGrid, Stack, Text, TextInput } from '@mantine/core';
+import { Code, Divider, Input, SegmentedControl, SimpleGrid, Stack, Text } from '@mantine/core';
+import { PasswordInput, TextInput } from '@/components/shared/ReferenceInputs';
 import { GenerateToken } from '../../shared/GenerateToken';
 
 interface ChatSourceConfigProps {

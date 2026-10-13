@@ -1,4 +1,4 @@
-import { TextInput, PasswordInput } from '@mantine/core'
+import { PasswordInput, TextInput } from '@/components/shared/ReferenceInputs'
 import { FormRow } from '@/components/common/FormRow';
 import type { FC } from 'react'
 

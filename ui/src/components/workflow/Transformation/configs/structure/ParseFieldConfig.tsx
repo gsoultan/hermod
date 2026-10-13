@@ -1,4 +1,5 @@
-import { Autocomplete, Group, Input, SegmentedControl, Stack, Switch, Text, TextInput } from '@mantine/core'
+import { Autocomplete, Group, Input, SegmentedControl, Stack, Switch, Text } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 
 interface ParseFieldConfigProps {
   config: any

@@ -1,4 +1,5 @@
-import { Group, NumberInput, SegmentedControl, Stack, Text, TextInput } from '@mantine/core'
+import { Group, NumberInput, SegmentedControl, Stack, Text } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 import { type FeatureConfigProps, FieldInput, OnMissingSelect, WindowFields, num } from './shared'
 
 /**

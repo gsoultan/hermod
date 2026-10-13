@@ -1,12 +1,11 @@
 import {
-  TextInput,
-  PasswordInput,
   NumberInput,
   Stack,
   Divider,
   Alert,
   Text,
 } from '@mantine/core';
+import { PasswordInput, TextInput } from '@/components/shared/ReferenceInputs';
 import { IconSitemap, IconInfoCircle } from '@tabler/icons-react';
 import { FormRow } from '@/components/common/FormRow';
 

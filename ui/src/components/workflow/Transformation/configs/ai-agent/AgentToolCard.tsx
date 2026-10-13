@@ -1,4 +1,5 @@
-import { ActionIcon, Alert, Badge, Box, Group, Select, Stack, Switch, Text, Textarea, TextInput } from '@mantine/core'
+import { ActionIcon, Alert, Badge, Box, Group, Select, Stack, Switch, Text, Textarea } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 import { IconAlertTriangle, IconHandStop, IconTrash } from '@tabler/icons-react'
 import { AgentFixedConfig } from './AgentFixedConfig'
 import { AgentParamsEditor } from './AgentParamsEditor'

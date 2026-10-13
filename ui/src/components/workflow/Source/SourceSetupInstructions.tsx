@@ -1,4 +1,5 @@
-import { Stack, Title, Text, List, Code, TextInput, Select, Group } from '@mantine/core';
+import { Stack, Title, Text, List, Code, Select, Group } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { IconInfoCircle } from '@tabler/icons-react';
 import { GrpcCallGuide } from './GrpcCallGuide';
 interface SourceSetupInstructionsProps {

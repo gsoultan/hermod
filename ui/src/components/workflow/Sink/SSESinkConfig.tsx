@@ -1,4 +1,5 @@
-import { TextInput, Stack, Divider, Group, Badge, Text } from '@mantine/core';
+import { Stack, Divider, Group, Badge, Text } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { IconWorld } from '@tabler/icons-react';
 import { GenerateToken } from '../../shared/GenerateToken';
 

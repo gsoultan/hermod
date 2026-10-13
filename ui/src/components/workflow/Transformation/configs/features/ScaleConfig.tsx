@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { ActionIcon, Autocomplete, Button, Group, JsonInput, NumberInput, SegmentedControl, Stack, Switch, Text, TextInput } from '@mantine/core'
+import { ActionIcon, Autocomplete, Button, Group, JsonInput, NumberInput, SegmentedControl, Stack, Switch, Text } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 import { IconPlus, IconTrash } from '@tabler/icons-react'
 import { type FeatureConfigProps, OnMissingSelect, num } from './shared'
 

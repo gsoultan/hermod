@@ -1,6 +1,8 @@
 import { Group, Stack, Alert, Text, Modal, ActionIcon, Tooltip, List } from '@mantine/core';
 import { useNavigate } from '@tanstack/react-router';
 import { useVHost } from '@/context/VHostContext';
+import { SecretNamesContext } from '@/components/shared/TemplateField';
+import { useVHostSecretNames } from '@/lib/vhostSecrets';
 import { useSourceForm } from '@/hooks/useSourceForm';
 import type { Source, VHost } from '@/types';
 import { SourceWizard } from './SourceWizard';
@@ -140,6 +142,8 @@ export function SourceForm({
     vhost,
     workerID
   });
+  // The vhost whose secrets this source's settings can reference.
+  const secretNames = useVHostSecretNames(source.vhost || vhost);
 
   // One suspend, three requests in parallel.
   //
@@ -216,40 +220,43 @@ export function SourceForm({
         </Alert>
       )}
 
-      <SourceWizard 
-        source={source}
-        isEditing={isEditing}
-        embedded={embedded}
-        availableVHostsList={availableVHostsList}
-        workspaces={workspaces}
-        workers={workers}
-        sourceTypes={SOURCE_TYPES}
-        testMutation={testMutation}
-        submitMutation={submitMutation}
-        testResult={testResult}
-        setTestResult={setTestResult}
-        updateConfig={updateConfig}
-        handleSourceChange={handleSourceChange}
-        onCancel={() => {
-          if (onCancel) { onCancel(); return; }
-          // Never fall back to onSave(null): the save path treats its argument
-          // as a real config and corrupts (or crashes on) the node.
-          if (!embedded) navigate({ to: '/sources' });
-        }}
-        discoveredTables={discoveredTables}
-        discoveredDatabases={discoveredDatabases}
-        isFetchingTables={isFetchingTables}
-        isFetchingDBs={isFetchingDBs}
-        fetchTables={fetchTables}
-        fetchDatabases={fetchDatabases}
-        handleFileUpload={handleFileUpload}
-        uploading={uploading}
-        allSources={allSources}
-        setShowSetup={setShowSetup}
-        onRefreshFields={onRefreshFields}
-        isRefreshing={isRefreshing}
-        onRunSimulation={onRunSimulation}
-      />
+      {/* Every setting below can insert a secret of this vhost. */}
+      <SecretNamesContext.Provider value={secretNames}>
+        <SourceWizard 
+          source={source}
+          isEditing={isEditing}
+          embedded={embedded}
+          availableVHostsList={availableVHostsList}
+          workspaces={workspaces}
+          workers={workers}
+          sourceTypes={SOURCE_TYPES}
+          testMutation={testMutation}
+          submitMutation={submitMutation}
+          testResult={testResult}
+          setTestResult={setTestResult}
+          updateConfig={updateConfig}
+          handleSourceChange={handleSourceChange}
+          onCancel={() => {
+            if (onCancel) { onCancel(); return; }
+            // Never fall back to onSave(null): the save path treats its argument
+            // as a real config and corrupts (or crashes on) the node.
+            if (!embedded) navigate({ to: '/sources' });
+          }}
+          discoveredTables={discoveredTables}
+          discoveredDatabases={discoveredDatabases}
+          isFetchingTables={isFetchingTables}
+          isFetchingDBs={isFetchingDBs}
+          fetchTables={fetchTables}
+          fetchDatabases={fetchDatabases}
+          handleFileUpload={handleFileUpload}
+          uploading={uploading}
+          allSources={allSources}
+          setShowSetup={setShowSetup}
+          onRefreshFields={onRefreshFields}
+          isRefreshing={isRefreshing}
+          onRunSimulation={onRunSimulation}
+        />
+      </SecretNamesContext.Provider>
 
       <Modal 
         opened={showSetup} 

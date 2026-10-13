@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { Alert, Badge, Box, Button, Group, NumberInput, ScrollArea, Select, Stack, Tabs, Text, TextInput } from '@mantine/core';
+import { Alert, Badge, Box, Button, Group, NumberInput, ScrollArea, Select, Stack, Tabs, Text } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { IconAlertTriangle, IconCircleCheck, IconPlayerPlay } from '@tabler/icons-react';
 import { FormRow } from '@/components/common/FormRow';
 import { TemplateField } from '@/components/shared/TemplateField';

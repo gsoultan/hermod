@@ -1,4 +1,5 @@
-import { Autocomplete, Group, Input, SegmentedControl, Stack, Text, Textarea, TextInput } from '@mantine/core'
+import { Autocomplete, Group, Input, SegmentedControl, Stack, Text, Textarea } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 import type { ReactNode } from 'react'
 
 interface GeoConfigProps {

@@ -1,6 +1,4 @@
 import {
-  TextInput,
-  PasswordInput,
   Textarea,
   Stack,
   Divider,
@@ -10,6 +8,7 @@ import {
   Text,
   NumberInput,
 } from '@mantine/core';
+import { PasswordInput, TextInput } from '@/components/shared/ReferenceInputs';
 import { IconMail, IconAlertTriangle } from '@tabler/icons-react';
 import { FormRow } from '@/components/common/FormRow';
 

@@ -1,4 +1,5 @@
-import { Divider, Stack, Switch, Text, TextInput } from '@mantine/core'
+import { Divider, Stack, Switch, Text } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 import type { AISectionProps } from './AIConnectionSection'
 
 interface AIDataSectionProps extends AISectionProps {

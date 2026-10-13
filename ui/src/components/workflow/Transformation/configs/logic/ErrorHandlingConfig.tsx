@@ -1,7 +1,6 @@
 import {
   SimpleGrid,
   Select,
-  TextInput,
   Divider,
   Stack,
   Card,
@@ -10,6 +9,7 @@ import {
   rem,
   ThemeIcon,
 } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { IconAlertTriangle, IconSettings, IconDatabase } from '@tabler/icons-react';
 
 interface ErrorHandlingConfigProps {

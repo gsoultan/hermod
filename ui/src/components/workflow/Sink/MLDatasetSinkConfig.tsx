@@ -1,4 +1,5 @@
-import { ActionIcon, Alert, Autocomplete, Button, Group, NumberInput, Select, Stack, Text, TextInput } from '@mantine/core'
+import { ActionIcon, Alert, Autocomplete, Button, Group, NumberInput, Select, Stack, Text } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 import { FormRow } from '@/components/common/FormRow'
 import { IconInfoCircle, IconPlus, IconTrash } from '@tabler/icons-react'
 import { DATASET_NAME_PATTERN, useVHostDatasets } from '@/lib/mlModels'

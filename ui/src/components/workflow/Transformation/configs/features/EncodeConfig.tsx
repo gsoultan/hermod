@@ -1,4 +1,5 @@
-import { JsonInput, NumberInput, SegmentedControl, Select, Stack, Switch, TagsInput, Text, TextInput } from '@mantine/core'
+import { JsonInput, NumberInput, SegmentedControl, Select, Stack, Switch, TagsInput, Text } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 import { type FeatureConfigProps, FieldInput, OnMissingSelect, num } from './shared'
 
 /** categories is saved as a list; a hand-written workflow may hold text. */

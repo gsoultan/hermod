@@ -1,4 +1,5 @@
-import { TextInput, Stack, Select } from '@mantine/core';
+import { Stack, Select } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 
 interface SalesforceSinkConfigProps {
   form: any;

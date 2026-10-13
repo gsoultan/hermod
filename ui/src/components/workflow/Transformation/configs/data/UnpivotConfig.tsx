@@ -1,4 +1,5 @@
-import { Alert, Code, Stack, TagsInput, Text, TextInput } from '@mantine/core';
+import { Alert, Code, Stack, TagsInput, Text } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { IconInfoCircle } from '@tabler/icons-react';
 
 interface UnpivotConfigProps {
