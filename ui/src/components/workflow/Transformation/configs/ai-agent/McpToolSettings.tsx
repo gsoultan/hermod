@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { ActionIcon, Alert, Box, Button, Checkbox, Group, Radio, Stack, Text, TextInput } from '@mantine/core'
+import { ActionIcon, Alert, Box, Button, Checkbox, Group, Radio, Stack, Text } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 import { TemplateField } from '@/components/shared/TemplateField'
 import { IconInfoCircle, IconPlus, IconTrash } from '@tabler/icons-react'
 import {

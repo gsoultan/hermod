@@ -1,4 +1,5 @@
-import { Stack, Alert, Text, TextInput } from '@mantine/core';
+import { Stack, Alert, Text } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { IconInfoCircle } from '@tabler/icons-react';
 
 interface CollectConfigProps {

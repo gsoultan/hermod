@@ -1,4 +1,5 @@
-import { Alert, TextInput, Textarea } from '@mantine/core';
+import { Alert, Textarea } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 
 interface NotificationSinkConfigProps {
   type: string;

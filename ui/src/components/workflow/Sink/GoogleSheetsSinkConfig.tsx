@@ -1,4 +1,5 @@
-import { TextInput, Select, JsonInput } from '@mantine/core';
+import { Select, JsonInput } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 
 interface GoogleSheetsSinkConfigProps {
   config: any;

@@ -15,8 +15,8 @@ import {
   Switch,
   Text,
   Textarea,
-  TextInput,
 } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { IconAlertTriangle, IconBrandFirebase, IconCircleCheck, IconUpload } from '@tabler/icons-react';
 import { FormRow } from '@/components/common/FormRow';
 import { InsertFieldButton } from '../Transformation/configs/enrichment/apiLookup/InsertFieldButton';

@@ -5,7 +5,8 @@ const FilterEditor = lazy(() =>
   import('../../FilterEditor').then((m) => ({ default: m.FilterEditor })),
 );
 
-import { Alert, Box, Stack, Switch, Text, TextInput } from '@mantine/core';
+import { Alert, Box, Stack, Switch, Text } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { IconInfoCircle } from '@tabler/icons-react';
 
 interface FilterDataConfigProps {

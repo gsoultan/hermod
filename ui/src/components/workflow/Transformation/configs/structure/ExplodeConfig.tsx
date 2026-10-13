@@ -1,4 +1,5 @@
-import { Alert, Autocomplete, Input, SegmentedControl, Stack, Switch, Text, TextInput } from '@mantine/core'
+import { Alert, Autocomplete, Input, SegmentedControl, Stack, Switch, Text } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 import { IconInfoCircle } from '@tabler/icons-react'
 
 interface ExplodeConfigProps {

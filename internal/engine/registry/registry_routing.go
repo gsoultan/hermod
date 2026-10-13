@@ -476,7 +476,12 @@ func (r *Registry) runWorkflowNode(root context.Context, workflowID string, node
 
 	execute := func() ([]hermod.Message, string, error) {
 		if executor, ok := interfaces.GetNodeExecutor(node.Type); ok {
-			return executor.Execute(ctx, r, workflowID, node, msg)
+			// Per attempt, so a retry reads a rotated secret.
+			run, err := r.withExpandedConfig(ctx, node, msg)
+			if err != nil {
+				return nil, "", err
+			}
+			return executor.Execute(ctx, r, workflowID, run, msg)
 		}
 		// Default/Fallback behavior (merging, sink, source, etc.)
 		return []hermod.Message{msg}, "", nil

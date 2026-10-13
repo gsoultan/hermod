@@ -1,4 +1,5 @@
-import { Checkbox, Group, Stack, Text, TextInput } from '@mantine/core'
+import { Checkbox, Group, Stack, Text } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 import { type FeatureConfigProps, FieldInput, OnMissingSelect, WindowFields } from './shared'
 
 const FEATURES = ['count', 'sum', 'mean', 'std', 'min', 'max']

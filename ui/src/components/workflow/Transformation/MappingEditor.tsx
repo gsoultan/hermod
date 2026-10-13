@@ -7,7 +7,6 @@ import {
   Select,
   Stack,
   Text,
-  TextInput,
   Card,
   Badge,
   Tooltip,
@@ -15,6 +14,7 @@ import {
   Paper,
   rem,
 } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { useMemo } from 'react';
 import { notifications } from '@mantine/notifications';
 import { getValByPath } from '../../../utils/transformationUtils';

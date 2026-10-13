@@ -139,7 +139,11 @@ func (h *ChatHandler) chatSource(ctx context.Context, fullPath string) (*storage
 			// Credentials may be secret references, resolved the way the
 			// registry resolves a running source's config.
 			if h.Registry != nil {
-				src.Config = h.Registry.ResolveSecrets(ctx, src.VHost, src.Config)
+				resolved, err := h.Registry.ResolveSecrets(ctx, src.VHost, src.Config)
+				if err != nil {
+					return nil, err
+				}
+				src.Config = resolved
 			}
 			return &src, nil
 		}

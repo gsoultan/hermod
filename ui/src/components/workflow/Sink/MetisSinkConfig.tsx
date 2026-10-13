@@ -1,6 +1,4 @@
 import {
-  TextInput,
-  PasswordInput,
   Select,
   Stack,
   Divider,
@@ -9,6 +7,7 @@ import {
   Code,
   Text,
 } from '@mantine/core';
+import { PasswordInput, TextInput } from '@/components/shared/ReferenceInputs';
 import { IconSitemap, IconAlertTriangle } from '@tabler/icons-react';
 import { FormRow } from '@/components/common/FormRow';
 

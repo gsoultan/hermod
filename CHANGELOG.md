@@ -7,6 +7,40 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — secret and env references in every source, sink and node setting
+
+Every setting of every source, sink and transformation now takes secret and
+env references, anywhere in the value. For example, a DSN can be
+`postgres://app:{{secret:DB_PASS}}@{{env:PG_HOST}}:5432/app`. Each text and
+password input in those forms has a key button that inserts one of the vhost's
+secrets, or a server environment variable, at the cursor.
+
+- **Spellings:** `{{secret:NAME}}`, `{{secret("NAME")}}`, `{{env:NAME}}` and
+  `{{env("NAME")}}`, each with an optional fallback, plus the bare
+  `secret:NAME` connectors already read. Before this, a connector resolved only
+  a whole-value `secret:NAME`, and a transformation resolved no secrets except
+  in its templated fields.
+- **Env** reads `HERMOD_ENV_<NAME>` on the Hermod server, after the secret
+  manager. `env()` in expressions reads the same.
+- **When:** sources and sinks resolve once, at connect time, for their vhost.
+  Workflow nodes resolve per message, for the workflow's vhost. SQL templates
+  keep binding their tokens as parameters.
+- **Missing references:** a connector or a node whose reference resolves to
+  nothing fails with an error that names the setting and the reference.
+  Previously the token was used as written, or as empty.
+- **Fixed paths:** health pings, DB Lookup on MongoDB, and webhook and GraphQL
+  API keys now resolve secret references too. A webhook key of `secret:NAME`
+  was compared as that literal text.
+
+### Security — `${NAME}` in connector settings reads only HERMOD_ENV_ variables
+
+`${NAME}` in a source or sink setting read any variable of the Hermod
+process. Anyone who could edit a workflow could send `${HERMOD_JWT_SECRET}`
+to a host of their choosing through Test connection. It now reads
+`HERMOD_ENV_NAME` only. **Upgrading:** rename the variables your connectors
+use to `HERMOD_ENV_<NAME>`, or set `HERMOD_ENV_ALLOW_ANY=true` for one release
+while you do. Hermod's own config file is unaffected.
+
 ### Changed — one value input: fields, secrets and nested functions everywhere
 
 Value inputs in the workflow editor now share one design. Every input whose

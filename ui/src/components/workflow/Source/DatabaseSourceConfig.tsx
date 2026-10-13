@@ -1,4 +1,5 @@
-import { TextInput, Stack, Group, Divider, Checkbox, PasswordInput, NumberInput, Fieldset, Switch, Text, SimpleGrid, Radio } from '@mantine/core';
+import { Stack, Group, Divider, Checkbox, NumberInput, Fieldset, Switch, Text, SimpleGrid, Radio } from '@mantine/core';
+import { PasswordInput, TextInput } from '@/components/shared/ReferenceInputs';
 import { PostgresReplicationConfig } from './PostgresReplicationConfig';
 import { ConnectionUrlPaste } from '../../shared/ConnectionUrlPaste';
 

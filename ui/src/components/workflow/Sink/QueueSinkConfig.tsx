@@ -1,4 +1,5 @@
-import { TextInput, Checkbox, Select, Textarea, Alert } from '@mantine/core';
+import { Checkbox, Select, Textarea, Alert } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { FormRow } from '@/components/common/FormRow';
 
 interface QueueSinkConfigProps {

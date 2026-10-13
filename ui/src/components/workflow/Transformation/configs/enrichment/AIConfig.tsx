@@ -1,4 +1,5 @@
-import { PasswordInput, Select, Stack, TextInput, Textarea } from '@mantine/core';
+import { Select, Stack, Textarea } from '@mantine/core';
+import { PasswordInput, TextInput } from '@/components/shared/ReferenceInputs';
 
 interface AIConfigProps {
   config: any;

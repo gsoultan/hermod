@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ActionIcon, Alert, Anchor, Autocomplete, Button, Checkbox, Group, Radio, Select, Stack, Text, TextInput } from '@mantine/core'
+import { ActionIcon, Alert, Anchor, Autocomplete, Button, Checkbox, Group, Radio, Select, Stack, Text } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 import { IconInfoCircle, IconPlus, IconTrash } from '@tabler/icons-react'
 import { useQuery } from '@tanstack/react-query'
 import { isRecommender, listVersions, useVHostModels, versionsKey } from '@/lib/mlModels'

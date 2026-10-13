@@ -128,7 +128,10 @@ func TestAConnectorResolvesSecretsOfItsOwnVHost(t *testing.T) {
 	reg, _ := newSecretRegistry(t)
 
 	for vhost, want := range map[string]string{"tenant-a": "a-key", "tenant-b": "b-key", "tenant-c": "secret:API_KEY"} {
-		got := reg.resolveSecrets(t.Context(), vhost, map[string]string{"password": "secret:API_KEY", "host": "db"})
+		got, err := reg.resolveSecrets(t.Context(), vhost, map[string]string{"password": "secret:API_KEY", "host": "db"})
+		if err != nil {
+			t.Fatalf("vhost %q: %v", vhost, err)
+		}
 		if got["password"] != want || got["host"] != "db" {
 			t.Errorf("vhost %q resolved %v, want password %q", vhost, got, want)
 		}

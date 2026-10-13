@@ -1,4 +1,5 @@
-import { TextInput, Stack, Group, Text, Code, Alert, Switch, Divider, Autocomplete, Select, Button } from '@mantine/core';
+import { Stack, Group, Text, Code, Alert, Switch, Divider, Autocomplete, Select, Button } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { FormRow } from '@/components/common/FormRow';
 import { IconInfoCircle } from '@tabler/icons-react';
 import { useState, type FC } from 'react';

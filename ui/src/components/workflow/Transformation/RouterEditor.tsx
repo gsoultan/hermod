@@ -4,7 +4,6 @@ import {
   Group,
   Stack,
   Text,
-  TextInput,
   Alert,
   Divider,
   Card,
@@ -14,6 +13,7 @@ import {
   Tooltip,
   Paper,
 } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { FilterEditor } from './FilterEditor';
 import {
   IconInfoCircle,

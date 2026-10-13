@@ -1,4 +1,5 @@
-import { Stack, TextInput, Select, Card, Group, rem, ThemeIcon, Text } from '@mantine/core';
+import { Stack, Select, Card, Group, rem, ThemeIcon, Text } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { IconMessage, IconSearch, IconAlertCircle } from '@tabler/icons-react';
 
 interface LogConfigProps {

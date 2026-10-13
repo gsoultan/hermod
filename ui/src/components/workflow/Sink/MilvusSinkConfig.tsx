@@ -1,4 +1,4 @@
-import { TextInput } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 import type { FC } from 'react'
 
 export type MilvusSinkConfigProps = {

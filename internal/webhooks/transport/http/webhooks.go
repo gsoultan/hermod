@@ -33,6 +33,13 @@ func (h *WebhookHandler) sourceConfig(r *http.Request, sourceType, fullPath stri
 	}
 	for _, src := range sources {
 		if src.Type == sourceType && src.Config["path"] == fullPath {
+			// The key and the signing secret may be secret references,
+			// resolved the way the registry resolves a running source's
+			// config. One that cannot be resolved refuses the request: the
+			// reference itself must never be the credential.
+			if h.Registry != nil {
+				return h.Registry.ResolveSecrets(r.Context(), src.VHost, src.Config)
+			}
 			return src.Config, nil
 		}
 	}

@@ -1,4 +1,5 @@
-import { Autocomplete, Group, NumberInput, SegmentedControl, Select, Stack, Switch, Text, TextInput } from '@mantine/core'
+import { Autocomplete, Group, NumberInput, SegmentedControl, Select, Stack, Switch, Text } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 
 /**
  * Pieces the feature-engineering editors share. Every editor saves the config

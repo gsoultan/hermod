@@ -1,4 +1,5 @@
-import { Divider, Group, Input, SegmentedControl, Stack, TextInput } from '@mantine/core'
+import { Divider, Group, Input, SegmentedControl, Stack } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 import { TemplateField } from '@/components/shared/TemplateField'
 import { AIConnectionSection, type AISectionProps } from './AIConnectionSection'
 import { AIDataSection } from './AIDataSection'

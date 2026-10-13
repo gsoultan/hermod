@@ -1,4 +1,5 @@
-import { TextInput, Stack } from '@mantine/core';
+import { Stack } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 
 interface ServiceNowSinkConfigProps {
   config: any;

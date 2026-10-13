@@ -1,4 +1,5 @@
-import { Group, Stack, Switch, Text, Textarea, TextInput } from '@mantine/core'
+import { Group, Stack, Switch, Text, Textarea } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 
 interface TemplateRenderConfigProps {
   config: any

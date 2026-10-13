@@ -1,7 +1,17 @@
 import { useMemo } from 'react'
 import {
-  ActionIcon, Alert, Box, Button, Divider, Group, NumberInput, Stack, Text, Textarea, TextInput,
+  ActionIcon,
+  Alert,
+  Box,
+  Button,
+  Divider,
+  Group,
+  NumberInput,
+  Stack,
+  Text,
+  Textarea,
 } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 import { IconAlertTriangle, IconInfoCircle, IconPlus, IconTrash } from '@tabler/icons-react'
 import { classifyLabels, UNSURE_BRANCH } from '@/pages/workflows/WorkflowEditor/nodes/branchHandleId'
 import { AIConnectionSection, type AISectionProps } from './AIConnectionSection'

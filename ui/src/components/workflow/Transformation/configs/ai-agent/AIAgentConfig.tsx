@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
-import { Alert, Button, Divider, Group, NumberInput, Stack, Text, Textarea, TextInput } from '@mantine/core'
+import { Alert, Button, Divider, Group, NumberInput, Stack, Text, Textarea } from '@mantine/core'
+import { TextInput } from '@/components/shared/ReferenceInputs'
 import { IconAlertTriangle, IconInfoCircle, IconPlus } from '@tabler/icons-react'
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore'
 import { AIConnectionSection, type AISectionProps } from '../ai/AIConnectionSection'

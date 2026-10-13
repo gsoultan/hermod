@@ -1,4 +1,5 @@
-import { Group, TextInput, ActionIcon, Stack, Select, Checkbox, Text, Button, Table, Autocomplete } from '@mantine/core';
+import { Group, ActionIcon, Stack, Select, Checkbox, Text, Button, Table, Autocomplete } from '@mantine/core';
+import { TextInput } from '@/components/shared/ReferenceInputs';
 import { IconPlus, IconTrash, IconWand } from '@tabler/icons-react';
 import { type FC, useMemo } from 'react';
 
