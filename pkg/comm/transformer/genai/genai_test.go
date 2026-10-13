@@ -313,3 +313,21 @@ func TestPrompt_MemoryNeedsAStateStore(t *testing.T) {
 		t.Error("the model was called with a memory that could not be loaded")
 	}
 }
+
+func TestPrompt_RendersTheSystemInstructions(t *testing.T) {
+	f := newFakeLLM(t, "ok")
+	_, err := run(t, "ai_prompt", f.config(map[string]any{
+		"system": "Answer in {{lower(source.language)}} for {{.region}}.",
+		"prompt": "Hi",
+	}), map[string]any{"language": "FRENCH", "region": "EU"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	msgs := f.bodies[0]["messages"].([]any)
+	f.mu.Unlock()
+	system := msgs[0].(map[string]any)["content"].(string)
+	if system != "Answer in french for EU." {
+		t.Errorf("system = %q, want its fields and functions resolved like the prompt's", system)
+	}
+}

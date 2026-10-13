@@ -7,6 +7,50 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Changed — one value input: fields, secrets and nested functions everywhere
+
+Value inputs in the workflow editor now share one design. Every input whose
+value the engine resolves per message offers, from inside the box, the
+record's fields, the vhost's secrets, the function library, and a new
+**builder** that composes a value as slots (text, a field, a secret, or a
+function whose arguments are slots again), so functions nest to any depth:
+`{{upper(trim(coalesce(source.nickname, source.first_name, "friend")))}}`.
+Each edit is saved in the spelling the engine already reads, so saved
+workflows keep their shape.
+
+- **Switch** builds both sides with the builder: a case can nest functions
+  and compare against a secret.
+- **API Lookup**: URL, header and query values, username, password and token
+  take fields, secrets and functions; password and token are hidden until
+  revealed. The body's insert menu offers secrets and functions too.
+- **AI prompt, AI embed, AI retrieve and Panmail providers** use the same
+  input. DB Lookup's SQL template and filter no longer offer secrets: every
+  token there is bound as a parameter by path, so a secret bound NULL. **AI prompt's system instructions are now templated like the
+  prompt**, so `{{.field}}` and `{{secret("X")}}` resolve there.
+- Inputs that decide where a credential goes (gateway URLs, API keys, a
+  pgvector connection string, MCP server URL and headers) offer secrets only,
+  since record data must never choose them.
+
+### Added — the domains each Panmail provider may send From
+
+The **Panmail Providers** node now also writes `fromDomains` on each provider:
+its allowed domains, trimmed, lower-cased, without a leading `@` and without
+repeats. The gateway returns no From address for a provider, so none is made
+up; a workflow picks its sender address from these domains.
+
+### Changed — panmail sink on panmail-sdk 0.1.0, with gateway idempotency keys
+
+The panmail sink moves from panmail-sdk `v0.1.0-rc.3` to the stable `v0.1.0`.
+With **Suppress duplicate sends** on, the key the sink claims locally is now
+also sent as the gateway's idempotency key, so a gateway at v2.0.0 or later
+answers a repeat with the message it already took instead of queueing a
+second copy. A key template that renders something the gateway would refuse
+(more than 255 characters, or anything but printable ASCII) still guards the
+local claim and is simply not forwarded. The new **Transport retries** setting
+(`transport_retries`) asks the gateway again under the same key when a send's
+outcome is unknown; leave it at 0 for a gateway older than v2.0.0, which
+ignores the key.
+
 ### Added — Built-in Go ML engine: train models with no hermod-ml worker
 
 Hermod now trains machine-learning models itself. Its built-in engine (pure

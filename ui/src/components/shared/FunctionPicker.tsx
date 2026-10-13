@@ -9,6 +9,8 @@ const FunctionList = lazy(() => import('./FunctionList'))
 
 interface FunctionPickerProps {
   onPick: (fn: ExpressionFunction) => void
+  /** The accessible name, when several inputs on a form each have one. */
+  label?: string
 }
 
 /**
@@ -21,7 +23,7 @@ interface FunctionPickerProps {
  * resolver reads. A field read as a plain path -- Mask, Deduplicate -- would
  * take the call for a field's name and find nothing.
  */
-export function FunctionPicker({ onPick }: FunctionPickerProps) {
+export function FunctionPicker({ onPick, label = 'Insert function' }: FunctionPickerProps) {
   const [opened, setOpened] = useState(false)
 
   return (
@@ -30,7 +32,7 @@ export function FunctionPicker({ onPick }: FunctionPickerProps) {
         {/* Not while the list is open: the tooltip sat on top of it. */}
         <Tooltip label="Insert function" disabled={opened}>
           <ActionIcon
-            aria-label="Insert function"
+            aria-label={label}
             variant="subtle"
             onClick={(e) => {
               e.preventDefault()

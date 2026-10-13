@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { Alert, Autocomplete, Divider, Input, SegmentedControl, Stack, Text, Textarea, TextInput } from '@mantine/core'
+import { Alert, Autocomplete, Divider, Input, SegmentedControl, Stack, Text, TextInput } from '@mantine/core'
+import { TemplateField } from '@/components/shared/TemplateField'
 import { IconAlertTriangle, IconInfoCircle } from '@tabler/icons-react'
 import { AIConnectionSection, type AISectionProps } from './AIConnectionSection'
 import { canEmbed, providerLabel } from './aiProviders'
@@ -71,14 +72,15 @@ export function AIEmbedConfig({ config, nodeId, updateNodeConfig, availableField
           description="Its value is sent as it is."
         />
       ) : (
-        <Textarea
+        <TemplateField
           label="Text to embed"
           placeholder={'e.g. {{.title}}. {{.description}}'}
           value={text}
-          onChange={(e) => set({ text: e.currentTarget.value })}
-          autosize
-          minRows={2}
-          description={'Use {{.field}} to insert a field of the record.'}
+          onChange={(next) => set({ text: next })}
+          availableFields={fieldPaths}
+          functions="token"
+          multiline
+          description="Insert fields of the record, secrets and functions from the buttons in the box."
         />
       )}
       {nothing && (

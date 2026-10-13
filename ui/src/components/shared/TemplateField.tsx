@@ -1,10 +1,13 @@
-import { createContext, useContext, useMemo, useRef, useState } from 'react'
-import { ActionIcon, Group, Popover, Stack, Text, TextInput, Textarea, Tooltip as MantineTooltip, ScrollArea, Badge, UnstyledButton } from '@mantine/core'
-import { IconKey, IconSearch, IconVariable } from '@tabler/icons-react'
+import { Suspense, createContext, lazy, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
+import { ActionIcon, Box, Collapse, Group, Popover, Stack, Text, TextInput, Textarea, Tooltip as MantineTooltip, ScrollArea, Badge, UnstyledButton } from '@mantine/core'
+import { IconBinaryTree2, IconBraces, IconEye, IconEyeOff, IconKey, IconSearch, IconVariable } from '@tabler/icons-react'
 import { applyFunction, isInsideToken } from '@/lib/expressionInsert'
 import type { ExpressionFunction } from '@/lib/functionCatalog'
 import { FunctionPicker } from './FunctionPicker'
 import { ESCAPE_STOPS_HERE } from './escapeStopsHere'
+
+// Module scope, and only loaded when opened: it carries the function catalog.
+const ValueBuilder = lazy(() => import('./ValueBuilder'))
 
 /**
  * The names of the secrets the workflow being edited can read: its vhost's.
@@ -17,7 +20,7 @@ export const SecretNamesContext = createContext<string[]>([])
 type CommonProps = {
   label?: string
   placeholder?: string
-  description?: string
+  description?: ReactNode
   required?: boolean
   disabled?: boolean
   error?: string
@@ -56,6 +59,24 @@ export interface TemplateFieldProps extends CommonProps {
    * the field, and not every template is resolved by something that does.
    */
   functions?: 'expression' | 'token'
+  /**
+   * A credential: typed text is hidden until revealed. A secret reference --
+   * {{secret("NAME")}} -- is only a name, so it is shown as written.
+   */
+  masked?: boolean
+  /** Monospace text, for URLs, headers and other machine-read values. */
+  mono?: boolean
+  /**
+   * Offers secrets only: a value that decides where a credential goes, which
+   * record data must not choose (evaluator.ResolveTemplateScoped).
+   */
+  secretsOnly?: boolean
+  /**
+   * Offers no secrets: a value whose tokens are read as plain paths, such as
+   * a SQL template whose every token becomes a bound parameter, where a
+   * secret token would bind NULL.
+   */
+  noSecrets?: boolean
 }
 
 function defaultBuildSecretToken(name: string) {
@@ -82,21 +103,30 @@ export function TemplateField({
   buildSecretToken = defaultBuildSecretToken,
   multiline,
   functions,
+  masked,
+  mono,
+  secretsOnly,
+  noSecrets,
   'aria-label': ariaLabel,
 }: TemplateFieldProps) {
+  const [revealed, setRevealed] = useState(false)
+  const hidden = masked && !revealed && !/^\s*\{\{\s*secret[(:]/.test(value || '')
   const [opened, setOpened] = useState(false)
+  const [building, setBuilding] = useState(false)
   const [q, setQ] = useState('')
   const inputRef = useRef<HTMLInputElement & HTMLTextAreaElement>(null as any)
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase()
+    if (secretsOnly) return []
     return (availableFields || []).filter((f) => {
       const path = typeof f === 'string' ? f : f.path
       return !query || path.toLowerCase().includes(query)
     })
-  }, [q, availableFields])
+  }, [q, availableFields, secretsOnly])
 
-  const secretNames = useContext(SecretNamesContext)
+  const vhostSecrets = useContext(SecretNamesContext)
+  const secretNames = noSecrets ? [] : vhostSecrets
   const filteredSecrets = useMemo(() => {
     const query = q.trim().toLowerCase()
     return secretNames.filter((name) => !query || name.toLowerCase().includes(query))
@@ -173,7 +203,7 @@ export function TemplateField({
     <Stack gap={6} style={{ width: 260 }}>
       <TextInput
         size="xs"
-        placeholder="Search fields..."
+        placeholder={secretsOnly ? 'Search secrets...' : 'Search fields...'}
         value={q}
         data-autofocus
         {...ESCAPE_STOPS_HERE}
@@ -196,7 +226,7 @@ export function TemplateField({
                 {...ESCAPE_STOPS_HERE}
                 style={{
                   borderRadius: 6,
-                  border: '1px solid var(--mantine-color-gray-3)',
+                  border: '1px solid var(--mantine-color-default-border)',
                 }}
                 onClick={() => {
                   insertReference(`source.${path}`, buildToken(path))
@@ -205,9 +235,12 @@ export function TemplateField({
               >
                 <Group justify="space-between" wrap="nowrap">
                   <Stack gap={0} style={{ overflow: 'hidden' }}>
-                    <Text size="xs" fw={500} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {path}
-                    </Text>
+                    <Group gap={6} wrap="nowrap" style={{ overflow: 'hidden' }}>
+                      <IconBraces size="0.8rem" style={{ flexShrink: 0 }} />
+                      <Text size="xs" fw={500} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {path}
+                      </Text>
+                    </Group>
                     {type && (
                       <Text size="xs" c="dimmed">
                         {type}
@@ -219,9 +252,14 @@ export function TemplateField({
               </UnstyledButton>
             );
           })}
-          {filtered.length === 0 && (
+          {filtered.length === 0 && !secretsOnly && (
             <Text size="xs" c="dimmed" px={4}>
               No fields match "{q}"
+            </Text>
+          )}
+          {secretsOnly && filteredSecrets.length === 0 && (
+            <Text size="xs" c="dimmed" px={4}>
+              {secretNames.length === 0 ? 'This vhost has no secrets yet.' : `No secrets match "${q}"`}
             </Text>
           )}
           {filteredSecrets.length > 0 && (
@@ -261,7 +299,9 @@ export function TemplateField({
         </Stack>
       </ScrollArea>
       <Text size="xs" c="dimmed">
-        Tip: Click a field to insert a template token.
+        {secretsOnly
+          ? 'Only secrets: record fields are never read here.'
+          : `Tip: Click a field to insert it at the caret.${functions ? ' Use the builder to nest functions.' : ''}`}
       </Text>
     </Stack>
   )
@@ -281,14 +321,28 @@ export function TemplateField({
     },
     rightSection: (
       <Group gap={0} wrap="nowrap">
+        {masked && (
+          <MantineTooltip label={revealed ? 'Hide' : 'Show'}>
+            <ActionIcon
+              aria-label={revealed ? 'Hide value' : 'Show value'}
+              variant="subtle"
+              onClick={(e) => {
+                e.preventDefault()
+                setRevealed((v) => !v)
+              }}
+            >
+              {revealed ? <IconEyeOff size="1rem" /> : <IconEye size="1rem" />}
+            </ActionIcon>
+          </MantineTooltip>
+        )}
         {functions && <FunctionPicker onPick={insertFunction} />}
         {/* The focus goes into the list when it opens: left on the button,
             Escape closed the node's settings and never reached the list. */}
         <Popover opened={opened} onChange={setOpened} withArrow position="bottom-end" trapFocus>
           <Popover.Target>
-            <MantineTooltip label="Insert variable">
+            <MantineTooltip label={secretsOnly ? 'Insert secret' : 'Insert variable'}>
               <ActionIcon
-                aria-label="Insert variable"
+                aria-label={secretsOnly ? 'Insert secret' : 'Insert variable'}
                 variant="subtle"
                 onClick={(e) => {
                   e.preventDefault()
@@ -301,17 +355,66 @@ export function TemplateField({
           </Popover.Target>
           <Popover.Dropdown tabIndex={-1} {...ESCAPE_STOPS_HERE}>{FieldList}</Popover.Dropdown>
         </Popover>
+        {/* After both insert buttons, so Tab from the value reaches them first. */}
+        {functions && (
+          <MantineTooltip label={building ? 'Close the builder' : 'Build with nested functions'}>
+            <ActionIcon
+              aria-label="Build expression"
+              aria-expanded={building}
+              variant={building ? 'light' : 'subtle'}
+              onClick={(e) => {
+                e.preventDefault()
+                setBuilding((v) => !v)
+              }}
+            >
+              <IconBinaryTree2 size="1rem" />
+            </ActionIcon>
+          </MantineTooltip>
+        )}
       </Group>
     ),
-    // Two buttons do not fit the width an input reserves for one.
-    rightSectionWidth: functions ? 60 : undefined,
+    // One button per action; an input reserves the width of one.
+    rightSectionWidth: 4 + 28 * (1 + (functions ? 2 : 0) + (masked ? 1 : 0)),
+    styles: mono ? { input: { fontFamily: 'var(--mantine-font-family-monospace)' } } : undefined,
     ref: inputRef as any,
   }
 
-  return multiline ? (
+  const input = multiline ? (
     <Textarea autosize minRows={2} {...commonProps} />
   ) : (
-    <TextInput {...commonProps} />
+    <TextInput {...commonProps} type={hidden ? 'password' : 'text'} autoComplete={masked ? 'off' : undefined} />
+  )
+
+  if (!functions) return input
+
+  return (
+    <Stack gap={6}>
+      {input}
+      <Collapse expanded={building}>
+        {building && (
+          <Box
+            p="sm"
+            style={{
+              border: '1px solid var(--mantine-color-default-border)',
+              borderRadius: 'var(--mantine-radius-md)',
+            }}
+          >
+            <Suspense fallback={<Text size="xs" c="dimmed">Loading the builder…</Text>}>
+              <ValueBuilder
+                label={label || ariaLabel || 'Value'}
+                value={value}
+                onChange={onChange}
+                mode={functions}
+                fieldPaths={(availableFields || []).map((f: any) => (typeof f === 'string' ? f : f.path))}
+                secretNames={secretNames}
+                tokens={{ field: buildToken, secret: buildSecretToken }}
+                onEditAsText={() => setBuilding(false)}
+              />
+            </Suspense>
+          </Box>
+        )}
+      </Collapse>
+    </Stack>
   )
 }
 

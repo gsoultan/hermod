@@ -1,13 +1,10 @@
 import {
   ActionIcon,
-  Autocomplete,
   Badge,
   Box,
   Button,
-  Code,
   Group,
   Paper,
-  SegmentedControl,
   SimpleGrid,
   Select,
   Stack,
@@ -16,18 +13,10 @@ import {
   ThemeIcon,
   Tooltip,
 } from '@mantine/core';
-import { useMemo, useState } from 'react';
-import { IconArrowRight, IconBraces, IconGitBranch, IconMathFunction, IconPlus, IconTrash } from '@tabler/icons-react';
-import {
-  OPERAND_FUNCTIONS,
-  acceptsFunction,
-  formatCaseValue,
-  formatSwitchField,
-  parseCaseValue,
-  parseSwitchField,
-  type Operand,
-  type OperandSource,
-} from './switchOperand';
+import { useContext, useMemo } from 'react';
+import { IconArrowRight, IconGitBranch, IconPlus, IconTrash } from '@tabler/icons-react';
+import { SecretNamesContext } from '@/components/shared/TemplateField';
+import { ValueBuilder } from '@/components/shared/ValueBuilder';
 
 interface SwitchConfigProps {
   config: any;
@@ -98,10 +87,9 @@ export function SwitchConfig({ config, updateNodeConfig, nodeId, availableFields
       <Paper withBorder radius="md" p="md">
         <OperandInput
           label="Switch field"
-          description="The field every case is compared against, optionally passed through a function."
+          description="What every case is compared against: a field, or a function of fields, secrets and text."
           value={config.field || ''}
-          parse={parseSwitchField}
-          format={formatSwitchField}
+          mode="field"
           onChange={(field) => updateNodeConfig(nodeId, { field })}
           fieldPaths={fieldPaths}
           required
@@ -198,131 +186,52 @@ function CaseCard({ index, value: c, fieldPaths, onChange, onRemove }: CaseCardP
         <OperandInput
           label="Compare to"
           value={c.value}
-          parse={parseCaseValue}
-          format={formatCaseValue}
+          mode="token"
           onChange={(value) => onChange({ value })}
           fieldPaths={fieldPaths}
-          allowValue
         />
       </Stack>
     </Paper>
   );
 }
 
-const FUNCTION_OPTIONS = ['Text', 'Number'].map((group) => ({
-  group,
-  items: OPERAND_FUNCTIONS.filter((f) => f.group === group).map((f) => ({ value: f.value, label: f.label })),
-}));
-
 interface OperandInputProps {
-  label: string;
-  description?: string;
-  value: unknown;
-  parse: (value: unknown) => Operand;
-  format: (op: Operand) => string;
-  onChange: (value: string) => void;
-  fieldPaths: string[];
-  /** Offer a fixed value as well as a field. */
-  allowValue?: boolean;
-  required?: boolean;
+  label: string
+  description?: string
+  value: unknown
+  mode: 'field' | 'token'
+  onChange: (value: string) => void
+  fieldPaths: string[]
+  required?: boolean
 }
 
-// One side of a comparison: a field picked from the record or a fixed value,
-// optionally passed through a function. The saved string is the only state
-// the engine sees; `draft` holds the toggle and function while no field has
-// been picked, since an empty value cannot record them.
-function OperandInput({
-  label,
-  description,
-  value,
-  parse,
-  format,
-  onChange,
-  fieldPaths,
-  allowValue = false,
-  required = false,
-}: OperandInputProps) {
-  const [draft, setDraft] = useState<{ fn: string; source: OperandSource }>({
-    fn: '',
-    source: allowValue ? 'value' : 'field',
-  });
-  const empty = value === undefined || value === null || value === '';
-  const op: Operand = empty ? { ...draft, text: '' } : parse(value);
-  const saved = empty ? '' : String(value);
+// A case value's field is written {{path}}, the reference EvaluateConditions
+// reads; inside a call every field is source.<path>.
+const CASE_TOKENS = { field: (path: string) => `{{${path}}}` }
 
-  const commit = (next: Operand) => {
-    setDraft({ fn: next.fn, source: next.source });
-    onChange(format(next));
-  };
-
-  const fnDisabled = !acceptsFunction(op.text);
-
+// One side of a comparison, built the way every value input builds one: text,
+// a field, a secret, or a function of any of them, nested as deep as needed.
+function OperandInput({ label, description, value, mode, onChange, fieldPaths, required = false }: OperandInputProps) {
+  const secretNames = useContext(SecretNamesContext)
   return (
     <Stack gap={6}>
-      <Group justify="space-between" align="center" wrap="nowrap" gap="xs">
-        <Box>
-          <Text size="sm" fw={500}>
-            {label}
-            {required && <Text span c="red"> *</Text>}
-          </Text>
-          {description && <Text size="xs" c="dimmed">{description}</Text>}
-        </Box>
-        {allowValue && (
-          <SegmentedControl
-            size="xs"
-            value={op.source}
-            onChange={(next) => next !== op.source && commit({ fn: op.fn, source: next as OperandSource, text: '' })}
-            data={[
-              { label: 'Value', value: 'value' },
-              { label: 'Field', value: 'field' },
-            ]}
-          />
-        )}
-      </Group>
-
-      <Group gap="xs" wrap="nowrap" align="flex-start">
-        <Tooltip label="A function cannot wrap a hand-written expression" disabled={!fnDisabled}>
-          <Select
-            aria-label={`${label} function`}
-            placeholder="No function"
-            data={FUNCTION_OPTIONS}
-            value={op.fn || null}
-            onChange={(fn) => commit({ ...op, fn: fn || '' })}
-            leftSection={<IconMathFunction size="1rem" />}
-            disabled={fnDisabled}
-            clearable
-            w={170}
-            style={{ flexShrink: 0 }}
-            comboboxProps={{ withinPortal: true }}
-          />
-        </Tooltip>
-        <Box style={{ flex: 1, minWidth: 0 }}>
-          {op.source === 'field' ? (
-            <Autocomplete
-              aria-label={allowValue ? `${label} field` : label}
-              placeholder="Search fields"
-              data={fieldPaths}
-              value={op.text}
-              onChange={(text) => commit({ ...op, text: text.trim() })}
-              leftSection={<IconBraces size="1rem" />}
-              limit={50}
-            />
-          ) : (
-            <TextInput
-              aria-label={label}
-              placeholder="e.g. active, 100"
-              value={op.text}
-              onChange={(e) => commit({ ...op, text: e.currentTarget.value })}
-            />
-          )}
-        </Box>
-      </Group>
-
-      {op.fn && saved && (
-        <Text size="xs" c="dimmed">
-          Saved as <Code>{saved}</Code>
+      <Box>
+        <Text size="sm" fw={500}>
+          {label}
+          {required && <Text span c="red"> *</Text>}
         </Text>
-      )}
+        {description && <Text size="xs" c="dimmed">{description}</Text>}
+      </Box>
+      <ValueBuilder
+        label={label}
+        value={value}
+        onChange={onChange}
+        mode={mode}
+        tokens={mode === 'token' ? CASE_TOKENS : undefined}
+        fieldPaths={fieldPaths}
+        secretNames={secretNames}
+        emptyKind={mode === 'field' ? 'field' : 'text'}
+      />
     </Stack>
-  );
+  )
 }

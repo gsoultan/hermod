@@ -198,10 +198,11 @@ export function PanmailSinkConfig({ config, updateConfig }: PanmailSinkConfigPro
       <Divider my="xs" label="Duplicate suppression" labelPosition="left" />
 
       <Alert icon={<IconAlertTriangle size="1rem" />} color="yellow" variant="light">
-        Sending is not idempotent and the gateway has no de-duplication key. When a send fails
-        without an answer — a timeout, a dropped connection — nobody knows whether the mail went.
-        With this on, the claim is kept and the retry is suppressed rather than mailing the
-        recipient twice. With it off, the retry may deliver a second copy.
+        When a send fails without an answer — a timeout, a dropped connection — nobody knows
+        whether the mail went. With this on, the claim is kept and the retry is suppressed rather
+        than mailing the recipient twice, and the same key is sent to the gateway, which (from
+        v2.0.0) answers a repeat with the message it already took. With it off, the retry may
+        deliver a second copy.
       </Alert>
 
       <Switch
@@ -226,6 +227,20 @@ export function PanmailSinkConfig({ config, updateConfig }: PanmailSinkConfigPro
               value={config.idempotency_ttl || ''}
               onChange={(e) => updateConfig('idempotency_ttl', e.currentTarget.value)}
               description="Go duration. Blank keeps every claim forever; a claim dropped early is a mail that can be sent again."
+            />
+          </FormRow>
+
+          <FormRow cols={1}>
+            <NumberInput
+              label="Transport retries"
+              placeholder="0"
+              min={0}
+              max={10}
+              value={config.transport_retries === undefined || config.transport_retries === ''
+                ? ''
+                : Number(config.transport_retries)}
+              onChange={(value) => updateConfig('transport_retries', value === '' ? '' : String(value))}
+              description="Asks the gateway again this many times when a send's outcome is unknown, under the same key. Only for a gateway at v2.0.0 or later — an older one ignores the key, so asking again sends a second copy."
             />
           </FormRow>
 

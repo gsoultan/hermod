@@ -25,8 +25,8 @@ const DefaultPromptField = "ai_output"
 // PromptTransformer sends a templated prompt to a model and writes the answer
 // into the message.
 //
-// Config: prompt (required; {{.field}} tokens read the message), system,
-// includeData (append the selected input as JSON), inputFields, maskFields,
+// Config: prompt (required; {{.field}} tokens read the message), system (read
+// the same way), includeData (append the selected input as JSON), inputFields, maskFields,
 // maskPII, outputMode ("text" or "json"), targetField, usageField, memory
 // (see package memory: earlier exchanges of the message's conversation are
 // sent ahead of it, and the new exchange is remembered), and the connection
@@ -47,7 +47,9 @@ func (t *PromptTransformer) Transform(ctx context.Context, msg hermod.Message, c
 		user += "\n\nInput:\n" + inputJSON(msg, config)
 	}
 	jsonOut := core.GetConfigString(config, "outputMode") == "json"
-	system := core.GetConfigString(config, "system")
+	// Read like the prompt, so the editor's fields, secrets and functions mean
+	// the same thing in both boxes.
+	system := evaluator.ResolveTemplateMsg(core.GetConfigString(config, "system"), msg)
 	if jsonOut {
 		system = strings.TrimSpace(system + "\n\nAnswer with a single JSON object and nothing else.")
 	}

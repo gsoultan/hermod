@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { ActionIcon, Alert, Button, Checkbox, Group, Radio, Stack, Text, TextInput } from '@mantine/core'
+import { ActionIcon, Alert, Box, Button, Checkbox, Group, Radio, Stack, Text, TextInput } from '@mantine/core'
+import { TemplateField } from '@/components/shared/TemplateField'
 import { IconInfoCircle, IconPlus, IconTrash } from '@tabler/icons-react'
 import {
   isPlaintextCredential,
@@ -79,11 +80,13 @@ export function McpToolSettings({ tool, issues, onChange }: McpToolSettingsProps
   return (
     <Stack gap="sm">
       <Group grow align="flex-start" gap="sm">
-        <TextInput
+        <TemplateField
           label="Server URL"
           placeholder="https://mcp.example.com/mcp"
           value={server.url ?? ''}
-          onChange={(e) => setServer({ url: e.currentTarget.value })}
+          onChange={(url) => setServer({ url })}
+          secretsOnly
+          mono
           required
           error={errorFor('server.url')}
           description={URL_HINT}
@@ -115,23 +118,24 @@ export function McpToolSettings({ tool, issues, onChange }: McpToolSettingsProps
               value={r.name}
               onChange={(e) => updateRow(i, { name: e.currentTarget.value })}
               error={isReservedHeader(r.name) ? 'Set by the MCP transport; it cannot be configured.' : undefined}
-              size="xs"
               flex={1}
             />
-            <TextInput
-              label={`Header ${i + 1} value`}
-              placeholder={`e.g. Bearer ${SECRET_HEADER_HINT}`}
-              value={r.value}
-              onChange={(e) => updateRow(i, { value: e.currentTarget.value })}
-              error={isPlaintextCredential(r.name, r.value) ? 'A credential typed in here is saved with the workflow.' : undefined}
-              size="xs"
-              flex={2}
-            />
+            <Box flex={2} miw={0}>
+              <TemplateField
+                label={`Header ${i + 1} value`}
+                placeholder={`e.g. Bearer ${SECRET_HEADER_HINT}`}
+                value={r.value}
+                onChange={(value) => updateRow(i, { value })}
+                error={isPlaintextCredential(r.name, r.value) ? 'A credential typed in here is saved with the workflow.' : undefined}
+                secretsOnly
+                mono
+              />
+            </Box>
             <ActionIcon
               aria-label={`Remove header ${i + 1}`}
               color="red"
               variant="subtle"
-              mt={22}
+              mt={28}
               onClick={() => saveRows(rows.filter((_, j) => j !== i))}
             >
               <IconTrash size="0.9rem" />

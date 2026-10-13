@@ -1,8 +1,9 @@
 import { useMemo, useRef, useState, type RefObject } from 'react';
 import { ActionIcon, Alert, Button, Group, Modal, Stack, Text, Textarea, Tooltip } from '@mantine/core';
 import { IconArrowsMaximize, IconInfoCircle } from '@tabler/icons-react';
+import { FunctionPicker } from '@/components/shared/FunctionPicker';
 import { InsertFieldButton } from './InsertFieldButton';
-import { formatJsonText, insertBodyToken } from './jsonText';
+import { formatJsonText, insertBodyText, insertBodyToken } from './jsonText';
 
 const MONO = {
   input: {
@@ -43,24 +44,42 @@ export function RequestBodyEditor({
 
   // The textarea keeps its selection after it loses focus to the picker, so the
   // token lands where the operator left the cursor.
-  const insertAt = (ref: RefObject<HTMLTextAreaElement | null>) => (path: string) => {
-    const el = ref.current;
-    const start = el?.selectionStart ?? value.length;
-    const end = el?.selectionEnd ?? start;
-    const { text, caret } = insertBodyToken(value, start, end, path);
-    onChange(text);
-    requestAnimationFrame(() => {
-      el?.focus();
-      el?.setSelectionRange(caret, caret);
-    });
-  };
+  const insertWith =
+    (ref: RefObject<HTMLTextAreaElement | null>, edit: (start: number, end: number) => { text: string; caret: number }) => {
+      const el = ref.current;
+      const start = el?.selectionStart ?? value.length;
+      const end = el?.selectionEnd ?? start;
+      const { text, caret } = edit(start, end);
+      onChange(text);
+      requestAnimationFrame(() => {
+        el?.focus();
+        el?.setSelectionRange(caret, caret);
+      });
+    };
+
+  const insertAt = (ref: RefObject<HTMLTextAreaElement | null>) => (path: string) =>
+    insertWith(ref, (start, end) => insertBodyToken(value, start, end, path));
+
+  // A secret or a call is a whole token, quoted like a field's.
+  const insertTokenAt = (ref: RefObject<HTMLTextAreaElement | null>) => (token: string) =>
+    insertWith(ref, (start, end) => insertBodyText(value, start, end, token));
+
+  // Placeholders in double quotes would end the JSON string they sit in.
+  const callToken = (name: string, args: string[]) =>
+    `{{${name}(${args.map((a) => a.replace(/^"(.*)"$/, "'$1'")).join(', ')})}}`;
 
   const toolbar = (ref: RefObject<HTMLTextAreaElement | null>) => (
     <Group justify="space-between" gap="xs" wrap="nowrap">
       <Group gap="xs" wrap="nowrap">
         {fieldPaths.length > 0 && (
-          <InsertFieldButton label="Insert field into body" fieldPaths={fieldPaths} onPick={insertAt(ref)} />
+          <InsertFieldButton
+            label="Insert field into body"
+            fieldPaths={fieldPaths}
+            onPick={insertAt(ref)}
+            onPickSecret={(name) => insertTokenAt(ref)(`{{secret('${name}')}}`)}
+          />
         )}
+        <FunctionPicker label="Insert function into body" onPick={(fn) => insertTokenAt(ref)(callToken(fn.name, fn.args))} />
         <Button
           size="compact-xs"
           variant="default"

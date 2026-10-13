@@ -1,11 +1,11 @@
 import { useMemo } from 'react';
-import { Alert, Badge, Box, Button, Group, NumberInput, PasswordInput, ScrollArea, Select, Stack, Tabs, Text, TextInput } from '@mantine/core';
+import { Alert, Badge, Box, Button, Group, NumberInput, ScrollArea, Select, Stack, Tabs, Text, TextInput } from '@mantine/core';
 import { IconAlertTriangle, IconCircleCheck, IconPlayerPlay } from '@tabler/icons-react';
 import { FormRow } from '@/components/common/FormRow';
-import { InsertFieldButton } from './apiLookup/InsertFieldButton';
+import { TemplateField } from '@/components/shared/TemplateField';
 import { KeyValueEditor } from './apiLookup/KeyValueEditor';
 import { RequestBodyEditor } from './apiLookup/RequestBodyEditor';
-import { countJsonObjectEntries, fieldToken } from './apiLookup/jsonText';
+import { countJsonObjectEntries } from './apiLookup/jsonText';
 
 /** What the last Test API Call said, kept on screen until the next one. */
 export interface APILookupTestOutcome {
@@ -89,24 +89,17 @@ export function APILookupConfig({
           allowDeselect={false}
           w={112}
         />
-        <TextInput
-          label="URL"
-          placeholder="https://api.example.com/v1/users/{{.after.user_id}}"
-          value={config.url || ''}
-          onChange={(e) => set({ url: e.currentTarget.value })}
-          style={{ flex: 1, minWidth: 0 }}
-          styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)' } }}
-          rightSection={
-            fieldPaths.length > 0 ? (
-              <InsertFieldButton
-                compact
-                label="Insert field into URL"
-                fieldPaths={fieldPaths}
-                onPick={(path) => set({ url: (config.url || '') + fieldToken(path) })}
-              />
-            ) : undefined
-          }
-        />
+        <Box style={{ flex: 1, minWidth: 0 }}>
+          <TemplateField
+            label="URL"
+            placeholder="https://api.example.com/v1/users/{{.after.user_id}}"
+            value={config.url || ''}
+            onChange={(url) => set({ url })}
+            availableFields={fieldPaths}
+            functions="token"
+            mono
+          />
+        </Box>
       </Group>
 
       <FormRow>
@@ -235,23 +228,33 @@ export function APILookupConfig({
             />
             {config.authType === 'basic' && (
               <FormRow>
-                <TextInput
+                <TemplateField
                   label="Username"
                   value={config.username || ''}
-                  onChange={(e) => set({ username: e.currentTarget.value })}
+                  onChange={(username) => set({ username })}
+                  availableFields={fieldPaths}
+                  functions="token"
                 />
-                <PasswordInput
+                <TemplateField
                   label="Password"
+                  placeholder='{{secret("API_PASSWORD")}}'
                   value={config.password || ''}
-                  onChange={(e) => set({ password: e.currentTarget.value })}
+                  onChange={(password) => set({ password })}
+                  availableFields={fieldPaths}
+                  functions="token"
+                  masked
                 />
               </FormRow>
             )}
             {config.authType === 'bearer' && (
-              <PasswordInput
+              <TemplateField
                 label="Token"
+                placeholder='{{secret("API_TOKEN")}}'
                 value={config.token || ''}
-                onChange={(e) => set({ token: e.currentTarget.value })}
+                onChange={(token) => set({ token })}
+                availableFields={fieldPaths}
+                functions="token"
+                masked
               />
             )}
             {!config.authType && (

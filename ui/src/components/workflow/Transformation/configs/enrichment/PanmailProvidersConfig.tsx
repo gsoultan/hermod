@@ -1,9 +1,12 @@
-import { PasswordInput, Select, Stack, Text, TextInput } from '@mantine/core';
+import { Select, Stack, Text, TextInput } from '@mantine/core';
+import { TemplateField } from '@/components/shared/TemplateField';
+import { FormRow } from '@/components/common/FormRow';
 
 interface PanmailProvidersConfigProps {
   config: any;
   updateNodeConfig: (id: string, config: any) => void;
   nodeId: string;
+  fieldPaths?: string[];
 }
 
 // Short names the backend maps to panmail-sdk's provider types
@@ -19,38 +22,50 @@ const PROVIDER_TYPES = [
   { label: 'POP3 (inbound only)', value: 'pop3' },
 ];
 
-export function PanmailProvidersConfig({ config, updateNodeConfig, nodeId }: PanmailProvidersConfigProps) {
+export function PanmailProvidersConfig({ config, updateNodeConfig, nodeId, fieldPaths = [] }: PanmailProvidersConfigProps) {
   const set = (patch: Record<string, any>) => updateNodeConfig(nodeId, patch);
 
   return (
-    <Stack gap="xs">
-      <TextInput
-        label="Gateway URL"
-        placeholder="https://mail.example.com"
-        value={config.baseUrl || ''}
-        onChange={(e) => set({ baseUrl: e.currentTarget.value })}
-        required
-        description="The panmail gateway's address. Record values are not allowed here; {{env.NAME}} is."
-      />
-      <PasswordInput
-        label="API Key"
-        value={config.apiKey || ''}
-        onChange={(e) => set({ apiKey: e.currentTarget.value })}
-        required
-        description={'Needs the providers:read scope. Prefer {{secret("PANMAIL_API_KEY")}} over pasting the key: it reads HERMOD_SECRET_PANMAIL_API_KEY, or your configured secret manager.'}
-      />
-      <TextInput
-        label="Name contains"
-        placeholder="Optional, e.g. prod or {{.after.region}}"
-        value={config.name || ''}
-        onChange={(e) => set({ name: e.currentTarget.value })}
-      />
-      <Select
-        label="Provider type"
-        data={PROVIDER_TYPES}
-        value={config.providerType || ''}
-        onChange={(val) => set({ providerType: val || '' })}
-      />
+    <Stack gap="md">
+      <FormRow cols={2}>
+        <TemplateField
+          label="Gateway URL"
+          placeholder="https://mail.example.com"
+          value={config.baseUrl || ''}
+          onChange={(baseUrl) => set({ baseUrl })}
+          required
+          secretsOnly
+          mono
+          description="The panmail gateway's address. Record values are never read here; a secret is."
+        />
+        <TemplateField
+          label="API Key"
+          placeholder={'{{secret("PANMAIL_API_KEY")}}'}
+          value={config.apiKey || ''}
+          onChange={(apiKey) => set({ apiKey })}
+          required
+          secretsOnly
+          masked
+          description="Needs the providers:read scope. Insert a secret rather than pasting the key."
+        />
+      </FormRow>
+      <FormRow cols={2}>
+        <TemplateField
+          label="Name contains"
+          placeholder="Optional, e.g. prod or {{.after.region}}"
+          value={config.name || ''}
+          onChange={(name) => set({ name })}
+          availableFields={fieldPaths}
+          functions="token"
+        />
+        <Select
+          label="Provider type"
+          data={PROVIDER_TYPES}
+          value={config.providerType || ''}
+          onChange={(val) => set({ providerType: val || '' })}
+        />
+      </FormRow>
+      <FormRow cols={2}>
       <TextInput
         label="Target Field"
         placeholder="panmail_providers"
@@ -64,8 +79,9 @@ export function PanmailProvidersConfig({ config, updateNodeConfig, nodeId }: Pan
         onChange={(e) => set({ ttl: e.currentTarget.value })}
         description="How long a list is reused, e.g. 30s, 5m, 1h. 0 turns the cache off."
       />
+      </FormRow>
       <Text size="xs" c="dimmed">
-        Writes a list of providers, each with id, name, type and allowedDomains, into the target field.
+        Writes a list of providers, each with id, name, type, allowedDomains and fromDomains (the domains it may send From), into the target field.
       </Text>
     </Stack>
   );

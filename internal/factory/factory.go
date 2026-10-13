@@ -1378,6 +1378,7 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 		}
 
 		retries, _ := strconv.Atoi(cfg.Config["rate_limit_retries"])
+		transportRetries, _ := strconv.Atoi(cfg.Config["transport_retries"])
 		timeout, _ := time.ParseDuration(cfg.Config["timeout"])
 
 		s, err := sinkpanmail.New(sinkpanmail.Config{
@@ -1394,6 +1395,7 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 			TemplateID:       cfg.Config["template_id"],
 			AllowedHosts:     split("allowed_hosts"),
 			RateLimitRetries: retries,
+			TransportRetries: transportRetries,
 			Timeout:          timeout,
 		}, fmttr)
 		if err != nil {
