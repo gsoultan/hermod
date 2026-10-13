@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -40,6 +41,17 @@ const defaultPanmailProvidersField = "panmail_providers"
 // be one more call to the gateway.
 const defaultPanmailProvidersTTL = 5 * time.Minute
 
+// defaultPanmailFromMailbox is the mailbox a provider's from email is composed
+// with when the node names none.
+const defaultPanmailFromMailbox = "noreply"
+
+// mailboxAtom is a dot-atom local part (RFC 5322 3.2.3): what may stand before
+// the @ without quoting.
+var mailboxAtom = regexp.MustCompile("^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(\\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*$")
+
+// isMailbox reports whether s can stand before the @ of an address as typed.
+func isMailbox(s string) bool { return len(s) <= 64 && mailboxAtom.MatchString(s) }
+
 // panmailProviderTypes maps the editor's short names to the SDK's values.
 var panmailProviderTypes = map[string]sdk.ProviderType{
 	"smtp":     sdk.ProviderTypeSMTP,
@@ -61,15 +73,17 @@ func shortProviderType(t sdk.ProviderType) string {
 // panmailProvidersCacheKey digests everything that selects the list. The api
 // key is only ever inside the digest: cache keys are iterated and printed, and
 // a tenant credential belongs in neither.
-func panmailProvidersCacheKey(baseURL, apiKey, name string, kind sdk.ProviderType) string {
+func panmailProvidersCacheKey(baseURL, apiKey, name string, kind sdk.ProviderType, mailbox string) string {
 	h := sha256.New()
-	_, _ = fmt.Fprintf(h, "url\x00%s\x00key\x00%s\x00name\x00%s\x00type\x00%s\x00", baseURL, apiKey, name, kind)
+	_, _ = fmt.Fprintf(h, "url\x00%s\x00key\x00%s\x00name\x00%s\x00type\x00%s\x00mailbox\x00%s\x00",
+		baseURL, apiKey, name, kind, mailbox)
 	return "panmail_providers:" + hex.EncodeToString(h.Sum(nil))
 }
 
 // panmailProvidersRequest is a node's config, resolved for one message.
 type panmailProvidersRequest struct {
 	baseURL, apiKey, name, targetField, timeout string
+	mailbox                                     string
 	kind                                        sdk.ProviderType
 	ttl                                         lookupTTL
 }
@@ -92,6 +106,15 @@ func resolvePanmailProvidersRequest(config map[string]any, msg hermod.Message) (
 	}
 	if req.targetField == "" {
 		req.targetField = defaultPanmailProvidersField
+	}
+
+	req.mailbox = strings.TrimSpace(core.GetConfigString(config, "fromMailbox"))
+	if req.mailbox == "" {
+		req.mailbox = defaultPanmailFromMailbox
+	}
+	if !isMailbox(req.mailbox) {
+		return req, fmt.Errorf("from mailbox %q is not the part of an address before the @ (e.g. %q)",
+			req.mailbox, defaultPanmailFromMailbox)
 	}
 
 	if s := strings.ToLower(strings.TrimSpace(core.GetConfigString(config, "providerType"))); s != "" {
@@ -138,12 +161,25 @@ func (req panmailProvidersRequest) fetch(ctx context.Context) ([]map[string]any,
 		if domains == nil {
 			domains = []string{}
 		}
+		from := fromDomains(domains)
+		emails := make([]string, len(from))
+		for i, d := range from {
+			emails[i] = req.mailbox + "@" + d
+		}
+		first := ""
+		if len(emails) > 0 {
+			first = emails[0]
+		}
 		list = append(list, map[string]any{
 			"id":             p.ID,
 			"name":           p.Name,
 			"type":           shortProviderType(p.Type),
 			"allowedDomains": domains,
-			"fromDomains":    fromDomains(domains),
+			"fromDomains":    from,
+			// The gateway returns no From address; these are the node's
+			// mailbox at each domain the provider may send From.
+			"fromEmails": emails,
+			"fromEmail":  first,
 		})
 	}
 	return list, nil
@@ -181,7 +217,7 @@ func (t *PanmailProvidersTransformer) Transform(ctx context.Context, msg hermod.
 		return msg, fmt.Errorf("panmail_providers: %w", err)
 	}
 
-	cacheKey := panmailProvidersCacheKey(req.baseURL, req.apiKey, req.name, req.kind)
+	cacheKey := panmailProvidersCacheKey(req.baseURL, req.apiKey, req.name, req.kind, req.mailbox)
 	if req.ttl.cache {
 		if cached, found := registry.GetLookupCache(cacheKey); found {
 			msg.SetData(req.targetField, cached)

@@ -8,7 +8,7 @@ import { NODE_CATEGORIES } from '@/pages/workflows/WorkflowEditor/constants/node
 import { guideFor } from '@/lib/transformationGuide'
 
 // The keys written here are the ones pkg/comm/transformer/lookup/panmail_providers.go
-// reads: baseUrl, apiKey, name, providerType, targetField, ttl.
+// reads: baseUrl, apiKey, name, providerType, fromMailbox, targetField, ttl.
 describe('panmail_providers editor', () => {
   const renderConfig = (config: any, updateNodeConfig = vi.fn()) => {
     render(
@@ -36,6 +36,19 @@ describe('panmail_providers editor', () => {
   it('shows the default target field', () => {
     renderConfig({})
     expect((screen.getByLabelText(/target field/i) as HTMLInputElement).placeholder).toBe('panmail_providers')
+  })
+
+  it('writes the from mailbox under fromMailbox, defaulting to noreply', async () => {
+    const update = renderConfig({})
+    const input = screen.getByLabelText(/from mailbox/i) as HTMLInputElement
+    expect(input.placeholder).toBe('noreply')
+    await userEvent.type(input, 'b')
+    expect(update).toHaveBeenLastCalledWith('n1', { fromMailbox: 'b' })
+  })
+
+  it('flags a mailbox with an @ before the node runs', () => {
+    renderConfig({ fromMailbox: 'sales@example.com' })
+    expect(screen.getByText(/only the part before the @/i)).toBeInTheDocument()
   })
 
   it('is registered, offered in the palette, and has a guide', () => {

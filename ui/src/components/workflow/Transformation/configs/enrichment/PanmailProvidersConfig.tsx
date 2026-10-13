@@ -22,6 +22,17 @@ const PROVIDER_TYPES = [
   { label: 'POP3 (inbound only)', value: 'pop3' },
 ];
 
+// The dot-atom local part isMailbox accepts in panmail_providers.go.
+const MAILBOX = /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*$/;
+
+function mailboxError(value: unknown): string | undefined {
+  const v = String(value ?? '').trim();
+  if (v === '') return undefined;
+  if (v.includes('@')) return 'Only the part before the @, e.g. noreply; the domains come from the provider.';
+  if (v.length > 64 || !MAILBOX.test(v)) return 'Letters, digits, dots and - _ + only, e.g. noreply.';
+  return undefined;
+}
+
 export function PanmailProvidersConfig({ config, updateNodeConfig, nodeId, fieldPaths = [] }: PanmailProvidersConfigProps) {
   const set = (patch: Record<string, any>) => updateNodeConfig(nodeId, patch);
 
@@ -65,23 +76,33 @@ export function PanmailProvidersConfig({ config, updateNodeConfig, nodeId, field
           onChange={(val) => set({ providerType: val || '' })}
         />
       </FormRow>
-      <FormRow cols={2}>
-      <TextInput
-        label="Target Field"
-        placeholder="panmail_providers"
-        value={config.targetField || ''}
-        onChange={(e) => set({ targetField: e.currentTarget.value })}
-      />
-      <TextInput
-        label="Cache TTL"
-        placeholder="5m"
-        value={config.ttl || ''}
-        onChange={(e) => set({ ttl: e.currentTarget.value })}
-        description="How long a list is reused, e.g. 30s, 5m, 1h. 0 turns the cache off."
-      />
+      <FormRow cols={3}>
+        <TextInput
+          label="From mailbox"
+          placeholder="noreply"
+          value={config.fromMailbox || ''}
+          onChange={(e) => set({ fromMailbox: e.currentTarget.value })}
+          error={mailboxError(config.fromMailbox)}
+          description="Composes fromEmail: noreply becomes noreply@ each allowed domain."
+        />
+        <TextInput
+          label="Target Field"
+          placeholder="panmail_providers"
+          value={config.targetField || ''}
+          onChange={(e) => set({ targetField: e.currentTarget.value })}
+        />
+        <TextInput
+          label="Cache TTL"
+          placeholder="5m"
+          value={config.ttl || ''}
+          onChange={(e) => set({ ttl: e.currentTarget.value })}
+          description="How long a list is reused, e.g. 30s, 5m, 1h. 0 turns the cache off."
+        />
       </FormRow>
       <Text size="xs" c="dimmed">
-        Writes a list of providers, each with id, name, type, allowedDomains and fromDomains (the domains it may send From), into the target field.
+        Writes a list of providers into the target field, each with id, name, type, allowedDomains,
+        fromDomains (the domains it may send From), and fromEmail / fromEmails (the From mailbox at
+        those domains; the gateway itself stores no From address).
       </Text>
     </Stack>
   );
