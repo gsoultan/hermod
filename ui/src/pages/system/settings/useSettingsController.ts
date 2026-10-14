@@ -110,6 +110,9 @@ export function useSettingsController() {
     panmail_to: '',
     panmail_dead_letters: false,
     panmail_hide_payload: false,
+    email_dead_letters: false,
+    telegram_dead_letters: false,
+    dead_letter_hide_payload: false,
   })
 
   // Settings holds dozens of independent fields across six tabs with no single

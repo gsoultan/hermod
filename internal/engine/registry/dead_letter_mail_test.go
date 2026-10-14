@@ -108,7 +108,7 @@ func TestDeadLettersAreMailedThroughPanmail(t *testing.T) {
 		t.Errorf("X-API-Key = %q, want key-123", keys[0])
 	}
 	text, _ := bodies[0]["bodyText"].(string)
-	for _, want := range []string{"Orders sync", "transform-1", "field total is not a number", `"order": 42`, "/workflows/wf-1/edit?dlq=open"} {
+	for _, want := range []string{"Orders sync", "transform-1", "field total is not a number", `"order": 42`, "/dead-letters?workflow_id=wf-1"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("mail lacks %q:\n%s", want, text)
 		}

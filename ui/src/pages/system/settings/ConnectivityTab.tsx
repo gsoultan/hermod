@@ -68,6 +68,12 @@ export function ConnectivityTab({ ctx }: { ctx: SettingsController }) {
                   checked={notifSettings.smtp_ssl}
                   onChange={(e) => setNotifSettings({ ...notifSettings, smtp_ssl: e.currentTarget.checked })}
                 />
+                <Checkbox
+                  label="Email every dead-lettered message"
+                  description="One mail per workflow per minute to the Default Recipient, naming the workflow, the node or sink, the error and up to 10 of the messages, with a link to the Dead Letters page."
+                  checked={notifSettings.email_dead_letters}
+                  onChange={(e) => setNotifSettings({ ...notifSettings, email_dead_letters: e.currentTarget.checked })}
+                />
               </Stack>
             </Paper>
 
@@ -152,6 +158,20 @@ export function ConnectivityTab({ ctx }: { ctx: SettingsController }) {
                   value={notifSettings.telegram_chat_id}
                   onChange={(e) => setNotifSettings({ ...notifSettings, telegram_chat_id: e.target.value })}
                 />
+                <Checkbox
+                  label="Send every dead-lettered message to Telegram"
+                  description="One message per workflow per minute to the Default Chat ID, with the error and up to 5 of the messages."
+                  checked={notifSettings.telegram_dead_letters}
+                  onChange={(e) => setNotifSettings({ ...notifSettings, telegram_dead_letters: e.currentTarget.checked })}
+                />
+                {(notifSettings.email_dead_letters || notifSettings.telegram_dead_letters) && (
+                  <Checkbox
+                    label="Leave message contents out of email and Telegram alerts"
+                    description="Send the workflow, node and error only, for messages that hold personal or sensitive data."
+                    checked={notifSettings.dead_letter_hide_payload}
+                    onChange={(e) => setNotifSettings({ ...notifSettings, dead_letter_hide_payload: e.currentTarget.checked })}
+                  />
+                )}
               </Stack>
             </Paper>
 

@@ -222,7 +222,10 @@ import (
 // unpopulated — a gap in a chart that fills itself in when the newer binary
 // returns — so bumping the version would buy nothing and cost a refused
 // start-up during exactly the rollback it was supposed to make safe.
-const knownSchemaFingerprint = "d53d56c09173fa35cb74f7ebda2bc82fbbe7a1cc85a5c6f936ef0e5e94103a12"
+//
+// dead_letters is the same case: a standalone table only the dead letter page
+// reads. A rollback stops adding to it and leaves the rows it has.
+const knownSchemaFingerprint = "1c98f6f960cdfdb0036dc126926e1d20da89651537d2dcfe052e72865ade3d43"
 
 func TestSchemaVersionIsReconsideredWhenTheSchemaChanges(t *testing.T) {
 	if got := SchemaFingerprint(); got != knownSchemaFingerprint {

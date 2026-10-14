@@ -10,7 +10,7 @@ import { getSessionRole, getSessionUser, clearSession } from '@/auth/session';
 import { Spotlight, spotlight } from '@mantine/spotlight';
 import '@mantine/spotlight/styles.css';
 import { notifications } from '@mantine/notifications';
-import { IconActivity, IconBraces, IconChevronLeft, IconChevronRight, IconCloudUpload, IconDashboard, IconDatabase, IconGitBranch, IconGitMerge, IconHierarchy, IconHistory, IconKey, IconList, IconLogout, IconMoon, IconPlus, IconPuzzle, IconRocket, IconSearch, IconServer, IconSettings, IconShieldLock, IconSun, IconUser, IconUsers, IconWorld, IconChecklist, IconBrain, IconCoin } from '@tabler/icons-react';
+import { IconActivity, IconBraces, IconChevronLeft, IconChevronRight, IconCloudUpload, IconDashboard, IconDatabase, IconGitBranch, IconGitMerge, IconHierarchy, IconHistory, IconKey, IconList, IconLogout, IconMoon, IconPlus, IconPuzzle, IconRocket, IconSearch, IconServer, IconSettings, IconShieldLock, IconSun, IconUser, IconUsers, IconWorld, IconChecklist, IconBrain, IconCoin, IconMailbox } from '@tabler/icons-react';
 import type { Workflow } from '@/types';
 import { ErrorBoundary } from './ErrorBoundary';
 import { useConfirm } from '@/components/common/ConfirmProvider';
@@ -597,6 +597,7 @@ export function Layout({ children }: LayoutProps) {
             />
             <SideLink to="/workflows" label="Workflows" icon={IconGitBranch} desktopOpened={desktopOpened} />
             <SideLink to="/approvals" label="Approvals" icon={IconChecklist} desktopOpened={desktopOpened} />
+            <SideLink to="/dead-letters" label="Dead Letters" icon={IconMailbox} desktopOpened={desktopOpened} />
             <SideLink to="/logs" label="Logs" icon={IconHistory} desktopOpened={desktopOpened} />
             <SideLink to="/schemas" label="Schema Registry" icon={IconBraces} desktopOpened={desktopOpened} />
             {canEdit && (

@@ -38,6 +38,7 @@ const (
 	QueryInitMLJobResultsTable       = "InitMLJobResultsTable"
 	QueryInitAIBudgetsTable          = "InitAIBudgetsTable"
 	QueryInitAIUsageTable            = "InitAIUsageTable"
+	QueryInitDeadLettersTable        = "InitDeadLettersTable"
 	QueryInitWorkersTable            = "InitWorkersTable"
 	QueryInitLogsTable               = "InitLogsTable"
 	QueryInitWorkflowsTable          = "InitWorkflowsTable"
@@ -151,6 +152,16 @@ const (
 	QueryMarkAIUsageTokensWarned = "MarkAIUsageTokensWarned"
 	QueryMarkAIUsageCostWarned   = "MarkAIUsageCostWarned"
 	QueryDeleteAIUsageOfVHost    = "DeleteAIUsageOfVHost"
+
+	// Dead letters
+	QueryInsertDeadLetter        = "InsertDeadLetter"
+	QueryGetDeadLetter           = "GetDeadLetter"
+	QueryListDeadLetters         = "ListDeadLetters"
+	QueryCountDeadLetters        = "CountDeadLetters"
+	QuerySettleDeadLetter        = "SettleDeadLetter"
+	QueryDeadLetterTopError      = "DeadLetterTopError"
+	QueryPurgeDeadLetters        = "PurgeDeadLetters"
+	QuerySetDeadLetterHistory    = "SetDeadLetterHistory"
 	QueryListRetrainingMLModels  = "ListRetrainingMLModels"
 	QuerySetMLModelRetrain       = "SetMLModelRetrain"
 	QuerySetMLModelRetrainStatus = "SetMLModelRetrainStatus"
@@ -556,6 +567,29 @@ var commonQueries = map[string]string{
 			cost_warned_at TIMESTAMP,
 			updated_at TIMESTAMP
 		)`,
+	// One row per dead-lettered message, whatever the workflow's dead-letter
+	// sink is, so the dead letter page can read every one of them. history is
+	// the list of what happened to it, as JSON; status moves from queued to
+	// replayed or discarded once, by an UPDATE that requires it still queued.
+	QueryInitDeadLettersTable: `CREATE TABLE IF NOT EXISTS dead_letters (
+			id TEXT PRIMARY KEY,
+			vhost TEXT NOT NULL DEFAULT '',
+			workflow_id TEXT NOT NULL,
+			message_id TEXT,
+			node_id TEXT,
+			sink_id TEXT,
+			error TEXT,
+			failed_at TIMESTAMP NOT NULL,
+			payload BLOB,
+			payload_size BIGINT NOT NULL DEFAULT 0,
+			truncated BOOLEAN DEFAULT FALSE,
+			metadata TEXT,
+			origin TEXT,
+			status TEXT NOT NULL DEFAULT 'queued',
+			settled_at TIMESTAMP,
+			settled_by TEXT,
+			history TEXT
+		)`,
 	QueryInitWorkersTable: `CREATE TABLE IF NOT EXISTS workers (
 			id TEXT PRIMARY KEY,
 			name TEXT,
@@ -954,7 +988,16 @@ var commonQueries = map[string]string{
 	QueryMarkAIUsageTokensWarned: "UPDATE ai_usage SET tokens_warned_at = ? WHERE id = ? AND tokens_warned_at IS NULL",
 	QueryMarkAIUsageCostWarned:   "UPDATE ai_usage SET cost_warned_at = ? WHERE id = ? AND cost_warned_at IS NULL",
 	QueryDeleteAIUsageOfVHost:    "DELETE FROM ai_usage WHERE vhost = ?",
-	QueryGetVHost:                "SELECT id, name, description, created_at FROM vhosts WHERE id = ?",
+
+	QueryInsertDeadLetter:     "INSERT INTO dead_letters (id, vhost, workflow_id, message_id, node_id, sink_id, error, failed_at, payload, payload_size, truncated, metadata, origin, status, settled_at, settled_by, history) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryGetDeadLetter:        "SELECT id, vhost, workflow_id, message_id, node_id, sink_id, error, failed_at, payload, payload_size, truncated, metadata, origin, status, settled_at, settled_by, history FROM dead_letters WHERE id = ?",
+	QueryListDeadLetters:      "SELECT id, vhost, workflow_id, message_id, node_id, sink_id, error, failed_at, payload_size, truncated, status, settled_at, settled_by FROM dead_letters",
+	QueryCountDeadLetters:     "SELECT COUNT(*) FROM dead_letters",
+	QuerySettleDeadLetter:     "UPDATE dead_letters SET status = ?, settled_at = ?, settled_by = ?, history = ? WHERE id = ? AND status = 'queued'",
+	QueryDeadLetterTopError:   "SELECT error, COUNT(*) FROM dead_letters%s GROUP BY error ORDER BY COUNT(*) DESC, error LIMIT 1",
+	QueryPurgeDeadLetters:     "DELETE FROM dead_letters WHERE failed_at < ?",
+	QuerySetDeadLetterHistory: "UPDATE dead_letters SET history = ? WHERE id = ? AND status = ?",
+	QueryGetVHost:             "SELECT id, name, description, created_at FROM vhosts WHERE id = ?",
 
 	QueryInsertMLPredictionLog:         "INSERT INTO ml_prediction_logs (vhost, model, version, timestamp, inputs, outputs, latency_ms, caller_kind, caller_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 	QueryListMLPredictionLogs:          "SELECT version, timestamp, inputs, outputs, latency_ms, caller_kind, caller_id FROM ml_prediction_logs WHERE vhost = ? AND model = ? ORDER BY timestamp DESC LIMIT ?",
@@ -1105,6 +1148,7 @@ var driverOverrides = map[string]map[string]string{
 		QuerySaveSetting:     "INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
 	},
 	"sqlserver": {
+		QueryDeadLetterTopError: "SELECT TOP 1 error, COUNT(*) FROM dead_letters%s GROUP BY error ORDER BY COUNT(*) DESC, error",
 		// SQL Server has no LIMIT. OFFSET/FETCH keeps the limit the last
 		// argument, as it is in the common query.
 		QueryListMLPredictionLogs: "SELECT version, timestamp, inputs, outputs, latency_ms, caller_kind, caller_id FROM ml_prediction_logs WHERE vhost = ? AND model = ? ORDER BY timestamp DESC OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY",
