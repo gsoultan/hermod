@@ -465,6 +465,7 @@ func (h *SourceHandler) TestSource(w http.ResponseWriter, r *http.Request) {
 	// like Sample that may vary in type across UIs).
 	var req struct {
 		Type   string           `json:"type"`
+		VHost  string           `json:"vhost"`
 		Config hermod.StringMap `json:"config"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -472,7 +473,10 @@ func (h *SourceHandler) TestSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := factory.SourceConfig{Type: req.Type, Config: req.Config}
+	if !h.AllowConnectorVHost(w, r, req.VHost) {
+		return
+	}
+	cfg := factory.SourceConfig{Type: req.Type, VHost: req.VHost, Config: req.Config}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 
@@ -488,6 +492,7 @@ func (h *SourceHandler) TestSource(w http.ResponseWriter, r *http.Request) {
 func (h *SourceHandler) DiscoverDatabases(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Type   string           `json:"type"`
+		VHost  string           `json:"vhost"`
 		Config hermod.StringMap `json:"config"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -495,7 +500,10 @@ func (h *SourceHandler) DiscoverDatabases(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	cfg := factory.SourceConfig{Type: req.Type, Config: req.Config}
+	if !h.AllowConnectorVHost(w, r, req.VHost) {
+		return
+	}
+	cfg := factory.SourceConfig{Type: req.Type, VHost: req.VHost, Config: req.Config}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 
@@ -512,6 +520,7 @@ func (h *SourceHandler) DiscoverDatabases(w http.ResponseWriter, r *http.Request
 func (h *SourceHandler) DiscoverTables(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Type   string           `json:"type"`
+		VHost  string           `json:"vhost"`
 		Config hermod.StringMap `json:"config"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -519,7 +528,10 @@ func (h *SourceHandler) DiscoverTables(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := factory.SourceConfig{Type: req.Type, Config: req.Config}
+	if !h.AllowConnectorVHost(w, r, req.VHost) {
+		return
+	}
+	cfg := factory.SourceConfig{Type: req.Type, VHost: req.VHost, Config: req.Config}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 
@@ -537,6 +549,7 @@ func (h *SourceHandler) DiscoverSourceColumns(w http.ResponseWriter, r *http.Req
 	var req struct {
 		Source struct {
 			Type   string           `json:"type"`
+			VHost  string           `json:"vhost"`
 			Config hermod.StringMap `json:"config"`
 		} `json:"source"`
 		Table string `json:"table"`
@@ -546,7 +559,10 @@ func (h *SourceHandler) DiscoverSourceColumns(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	cfg := factory.SourceConfig{Type: req.Source.Type, Config: req.Source.Config}
+	if !h.AllowConnectorVHost(w, r, req.Source.VHost) {
+		return
+	}
+	cfg := factory.SourceConfig{Type: req.Source.Type, VHost: req.Source.VHost, Config: req.Source.Config}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 
@@ -565,6 +581,7 @@ func (h *SourceHandler) DiscoverSourceColumns(w http.ResponseWriter, r *http.Req
 func (h *SourceHandler) DiscoverReplication(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Type   string           `json:"type"`
+		VHost  string           `json:"vhost"`
 		Config hermod.StringMap `json:"config"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -572,7 +589,10 @@ func (h *SourceHandler) DiscoverReplication(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	cfg := factory.SourceConfig{Type: req.Type, Config: req.Config}
+	if !h.AllowConnectorVHost(w, r, req.VHost) {
+		return
+	}
+	cfg := factory.SourceConfig{Type: req.Type, VHost: req.VHost, Config: req.Config}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
@@ -600,6 +620,7 @@ func (h *SourceHandler) SampleSourceTable(w http.ResponseWriter, r *http.Request
 	var req struct {
 		Source struct {
 			Type   string           `json:"type"`
+			VHost  string           `json:"vhost"`
 			Config hermod.StringMap `json:"config"`
 		} `json:"source"`
 		Table string `json:"table"`
@@ -608,7 +629,10 @@ func (h *SourceHandler) SampleSourceTable(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	cfg := factory.SourceConfig{Type: req.Source.Type, Config: req.Source.Config}
+	if !h.AllowConnectorVHost(w, r, req.Source.VHost) {
+		return
+	}
+	cfg := factory.SourceConfig{Type: req.Source.Type, VHost: req.Source.VHost, Config: req.Source.Config}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 
@@ -630,6 +654,9 @@ func (h *SourceHandler) QuerySource(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.JsonError(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if !h.AllowConnectorVHost(w, r, req.Config.VHost) {
 		return
 	}
 

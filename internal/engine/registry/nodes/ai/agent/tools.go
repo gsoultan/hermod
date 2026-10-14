@@ -57,7 +57,7 @@ func (r *run) callRemote(ctx context.Context, t tool, c llm.ToolCall, args map[s
 }
 
 // toolMessage is a fresh message holding only the call's arguments. It runs
-// in the vhost of the message being processed, so {{secret("X")}} in the
+// in the vhost of the message being processed, so {{secret.X}} in the
 // tool's fixed config resolves to that vhost's secret; nothing else of the
 // original message (metadata such as a reply id included) comes along.
 func (r *run) toolMessage(id string, args map[string]any) *message.DefaultMessage {

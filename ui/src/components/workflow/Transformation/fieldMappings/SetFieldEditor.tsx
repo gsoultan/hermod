@@ -263,7 +263,7 @@ export function SetFieldEditor({
                       onChange={(val) => updateFieldValue(field.fullKey, val)}
                       availableFields={availableFields}
                       buildToken={(p) => `source.${p}`}
-                      buildSecretToken={(name) => `secret("${name}")`}
+                      buildSecretToken={(name) => `secret.${name}`}
                       functions="expression"
                       multiline
                     />

@@ -57,11 +57,11 @@ describe('AI connection settings', () => {
   it('stores the key as a vhost secret reference, never the key itself', () => {
     renderPrompt({ provider: 'openai' })
     fireEvent.change(keyInput(), { target: { value: 'OPENAI_KEY' } })
-    expect(saved.apiKey).toBe('{{secret("OPENAI_KEY")}}')
+    expect(saved.apiKey).toBe('{{secret.OPENAI_KEY}}')
   })
 
   it('reads the secret name back from a saved reference', () => {
-    renderPrompt({ provider: 'anthropic', apiKey: '{{secret("CLAUDE_KEY")}}' })
+    renderPrompt({ provider: 'anthropic', apiKey: '{{secret.CLAUDE_KEY}}' })
     expect(keyInput().value).toBe('CLAUDE_KEY')
     expect(screen.queryByText(/stored in the workflow/i)).toBeNull()
   })
@@ -71,7 +71,7 @@ describe('AI connection settings', () => {
     renderPrompt({ provider: 'openai' }, ['OPENAI_KEY', 'OTHER'])
     await user.click(keyInput())
     await user.click(screen.getByText('OPENAI_KEY'))
-    expect(saved.apiKey).toBe('{{secret("OPENAI_KEY")}}')
+    expect(saved.apiKey).toBe('{{secret.OPENAI_KEY}}')
   })
 
   it('rejects a name a vhost secret cannot have', () => {
@@ -142,7 +142,7 @@ describe('AI connection settings', () => {
     fireEvent.change(await screen.findByRole('combobox', { name: /fallback api key secret/i }), {
       target: { value: 'OPENAI_KEY' },
     })
-    expect(saved.fallbackApiKey).toBe('{{secret("OPENAI_KEY")}}')
+    expect(saved.fallbackApiKey).toBe('{{secret.OPENAI_KEY}}')
   })
 })
 

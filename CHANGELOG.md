@@ -28,6 +28,44 @@ payload out of mail for workflows that carry personal data. Panmail fields take
 only, so a vhost secret cannot redirect the alert gateway or its key. Panmail is
 also an ordinary alert channel and is part of Send Test Notification.
 
+### Changed — One way to write a secret: `{{secret.NAME}}` and `{{env.NAME}}`
+
+Secrets and server variables are now written the same way in every source,
+transformation and sink setting, and they sit next to record fields:
+
+| What | Write | Example |
+| --- | --- | --- |
+| A record field | `{{.path}}` | `{{.after.email}}` |
+| A vhost secret | `{{secret.NAME}}` | `{{secret.PANMAIL_GATEWAYURL}}` |
+| A server variable (`HERMOD_ENV_NAME`) | `{{env.NAME}}` | `https://{{env.MAIL_HOST}}/` |
+| Inside a function | `secret.NAME`, `env.NAME` | `{{concat("Bearer ", secret.API_KEY)}}` |
+
+No leading dot means a secret or a variable. A leading dot means the record, so
+`{{.secret.NAME}}` is a field of the message and never a secret. The insert
+buttons, the value builder and the help text all write the new spelling. The
+older `{{secret("NAME")}}`, `{{secret:NAME}}`, `{{env("NAME", "fallback")}}`
+and the bare `secret:NAME` keep working, so no saved workflow needs to change.
+A Set Fields value that is exactly `secret.NAME` or `env.NAME`, or an unquoted
+function argument of that shape, is now read as that reference; to keep it as
+plain text, quote it (`"env.staging"`).
+
+### Fixed — Test connection did not read the vhost's secrets
+
+Test connection, database and table discovery, sampling and queries on a source
+or sink dropped the vhost the form sent. A setting that used a vhost secret
+(a Panmail gateway at `{{secret("PANMAIL_GATEWAYURL")}}`, or a RabbitMQ password
+holding `dev@1234`) failed the test with an unresolved reference, even though
+the same sink or source runs fine. They now resolve for the connector's vhost,
+and a caller without access to that vhost is refused.
+
+### Fixed — The Panmail form treated a secret as a per-message gateway
+
+A gateway URL or API key that was only a secret reference showed the "the row
+decides where a credential is sent" warning and required Allowed gateway hosts.
+A secret is resolved once, when the sink connects, so neither is asked for now.
+A value that also uses a record field (`https://{{.tenant}}.{{secret.DOMAIN}}`)
+still needs the allowlist.
+
 ### Added — Customers likely to buy in the next N days
 
 A **When will they buy again** (`reorder`) model now answers "which customers

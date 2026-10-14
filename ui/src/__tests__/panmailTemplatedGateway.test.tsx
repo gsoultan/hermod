@@ -33,6 +33,25 @@ describe('the panmail allowlist field', () => {
     expect(screen.queryByLabelText(/allowed gateway hosts/i)).not.toBeInTheDocument()
   })
 
+  // A secret or env reference is resolved once, when the sink connects
+  // (secrets.ExpandReferences), so the gateway is as fixed as a typed url.
+  it.each([
+    '{{secret.PANMAIL_GATEWAYURL}}',
+    '{{ env.PANMAIL_GATEWAYURL }}',
+    '{{secret("PANMAIL_GATEWAYURL")}}',
+    'https://{{secret:MAIL_HOST}}/',
+  ])('stays out of the way for the reference %s', (url) => {
+    ui({ ...base, base_url: url, api_key: '{{secret.PANMAIL_API_KEY}}' })
+    expect(screen.queryByLabelText(/allowed gateway hosts/i)).not.toBeInTheDocument()
+  })
+
+  it('appears for a row field next to a secret', async () => {
+    ui({ ...base, base_url: 'https://{{.tenant}}.{{secret.MAIL_DOMAIN}}' })
+    await waitFor(() =>
+      expect(screen.getByLabelText(/allowed gateway hosts/i)).toBeInTheDocument(),
+    )
+  })
+
   it('appears once the gateway url is templated', async () => {
     ui({ ...base, base_url: 'https://{{.tenant}}.mail.example.com' })
     await waitFor(() =>

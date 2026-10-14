@@ -32,7 +32,7 @@ const headersOf = (rows: HeaderRow[]): Record<string, string> =>
 const sameHeaders = (a: Record<string, string>, b: Record<string, string>) => JSON.stringify(a) === JSON.stringify(b)
 
 const URL_HINT =
-  'The server\'s Streamable HTTP endpoint, http or https. May be a template such as {{secret("MCP_URL")}}.'
+  'The server\'s Streamable HTTP endpoint, http or https. May be a template such as {{secret.MCP_URL}}.'
 
 /** The write flag as the three-way choice: absent, false or true (config.go parseMCP). */
 const WRITE_CHOICES = { unset: 'unset', readOnly: 'false', writes: 'true' } as const

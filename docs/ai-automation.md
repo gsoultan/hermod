@@ -13,7 +13,7 @@ Every AI node takes the same connection settings:
 |---|---|
 | `provider` | `anthropic` (alias `claude`), `openai` (alias `chatgpt`), `gemini` (alias `google`), `deepseek`, `mistral`, `groq`, `openrouter`, `together`, `xai`, `ollama`, `openai_compatible` |
 | `model` | The provider's model id. `anthropic` defaults to `claude-opus-5-5`; the others need one. |
-| `apiKey` | A vhost secret reference: `{{secret("ANTHROPIC_API_KEY")}}`. |
+| `apiKey` | A vhost secret reference: `{{secret.ANTHROPIC_API_KEY}}`. |
 | `baseUrl` | Required for `openai_compatible`; optional elsewhere. |
 | `fallbackProvider`, `fallbackModel`, `fallbackApiKey` | Used when the primary is unavailable (rate limit, server error, refusal), never for a bad request. |
 | `maxConcurrency`, `maxTokens`, `temperature`, `timeout` | Per-node limits. `timeout` defaults to 60s. |
@@ -67,7 +67,7 @@ Each source has its own path, `/api/chat/<name>`, and a `platform`:
 | `slack` | Events API deliveries (`message`, `app_mention`) | `slack_signing_secret` (`X-Slack-Signature`, five-minute replay window) | `chat.postMessage` with `slack_bot_token`, in the thread the message was in |
 | `telegram` | Bot API webhook updates (text messages) | `telegram_secret_token` (`X-Telegram-Bot-Api-Secret-Token`) | A `sendMessage` call in the webhook response; no bot token needed |
 
-A chat source with no credential for its platform answers nobody. Any credential can be a `secret:NAME`
+A chat source with no credential for its platform answers nobody. Any credential can be a `{{secret.NAME}}`
 reference, read from the source's vhost secrets; a reference to a secret that does not exist counts as no
 credential.
 
@@ -214,7 +214,7 @@ its budget and usage.
 
 `examples/templates/` has four AI starters: support triage (classify, extract, draft a reply, approval,
 send), invoice extraction, a CDC anomaly explainer, and a chat assistant (chat source, AI Prompt with memory,
-reply). Each reads its key from `{{secret("ANTHROPIC_API_KEY")}}`.
+reply). Each reads its key from `{{secret.ANTHROPIC_API_KEY}}`.
 
 ## MCP server
 
@@ -231,7 +231,7 @@ authenticate like any API caller. Only workflows tagged `mcp` are exposed, and o
 ## Describe an automation
 
 `POST /api/ai/build-workflow` (Editor) turns a description into a draft workflow using a connection you name
-(the key must be a `{{secret("NAME")}}` reference). The draft only uses node types this build can run and the
+(the key must be a `{{secret.NAME}}` reference). The draft only uses node types this build can run and the
 vhost's own sources and sinks, is checked by the workflow validator, and is returned with its issues. It is
 never saved or started.
 

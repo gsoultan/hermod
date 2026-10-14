@@ -220,6 +220,20 @@ func (h *Handler) GetRoleAndVHosts(r *http.Request) (storage.Role, []string) {
 	return "", nil
 }
 
+// AllowConnectorVHost reports whether the caller may build a connector for
+// vhost, which resolves that vhost's secrets. It writes a 403 when not. Test,
+// Discover, Sample, Browse and Query take a connector config from the request,
+// and the vhost in it decides whose secrets its references read: it is the
+// one part of that config the caller must be entitled to.
+func (h *Handler) AllowConnectorVHost(w http.ResponseWriter, r *http.Request, vhost string) bool {
+	role, vhosts := h.GetRoleAndVHosts(r)
+	if role == "" || role == storage.RoleAdministrator || h.HasVHostAccess(vhost, vhosts) {
+		return true
+	}
+	h.JsonError(w, "Forbidden: no access to vhost "+vhost, http.StatusForbidden)
+	return false
+}
+
 func (h *Handler) HasVHostAccess(vhost string, allowedVHosts []string) bool {
 	if vhost == "" || vhost == "all" || vhost == "default" {
 		return true

@@ -52,7 +52,7 @@ export function PanmailProvidersConfig({ config, updateNodeConfig, nodeId, field
         />
         <TemplateField
           label="API Key"
-          placeholder={'{{secret("PANMAIL_API_KEY")}}'}
+          placeholder={'{{secret.PANMAIL_API_KEY}}'}
           value={config.apiKey || ''}
           onChange={(apiKey) => set({ apiKey })}
           required

@@ -120,7 +120,7 @@ func TestDeadLettersAreMailedThroughPanmail(t *testing.T) {
 // replace the key every alert is sent with.
 func TestPanmailSettingsResolveGlobalSecretsOnly(t *testing.T) {
 	t.Setenv(secrets.DefaultEnvPrefix+"PANMAIL_KEY", "key-123")
-	reg, st, gw := newMailRegistry(t, "{{secret:PANMAIL_KEY}}")
+	reg, st, gw := newMailRegistry(t, "{{secret.PANMAIL_KEY}}")
 	st.set("tenant-a", "PANMAIL_KEY", "tenant-a-key")
 	wf := storage.Workflow{ID: "wf-1", Name: "Orders sync", VHost: "tenant-a"}
 

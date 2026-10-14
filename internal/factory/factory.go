@@ -837,6 +837,23 @@ func PreviewFCMMessage(cfg SinkConfig, msg hermod.Message) (sinkfcm.Preview, err
 	return sinkfcm.PreviewMessage(fcmCfg, msg)
 }
 
+// CreateFCMSink builds the FCM sink a stored configuration describes, without
+// the tracing and retry decorators CreateSink wraps it in. It is for the editor's
+// test send, which needs the sink's own SendTest; the decorators forward Write
+// and the discovery calls, not that. Secrets must already be resolved.
+func CreateFCMSink(cfg SinkConfig) (*sinkfcm.Sink, error) {
+	fcmCfg, err := sinkfcm.FromMap(cfg.Config)
+	if err != nil {
+		return nil, err
+	}
+	fmttr, err := buildFormatter(cfg.Config)
+	if err != nil {
+		return nil, err
+	}
+	fcmCfg.Formatter = fmttr
+	return sinkfcm.New(fcmCfg)
+}
+
 // buildFormatter selects a sink's serialiser from its stored config.
 //
 // A nil formatter is a valid result and means "publish the raw payload bytes",

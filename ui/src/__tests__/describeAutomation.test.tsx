@@ -97,7 +97,7 @@ describe('Describe an automation', () => {
       expect(body).toEqual({
         description: 'Classify support mail',
         vhost: 'support',
-        connection: { provider: 'anthropic', model: 'claude-opus-5-5', apiKey: '{{secret("ANTHROPIC_KEY")}}', baseUrl: '' },
+        connection: { provider: 'anthropic', model: 'claude-opus-5-5', apiKey: '{{secret.ANTHROPIC_KEY}}', baseUrl: '' },
       }),
     )
 

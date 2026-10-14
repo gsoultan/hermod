@@ -52,7 +52,7 @@ describe('secret names in the variable picker', () => {
     expect(within(secrets).getByText('DB_PASS')).toBeInTheDocument()
     await user.click(within(secrets).getByText('API_KEY'))
 
-    expect(screen.getByRole('textbox', { name: /value or expression/i })).toHaveValue('{{secret("API_KEY")}}')
+    expect(screen.getByRole('textbox', { name: /value or expression/i })).toHaveValue('{{secret.API_KEY}}')
   })
 
   it('inserts the spelling the field asks for', async () => {
@@ -181,10 +181,13 @@ describe('a credential input', () => {
     expect(screen.getByLabelText('Token')).toHaveAttribute('type', 'text')
   })
 
-  it('shows a secret reference as written, since it is only a name', () => {
-    renderCredential('{{secret("API_TOKEN")}}')
-    expect(screen.getByLabelText('Token')).toHaveAttribute('type', 'text')
-  })
+  it.each(['{{secret.API_TOKEN}}', '{{ env.API_TOKEN }}', '{{secret("API_TOKEN")}}'])(
+    'shows the reference %s as written, since it is only a name',
+    (value) => {
+      renderCredential(value)
+      expect(screen.getByLabelText('Token')).toHaveAttribute('type', 'text')
+    },
+  )
 
   it('offers only secrets, never record fields', async () => {
     const user = userEvent.setup()
@@ -192,7 +195,7 @@ describe('a credential input', () => {
     await user.click(screen.getByRole('button', { name: 'Insert secret' }))
     const picker = await screen.findByRole('dialog', { hidden: true }, { timeout: 5000 })
     await user.click(within(picker).getByText('API_TOKEN'))
-    expect(screen.getByLabelText('Token')).toHaveValue('{{secret("API_TOKEN")}}')
+    expect(screen.getByLabelText('Token')).toHaveValue('{{secret.API_TOKEN}}')
   })
 })
 

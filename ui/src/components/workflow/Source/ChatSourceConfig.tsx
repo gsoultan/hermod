@@ -108,7 +108,7 @@ export function ChatSourceConfig({ config, updateConfig }: ChatSourceConfigProps
             placeholder="xoxb-..."
             value={config.slack_bot_token || ''}
             onChange={(e) => updateConfig('slack_bot_token', e.target.value)}
-            description="Used to post the answer (chat:write scope). A secret:NAME reference is resolved from the vhost's secrets."
+            description="Used to post the answer (chat:write scope). A {{secret.NAME}} reference is resolved from the vhost's secrets."
             required
           />
           <Text size="xs" c="dimmed">

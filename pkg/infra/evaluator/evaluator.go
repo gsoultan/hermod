@@ -94,6 +94,18 @@ func messageVHost(msg hermod.Message) string {
 	return ""
 }
 
+// referenceToken answers a {{secret.NAME}} or {{env.NAME}} token -- the
+// standard spelling, secrets.DottedReference -- for vhost, exactly as
+// secret("NAME") and env("NAME") would. ok is false for any other token; a
+// leading dot ({{.secret.NAME}}) is a message field and is not one.
+func referenceToken(path, vhost string) (value string, ok bool) {
+	kind, name, ok := secrets.DottedReference(path)
+	if !ok {
+		return "", false
+	}
+	return stringify(secretFunction(kind, vhost, []any{name})), true
+}
+
 // isSecretFunction reports whether name is secret() or env(): the two functions
 // answered from the secret manager, and so the two that need to know the vhost.
 func isSecretFunction(name string) bool {
@@ -141,6 +153,11 @@ func (e *Evaluator) EvaluateAdvancedExpression(msg hermod.Message, expr any) any
 	case string:
 		if strings.Contains(v, "{{") {
 			return resolveValueTemplate(msg, v)
+		}
+		// secret.NAME and env.NAME, as source.x is a path; quote the text to
+		// keep it text.
+		if kind, name, ok := secrets.DottedReference(v); ok {
+			return secretFunction(kind, messageVHost(msg), []any{name})
 		}
 		return e.ParseAndEvaluate(msg, v)
 	case map[string]any, []any:
@@ -266,6 +283,12 @@ func (e *Evaluator) ParseAndEvaluate(msg hermod.Message, expr string) any {
 				args := e.parseArgs(argsStr)
 				evaluatedArgs := make([]any, len(args))
 				for i, arg := range args {
+					// secret.NAME and env.NAME are arguments as source.x is.
+					// Only here: on its own a dotted name is a field or text.
+					if kind, name, ok := secrets.DottedReference(arg); ok {
+						evaluatedArgs[i] = secretFunction(kind, messageVHost(msg), []any{name})
+						continue
+					}
 					evaluatedArgs[i] = e.ParseAndEvaluate(msg, arg)
 				}
 				// CallFunction is not handed the message, and these two
@@ -1452,6 +1475,9 @@ func ResolveTemplate(temp string, data map[string]any) string {
 func ResolveTemplateScoped(temp string, msg hermod.Message) string {
 	scope := &mockMessage{vhost: messageVHost(msg)}
 	return scanTemplate(temp, func(path string) string {
+		if v, ok := referenceToken(path, scope.vhost); ok {
+			return v
+		}
 		if strings.HasPrefix(path, "env.") {
 			// Environment variable access is disabled for security reasons
 			return ""
@@ -1505,7 +1531,11 @@ func messageTokens(msg hermod.Message) func(path string) any {
 		return func(path string) any { return resolveTemplatePath(path, nil) }
 	}
 	resolve := MessageResolver(msg)
+	vhost := messageVHost(msg)
 	return func(path string) any {
+		if v, ok := referenceToken(path, vhost); ok {
+			return v
+		}
 		switch {
 		case strings.HasPrefix(path, "env."):
 			// Environment variable access is disabled for security reasons
@@ -1719,6 +1749,10 @@ func scanTemplate(temp string, resolve func(path string) string) string {
 // resolveTemplatePath resolves a single template token (the text between
 // {{ and }}) to its string value.
 func resolveTemplatePath(path string, data map[string]any) string {
+	// No message, so no vhost: the global secrets.
+	if v, ok := referenceToken(path, ""); ok {
+		return v
+	}
 	var val any
 	switch {
 	case strings.HasPrefix(path, "env."):
@@ -1763,6 +1797,9 @@ func resolveConditionValue(temp string, msg hermod.Message) string {
 // fieldToken reads one {{ }} token's inner text as a field, a `source.` path or
 // a function call -- EvaluateField, after the leading dot a template writes.
 func fieldToken(msg hermod.Message, path string) any {
+	if v, ok := referenceToken(path, messageVHost(msg)); ok {
+		return v
+	}
 	if strings.HasPrefix(path, "env.") {
 		// Environment variable access is disabled for security reasons
 		return nil

@@ -109,7 +109,7 @@ describe('AI Retrieve settings', () => {
     })
     expect(saved.indexHost).toBe('https://docs-abc.svc.pinecone.io')
     fireEvent.change(screen.getByRole('combobox', { name: /pinecone api key secret/i }), { target: { value: 'PINECONE_KEY' } })
-    expect(saved.storeApiKey).toBe('{{secret("PINECONE_KEY")}}')
+    expect(saved.storeApiKey).toBe('{{secret.PINECONE_KEY}}')
     expect(saved.apiKey).toBeUndefined()
     expect(screen.queryByLabelText(/connection string/i)).toBeNull()
   })

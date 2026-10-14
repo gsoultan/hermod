@@ -202,8 +202,9 @@ func TestSetNodeDoesNotHandItsConfiguredObjectToTheMessage(t *testing.T) {
 }
 
 // Resolving tokens in a value must not open what every other template in
-// Hermod closes: {{env.X}} reads nothing, and a resolved value is written as
-// data, never read again as a token or an expression.
+// Hermod closes: {{env.X}} reads only HERMOD_ENV_X, never another variable
+// of the process, and a resolved value is written as data, never read again
+// as a token or an expression.
 func TestSetNodeValueTokensDoNotReachTheEnvironment(t *testing.T) {
 	t.Setenv("HERMOD_SET_NODE_TEST_SECRET", "s3cret-value")
 	tests := []struct {
@@ -214,7 +215,7 @@ func TestSetNodeValueTokensDoNotReachTheEnvironment(t *testing.T) {
 		{
 			name:  "an env token in an object",
 			value: map[string]any{"k": "{{env.HERMOD_SET_NODE_TEST_SECRET}}"},
-			want:  `{"k":null}`,
+			want:  `{"k":""}`,
 		},
 		{
 			name:  "an env token in text",

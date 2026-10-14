@@ -1080,8 +1080,8 @@ func (r *Registry) SetFactories(sourceFactory SourceFactory, sinkFactory SinkFac
 }
 
 // resolveSecrets expands the secret and env references in every value of a
-// connector's config -- `secret:NAME`, `{{secret:NAME}}`, `{{env("NAME")}}`
-// and the rest secrets.ExpandReferences reads -- for the vhost the connector
+// connector's config -- `{{secret.NAME}}`, `{{env.NAME}}` and the older
+// spellings secrets.ExpandReferences still reads -- for the vhost the connector
 // belongs to: that vhost's secrets, then the global manager, then (env only)
 // the HERMOD_ENV_ variables. Every other {{ }} token is left for whatever
 // resolves the value per message. The config passed in is not modified.

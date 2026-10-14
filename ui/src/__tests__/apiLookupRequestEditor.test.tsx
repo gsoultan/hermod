@@ -167,7 +167,7 @@ describe('api_lookup request body', () => {
     fireEvent.select(box)
     await user.click(screen.getByRole('button', { name: /insert field into body/i }))
     await user.click(await screen.findByRole('option', { name: 'SIGNING_KEY' }))
-    expect(stored().body).toBe(`{"key": "{{secret('SIGNING_KEY')}}"}`)
+    expect(stored().body).toBe(`{"key": "{{secret.SIGNING_KEY}}"}`)
   })
 
   it('inserts a function as a quoted token whose text placeholders keep the JSON valid', async () => {
