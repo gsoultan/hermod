@@ -1,11 +1,13 @@
 package recommend
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"math"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -25,16 +27,40 @@ const (
 	whitespaceReason = 0.2
 	// MaxWithinDays bounds a reorder window, as a visit plan's period.
 	MaxWithinDays = 366
+	// peerMin is how many other buying customers make a peer group, as the
+	// worker's PEER_MIN; peerReason the peer share that makes "bought by N
+	// of M <group> customers" a reason; coldOrders the orders under which a
+	// customer leans on its peers twice as much; peerCandidates how many of
+	// its peers' most bought a customer's products also take.
+	peerMin        = 3
+	peerReason     = 0.2
+	coldOrders     = 3
+	peerCandidates = 20
+	// nearSummary is how many products a summary names, earthKm the radius
+	// haversine uses.
+	nearSummary = 3
+	earthKm     = 6371.0
+)
+
+// NearKmMin, NearKmMax, NearPeersMin and NearPeersMax bound a model's nearby
+// peers (the training's near_km and near_peers), as the worker's
+// NEAR_KM_BOUNDS and NEAR_PEERS_BOUNDS.
+const (
+	NearKmMin    = 0.1
+	NearKmMax    = 500
+	NearPeersMin = peerMin
+	NearPeersMax = 200
 )
 
 // AllCustomers is the For of a reorder answer for every customer.
 const AllCustomers = "all_customers"
 
 // The re-ranking weights of the product scenarios, as the worker's
-// PRODUCT_WEIGHTS and AUDIENCE_WEIGHTS.
+// PRODUCT_WEIGHTS and AUDIENCE_WEIGHTS. "peers" applies only to a model with
+// customer categories or sizes, and to a customer with a peer group.
 var (
-	productWeights  = map[string]float64{"cf": 0.6, "whitespace": 0.3, "margin": 0.1}
-	audienceWeights = map[string]float64{"cf": 0.6, "whitespace": 0.4}
+	productWeights  = map[string]float64{"cf": 0.6, "whitespace": 0.3, "margin": 0.1, "peers": 0.2}
+	audienceWeights = map[string]float64{"cf": 0.6, "whitespace": 0.4, "peers": 0.3}
 )
 
 // The reason codes of a Pick.
@@ -45,6 +71,7 @@ const (
 	ReasonWhitespace       = "whitespace"
 	ReasonNotVisited       = "not_visited"
 	ReasonSimilarCustomers = "similar_customers"
+	ReasonPeerGroup        = "peer_group"
 	ReasonBoughtTogether   = "bought_together"
 	ReasonBoosted          = "boosted"
 	ReasonPinned           = "pinned"
@@ -97,11 +124,14 @@ type PlanDay struct {
 }
 
 // Result answers one subject of a call: For is the customer, product or
-// salesman asked about.
+// salesman asked about. Summary, for a customer's products, says in a line
+// what the customer's nearby peers buy, such as "Minimarket customers
+// within 5 km buy: A, B, C"; empty otherwise.
 type Result struct {
-	For   string    `json:"for"`
-	Items []Pick    `json:"items"`
-	Plan  []PlanDay `json:"plan,omitempty"`
+	For     string    `json:"for"`
+	Items   []Pick    `json:"items"`
+	Plan    []PlanDay `json:"plan,omitempty"`
+	Summary string    `json:"summary,omitempty"`
 }
 
 // Query is one scenario call. Exactly one subject is set: Customer,
@@ -113,7 +143,10 @@ type Result struct {
 // to the model's own. AllCustomers asks a reorder model about every
 // customer. WithinDays, for reorder, keeps the customers due to order before
 // Today plus that many days, overdue ones included, ranked by how likely
-// they are to order; 0 is no window.
+// they are to order; 0 is no window. Segment and Size, for a list of
+// customers (visits, reorder, audience), keep only the customers of that
+// category and size, either matched in any case; a numeric Size is bucketed
+// as the model's training cut its customers' sizes (SizeBucket).
 type Query struct {
 	Customer, Product, Salesman, Territory string
 	Customers                              []string
@@ -124,6 +157,7 @@ type Query struct {
 	Rules                                  []Rule
 	ExcludeSeen                            bool
 	WithinDays                             int
+	Segment, Size                          string
 }
 
 // Answer answers a call of the model's scenario: one Result per subject.
@@ -155,6 +189,9 @@ func (m *Model) Answer(q Query) ([]Result, error) {
 	}
 	if q.WithinDays > 0 && scenario != ScenarioReorder {
 		return nil, badQuery(`"within_days" applies to a reorder model ("When will they buy again"), not %s`, scenario)
+	}
+	if err := m.checkGroup(scenario, &q); err != nil {
+		return nil, err
 	}
 	if q.Today.IsZero() {
 		q.Today = time.Now()
@@ -219,6 +256,35 @@ func (c *call) perCustomer() ([]Result, error) {
 	return out, nil
 }
 
+// checkGroup reads a request's category and size: they keep the customers of
+// a customer list, so they are refused for products, and for a model that
+// does not know them.
+func (m *Model) checkGroup(scenario string, q *Query) error {
+	q.Segment, q.Size = strings.TrimSpace(q.Segment), m.SizeBucket(q.Size)
+	if q.Segment == "" && q.Size == "" {
+		return nil
+	}
+	if itemEntity(scenario) != entityCustomers {
+		return badQuery(`"segment" and "size" keep the customers of customer lists (visits, reorder, audience), not %s results`, scenario)
+	}
+	for _, f := range []struct{ attr, value, what string }{{"segment", q.Segment, "customer category"}, {"size", q.Size, "customer size"}} {
+		if f.value == "" {
+			continue
+		}
+		if m.sc == nil || m.sc.cAttrs[f.attr] == nil {
+			return badQuery("this model was trained without a %s (customers.%s): train it again with one to keep only some customers", f.what, f.attr)
+		}
+	}
+	return nil
+}
+
+// inGroup reports whether customer u is of the request's category and size.
+func (c *call) inGroup(u int) bool {
+	q := c.q
+	return (q.Segment == "" || strings.EqualFold(c.m.cattr(u, "segment"), q.Segment)) &&
+		(q.Size == "" || strings.EqualFold(c.m.cattr(u, "size"), q.Size))
+}
+
 // allowedFor says which subjects a scenario takes, for an error.
 func allowedFor(scenario string) string {
 	switch scenario {
@@ -240,6 +306,11 @@ type call struct {
 	scenario string
 	// norms caches each numeric field's minimum and maximum for boosts.
 	norms map[string][2]float64
+	// groups caches the peer groups' item counts (groupCounts).
+	groups map[peerKey]*groupCounts
+	// located caches the customers nearby peers are looked for among
+	// (locatedCustomers).
+	located []locatedCustomer
 }
 
 // cand is a scored candidate: an index of a customer or an item. A reorder
@@ -446,7 +517,7 @@ func (c *call) finish(cands []cand, k int, interacted func(idx, days int) bool) 
 	out := make([]cand, 0, len(cands))
 	boosted := false
 	for _, cd := range cands {
-		if f.blocked[cd.idx] || !f.keep(cd.idx, len(f.rules)) {
+		if f.blocked[cd.idx] || !f.inGroup(cd.idx) || !f.keep(cd.idx, len(f.rules)) {
 			continue
 		}
 		if f.boost(&cd) {
@@ -497,6 +568,12 @@ func (c *call) finisher(interacted func(idx, days int) bool) *finisher {
 		}
 	}
 	return f
+}
+
+// inGroup reports whether a customer result is of the request's category and
+// size; a product result always is.
+func (f *finisher) inGroup(idx int) bool {
+	return f.entity != entityCustomers || f.c.inGroup(idx)
 }
 
 // keep reports whether the filters and excludes among the first upTo rules
@@ -564,7 +641,7 @@ func (f *finisher) pin(out []cand) ([]cand, error) {
 		}
 		for _, id := range r.IDs {
 			i, ok := f.index[id]
-			if !ok || f.blocked[i] || taken[i] {
+			if !ok || f.blocked[i] || !f.inGroup(i) || taken[i] {
 				continue
 			}
 			if n >= f.defaults && !f.keep(i, f.defaults) {
@@ -669,7 +746,7 @@ func (c *call) customerFields(u int) map[string]any {
 	if c.m.sc == nil {
 		return out
 	}
-	for _, key := range []string{"name", "territory", "segment", "salesman"} {
+	for _, key := range []string{"name", "territory", "segment", "size", "salesman"} {
 		if v := c.m.cattr(u, key); v != "" {
 			out[key] = v
 		}
@@ -730,28 +807,51 @@ func (c *call) products(id string) (Result, error) {
 		return res, err
 	}
 	res.Items = c.picks(final, false)
+	if known {
+		res.Summary = c.nearbySummary(u, res.Items)
+	}
 	return res, nil
 }
 
 var popularReason = Reason{Code: ReasonPopular, Text: "One of the most popular products"}
 
-// productCandidates scores a known customer's candidates.
+// candidate is one of a customer's product candidates before re-ranking:
+// its collaborative-filtering score, and why it is one ("" for that score,
+// ReasonPopular for popular fill, reasonPeers for its peers' most bought).
+type candidate struct {
+	item   int
+	score  float64
+	reason string
+}
+
+// reasonPeers marks a candidate taken from a customer's peers.
+const reasonPeers = "peers"
+
+// productCandidates scores a known customer's candidates, as the worker's
+// product_scores: its collaborative-filtering candidates, then its peers'
+// most bought, re-ranked.
 func (c *call) productCandidates(u int) []cand {
 	m := c.m
 	items, _ := m.ForUser(m.users[u], candidates, c.q.ExcludeSeen)
 	best := 0.0
+	list := make([]candidate, 0, len(items))
 	for _, it := range items {
 		if it.Reason == "" && it.Score > best {
 			best = it.Score
 		}
+		list = append(list, candidate{item: m.itemIndex[it.Item], score: it.Score, reason: it.Reason})
 	}
-	weights, total := m.productWeights()
-	out := make([]cand, 0, len(items))
-	for _, it := range items {
-		i := m.itemIndex[it.Item]
+	peers := c.peersOf(u)
+	if peers != nil {
+		list = append(list, c.peerCandidates(u, peers, list)...)
+	}
+	weights, total := m.productWeights(c.peerWeight(u, productWeights["peers"], peers))
+	out := make([]cand, 0, len(list))
+	for _, it := range list {
+		i := it.item
 		cf := 0.0
-		if it.Reason == "" && best > 0 && it.Score > 0 {
-			cf = it.Score / best
+		if it.reason == "" && best > 0 && it.score > 0 {
+			cf = it.score / best
 		}
 		share, have, of := c.whitespaceShare(u, i)
 		mp := 0.0
@@ -760,8 +860,14 @@ func (c *call) productCandidates(u int) []cand {
 				mp = v
 			}
 		}
-		score := (weights["cf"]*cf + weights["whitespace"]*share + weights["margin"]*mp) / total
-		out = append(out, cand{idx: i, score: float64(float32(score)), reasons: productReasons(it.Reason == ReasonPopular, share, have, of)})
+		ps, peerHave := peers.share(i)
+		score := (weights["cf"]*cf + weights["whitespace"]*share + weights["margin"]*mp + weights["peers"]*ps) / total
+		peerText := ""
+		if peerHave > 0 && (ps >= peerReason || it.reason == reasonPeers) {
+			peerText = peers.reason(peerHave)
+		}
+		reasons := productReasons(it.reason == ReasonPopular, share, have, of, peerText)
+		out = append(out, cand{idx: i, score: float64(float32(score)), reasons: reasons})
 	}
 	// Stable: a tie keeps the candidates' order, so popular fill stays most
 	// popular first.
@@ -769,9 +875,9 @@ func (c *call) productCandidates(u int) []cand {
 	return out
 }
 
-// productWeights is the re-ranking weights the model has the data for, and
-// their sum.
-func (m *Model) productWeights() (map[string]float64, float64) {
+// productWeights is the re-ranking weights the model has the data for, with
+// peers' weight when it is above 0, and their sum in the worker's order.
+func (m *Model) productWeights(peers float64) (map[string]float64, float64) {
 	weights := map[string]float64{"cf": productWeights["cf"]}
 	if m.sc != nil && m.sc.cnb > 0 {
 		weights["whitespace"] = productWeights["whitespace"]
@@ -779,20 +885,26 @@ func (m *Model) productWeights() (map[string]float64, float64) {
 	if m.sc != nil && m.sc.hasMargin {
 		weights["margin"] = productWeights["margin"]
 	}
+	if peers > 0 {
+		weights["peers"] = peers
+	}
 	total := 0.0
-	for _, w := range weights {
-		total += w
+	for _, k := range []string{"cf", "whitespace", "margin", "peers"} {
+		total += weights[k]
 	}
 	return weights, total
 }
 
 // productReasons says why a product is offered: how many similar customers
-// buy it when that is a fair share, then popular fill or the general
-// collaborative reason.
-func productReasons(popular bool, share float64, have, of int) []Reason {
+// buy it when that is a fair share, how many of its peers do (peer, "" for
+// none), then popular fill or the general collaborative reason.
+func productReasons(popular bool, share float64, have, of int, peer string) []Reason {
 	var reasons []Reason
 	if have > 0 && share >= whitespaceReason {
 		reasons = append(reasons, Reason{Code: ReasonSimilarCustomers, Text: fmt.Sprintf("Bought by %d of %d similar customers", have, of)})
+	}
+	if peer != "" {
+		reasons = append(reasons, Reason{Code: ReasonPeerGroup, Text: peer})
 	}
 	switch {
 	case popular:
@@ -839,6 +951,368 @@ func (c *call) whitespaceShare(u, item int) (float64, int, int) {
 		return 0, 0, 0
 	}
 	return float64(have) / float64(of), have, of
+}
+
+// ---------------------------------------------------------------------------
+// Peers
+// ---------------------------------------------------------------------------
+
+// peerKey names a peer group: a category, a size or both; "" matches any.
+type peerKey struct{ segment, size string }
+
+// peerKeyOf is customer u's peer group; ok is false when the model has no
+// categories or sizes, or u has neither.
+func (c *call) peerKeyOf(u int) (peerKey, bool) {
+	m := c.m
+	if m.sc == nil || !m.sc.hasPeers {
+		return peerKey{}, false
+	}
+	k := peerKey{m.cattr(u, "segment"), m.cattr(u, "size")}
+	return k, k != peerKey{}
+}
+
+// matches reports whether customer v is of the group.
+func (k peerKey) matches(m *Model, v int) bool {
+	return (k.segment == "" || m.cattr(v, "segment") == k.segment) && (k.size == "" || m.cattr(v, "size") == k.size)
+}
+
+// label names the group in a reason, such as "Retail · large".
+func (k peerKey) label() string {
+	parts := make([]string, 0, 2)
+	for _, p := range []string{k.segment, k.size} {
+		if p != "" {
+			parts = append(parts, p)
+		}
+	}
+	return strings.Join(parts, " · ")
+}
+
+// peers is a customer's peer group, as the worker's Peers: how many of its
+// buying customers, the customer left out, buy each item it was counted
+// for, how many they are, its name, and for nearby peers the radius they
+// are within in kilometres (0 for the whole group).
+type peers struct {
+	have   func(item int) int
+	of     int
+	label  string
+	within float64
+}
+
+// share is the share of the peers who buy item, and how many do; 0 for no
+// peer group.
+func (p *peers) share(item int) (float64, int) {
+	if p == nil {
+		return 0, 0
+	}
+	have := p.have(item)
+	return float64(have) / float64(p.of), have
+}
+
+func (p *peers) reason(have int) string {
+	return fmt.Sprintf("Bought by %d of %d %s customers%s", have, p.of, p.label, p.where())
+}
+
+// where is " within 5 km" for nearby peers, "" for the whole group.
+func (p *peers) where() string {
+	if p.within == 0 {
+		return ""
+	}
+	return " within " + strconv.FormatFloat(p.within, 'f', -1, 64) + " km"
+}
+
+// groupCounts is how many of a group's buying customers buy each item, and
+// how many they are; counted once per call.
+type groupCounts struct {
+	buyers int
+	counts map[uint32]int
+}
+
+func (c *call) groupCounts(k peerKey) *groupCounts {
+	if g, ok := c.groups[k]; ok {
+		return g
+	}
+	m := c.m
+	g := &groupCounts{counts: map[uint32]int{}}
+	for v := range m.users {
+		seen := m.seenBy(v)
+		if len(seen) == 0 || !k.matches(m, v) {
+			continue
+		}
+		g.buyers++
+		for _, i := range seen {
+			g.counts[i]++
+		}
+	}
+	if c.groups == nil {
+		c.groups = map[peerKey]*groupCounts{}
+	}
+	c.groups[k] = g
+	return g
+}
+
+// peersOf is customer u's peers, as the worker's peer_group: the other
+// customers of its category and size who have bought anything, when at
+// least peerMin; nil otherwise. When enough of them are near u (nearPeers),
+// only those.
+func (c *call) peersOf(u int) *peers {
+	k, ok := c.peerKeyOf(u)
+	if !ok {
+		return nil
+	}
+	if near := c.nearPeers(u, k); near != nil {
+		counts := map[uint32]int{}
+		for _, v := range near {
+			for _, i := range c.m.seenBy(v) {
+				counts[i]++
+			}
+		}
+		return &peers{of: len(near), label: k.label(), within: c.m.sc.nearKm, have: func(item int) int { return counts[uint32(item)] }}
+	}
+	g := c.groupCounts(k)
+	seen := c.m.seenBy(u)
+	of := g.buyers
+	if len(seen) > 0 {
+		of--
+	}
+	if of < peerMin {
+		return nil
+	}
+	return &peers{of: of, label: k.label(), have: func(item int) int {
+		n := g.counts[uint32(item)]
+		if has(seen, uint32(item)) {
+			n--
+		}
+		return n
+	}}
+}
+
+// peerCounts is a group's buying customers and how many of them buy one item.
+type peerCounts struct{ buyers, have int }
+
+// peerItemCounts counts, for every peer group of the model's customers, its
+// buying customers and how many of them buy item: what an audience reads of
+// each customer's peers, in one pass.
+func (c *call) peerItemCounts(item int) map[peerKey]peerCounts {
+	m := c.m
+	if m.sc == nil || !m.sc.hasPeers {
+		return nil
+	}
+	out := map[peerKey]peerCounts{}
+	for v := range m.users {
+		seen := m.seenBy(v)
+		if len(seen) == 0 {
+			continue
+		}
+		bought := has(seen, uint32(item))
+		// The groups v is of: its category and size, its category of any
+		// size, and its size of any category.
+		seg, size := m.cattr(v, "segment"), m.cattr(v, "size")
+		var keys []peerKey
+		if seg != "" && size != "" {
+			keys = append(keys, peerKey{seg, size})
+		}
+		if seg != "" {
+			keys = append(keys, peerKey{seg, ""})
+		}
+		if size != "" {
+			keys = append(keys, peerKey{"", size})
+		}
+		for _, k := range keys {
+			pc := out[k]
+			pc.buyers++
+			if bought {
+				pc.have++
+			}
+			out[k] = pc
+		}
+	}
+	return out
+}
+
+// audiencePeers is customer u's peers for one item: its nearby peers when
+// there are enough, otherwise its group's counts from peerItemCounts.
+func (c *call) audiencePeers(u, item int, groups map[peerKey]peerCounts) *peers {
+	k, ok := c.peerKeyOf(u)
+	if !ok {
+		return nil
+	}
+	if near := c.nearPeers(u, k); near != nil {
+		have := 0
+		for _, v := range near {
+			if has(c.m.seenBy(v), uint32(item)) {
+				have++
+			}
+		}
+		return &peers{of: len(near), label: k.label(), within: c.m.sc.nearKm, have: func(int) int { return have }}
+	}
+	pc := groups[k]
+	seen := c.m.seenBy(u)
+	if len(seen) > 0 {
+		pc.buyers--
+	}
+	if pc.buyers < peerMin {
+		return nil
+	}
+	if has(seen, uint32(item)) {
+		pc.have--
+	}
+	return &peers{of: pc.buyers, label: k.label(), have: func(int) int { return pc.have }}
+}
+
+// locatedCustomer is a customer with coordinates who has bought anything.
+type locatedCustomer struct {
+	u        int
+	lat, lon float64
+}
+
+// locatedCustomers are the customers nearby peers are looked for among, by
+// latitude, a tie by index; found once per call.
+func (c *call) locatedCustomers() []locatedCustomer {
+	if c.located != nil {
+		return c.located
+	}
+	m := c.m
+	out := []locatedCustomer{}
+	for v := range m.users {
+		lat, lon := m.cf(v, featLat), m.cf(v, featLon)
+		if len(m.seenBy(v)) > 0 && finite(lat) && finite(lon) {
+			out = append(out, locatedCustomer{v, lat, lon})
+		}
+	}
+	slices.SortFunc(out, func(a, b locatedCustomer) int {
+		if a.lat != b.lat {
+			return cmp.Compare(a.lat, b.lat)
+		}
+		return a.u - b.u
+	})
+	c.located = out
+	return out
+}
+
+// nearPeers is customer u's nearby peers, as the worker's _near_peers: the
+// model's nearPeers nearest other buying customers of group k within its
+// nearKm (a tie by index), when u has coordinates and they are at least
+// peerMin; nil otherwise.
+func (c *call) nearPeers(u int, k peerKey) []int {
+	m := c.m
+	if m.sc == nil || m.sc.nearPeers == 0 {
+		return nil
+	}
+	lat, lon := m.cf(u, featLat), m.cf(u, featLon)
+	if !finite(lat) || !finite(lon) {
+		return nil
+	}
+	located := c.locatedCustomers()
+	// Two points are at least as far apart as their latitudes: only those
+	// within nearKm of latitude can be near (the margin keeps every one the
+	// distance itself would take).
+	span := m.sc.nearKm/earthKm*180/math.Pi + 1e-9
+	from, _ := slices.BinarySearchFunc(located, lat-span, func(l locatedCustomer, t float64) int { return cmp.Compare(l.lat, t) })
+	type near struct {
+		d float64
+		v int
+	}
+	var found []near
+	for _, l := range located[from:] {
+		if l.lat > lat+span {
+			break
+		}
+		if l.u == u || !k.matches(m, l.u) {
+			continue
+		}
+		if d := haversine(lat, lon, l.lat, l.lon); d <= m.sc.nearKm {
+			found = append(found, near{d, l.u})
+		}
+	}
+	slices.SortFunc(found, func(a, b near) int {
+		if a.d != b.d {
+			return cmp.Compare(a.d, b.d)
+		}
+		return a.v - b.v
+	})
+	if len(found) > m.sc.nearPeers {
+		found = found[:m.sc.nearPeers]
+	}
+	if len(found) < peerMin {
+		return nil
+	}
+	out := make([]int, len(found))
+	for i, f := range found {
+		out[i] = f.v
+	}
+	return out
+}
+
+// nearbySummary says in a line what customer u's nearby peers buy, as the
+// worker's nearby_summary: the first nearSummary of its picks they give a
+// reason for, by name; "" when its peers are not nearby or give none.
+func (c *call) nearbySummary(u int, picks []Pick) string {
+	p := c.peersOf(u)
+	if p == nil || p.within == 0 {
+		return ""
+	}
+	var names []string
+	for _, pk := range picks {
+		if len(names) == nearSummary {
+			break
+		}
+		if !slices.ContainsFunc(pk.Reasons, func(r Reason) bool { return r.Code == ReasonPeerGroup }) {
+			continue
+		}
+		name, _ := pk.Fields["name"].(string)
+		if name == "" {
+			name = pk.ID
+		}
+		names = append(names, name)
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s customers%s buy: %s", p.label, p.where(), strings.Join(names, ", "))
+}
+
+// peerWeight is the peers' weight for customer u: 0 without a peer group,
+// twice base for a customer with fewer than coldOrders orders.
+func (c *call) peerWeight(u int, base float64, p *peers) float64 {
+	if p == nil {
+		return 0
+	}
+	if orders := c.m.cf(u, featOrders); !(finite(orders) && orders >= coldOrders) {
+		return 2 * base
+	}
+	return base
+}
+
+// peerCandidates are the peerCandidates items most of customer u's peers
+// buy, not already listed (nor bought, when the request leaves those out),
+// most bought first; a tie by index.
+func (c *call) peerCandidates(u int, p *peers, listed []candidate) []candidate {
+	taken := map[int]bool{}
+	for _, it := range listed {
+		taken[it.item] = true
+	}
+	seen := c.m.seenBy(u)
+	type counted struct{ item, have int }
+	var all []counted
+	for i := range c.m.items {
+		if taken[i] || (c.q.ExcludeSeen && has(seen, uint32(i))) {
+			continue
+		}
+		if n := p.have(i); n > 0 {
+			all = append(all, counted{i, n})
+		}
+	}
+	slices.SortFunc(all, func(a, b counted) int {
+		if a.have != b.have {
+			return b.have - a.have
+		}
+		return a.item - b.item
+	})
+	out := make([]candidate, 0, min(len(all), peerCandidates))
+	for _, it := range all[:min(len(all), peerCandidates)] {
+		out = append(out, candidate{item: it.item, reason: reasonPeers})
+	}
+	return out
 }
 
 // boughtWithin reports whether customer u bought item within days days of
@@ -908,7 +1382,7 @@ func (c *call) audience() (Result, error) {
 	if m.sc != nil && m.sc.cnb > 0 {
 		weights["whitespace"] = audienceWeights["whitespace"]
 	}
-	total := weights["cf"] + weights["whitespace"]
+	groups := c.peerItemCounts(item)
 	var cands []cand
 	for u := range m.users {
 		if c.q.ExcludeSeen && has(m.seenBy(u), uint32(item)) {
@@ -919,15 +1393,24 @@ func (c *call) audience() (Result, error) {
 		if best > 0 && cf[u] > 0 {
 			v = cf[u] / best
 		}
-		score := (weights["cf"]*v + weights["whitespace"]*share) / total
+		peers := c.audiencePeers(u, item, groups)
+		pw := c.peerWeight(u, audienceWeights["peers"], peers)
+		ps, peerHave := peers.share(item)
+		score := (weights["cf"]*v + weights["whitespace"]*share + pw*ps) / (weights["cf"] + weights["whitespace"] + pw)
 		if score <= 0 {
 			continue
 		}
-		reason := Reason{Code: ReasonBoughtTogether, Text: "Buys products often bought with it"}
+		var reasons []Reason
 		if have > 0 && share >= whitespaceReason {
-			reason = Reason{Code: ReasonSimilarCustomers, Text: fmt.Sprintf("%d of %d similar customers buy it", have, of)}
+			reasons = append(reasons, Reason{Code: ReasonSimilarCustomers, Text: fmt.Sprintf("%d of %d similar customers buy it", have, of)})
 		}
-		cands = append(cands, cand{idx: u, score: float64(float32(score)), reasons: []Reason{reason}})
+		if peerHave > 0 && ps >= peerReason {
+			reasons = append(reasons, Reason{Code: ReasonPeerGroup, Text: peers.reason(peerHave)})
+		}
+		if len(reasons) == 0 {
+			reasons = []Reason{{Code: ReasonBoughtTogether, Text: "Buys products often bought with it"}}
+		}
+		cands = append(cands, cand{idx: u, score: float64(float32(score)), reasons: reasons})
 	}
 	slices.SortFunc(cands, byScoreThenIndex)
 	final, err := c.finish(cands, c.k(DefaultK, MaxK), func(u, days int) bool { return c.boughtWithin(u, item, days) })

@@ -220,14 +220,14 @@ func TestARecommenderIsARecommendTool(t *testing.T) {
 	}
 
 	for name, args := range map[string]string{
-		"neither":       `{"k": 3}`,
-		"an object":     `[1]`,
-		"unknown field": `{"user": "1", "amount": 3}`,
-		"fractional k":  `{"item": "a", "k": 2.5}`,
-		"user and for":  `{"user": "1", "for": {"salesman": "R1"}}`,
-		"rules, no for": `{"user": "1", "rules": [{"kind": "pin", "ids": ["a"]}]}`,
+		"neither":        `{"k": 3}`,
+		"an object":      `[1]`,
+		"unknown field":  `{"user": "1", "amount": 3}`,
+		"fractional k":   `{"item": "a", "k": 2.5}`,
+		"user and for":   `{"user": "1", "for": {"salesman": "R1"}}`,
+		"rules, no for":  `{"user": "1", "rules": [{"kind": "pin", "ids": ["a"]}]}`,
 		"window, no for": `{"user": "1", "within_days": 14}`,
-		"unknown for":   `{"for": {"region": "N"}}`,
+		"unknown for":    `{"for": {"region": "N"}}`,
 	} {
 		if _, err := svc.RecommendTool(t.Context(), caller, tool, json.RawMessage(args)); err == nil {
 			t.Errorf("%s: the call was not refused", name)
@@ -257,9 +257,19 @@ func TestARecommenderIsARecommendTool(t *testing.T) {
 	if w := models.recs[2]; w.For == nil || !w.For.AllCustomers || w.WithinDays != 14 {
 		t.Errorf("window request = %+v", w)
 	}
+	// Of one category and size only.
+	if _, err := svc.RecommendTool(t.Context(), caller, tool, json.RawMessage(
+		`{"for": {"all_customers": true, "segment": "Retail", "size": "large"}, "within_days": 14}`)); err != nil {
+		t.Fatal(err)
+	}
+	if w := models.recs[3]; w.For == nil || w.For.Segment != "Retail" || w.For.Size != "large" {
+		t.Errorf("category request = %+v", w)
+	}
 	forProps, _ := props["for"].(map[string]any)["properties"].(map[string]any)
-	if _, ok := forProps["all_customers"]; !ok {
-		t.Errorf("for has no all_customers: %v", forProps)
+	for _, p := range []string{"all_customers", "segment", "size"} {
+		if _, ok := forProps[p]; !ok {
+			t.Errorf("for has no %s: %v", p, forProps)
+		}
 	}
 	models.calls = models.calls[:1]
 	if _, err := svc.RecommendTool(t.Context(), editorOf("tenant-b"), tool, json.RawMessage(`{"user":"1"}`)); !errors.Is(err, mcpserver.ErrModelNotFound) {

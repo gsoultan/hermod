@@ -1,0 +1,889 @@
+[
+ {
+  "today": "2026-10-01",
+  "product": "S2",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "Rl15",
+    "score": 0.7023006677627563,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 15 of 17 Retail \u00b7 large customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "large"
+    }
+   },
+   {
+    "id": "Rs12",
+    "score": 0.6977282166481018,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 15 of 17 Retail \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small"
+    }
+   },
+   {
+    "id": "Ol14",
+    "score": 0.6903780698776245,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 15 of 17 Office \u00b7 large customers"
+     }
+    ],
+    "fields": {
+     "segment": "Office",
+     "size": "large"
+    }
+   },
+   {
+    "id": "Hs14",
+    "score": 0.6871758103370667,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 14 of 17 Horeca \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "segment": "Horeca",
+     "size": "small"
+    }
+   },
+   {
+    "id": "Om15",
+    "score": 0.6748028993606567,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 15 of 17 Office \u00b7 medium customers"
+     }
+    ],
+    "fields": {
+     "segment": "Office",
+     "size": "medium"
+    }
+   },
+   {
+    "id": "Hm12",
+    "score": 0.6747725605964661,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 15 of 17 Horeca \u00b7 medium customers"
+     }
+    ],
+    "fields": {
+     "segment": "Horeca",
+     "size": "medium"
+    }
+   },
+   {
+    "id": "Hl12",
+    "score": 0.6703325510025024,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 14 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {
+     "segment": "Horeca",
+     "size": "large"
+    }
+   },
+   {
+    "id": "Rs13",
+    "score": 0.662929356098175,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 15 of 17 Retail \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small"
+    }
+   },
+   {
+    "id": "Rl13",
+    "score": 0.6605066657066345,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 15 of 17 Retail \u00b7 large customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "large"
+    }
+   },
+   {
+    "id": "Om14",
+    "score": 0.65929114818573,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 15 of 17 Office \u00b7 medium customers"
+     }
+    ],
+    "fields": {
+     "segment": "Office",
+     "size": "medium"
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "product": "S1",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "Ol12",
+    "score": 0.7272595763206482,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 15 of 17 Office \u00b7 large customers"
+     }
+    ],
+    "fields": {
+     "segment": "Office",
+     "size": "large"
+    }
+   },
+   {
+    "id": "Rl15",
+    "score": 0.7167617082595825,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 14 of 17 Retail \u00b7 large customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "large"
+    }
+   },
+   {
+    "id": "Hs14",
+    "score": 0.7164165377616882,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 14 of 17 Horeca \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "segment": "Horeca",
+     "size": "small"
+    }
+   },
+   {
+    "id": "Hm15",
+    "score": 0.7095226049423218,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 15 of 17 Horeca \u00b7 medium customers"
+     }
+    ],
+    "fields": {
+     "segment": "Horeca",
+     "size": "medium"
+    }
+   },
+   {
+    "id": "Hs12",
+    "score": 0.707758367061615,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 14 of 17 Horeca \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "segment": "Horeca",
+     "size": "small"
+    }
+   },
+   {
+    "id": "Hl12",
+    "score": 0.6744067668914795,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 14 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {
+     "segment": "Horeca",
+     "size": "large"
+    }
+   },
+   {
+    "id": "Hl14",
+    "score": 0.6478457450866699,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 14 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {
+     "segment": "Horeca",
+     "size": "large"
+    }
+   },
+   {
+    "id": "Rs15",
+    "score": 0.6465162634849548,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 13 of 17 Retail \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small"
+    }
+   },
+   {
+    "id": "Ol13",
+    "score": 0.6418859958648682,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "11 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 15 of 17 Office \u00b7 large customers"
+     }
+    ],
+    "fields": {
+     "segment": "Office",
+     "size": "large"
+    }
+   },
+   {
+    "id": "Rs13",
+    "score": 0.6397240161895752,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 13 of 17 Retail \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small"
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "product": "S3",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "Rs12",
+    "score": 0.7106982469558716,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 14 of 17 Retail \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small"
+    }
+   },
+   {
+    "id": "Rm13",
+    "score": 0.6818534135818481,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 16 of 17 Retail \u00b7 medium customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "medium"
+    }
+   },
+   {
+    "id": "Hl13",
+    "score": 0.6706809401512146,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 14 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {
+     "segment": "Horeca",
+     "size": "large"
+    }
+   },
+   {
+    "id": "Hs12",
+    "score": 0.6665540933609009,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "12 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 14 of 17 Horeca \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "segment": "Horeca",
+     "size": "small"
+    }
+   },
+   {
+    "id": "Hs13",
+    "score": 0.6504487991333008,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 14 of 17 Horeca \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "segment": "Horeca",
+     "size": "small"
+    }
+   },
+   {
+    "id": "Hs15",
+    "score": 0.650285005569458,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 14 of 17 Horeca \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "segment": "Horeca",
+     "size": "small"
+    }
+   },
+   {
+    "id": "Os15",
+    "score": 0.6461951732635498,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 14 of 17 Office \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "segment": "Office",
+     "size": "small"
+    }
+   },
+   {
+    "id": "Os13",
+    "score": 0.6429774165153503,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 14 of 17 Office \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "segment": "Office",
+     "size": "small"
+    }
+   },
+   {
+    "id": "Rl13",
+    "score": 0.640095591545105,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 13 of 17 Retail \u00b7 large customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "large"
+    }
+   },
+   {
+    "id": "Hm15",
+    "score": 0.6390857100486755,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "12 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 12 of 17 Horeca \u00b7 medium customers"
+     }
+    ],
+    "fields": {
+     "segment": "Horeca",
+     "size": "medium"
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "product": "G0_5",
+  "k": 15,
+  "exclude_seen": false,
+  "items": [
+   {
+    "id": "Rs02",
+    "score": 0.6642534136772156,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "7 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 17 Retail \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small"
+    }
+   },
+   {
+    "id": "Rs04",
+    "score": 0.6642534136772156,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "7 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 17 Retail \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small"
+    }
+   },
+   {
+    "id": "Rs05",
+    "score": 0.6642534136772156,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "7 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 17 Retail \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small"
+    }
+   },
+   {
+    "id": "Rs11",
+    "score": 0.6594350337982178,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "7 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 17 Retail \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small"
+    }
+   },
+   {
+    "id": "Rs06",
+    "score": 0.6288456916809082,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "7 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 17 Retail \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small"
+    }
+   },
+   {
+    "id": "Rs09",
+    "score": 0.6288456916809082,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "7 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 17 Retail \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small"
+    }
+   },
+   {
+    "id": "Rs08",
+    "score": 0.5748885869979858,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "6 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 6 of 17 Retail \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small"
+    }
+   },
+   {
+    "id": "Rs01",
+    "score": 0.570070207118988,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "6 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 6 of 17 Retail \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small"
+    }
+   },
+   {
+    "id": "Rs10",
+    "score": 0.5547534227371216,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "6 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 6 of 17 Retail \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small"
+    }
+   },
+   {
+    "id": "Rs00",
+    "score": 0.5542210936546326,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "6 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 6 of 17 Retail \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small"
+    }
+   },
+   {
+    "id": "Rs03",
+    "score": 0.5389043092727661,
+    "rank": 11,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "6 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 6 of 17 Retail \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small"
+    }
+   },
+   {
+    "id": "Rs07",
+    "score": 0.5193457007408142,
+    "rank": 12,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "6 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 6 of 17 Retail \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small"
+    }
+   },
+   {
+    "id": "Rs15",
+    "score": 0.5066229104995728,
+    "rank": 13,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "7 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 17 Retail \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small"
+    }
+   },
+   {
+    "id": "Rs12",
+    "score": 0.5036276578903198,
+    "rank": 14,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "6 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 6 of 17 Retail \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small"
+    }
+   },
+   {
+    "id": "Rs13",
+    "score": 0.4907737970352173,
+    "rank": 15,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "7 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 17 Retail \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small"
+    }
+   }
+  ]
+ }
+]

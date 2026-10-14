@@ -827,9 +827,10 @@ SELECT customer_id, product_id, quantity, order_date FROM order_lines
 | Orders or invoice lines | Quantity | Lets Hermod leave out returns (negative quantities). |
 | Orders or invoice lines | Amount | Big customers are judged by money, not only by how often they order. |
 | Customers | Territory | Region, area or route. |
-| Customers | Segment | Tier, channel or type. |
-| Customers | Latitude | Plans nearby customers on the same day. |
-| Customers | Longitude | Plans nearby customers on the same day. |
+| Customers | Customer category | Every customer on a list carries it, and a list can be filtered to one category or size. |
+| Customers | Customer size | Every customer on a list carries it, and a list can be filtered to one category or size. |
+| Customers | Latitude | Plans nearby customers on the same day, and finds nearby customers of the same category. |
+| Customers | Longitude | Plans nearby customers on the same day, and finds nearby customers of the same category. |
 | Customers | Credit hold | Yes when the customer must not be offered anything. |
 | Visits or calls | Visits or calls table | Finds customers nobody has visited for a while. |
 | Salesmen | Salesmen table | Gives each salesman their own visits per day and working days. |
@@ -890,7 +891,11 @@ SELECT customer_id, product_id, order_date, SUM(quantity) AS quantity, SUM(amoun
 | Orders or invoice lines | Quantity | Products bought in larger amounts count as stronger likes. |
 | Orders or invoice lines | Amount | Lets Hermod leave out credit notes (negative amounts). |
 | Products | Products table | Lets rules skip inactive products, prefer margin or mix categories. |
-| Customers | Customers table | Lets rules stay inside a territory. |
+| Customers | Customers table | Lets rules stay inside a territory. A category and size offer each customer what others of its kind buy, nearby ones first when it has coordinates. |
+| Customers | Customer category | Customers of the same category and size are each other's peers: Hermod offers what the peers buy, most of all to customers with few orders yet. |
+| Customers | Customer size | Customers of the same category and size are each other's peers: Hermod offers what the peers buy, most of all to customers with few orders yet. A number (headcount, revenue) is cut into small, medium and large. |
+| Customers | Latitude | With a category or size, the peers are the nearby customers of the same kind: the 20 nearest within 5 km (a reason then reads "Bought by 7 of 12 Minimarket customers within 5 km"). |
+| Customers | Longitude | With a category or size, the peers are the nearby customers of the same kind: the 20 nearest within 5 km (a reason then reads "Bought by 7 of 12 Minimarket customers within 5 km"). |
 
 **How much data**
 
@@ -947,6 +952,8 @@ SELECT customer_id, product_id, order_date, SUM(quantity) AS quantity, SUM(amoun
 | Orders or invoice lines | Quantity | Lets Hermod leave out returns (negative quantities). |
 | Orders or invoice lines | Amount | Lets Hermod leave out credit notes (negative amounts). |
 | Customers | Customers table | Lets rules skip customers on credit hold. |
+| Customers | Customer category | Every customer on a list carries it, and a list can be filtered to one category or size. |
+| Customers | Customer size | Every customer on a list carries it, and a list can be filtered to one category or size. |
 
 **How much data**
 
@@ -1012,7 +1019,11 @@ SELECT customer_id, product_id, order_date, SUM(quantity) AS quantity, SUM(amoun
 | Orders or invoice lines | Date | Hermod tests on each customer's latest orders and can measure the history. |
 | Orders or invoice lines | Quantity | Products bought in larger amounts count as stronger likes. |
 | Orders or invoice lines | Amount | Lets Hermod leave out credit notes (negative amounts). |
-| Customers | Customers table | Lets rules skip customers on credit hold. |
+| Customers | Customers table | Lets rules skip customers on credit hold. A category and size find customers like those who buy it, nearby ones first. |
+| Customers | Customer category | Customers of the same category and size are each other's peers: a customer whose peers buy a product is likely to want it, most of all one with few orders yet. |
+| Customers | Customer size | Customers of the same category and size are each other's peers: a customer whose peers buy a product is likely to want it, most of all one with few orders yet. A number (headcount, revenue) is cut into small, medium and large. |
+| Customers | Latitude | With a category or size, the peers are the nearby customers of the same kind: the 20 nearest within 5 km (a reason then reads "Bought by 7 of 12 Minimarket customers within 5 km"). |
+| Customers | Longitude | With a category or size, the peers are the nearby customers of the same kind: the 20 nearest within 5 km (a reason then reads "Bought by 7 of 12 Minimarket customers within 5 km"). |
 | Products | Products table | Helps with products that have few sales yet. |
 
 **How much data**
@@ -1580,8 +1591,46 @@ what. Send `task: "recommendation"` with `scenario` and `data`:
   for, 7 by default.
 - `dataset` and `target` may be sent (the UI sends the transactions dataset
   and `""`); they are ignored, as the roles name the data.
+- `near_km` (0.1 to 500, 5 by default) and `near_peers` (3 to 200, 20 by
+  default) set how near a customer's nearby peers are: see below.
 - `features`, `params`, `preset`, `device: "gpu"` and custom scripts are
   refused for a scenario.
+
+**Customer category, size and nearby customers.** `customers.segment` (shown
+as **Customer category** in the console) and `customers.size` (**Customer
+size**) are optional. A size is a label (small, medium, large, or your own
+such as "Enterprise") or a number such as headcount or yearly revenue: a
+number is cut into small, medium and large at its tertiles, and the two cut
+points are kept with the version (`size_edges` in the artifact), so a number
+given at serving time is bucketed the same way.
+
+With either one, `products` and `audience` add a **peer share**: of the other
+customers of the same category and size (of either, when a customer has only
+one) who have bought anything, the share who buy the product. It counts only
+when there are at least 3 of them; it weighs 0.2 for products and 0.3 for an
+audience, twice that for a customer with fewer than 3 orders, so a new
+customer is offered what customers like it buy. A customer's products also
+take up to 20 of its peers' most bought products as candidates. When enough
+of the peers buy a product (a fifth) the reason says so: "Bought by 12 of 40
+Retail · large customers".
+
+When the customers also have coordinates (`customers.lat` and
+`customers.lon`), a customer's peers are the **nearby** customers of its
+category and size: the `near_peers` nearest within `near_km` kilometres
+(great-circle distance). The reason then reads "Bought by 7 of 12 Minimarket
+customers within 5 km", and a customer's products answer carries a
+`summary` such as "Minimarket customers within 5 km buy: Coffee 1kg, Sugar
+5kg, Tea": the first three products on the list that the nearby peers give a
+reason for. A customer without coordinates, or with fewer than 3 nearby
+peers, uses its whole category and size group instead, and one with neither
+a category nor a size has no peers, as before. The evaluation reports
+`peer_groups` (how many category and size groups there are) and
+`nearby_customers` (how many tested customers had nearby peers), and the
+peer share is part of the scored lists, so the metrics show what it adds.
+
+Every list of customers (a visit plan, reorders, an audience) carries each
+customer's `segment` and `size` in its `fields`. A model trained before
+categories and sizes, or without them, answers exactly as it did.
 
 The version keeps `scenario`, `roles` (as sent), `weights` and
 `applied_weights`, `rules`, `metrics` and `baseline`, `baselines_named`,
@@ -1690,6 +1739,10 @@ curl -X POST https://hermod.example.com/api/ml/serve/default/visit-plan/recommen
   Over that is a 400.
 - `exclude_seen` (true by default) leaves out products the customer already
   bought.
+- `segment` and `size` in `for` keep a list of customers (a visit plan,
+  reorders, an audience) to one customer category and size, in any case; a
+  numeric size is bucketed as in training. They are refused for products or
+  similar products, and for a model trained without that attribute.
 - `"respond": "async"` (or the header `Prefer: respond-async`) runs the call
   as a [job](#asynchronous-jobs), as for predict: the answer is `202` with
   `job_id` and `status_url`, the job's `result` is the answer above, and a
@@ -1699,12 +1752,17 @@ curl -X POST https://hermod.example.com/api/ml/serve/default/visit-plan/recommen
   reason. Sent sync, a call is held to the
   [sync time limit](#the-sync-time-limit).
 
+A customer's products may carry a `summary` next to `for` and `items`: what
+its nearby peers buy, in a line (see
+[Training a scenario](#training-a-scenario)).
+
 Each item has `id`, `score` (compares within one list only), `rank` from 1,
 `reasons`, the `fields` the model has for it, and for `reorder` a `due_date`,
 `overdue: true` once that day has passed, and `products` (below).
 The reason codes are `reorder_due`, `churn_risk`, `high_value`, `whitespace`
 (similar customers buy it), `not_visited`, `similar_customers`,
-`bought_together`, `popular`, `boosted` and `pinned`; the text is plain
+`bought_together`, `peer_group` (customers of the same category and size,
+or nearby ones, buy it), `popular`, `boosted` and `pinned`; the text is plain
 English with the numbers behind it.
 
 Each call is logged like a prediction with its `recommendation_id`, and every
@@ -1717,17 +1775,20 @@ call with `subject` for `for` (`all_customers` a bool), `period_from` and
 `period_to`, `within_days`, and each rule as a `google.protobuf.Struct`; each
 result names its subject in `subject`, and each `ScenarioPick` carries
 `due_date`, `overdue` and `products` (`DueProduct`: `id`, `due_date`,
-`overdue`, `fields`). `Recommend` answers carry `recommendation_id`.
+`overdue`, `fields`). `ScenarioSubject` takes `segment` and `size`, and
+each `ScenarioResult` carries `summary`. `Recommend` answers carry
+`recommendation_id`.
 
 **MCP:** the `recommend_<model>` tool also takes `for` (with
-`all_customers`), `territory`, `period`, `within_days`, `k`, `rules` and
-`exclude_seen`, and answers `{"model", "vhost", "recommendation_id",
+`all_customers`, `segment` and `size`), `territory`, `period`,
+`within_days`, `k`, `rules` and `exclude_seen`, and answers `{"model", "vhost", "recommendation_id",
 "results"}`.
 
 **Workflows:** the **Predict** node's Recommend mode takes `recommendFor`
 `salesman`, `customer` or `product` (and `user` or `item` as before),
 `periodDays` (a visit plan from today), `withinDays` (a reorder window from
-today, 1 to 366), `rules` (a JSON list), `idField`, `k`, `excludeSeen` and
+today, 1 to 366), `segment` and `size` (a list of customers of one category
+and size), `rules` (a JSON list), `idField`, `k`, `excludeSeen` and
 `outputField`. It writes the first result's items to `outputField`, each with
 `id`, `score`, `rank`, `reasons`, `fields`, the call's `recommendation_id`,
 and `plan_date`, or `due_date` with `overdue` and `products`, where set.
@@ -1846,7 +1907,10 @@ may also have a `due_date` column (a date or text): a build writes a reorder
 customer's due date there, and NULL for other scenarios. The column is
 optional: Hermod reads the table's columns on every run and writes `due_date`
 only when it is there, so a table made before it existed keeps working; add
-it with, for example, `ALTER TABLE visit_plan ADD COLUMN due_date DATE`. The
+it with, for example, `ALTER TABLE visit_plan ADD COLUMN due_date DATE`.
+Likewise optional `segment` and `size` text columns get each listed
+customer's category and size (for products, those of the customer the
+products are for). The
 products a customer is due for are in the API answer, not in the table. `replace` deletes
 the model's earlier rows in the same transaction; `append` keeps them. A
 build of more than 1,000,000 rows is refused. `GET .../build` shows it with
@@ -1857,7 +1921,7 @@ The **Build recommendations** workflow node (`ml_recommend_build`) does the
 same from a workflow: `model`, `for`, `periodDays`, `withinDays`, `k`, and
 optionally `targetSourceId`, `targetTable`, `targetMode` and `maxRows`
 (10,000 by default). It emits one message per row, with the row's fields
-(`due_date` among them) on the incoming record, after writing them when a
+(`due_date`, `segment` and `size` among them) on the incoming record, after writing them when a
 target is set; more rows than `maxRows` fails the record before anything is
 written.
 
@@ -1880,8 +1944,9 @@ each card opens that question's guide (see
    invoice lines always; customers with their salesman for visits; products,
    visits and salesmen where they help), each with example rows and a CSV
    template to download. Point each at a dataset, or upload a file there;
-   Hermod guesses the columns from their names and types (ids, dates, money)
-   and you confirm them.
+   Hermod guesses the columns from their names and types (ids, dates, money;
+   tier or channel for **Customer category**, size, staff, headcount or
+   revenue for **Customer size**) and you confirm them.
 2. **Data health.** `POST …/ml/recommend-check` runs, and each check shows
    green, amber or red with its fix. Red stops the dialog until it is fixed.
 3. **Rules.** Sentences you switch on: only the salesman's own customers, skip
@@ -1889,6 +1954,8 @@ each card opens that question's guide (see
    credit hold, only active products, promote a list, prefer margin, at most N
    per category. Visit planning adds visits per day, working days and five
    sliders for what makes a customer worth a visit, with **Reset the weights**.
+   Products and audience, when the customers have a category or size and
+   coordinates, ask **Nearby customers within** (5 km by default).
 4. **Train and the result.** The headline is in words ("Of the customers
    Hermod would have planned last period, 62% ordered — the 'most overdue
    first' list got 48%"), judged good, fair or weak against the simple lists,
@@ -1900,7 +1967,10 @@ each card opens that question's guide (see
    or one customer) and when (**2 weeks**, **1 month**, a custom number of
    days, or any time), and lists the customers with the date each is
    expected to order, "Overdue since …" where it has passed, the products
-   they are due for and why; **Copy API call** and **Copy
+   they are due for and why. Lists of customers (reorders, a visit plan, an
+   audience) take an optional **Category** and **Size** and show each
+   customer's category and size; a customer's products show the line saying
+   what nearby customers of its category buy. **Copy API call** and **Copy
    async call** (the async one needs Hermod with async jobs); **Build
    recommendations into a table** saves a weekly build (`PUT …/build`); for
    a reorder model it can keep only the customers due within some days.
@@ -1909,7 +1979,8 @@ Monitoring shows the acceptance rate of the last 30 days from the feedback.
 On the **Data** tab, the clock button refreshes a dataset from a database query
 on a cron schedule and shows the last run and error. In a workflow, **Predict**
 asks a scenario model for a salesman (with the days to plan), a customer or a
-product (a reorder model for any of them, with **Due within (days)**), and
+product (a reorder model for any of them, with **Due within (days)**; lists
+of customers with an optional **Customer category** and **Customer size**), and
 **Build Recommendations** builds every list and emits one message per row. A server without the scenario routes gets the one-table recommender
 above.
 

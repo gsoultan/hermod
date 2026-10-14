@@ -117,8 +117,9 @@ func (r *Registry) MLRecommend(ctx context.Context, vhost, model string, req map
 	return out, nil
 }
 
-// mlRecommendScenario is MLRecommend for a scenario subject: req's "for",
-// with "k", "exclude_seen", "rules", "within_days" (a reorder window) and
+// mlRecommendScenario is MLRecommend for a scenario subject: req's "for"
+// (with "segment" and "size" to keep one customer category and size of a
+// list), with "k", "exclude_seen", "rules", "within_days" (a reorder window) and
 // "period_days" (a visit plan's days from today). The answer is the first
 // result's items, each with the day a visit plan puts it on as "plan_date",
 // and a reorder's "due_date", "overdue" and "products".
@@ -236,7 +237,7 @@ func (r *Registry) MLRecommendBuild(ctx context.Context, vhost, model string, co
 	for i, row := range rows {
 		out[i] = map[string]any{"model": row.Model, "version": row.Version, "recommendation_id": row.RecommendationID,
 			"for_id": row.ForID, "item_id": row.ItemID, "rank": row.Rank, "score": row.Score, "plan_date": row.PlanDate,
-			"due_date": row.DueDate, "reasons_text": row.ReasonsText, "built_at": row.BuiltAt}
+			"due_date": row.DueDate, "segment": row.Segment, "size": row.Size, "reasons_text": row.ReasonsText, "built_at": row.BuiltAt}
 	}
 	return out, written, nil
 }

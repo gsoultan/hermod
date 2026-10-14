@@ -20,8 +20,9 @@ import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWork
 import { ConfirmProvider } from '@/components/common/ConfirmProvider'
 import type { MLModel } from '@/lib/mlModels'
 import {
-  csvTemplate, guessColumns, rulesFromChoices, defaultRuleChoices, scenarioRoles, type Scenario,
+  csvTemplate, guessColumns, rulesFromChoices, defaultRuleChoices, scenarioRoles, type RecommendData, type Scenario,
 } from '@/lib/mlRecommend'
+import { RulesStep } from '@/pages/ml/recommendSteps'
 import { scenarioHeadline } from '@/pages/ml/scenarioResult'
 
 /**
@@ -746,5 +747,95 @@ describe('Customers likely to buy in the next N days', () => {
     await waitFor(() => expect(built.for).toBe('all_customers'))
     await user.type(screen.getByRole('textbox', { name: /only customers due within/i }), '30')
     expect(built).toMatchObject({ for: 'all_customers', withinDays: '30' })
+  })
+})
+
+describe('Customer category, size and nearby customers', () => {
+  it('maps a customer category and size from their names', () => {
+    expect(guessColumns('customers', [col('cust_id'), col('tier'), col('employees', 'number')] as any))
+      .toEqual({ id: 'cust_id', segment: 'tier', size: 'employees' })
+    const customers = scenarioRoles('products').find((r) => r.role === 'customers')!
+    expect(customers.columns.map((c) => c.label)).toEqual(expect.arrayContaining(['Customer category', 'Customer size']))
+    expect(csvTemplate('customers').split('\n')[0]).toContain('segment,size')
+  })
+
+  it('keeps one category and size of a reorder list, and shows them on each customer', async () => {
+    const calls = api()
+    server.use(http.post('/api/vhosts/:vhost/ml/models/:name/recommend', async ({ request }) => {
+      calls.push({ path: 'recommend', body: await request.json() })
+      return HttpResponse.json({ recommendation_id: 'rec_c', results: [{ for: 'all_customers', items: [
+        item('c-3', 1, 'Usually orders every 14 days', { due_date: '2026-10-20', fields: { name: 'Shop c-3', segment: 'Retail', size: 'large' } }),
+      ] }] })
+    }))
+    wrap(<ModelTestModal vhost="tenant-a" model={{ ...planModel, name: 'due' }} scenario="reorder" onClose={() => {}} />)
+    const user = userEvent.setup()
+    const dialog = await screen.findByRole('dialog')
+    await user.type(within(dialog).getByRole('textbox', { name: /^category/i }), 'Retail')
+    await pick(user, dialog, /^size/i, 'large')
+    await user.click(within(dialog).getByRole('button', { name: /find customers/i }))
+    await waitFor(() => expect(calls.find((c) => c.path === 'recommend')).toBeTruthy())
+    expect(calls.find((c) => c.path === 'recommend')!.body)
+      .toEqual({ for: { all_customers: true, segment: 'Retail', size: 'large' }, within_days: 14, k: 100 })
+    const list = await within(dialog).findByRole('list', { name: /customers likely to buy/i })
+    expect(within(list).getByText('Retail')).toBeInTheDocument()
+    expect(within(list).getByText('large')).toBeInTheDocument()
+  })
+
+  it("says what nearby customers of a customer's category buy", async () => {
+    const calls = api({ version: productsVersion })
+    server.use(http.post('/api/vhosts/:vhost/ml/models/:name/recommend', async ({ request }) => {
+      calls.push({ path: 'recommend', body: await request.json() })
+      return HttpResponse.json({ recommendation_id: 'rec_n', results: [{
+        for: 'c-1', summary: 'Minimarket customers within 5 km buy: Coffee, Sugar, Tea',
+        items: [{ id: 'p-1', score: 0.9, rank: 1, fields: { name: 'Coffee' },
+          reasons: [{ code: 'peer_group', text: 'Bought by 7 of 12 Minimarket customers within 5 km' }] }],
+      }] })
+    }))
+    wrap(<ModelTestModal vhost="tenant-a" model={{ ...planModel, name: 'offers' }} onClose={() => {}} />)
+    const user = userEvent.setup()
+    const dialog = await screen.findByRole('dialog')
+    await user.type(await within(dialog).findByRole('textbox', { name: /^customer$/i }), 'c-1')
+    await user.click(within(dialog).getByRole('button', { name: /^recommend$/i }))
+    expect(await within(dialog).findByText('Minimarket customers within 5 km buy: Coffee, Sugar, Tea')).toBeInTheDocument()
+    expect(within(dialog).getByText(/bought by 7 of 12 minimarket customers within 5 km/i)).toBeInTheDocument()
+  })
+
+  it('asks how far nearby customers may be when the customers have a category and coordinates', async () => {
+    const customers = { dataset: 'customers', id: 'cust_id', segment: 'tier', lat: 'lat', lon: 'lon' }
+    function Step({ data }: { data: RecommendData }) {
+      const [km, setKm] = useState(5)
+      return (
+        <>
+          <RulesStep scenario="products" data={data} choices={defaultRuleChoices('products')} onChoices={() => {}}
+            weights={{} as any} onWeights={() => {}} nearKm={km} onNearKm={setKm} />
+          <output data-testid="km">{km}</output>
+        </>
+      )
+    }
+    const view = wrap(<Step data={{ customers }} />)
+    const user = userEvent.setup()
+    const radius = screen.getByRole('textbox', { name: /nearby customers within/i })
+    expect(radius).toHaveValue('5')
+    await user.clear(radius)
+    await user.type(radius, '12')
+    expect(screen.getByTestId('km')).toHaveTextContent('12')
+    view.unmount()
+    wrap(<Step data={{ customers: { dataset: 'customers', id: 'cust_id', segment: 'tier' } }} />)
+    expect(screen.queryByRole('textbox', { name: /nearby customers within/i })).not.toBeInTheDocument()
+  })
+})
+
+describe('Customer category and size in the Predict node', () => {
+  it('keeps a list of customers to one category and size', async () => {
+    api({ version: { ...visitsVersion, scenario: 'reorder' } })
+    server.use(http.get('/api/vhosts/:vhost/ml/models', () => HttpResponse.json({ data: [{ ...planModel, name: 'due' }], total: 1 })))
+    useWorkflowStore.setState({ vhost: 'tenant-a' } as any)
+    let last: any = {}
+    wrap(<Harness Editor={MLPredictConfig} initial={{ model: 'due' }} onConfig={(c) => { last = c }} />)
+    const user = userEvent.setup()
+    await waitFor(() => expect(last.recommendFor).toBe('customer'))
+    await user.type(screen.getByRole('textbox', { name: /^customer category/i }), 'Retail')
+    await user.type(screen.getByRole('textbox', { name: /^customer size/i }), 'large')
+    expect(last).toMatchObject({ segment: 'Retail', size: 'large' })
   })
 })

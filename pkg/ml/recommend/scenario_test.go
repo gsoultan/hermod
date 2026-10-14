@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -646,5 +647,164 @@ func TestReorderWindowRefusals(t *testing.T) {
 	checkWindow(t, old.Items, 30)
 	if len(old.Items) == 0 || len(old.Items[0].Products) != 0 {
 		t.Fatalf("a model without products: %+v", old.Items)
+	}
+}
+
+func TestCustomerCategoryAndSizeAreKnownAndBucketed(t *testing.T) {
+	m := scenarioModel(t, "reorder_peers")
+	lo, hi, ok := m.SizeEdges()
+	if !ok || !(lo < hi) {
+		t.Fatalf("size edges %v %v %v", lo, hi, ok)
+	}
+	for _, tc := range []struct {
+		in, want string
+	}{{"Large", "large"}, {" small ", "small"}, {strconv.FormatFloat(lo, 'f', -1, 64), "small"}, {strconv.FormatFloat(hi, 'f', -1, 64), "medium"},
+		{strconv.FormatFloat(hi+1, 'f', -1, 64), "large"}, {"Enterprise", "Enterprise"}} {
+		if got := m.SizeBucket(tc.in); got != tc.want {
+			t.Errorf("SizeBucket(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+	// A model trained before sizes has no buckets, and an older one no
+	// category or size at all.
+	old := scenarioModel(t, "reorder")
+	if _, _, ok := old.SizeEdges(); ok || old.SizeBucket("250") != "250" {
+		t.Fatal("an older model buckets sizes")
+	}
+	if c, s := m.CustomerAttrs(m.CustomerIDs()[0]); c == "" || s == "" {
+		t.Fatalf("customer attrs %q %q", c, s)
+	}
+	if c, s := old.CustomerAttrs("nobody"); c != "" || s != "" {
+		t.Fatalf("an unknown customer has %q %q", c, s)
+	}
+}
+
+func TestCustomerListsFilterByCategoryAndSize(t *testing.T) {
+	m := scenarioModel(t, "reorder_peers")
+	all := answer(t, m, Query{AllCustomers: true, K: MaxPlan})
+	count := func(seg, size string) int {
+		n := 0
+		for _, p := range all.Items {
+			if (seg == "" || p.Fields["segment"] == seg) && (size == "" || p.Fields["size"] == size) {
+				n++
+			}
+		}
+		return n
+	}
+	for _, tc := range []struct{ seg, size string }{{"A", ""}, {"", "large"}, {"B", "small"}, {"b", "SMALL"}} {
+		got := answer(t, m, Query{AllCustomers: true, K: MaxPlan, Segment: tc.seg, Size: tc.size})
+		want := count(strings.ToUpper(tc.seg), strings.ToLower(tc.size))
+		if len(got.Items) == 0 || len(got.Items) != want {
+			t.Fatalf("%+v: %d customers, want %d", tc, len(got.Items), want)
+		}
+		for _, p := range got.Items {
+			if (tc.seg != "" && !strings.EqualFold(p.Fields["segment"].(string), tc.seg)) || (tc.size != "" && !strings.EqualFold(p.Fields["size"].(string), tc.size)) {
+				t.Fatalf("%+v listed %s with %v", tc, p.ID, p.Fields)
+			}
+		}
+	}
+	// A number is bucketed as training cut the sizes.
+	_, hi, _ := m.SizeEdges()
+	big := answer(t, m, Query{AllCustomers: true, K: MaxPlan, Size: strconv.FormatFloat(hi+1, 'f', -1, 64)})
+	if len(big.Items) != count("", "large") {
+		t.Fatalf("size %v: %d customers, want the %d large ones", hi+1, len(big.Items), count("", "large"))
+	}
+	// Within a window, for a salesman and for an audience as well.
+	within := answer(t, m, Query{AllCustomers: true, K: MaxPlan, WithinDays: 14, Segment: "A", Size: "large"})
+	for _, p := range within.Items {
+		if p.Fields["segment"] != "A" || p.Fields["size"] != "large" {
+			t.Fatalf("window listed %s with %v", p.ID, p.Fields)
+		}
+	}
+	rep := answer(t, m, Query{Salesman: "R01", K: MaxPlan, Segment: "C"})
+	for _, p := range rep.Items {
+		if p.Fields["segment"] != "C" || p.Fields["salesman"] != "R01" {
+			t.Fatalf("salesman listed %s with %v", p.ID, p.Fields)
+		}
+	}
+	a := scenarioModel(t, "audience_peers")
+	aud := answer(t, a, Query{Product: a.ProductIDs()[0], K: 50, Size: "small", ExcludeSeen: true})
+	if len(aud.Items) == 0 {
+		t.Fatal("no small customers in the audience")
+	}
+	for _, p := range aud.Items {
+		if p.Fields["size"] != "small" {
+			t.Fatalf("audience listed %s with %v", p.ID, p.Fields)
+		}
+	}
+}
+
+func TestCategoryAndSizeFiltersAreRefusedWhereTheyCannotApply(t *testing.T) {
+	noSegment := withHeader(t, scenarioBytes(t, "reorder_customers"), func(h map[string]any) {
+		delete(h["customer_attrs"].(map[string]any), "segment")
+	})
+	cases := []struct {
+		name string
+		raw  []byte
+		q    Query
+		want string
+	}{
+		{"products", scenarioBytes(t, "products_peers"), Query{Customer: "C0001", Segment: "A"}, "customer lists"},
+		{"similar", scenarioBytes(t, "similar"), Query{Product: "S001", Size: "large"}, "customer lists"},
+		{"no size", scenarioBytes(t, "reorder"), Query{AllCustomers: true, Size: "large"}, "size"},
+		{"no category", noSegment, Query{AllCustomers: true, Segment: "A"}, "category"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.q.Today = fixtureToday
+			m, err := Parse(tc.raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = m.Answer(tc.q)
+			if !errors.Is(err, ErrBadQuery) || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Answer = %v, want ErrBadQuery mentioning %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestAMalformedSizeEdgeIsRefused(t *testing.T) {
+	for _, edges := range []any{[]float64{3}, []float64{5, 2}, []any{1, "x"}} {
+		_, err := Parse(withHeader(t, scenarioBytes(t, "reorder_peers"), func(h map[string]any) { h["size_edges"] = edges }))
+		if err == nil || (!errors.Is(err, ErrInvalid) && !strings.Contains(err.Error(), "header")) {
+			t.Fatalf("size_edges %v: Parse = %v", edges, err)
+		}
+	}
+}
+
+func TestMalformedNearbySettingsAreRefused(t *testing.T) {
+	for _, near := range [][2]any{{5.0, 0}, {0, 20}, {0.01, 20}, {501.0, 20}, {5.0, 2}, {5.0, 201}} {
+		_, err := Parse(withHeader(t, scenarioBytes(t, "products_near"), func(h map[string]any) { h["near_km"], h["near_peers"] = near[0], near[1] }))
+		if !errors.Is(err, ErrInvalid) {
+			t.Fatalf("near %v: Parse = %v", near, err)
+		}
+	}
+	// Without them (an artifact from before nearby peers) a customer's peers
+	// are its whole group, and there is no summary.
+	m, err := Parse(withHeader(t, scenarioBytes(t, "products_near"), func(h map[string]any) { delete(h, "near_km"); delete(h, "near_peers") }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := m.Answer(Query{Customer: "A16", K: 10, ExcludeSeen: true, Today: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res[0].Summary != "" {
+		t.Errorf("summary %q", res[0].Summary)
+	}
+	group := 0
+	for _, p := range res[0].Items {
+		for _, r := range p.Reasons {
+			if r.Code != ReasonPeerGroup {
+				continue
+			}
+			group++
+			if !strings.HasSuffix(r.Text, " of 36 Minimarket customers") {
+				t.Errorf("%s: %q", p.ID, r.Text)
+			}
+		}
+	}
+	if group == 0 {
+		t.Error("no peer reasons")
 	}
 }

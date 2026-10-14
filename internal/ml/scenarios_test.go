@@ -1,6 +1,7 @@
 package ml
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -202,6 +203,10 @@ func TestScenarioTrainingSpecs(t *testing.T) {
 		{worker.TrainSpec{Task: worker.TaskRecommendation, Scenario: "visits", Data: data, Recommend: &worker.RecommendSpec{User: "u", Item: "i"}}, "recommend"},
 		{worker.TrainSpec{Task: worker.TaskRecommendation, Scenario: "products", Data: data, Rules: []recommend.Rule{{Kind: recommend.RuleCapacity, PerDay: 2}}}, "rule"},
 		{worker.TrainSpec{Task: worker.TaskRecommendation, Scenario: "visits", Data: data, PeriodDays: 400}, "period_days"},
+		{worker.TrainSpec{Task: worker.TaskRecommendation, Scenario: "products", Data: data, NearKm: 600}, "near_km"},
+		{worker.TrainSpec{Task: worker.TaskRecommendation, Scenario: "products", Data: data, NearKm: 0.01}, "near_km"},
+		{worker.TrainSpec{Task: worker.TaskRecommendation, Scenario: "products", Data: data, NearPeers: 2}, "near_peers"},
+		{worker.TrainSpec{Task: worker.TaskRecommendation, Scenario: "products", Data: data, NearPeers: 500}, "near_peers"},
 		{worker.TrainSpec{Task: worker.TaskRecommendation, Scenario: "visits", Data: data, Device: DeviceGPU}, "CPU"},
 	}
 	for _, tc := range bad {
@@ -212,6 +217,16 @@ func TestScenarioTrainingSpecs(t *testing.T) {
 	if err := checkRecommendSpec(good); err != nil {
 		t.Errorf("checkRecommendSpec(scenario) = %v", err)
 	}
+	// Nearby peers' radius and count reach the worker as asked.
+	near := good
+	near.NearKm, near.NearPeers = 2.5, 8
+	if _, err := scenarioSpec(near); err != nil {
+		t.Fatalf("near: %v", err)
+	}
+	body, _ := json.Marshal(near)
+	if !strings.Contains(string(body), `"near_km":2.5`) || !strings.Contains(string(body), `"near_peers":8`) {
+		t.Errorf("body %s", body)
+	}
 }
 
 func TestRecommendCheckNeedsAScenario(t *testing.T) {
@@ -220,5 +235,50 @@ func TestRecommendCheckNeedsAScenario(t *testing.T) {
 		if _, err := svc.RecommendCheck(t.Context(), "v", spec); !errors.Is(err, ErrBadTraining) {
 			t.Errorf("%+v: %v, want ErrBadTraining", spec, err)
 		}
+	}
+}
+
+func TestRecommendScenarioKeepsACategoryAndSize(t *testing.T) {
+	svc := scenarioService(t, "reorder_peers", storage.MLQuotas{})
+	// "Customers in category A, large, likely to buy in the next 14 days."
+	out, err := svc.RecommendScenario(t.Context(), "v", "recs", ScenarioRequest{
+		For: ScenarioFor{AllCustomers: true, Segment: "A", Size: "large"}, WithinDays: 14, K: recommend.MaxPlan})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := out.Results[0].Items
+	if len(items) == 0 {
+		t.Fatal("no large A customers due in 14 days")
+	}
+	for _, p := range items {
+		if p.Fields["segment"] != "A" || p.Fields["size"] != "large" {
+			t.Fatalf("%s: fields %v", p.ID, p.Fields)
+		}
+	}
+	// A size may be a number, cut as training cut the sizes; a category a number id.
+	if _, err := svc.RecommendScenario(t.Context(), "v", "recs", ScenarioRequest{
+		For: ScenarioFor{AllCustomers: true, Size: 1000.0}, K: recommend.MaxPlan}); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		fixture string
+		req     ScenarioRequest
+		want    string
+	}{
+		{"reorder_peers", ScenarioRequest{For: ScenarioFor{AllCustomers: true, Segment: map[string]any{"a": 1}}}, "segment"},
+		{"reorder_peers", ScenarioRequest{For: ScenarioFor{AllCustomers: true, Size: true}}, "size"},
+		{"products_peers", ScenarioRequest{For: ScenarioFor{Customer: "C0001", Segment: "A"}}, "customer lists"},
+		{"reorder", ScenarioRequest{For: ScenarioFor{AllCustomers: true, Size: "large"}}, "size"},
+	}
+	for _, tc := range cases {
+		svc := scenarioService(t, tc.fixture, storage.MLQuotas{})
+		_, err := svc.RecommendScenario(t.Context(), "v", "recs", tc.req)
+		if !errors.Is(err, ErrBadRecommendRequest) || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s %+v: %v, want ErrBadRecommendRequest mentioning %q", tc.fixture, tc.req, err, tc.want)
+		}
+	}
+	// A bad category is checked before an async job is queued.
+	if err := (ScenarioRequest{For: ScenarioFor{AllCustomers: true, Segment: []any{}}}).check(); !errors.Is(err, ErrBadRecommendRequest) {
+		t.Errorf("check: %v", err)
 	}
 }

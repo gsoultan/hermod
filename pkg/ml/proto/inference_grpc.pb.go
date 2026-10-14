@@ -63,10 +63,11 @@ type InferenceServiceClient interface {
 	// answer carries a recommendation_id to send feedback with.
 	//
 	// Errors: UNAUTHENTICATED as for Predict; INVALID_ARGUMENT for a subject
-	// the scenario does not take, a bad period, within_days, k or rule, a rule that loosens
-	// the model's own rules, more than 1000 customers, or a model without a
-	// scenario; RESOURCE_EXHAUSTED over the vhost's quota; UNAVAILABLE when the
-	// model could not be loaded.
+	// the scenario does not take, a bad period, within_days, k or rule, a
+	// segment or size for a list that is not of customers or a model without
+	// them, a rule that loosens the model's own rules, more than 1000
+	// customers, or a model without a scenario; RESOURCE_EXHAUSTED over the
+	// vhost's quota; UNAVAILABLE when the model could not be loaded.
 	RecommendScenario(ctx context.Context, in *RecommendScenarioRequest, opts ...grpc.CallOption) (*RecommendScenarioResponse, error)
 	// SubmitJob queues a Predict or Recommend call as a job and returns at
 	// once. It is the gRPC twin of a serve call with "respond": "async". A
@@ -217,10 +218,11 @@ type InferenceServiceServer interface {
 	// answer carries a recommendation_id to send feedback with.
 	//
 	// Errors: UNAUTHENTICATED as for Predict; INVALID_ARGUMENT for a subject
-	// the scenario does not take, a bad period, within_days, k or rule, a rule that loosens
-	// the model's own rules, more than 1000 customers, or a model without a
-	// scenario; RESOURCE_EXHAUSTED over the vhost's quota; UNAVAILABLE when the
-	// model could not be loaded.
+	// the scenario does not take, a bad period, within_days, k or rule, a
+	// segment or size for a list that is not of customers or a model without
+	// them, a rule that loosens the model's own rules, more than 1000
+	// customers, or a model without a scenario; RESOURCE_EXHAUSTED over the
+	// vhost's quota; UNAVAILABLE when the model could not be loaded.
 	RecommendScenario(context.Context, *RecommendScenarioRequest) (*RecommendScenarioResponse, error)
 	// SubmitJob queues a Predict or Recommend call as a job and returns at
 	// once. It is the gRPC twin of a serve call with "respond": "async". A

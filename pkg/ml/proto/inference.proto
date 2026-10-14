@@ -40,10 +40,11 @@ service InferenceService {
   // answer carries a recommendation_id to send feedback with.
   //
   // Errors: UNAUTHENTICATED as for Predict; INVALID_ARGUMENT for a subject
-  // the scenario does not take, a bad period, within_days, k or rule, a rule that loosens
-  // the model's own rules, more than 1000 customers, or a model without a
-  // scenario; RESOURCE_EXHAUSTED over the vhost's quota; UNAVAILABLE when the
-  // model could not be loaded.
+  // the scenario does not take, a bad period, within_days, k or rule, a
+  // segment or size for a list that is not of customers or a model without
+  // them, a rule that loosens the model's own rules, more than 1000
+  // customers, or a model without a scenario; RESOURCE_EXHAUSTED over the
+  // vhost's quota; UNAVAILABLE when the model could not be loaded.
   rpc RecommendScenario(RecommendScenarioRequest) returns (RecommendScenarioResponse);
 
   // SubmitJob queues a Predict or Recommend call as a job and returns at
@@ -199,6 +200,13 @@ message ScenarioSubject {
   string territory = 5;
   // For reorder: every customer, in one result.
   bool all_customers = 6;
+  // For a list of customers (visits, reorder, audience): only the customers
+  // of this category, as the model's customers.segment holds it, in any case.
+  string segment = 7;
+  // For a list of customers: only the customers of this size, "small",
+  // "medium" or "large" (or the model's own size labels), or a number the
+  // model buckets as its training cut its customers' sizes.
+  string size = 8;
 }
 
 message RecommendScenarioResponse {
@@ -217,6 +225,10 @@ message ScenarioResult {
   repeated ScenarioPick items = 2;
   // A visit plan's days, in order; empty for other scenarios.
   repeated PlanDay plan = 3;
+  // For a customer's products: what nearby customers of its category buy,
+  // in a line, such as "Minimarket customers within 5 km buy: A, B, C";
+  // empty otherwise.
+  string summary = 4;
 }
 
 message ScenarioPick {

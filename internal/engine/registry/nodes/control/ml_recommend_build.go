@@ -33,9 +33,10 @@ const defaultMaxBuildMessages = 10000
 // salesman, customer or product of its vhost and emits one message per
 // result row, each the incoming record with the row's fields on it: model,
 // version, recommendation_id, for_id, item_id, rank, score, plan_date,
-// due_date, reasons_text, built_at. With a target it also writes the rows to
-// that table first, as a scheduled build does (docs/ml.md, "Build
-// recommendations"); due_date only when the table has that column.
+// due_date, segment, size, reasons_text, built_at. With a target it also
+// writes the rows to that table first, as a scheduled build does
+// (docs/ml.md, "Build recommendations"); due_date, segment and size only
+// when the table has those columns.
 //
 // Config:
 //   - model: the recommendation model. Required.
@@ -103,7 +104,7 @@ func (n *RecommendBuildNode) Execute(ctx context.Context, _ interfaces.NodeConte
 
 // buildFields are a build row's fields, in the order the table has them.
 var buildFields = []string{"model", "version", "recommendation_id", "for_id", "item_id", "rank", "score", "plan_date", "due_date",
-	"reasons_text", "built_at"}
+	"segment", "size", "reasons_text", "built_at"}
 
 // wholeNumber reads a setting the editor may save as a number or text; 0
 // when unset.

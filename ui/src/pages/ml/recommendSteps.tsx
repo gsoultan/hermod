@@ -11,7 +11,7 @@ import { FormRow } from '@/components/common/FormRow'
 import { missingMappings } from '@/lib/mlDataGuide'
 import { useDataset, type DatasetInfo } from '@/lib/mlModels'
 import {
-  DEFAULT_WEIGHTS, ROLES, SCENARIOS, WEEKDAYS, WEIGHT_QUESTIONS, csvTemplate, guessColumns, recommendCheck, ruleOptions,
+  DEFAULT_WEIGHTS, NEAR_KM, ROLES, SCENARIOS, WEEKDAYS, WEIGHT_QUESTIONS, csvTemplate, guessColumns, nearbyApplies, recommendCheck, ruleOptions,
   scenarioRoles, type CheckStatus, type RecommendCheck, type RecommendData, type RoleKey, type RoleMapping, type RuleChoices,
   type Scenario, type ScenarioRole, type Weights,
 } from '@/lib/mlRecommend'
@@ -277,13 +277,16 @@ const days = (v: string | number, fallback: number) => (typeof v === 'number' ? 
  * planning adds the visits per day, the working days, and how much each
  * signal counts, in words, with a reset.
  */
-export function RulesStep({ scenario, data, choices, onChoices, weights, onWeights }: {
+export function RulesStep({ scenario, data, choices, onChoices, weights, onWeights, nearKm, onNearKm }: {
   scenario: Scenario
   data: RecommendData
   choices: RuleChoices
   onChoices: (c: RuleChoices) => void
   weights: Weights
   onWeights: (w: Weights) => void
+  /** How far nearby customers of the same category may be, in km; asked when the data allows it. */
+  nearKm?: number
+  onNearKm?: (km: number) => void
 }) {
   const can = ruleOptions(scenario, data)
   const set = (patch: Partial<RuleChoices>) => onChoices({ ...choices, ...patch })
@@ -356,6 +359,15 @@ export function RulesStep({ scenario, data, choices, onChoices, weights, onWeigh
           </FormRow>
           <WeightSliders weights={weights} onChange={onWeights} />
         </Stack>
+      )}
+      {onNearKm && nearbyApplies(scenario, data) && (
+        <Group gap="xs" wrap="wrap" align="flex-end">
+          <NumberInput label="Nearby customers within" w={200} min={NEAR_KM.min} max={NEAR_KM.max} decimalScale={1}
+            description="Customers of the same category this close are each other's peers."
+            value={nearKm ?? NEAR_KM.default} onChange={(v) => onNearKm(typeof v === 'number' ? v : NEAR_KM.default)}
+            error={nearKm !== undefined && (nearKm < NEAR_KM.min || nearKm > NEAR_KM.max) ? `Between ${NEAR_KM.min} and ${NEAR_KM.max} km.` : undefined} />
+          <Text size="sm" pb={8}>km</Text>
+        </Group>
       )}
     </Stack>
   )

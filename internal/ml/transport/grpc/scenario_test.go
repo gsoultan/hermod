@@ -160,3 +160,41 @@ func TestARecommendationJobIsReadAsTheCallItStandsFor(t *testing.T) {
 		t.Errorf("result = %v", pj.GetResult())
 	}
 }
+
+// segment and size reach the model: only that category and size of
+// customers are listed, each carrying both in its fields.
+func TestRecommendScenarioKeepsACategoryAndSize(t *testing.T) {
+	c, key := dial(t, servingFixture(t, filepath.Join("scenario", "reorder_peers.rec")))
+	resp, err := c.RecommendScenario(withKey(key), &proto.RecommendScenarioRequest{Vhost: "a", Model: "double",
+		Subject: &proto.ScenarioSubject{AllCustomers: true, Segment: "a", Size: "Large"}, WithinDays: 30, K: 500})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := resp.GetResults()[0].GetItems()
+	if len(items) == 0 {
+		t.Fatal("no large A customers")
+	}
+	for _, p := range items {
+		if f := p.GetFields().AsMap(); f["segment"] != "A" || f["size"] != "large" {
+			t.Errorf("%s: fields %v", p.GetId(), f)
+		}
+	}
+	// A customer of another category is not listed.
+	other, err := c.RecommendScenario(withKey(key), &proto.RecommendScenarioRequest{Vhost: "a", Model: "double",
+		Subject: &proto.ScenarioSubject{Customer: items[0].GetId(), Segment: "B"}})
+	if err != nil || len(other.GetResults()[0].GetItems()) != 0 {
+		t.Errorf("an A customer asked for B: %v, %v", other, err)
+	}
+}
+
+func TestRecommendScenarioSaysWhatNearbyCustomersBuy(t *testing.T) {
+	c, key := dial(t, servingFixture(t, filepath.Join("scenario", "products_near.rec")))
+	resp, err := c.RecommendScenario(withKey(key), &proto.RecommendScenarioRequest{Vhost: "a", Model: "double",
+		Subject: &proto.ScenarioSubject{Customer: "A16"}, K: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := resp.GetResults()[0].GetSummary(); !strings.HasPrefix(s, "Minimarket customers within 5 km buy: ") {
+		t.Errorf("summary %q", s)
+	}
+}

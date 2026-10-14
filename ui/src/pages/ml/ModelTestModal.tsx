@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Alert, Button, Checkbox, Code, Group, Loader, Modal, NumberInput, Radio, Stack, Text, TextInput, Textarea } from '@mantine/core'
+import { Alert, Autocomplete, Button, Checkbox, Code, Group, Loader, Modal, NumberInput, Radio, Stack, Text, TextInput, Textarea } from '@mantine/core'
 import { IconAlertCircle, IconPlayerPlay } from '@tabler/icons-react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import {
@@ -11,6 +11,32 @@ import {
 } from '@/lib/mlRecommend'
 import { FormRow } from '@/components/common/FormRow'
 import { DueCustomerList, RecommendAnswer, RecommendedList } from './scenarioItems'
+
+/** A customer category and size a list of customers is kept to; empty for any. */
+interface CustomerGroup {
+  segment: string
+  size: string
+}
+
+const ANY_GROUP: CustomerGroup = { segment: '', size: '' }
+
+/** The "for" keys that keep a list of customers to one category and size. */
+const groupFor = (g: CustomerGroup) => ({
+  ...(g.segment.trim() ? { segment: g.segment.trim() } : {}),
+  ...(g.size.trim() ? { size: g.size.trim() } : {}),
+})
+
+/** Customer category and size, to keep a list of customers to one of each. */
+function CustomerGroupFields({ value, onChange }: { value: CustomerGroup; onChange: (g: CustomerGroup) => void }) {
+  return (
+    <FormRow cols={2}>
+      <TextInput label="Category" description="Optional: only customers of this customer category." placeholder="any"
+        value={value.segment} onChange={(e) => onChange({ ...value, segment: e.currentTarget.value })} />
+      <Autocomplete label="Size" description="Optional: only customers of this size (small, medium, large or your own label)." placeholder="any"
+        data={['small', 'medium', 'large']} value={value.size} onChange={(size) => onChange({ ...value, size })} />
+    </FormRow>
+  )
+}
 
 /** A starting row: the model's declared features, each set to 0. */
 function sampleRow(model: MLModel): string {
@@ -194,13 +220,14 @@ function ReorderTest({ vhost, model }: { vhost: string; model: MLModel }) {
   const [id, setId] = useState('')
   const [span, setSpan] = useState<string>(String(DUE_WINDOWS[0].days))
   const [customDays, setCustomDays] = useState<number | string>(7)
+  const [group, setGroup] = useState<CustomerGroup>(ANY_GROUP)
   const run = useMutation({ mutationFn: (body: RecommendRequest) => recommendScenario(vhost, model.name, body) })
   const days = span === 'any' ? 0 : span === 'custom' ? (typeof customDays === 'number' ? customDays : 0) : Number(span)
   const ready = (who === 'everyone' || !!id.trim()) && (span !== 'custom' || (days >= 1 && days <= MAX_WITHIN_DAYS))
   const submit = (event: React.FormEvent) => {
     event.preventDefault()
     if (!ready) return
-    const subject = (who === 'everyone' ? { all_customers: true } : { [who]: id.trim() }) as RecommendRequest['for']
+    const subject = { ...(who === 'everyone' ? { all_customers: true } : { [who]: id.trim() }), ...groupFor(group) } as RecommendRequest['for']
     run.mutate({ for: subject, ...(days > 0 ? { within_days: days } : {}), k: DUE_K })
   }
   const label = { everyone: '', salesman: 'Salesman', product: 'Product', customer: 'Customer' }[who]
@@ -216,6 +243,7 @@ function ReorderTest({ vhost, model }: { vhost: string; model: MLModel }) {
           <TextInput label={label} description="Their id, as in your data." placeholder={`${who} id`} required
             value={id} onChange={(e) => setId(e.currentTarget.value)} />
         )}
+        <CustomerGroupFields value={group} onChange={setGroup} />
         <Radio.Group label="Likely to buy within" value={span} onChange={setSpan}
           description="From today. Customers whose date has already passed are listed too, marked overdue.">
           <Group gap="lg" mt={4}>
@@ -251,6 +279,9 @@ function ScenarioIdTest({ vhost, model, scenario }: { vhost: string; model: MLMo
   const [id, setId] = useState('')
   const [period, setPeriod] = useState(() => nextPeriod(7))
   const [excludeSeen, setExcludeSeen] = useState(true)
+  const [group, setGroup] = useState<CustomerGroup>(ANY_GROUP)
+  // A visit plan and a product's audience are lists of customers.
+  const listsCustomers = scenario === 'visits' || scenario === 'audience'
   const run = useMutation({
     mutationFn: async (body: RecommendRequest): Promise<ScenarioAnswer> => {
       try {
@@ -268,7 +299,7 @@ function ScenarioIdTest({ vhost, model, scenario }: { vhost: string; model: MLMo
     event.preventDefault()
     if (!id.trim()) return
     run.mutate({
-      for: { [forKey]: id.trim() } as RecommendRequest['for'],
+      for: { [forKey]: id.trim(), ...(listsCustomers ? groupFor(group) : {}) } as RecommendRequest['for'],
       k: TEST_K,
       ...(scenario === 'visits' ? { period } : {}),
       ...(scenario === 'products' ? { exclude_seen: excludeSeen } : {}),
@@ -286,6 +317,7 @@ function ScenarioIdTest({ vhost, model, scenario }: { vhost: string; model: MLMo
             <TextInput type="date" label="To" value={period.to} onChange={(e) => setPeriod({ ...period, to: e.currentTarget.value })} />
           </FormRow>
         )}
+        {listsCustomers && <CustomerGroupFields value={group} onChange={setGroup} />}
         {scenario === 'products' && (
           <Checkbox label="Leave out what they already bought" checked={excludeSeen} onChange={(e) => setExcludeSeen(e.currentTarget.checked)} />
         )}

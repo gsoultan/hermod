@@ -12,7 +12,7 @@ import {
   type RecommendAlgorithm, type TrainAlgorithm, type TrainCheck, type TrainResult, type TrainSpec, type TrainDevice, type TrainPreset, type TrainTask,
 } from '@/lib/mlModels'
 import {
-  DEFAULT_WEIGHTS, ROLES, defaultRuleChoices, isScenarioVersion, rulesFromChoices, scenarioLabel, scenariosSupported,
+  DEFAULT_WEIGHTS, NEAR_KM, ROLES, defaultRuleChoices, isScenarioVersion, nearbyApplies, rulesFromChoices, scenarioLabel, scenariosSupported,
   type RecommendData, type RoleKey, type Scenario, type ScenarioTrainSpec, type ScenarioVersion, type Weights,
 } from '@/lib/mlRecommend'
 import {
@@ -106,6 +106,7 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
   const [recData, setRecData] = useState<RecommendData>({})
   const [choices, setChoices] = useState(() => defaultRuleChoices('visits'))
   const [weights, setWeights] = useState<Weights>(DEFAULT_WEIGHTS)
+  const [nearKm, setNearKm] = useState<number>(NEAR_KM.default)
   const pickScenario = (s: Scenario) => {
     setScenario(s)
     setChoices(defaultRuleChoices(s))
@@ -229,6 +230,7 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
         data: recData,
         ...(scenario === 'visits' ? { weights } : {}),
         rules: rulesFromChoices(scenario, choices, recData),
+        ...(nearbyApplies(scenario, recData) ? { near_km: nearKm } : {}),
         algorithm: recAlgorithm,
         go_live: goLive,
       }
@@ -543,7 +545,8 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
           )}
           {scenarioFlow && scenario && (
             <Stepper.Step label="Rules">
-              <RulesStep scenario={scenario} data={recData} choices={choices} onChoices={setChoices} weights={weights} onWeights={setWeights} />
+              <RulesStep scenario={scenario} data={recData} choices={choices} onChoices={setChoices} weights={weights} onWeights={setWeights}
+                nearKm={nearKm} onNearKm={setNearKm} />
             </Stepper.Step>
           )}
 

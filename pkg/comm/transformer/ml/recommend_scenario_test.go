@@ -43,7 +43,18 @@ func TestRecommendModeForAScenarioSubject(t *testing.T) {
 			t.Errorf("%s: request = %v, want %v", to, reg.req, want)
 		}
 	}
+	// segment and size keep one customer category and size of a list.
+	reg = &fakeRecommender{}
+	if _, err := run(t, reg, "", map[string]any{"model": "due", "mode": "recommend", "recommendFor": "salesman", "idField": "id",
+		"withinDays": 14, "segment": " Retail ", "size": "large"}, map[string]any{"id": "R1"}); err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]any{"for": map[string]any{"salesman": "R1", "segment": "Retail", "size": "large"}, "within_days": 14}; !reflect.DeepEqual(reg.req, want) {
+		t.Errorf("category request = %v, want %v", reg.req, want)
+	}
 	for _, cfg := range []map[string]any{
+		{"recommendFor": "user", "segment": "Retail"},
+		{"recommendFor": "item", "size": "large"},
 		{"recommendFor": "user", "periodDays": 7},
 		{"recommendFor": "salesman", "periodDays": 400},
 		{"recommendFor": "user", "withinDays": 14},

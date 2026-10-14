@@ -2,7 +2,12 @@
 
 Run with the hermod-ml worker's dependencies installed (ml/worker/requirements.txt):
 
-    python -I pkg/ml/recommend/testdata/gen_scenario_fixtures.py
+    python -I pkg/ml/recommend/testdata/gen_scenario_fixtures.py [NAME ...]
+
+With names (such as products_peers) it writes only those fixtures. The ones
+without "_peers" were trained before customer categories and sizes made peer
+groups: they stay as they are, so the tests prove an older artifact answers
+exactly as it did. Regenerate them only on purpose.
 
 For each scenario it trains a format 2 artifact on a small synthetic
 distributor (ml/worker/tests/b2b.py) through the worker's own HTTP API, and
@@ -10,7 +15,11 @@ writes scenario/<scenario>.rec and scenario/<scenario>.json: calls and what
 the worker's scoring functions (visit_signals and visit_reasons,
 product_scores, audience_scores, reorder_due, similar_items) answered for
 them, on the day after the artifact's as_of, reading the artifact's own
-float32 features as Hermod does.
+float32 features as Hermod does. The "_peers" runs map the customers' size
+(their headcount) besides their segment, so products and audience add the
+peer share; "_near" runs place every customer of a category in one of two
+towns, so their peers are the nearby ones (near_km, near_peers), and a
+products case says what they buy in its "summary".
 """
 
 from __future__ import annotations
@@ -32,22 +41,14 @@ from hermod_ml import recommend, scenarios  # noqa: E402
 from hermod_ml.app import create_app  # noqa: E402
 from hermod_ml.settings import Settings  # noqa: E402
 from tests.b2b import data_roles, generate  # noqa: E402
+from tests.test_scenarios import near_body, near_tables, peer_body, peer_tables  # noqa: E402
 
 VHOST = "fixture"
 
 
 def built(model: recommend.Model) -> scenarios.Built:
     """What the worker's scoring reads, from the artifact alone."""
-    extra = model.extra
-    today = int((np.datetime64(extra["as_of"]) - np.datetime64("1970-01-01")).astype(int)) + 1
-    has_opportunity = model.customer_neighbors is not None and model.customer_neighbors.shape[1] > 0
-    return scenarios.Built(
-        today=today, users=list(model.users), items=list(model.items),
-        user_index={u: i for i, u in enumerate(model.users)}, item_index={p: i for i, p in enumerate(model.items)},
-        customer_features=model.customer_features.astype(np.float64), item_features=model.item_features.astype(np.float64),
-        model=model, global_gap=extra["global_gap"], global_visit_gap=extra["global_visit_gap"],
-        has_visits=extra["has_visits"], has_opportunity=has_opportunity, has_margin=extra["has_margin"],
-    )
+    return scenarios.built_from_artifact(model)
 
 
 def customer_fields(b, cattrs, u):
@@ -80,7 +81,7 @@ def ranked_pool(b, cattrs, scenario: str, rep: str) -> list[dict]:
             for r, (s, u, reasons, due) in enumerate(ranked)]
 
 
-def cases(scenario: str, model: recommend.Model) -> list[dict]:
+def cases(scenario: str, model: recommend.Model, customers: tuple[str, ...] = ()) -> list[dict]:
     b = built(model)
     cattrs = {k: v for k, v in model.extra["customer_attrs"].items()}
     iattrs = {k: v for k, v in model.extra["item_attrs"].items()}
@@ -96,10 +97,16 @@ def cases(scenario: str, model: recommend.Model) -> list[dict]:
                                                            customer_fields(b, cattrs, u), scenarios.day_text(math.ceil(due[0])))]
             out.append({"today": today, "customer": b.users[u], "items": items})
     if scenario == "products":
-        for u, k, exclude in ((0, 10, True), (3, 5, True), (11, 10, False), (40, 20, True)):
+        # The customers with the fewest orders lean on their peers most.
+        fewest = [int(u) for u in np.argsort(np.diff(model.seen.indptr), kind="stable")[:2]] + [b.users.index(c) for c in customers]
+        for u, k, exclude in [(0, 10, True), (3, 5, True), (11, 10, False), (40, 20, True)] + [(u, 10, True) for u in fewest] + [(12, 100, True), (fewest[0], 100, True), (fewest[-1], 100, True)]:
+            u %= len(b.users)  # a small model has fewer customers
             picks = scenarios.product_scores(b, u, k, exclude)
-            out.append({"today": today, "customer": b.users[u], "k": k, "exclude_seen": exclude,
-                        "items": [scenarios._item(b.items[i], s, r + 1, reasons, item_fields(iattrs, i)) for r, (i, s, reasons) in enumerate(picks)]})
+            items = [scenarios._item(b.items[i], s, r + 1, reasons, item_fields(iattrs, i)) for r, (i, s, reasons) in enumerate(picks)]
+            case = {"today": today, "customer": b.users[u], "k": k, "exclude_seen": exclude, "items": items}
+            if summary := scenarios.nearby_summary(b, u, items):
+                case["summary"] = summary
+            out.append(case)
     if scenario == "audience":
         for i, k, exclude in [(int(p), 10, True) for p in model.popular[:3]] + [(5, 15, False)]:
             picks = scenarios.audience_scores(b, i, k, exclude)
@@ -116,7 +123,7 @@ def cases(scenario: str, model: recommend.Model) -> list[dict]:
     return out
 
 
-def main() -> None:
+def main(names: list[str]) -> None:
     out_dir = HERE / "scenario"
     out_dir.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory() as tmp:
@@ -127,7 +134,13 @@ def main() -> None:
             assert resp.status_code == 200, resp.text
         runs = [(s, s, {}) for s in scenarios.SCENARIOS] + [("audience_als", "audience", {"algorithm": "als"}),
                                                               ("products_als", "products", {"algorithm": "als"})]
+        runs += [(f"{s}_peers", s, {"data": data_roles(size=True)}) for s in ("products", "audience", "reorder")]
+        runs += [("audience_peers_als", "audience", {"algorithm": "als", "data": data_roles(size=True)})]
+        # Same-tier customers within 40 km, the 8 nearest.
+        runs += [("products_peers_wide", "products", {"data": data_roles(size=True), "near_km": 40, "near_peers": 8})]
         for name, scenario, extra in runs:
+            if names and name not in names:
+                continue
             body = {"task": "recommendation", "scenario": scenario, "data": data_roles(), **extra}
             resp = client.post(f"/v1/models/{VHOST}/{name}/train", json=body)
             assert resp.status_code == 200, resp.text
@@ -138,6 +151,42 @@ def main() -> None:
             (out_dir / f"{name}.json").write_text(json.dumps(cases(scenario, model), indent=1) + "\n")
             print(name, len(raw), "bytes", model.algorithm, {k: round(v, 3) for k, v in meta["metrics"].items()})
 
+        # Customers with one order, whose peers say most: the newcomers of
+        # the worker's peer tests.
+        tables = peer_tables()
+        for dataset, table in (("porders", "orders"), ("pcustomers", "customers")):
+            resp = client.post(f"/v1/datasets/{VHOST}/{dataset}/rows", json={"rows": tables[table], "replace": True})
+            assert resp.status_code == 200, resp.text
+        for name, scenario in (("products_cold", "products"), ("audience_cold", "audience")):
+            if names and name not in names:
+                continue
+            resp = client.post(f"/v1/models/{VHOST}/{name}/train", json=peer_body(scenario, {"segment": "kind", "size": "staff"}))
+            assert resp.status_code == 200, resp.text
+            meta = resp.json()
+            raw = client.get(f"/v1/models/{VHOST}/{name}/versions/{meta['version']}/model.rec").content
+            model = recommend.decode(raw)
+            (out_dir / f"{name}.rec").write_bytes(raw)
+            (out_dir / f"{name}.json").write_text(json.dumps(cases(scenario, model, ("Rl16", "Hs17", "Om12")), indent=1) + "\n")
+            print(name, len(raw), "bytes", model.algorithm, {k: round(v, 3) for k, v in meta["metrics"].items()})
+
+        # Minimarkets in two towns, and one without coordinates: the
+        # worker's nearby tests.
+        tables = near_tables()
+        for dataset, table in (("norders", "orders"), ("ncustomers", "customers")):
+            resp = client.post(f"/v1/datasets/{VHOST}/{dataset}/rows", json={"rows": tables[table], "replace": True})
+            assert resp.status_code == 200, resp.text
+        for name, scenario in (("products_near", "products"), ("audience_near", "audience")):
+            if names and name not in names:
+                continue
+            resp = client.post(f"/v1/models/{VHOST}/{name}/train", json=near_body(scenario))
+            assert resp.status_code == 200, resp.text
+            meta = resp.json()
+            raw = client.get(f"/v1/models/{VHOST}/{name}/versions/{meta['version']}/model.rec").content
+            model = recommend.decode(raw)
+            (out_dir / f"{name}.rec").write_bytes(raw)
+            (out_dir / f"{name}.json").write_text(json.dumps(cases(scenario, model, ("A16", "B17", "Anone")), indent=1) + "\n")
+            print(name, len(raw), "bytes", model.algorithm, {k: round(v, 3) for k, v in meta["metrics"].items()})
+
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])

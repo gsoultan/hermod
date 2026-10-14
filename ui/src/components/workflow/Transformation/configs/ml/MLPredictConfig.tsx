@@ -298,6 +298,24 @@ function ScenarioFields({ scenario, config, set, fieldPaths }: {
           onChange={(e) => set({ withinDays: e.currentTarget.value })}
         />
       )}
+      {scenario !== 'products' && scenario !== 'similar' && (
+        <>
+          <TextInput
+            label="Customer category"
+            description="Optional: only customers of this category (the model's customers.segment)."
+            placeholder="any"
+            value={config.segment ?? ''}
+            onChange={(e) => set({ segment: e.currentTarget.value || undefined })}
+          />
+          <TextInput
+            label="Customer size"
+            description="Optional: small, medium, large or your own label."
+            placeholder="any"
+            value={config.size ?? ''}
+            onChange={(e) => set({ size: e.currentTarget.value || undefined })}
+          />
+        </>
+      )}
       <TextInput
         label="How many"
         description={scenario === 'visits'

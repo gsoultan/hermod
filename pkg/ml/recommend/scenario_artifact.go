@@ -3,6 +3,8 @@ package recommend
 import (
 	"math"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -123,6 +125,53 @@ func (m *Model) Salesmen() []string {
 	return out
 }
 
+// sizeLabels are the buckets a numeric customer size is cut into, smallest
+// first, as the worker's SIZE_LABELS.
+var sizeLabels = []string{"small", "medium", "large"}
+
+// SizeEdges are the two tertiles the model's numeric customer sizes were cut
+// at into small, medium and large; ok is false when its sizes were labels,
+// or it has none.
+func (m *Model) SizeEdges() (lo, hi float64, ok bool) {
+	if m.sc == nil || len(m.sc.sizeEdges) != 2 {
+		return 0, 0, false
+	}
+	return m.sc.sizeEdges[0], m.sc.sizeEdges[1], true
+}
+
+// SizeBucket is a customer size as the model stores it: small, medium or
+// large in lower case; a number cut at SizeEdges as training cut the
+// customers' sizes (up to the first edge small, up to the second medium,
+// above it large); any other label as given, trimmed.
+func (m *Model) SizeBucket(size string) string {
+	size = strings.TrimSpace(size)
+	if lower := strings.ToLower(size); slices.Contains(sizeLabels, lower) {
+		return lower
+	}
+	lo, hi, ok := m.SizeEdges()
+	f, err := strconv.ParseFloat(size, 64)
+	if !ok || err != nil || !finite(f) {
+		return size
+	}
+	switch {
+	case f <= lo:
+		return sizeLabels[0]
+	case f <= hi:
+		return sizeLabels[1]
+	}
+	return sizeLabels[2]
+}
+
+// CustomerAttrs is a customer's category (segment) and size; "" for what
+// the model does not know, or a customer it does not.
+func (m *Model) CustomerAttrs(id string) (segment, size string) {
+	u, ok := m.userIndex[id]
+	if !ok || m.sc == nil {
+		return "", ""
+	}
+	return m.cattr(u, "segment"), m.cattr(u, "size")
+}
+
 // Customer and product ids, for building every result of a model.
 func (m *Model) CustomerIDs() []string { return slices.Clone(m.users) }
 func (m *Model) ProductIDs() []string  { return slices.Clone(m.items) }
@@ -166,6 +215,15 @@ func (h header) checkNumbers() error {
 	for _, g := range []float64{h.GlobalGap, h.GlobalVisitGap} {
 		if math.IsNaN(g) || math.IsInf(g, 0) || g < 0 {
 			return invalid("a global gap of %v days", g)
+		}
+	}
+	if e := h.SizeEdges; len(e) != 0 && (len(e) != 2 || !finite(e[0]) || !finite(e[1]) || e[0] > e[1]) {
+		return invalid("size_edges %v are not two ascending numbers", e)
+	}
+	if h.NearPeers != 0 || h.NearKm != 0 {
+		if !finite(h.NearKm) || h.NearKm < NearKmMin || h.NearKm > NearKmMax || h.NearPeers < NearPeersMin || h.NearPeers > NearPeersMax {
+			return invalid("near_km %v and near_peers %d are not between %v and %v km, and %d and %d customers",
+				h.NearKm, h.NearPeers, NearKmMin, NearKmMax, NearPeersMin, NearPeersMax)
 		}
 	}
 	return nil
@@ -220,6 +278,7 @@ func (m *Model) readScenario(r *reader, h header) {
 		cFeatNames: h.CustomerFeatures, iFeatNames: h.ItemFeatures,
 		salesmen: h.Salesmen, weights: h.Weights, rules: h.Rules,
 		globalGap: h.GlobalGap, globalVisitGap: h.GlobalVisitGap, hasVisits: h.HasVisits, hasMargin: h.HasMargin,
+		hasPeers: h.HasPeers, sizeEdges: h.SizeEdges, nearKm: h.NearKm, nearPeers: h.NearPeers,
 	}
 	asOf, _ := time.Parse(time.DateOnly, h.AsOf)
 	sc.asOf = dayOf(asOf)
