@@ -148,6 +148,8 @@ type Registry struct {
 	startTime time.Time
 
 	notificationService *notification.Service
+	// deadLetterRecords keeps parked messages for the dead letter page.
+	deadLetterRecords deadLetterRecorder
 	// aiBudget is built on first use; see AIBudget.
 	aiBudget     *aibudget.Service
 	aiBudgetOnce sync.Once
@@ -508,6 +510,7 @@ func (r *Registry) purgeRetention() {
 	}
 
 	r.purgeMLPredictionLogs(ctx, store, logStore)
+	r.purgeDeadLetters(ctx, store)
 
 	workflows, total, err := store.ListWorkflows(ctx, storage.CommonFilter{Limit: workflowPageForRetention})
 	if err != nil {

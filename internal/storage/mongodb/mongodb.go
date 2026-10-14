@@ -218,7 +218,7 @@ func (s *mongoStorage) Ping(ctx context.Context) error {
 
 func (s *mongoStorage) Init(ctx context.Context) error {
 	// Create indexes
-	collections := []string{"sources", "sinks", "users", "vhosts", "workflows", "workers", "logs", "settings", "audit_logs", "webhook_requests", "schemas", "message_traces", "workflow_versions", "ml_prediction_logs", mlJobsCollection, mlJobResultsCollection, mlBlobsCollection}
+	collections := []string{"sources", "sinks", "users", "vhosts", "workflows", "workers", "logs", "settings", "audit_logs", "webhook_requests", "schemas", "message_traces", "workflow_versions", "ml_prediction_logs", mlJobsCollection, mlJobResultsCollection, mlBlobsCollection, deadLettersCollection}
 
 	for _, collName := range collections {
 		coll := s.db.Collection(collName)
@@ -248,6 +248,14 @@ func (s *mongoStorage) Init(ctx context.Context) error {
 				mongo.IndexModel{Keys: bson.D{{Key: "status", Value: 1}, {Key: "created_at", Value: 1}}},
 				mongo.IndexModel{Keys: bson.D{{Key: "callback_status", Value: 1}, {Key: "callback_next_at", Value: 1}}},
 				mongo.IndexModel{Keys: bson.D{{Key: "expires_at", Value: 1}}},
+			)
+		case deadLettersCollection:
+			// A vhost's dead letters and one workflow's are listed newest
+			// first; the purge goes by age.
+			indexModels = append(indexModels,
+				mongo.IndexModel{Keys: bson.D{{Key: "vhost", Value: 1}, {Key: "failed_at", Value: -1}}},
+				mongo.IndexModel{Keys: bson.D{{Key: "workflow_id", Value: 1}, {Key: "failed_at", Value: -1}}},
+				mongo.IndexModel{Keys: bson.D{{Key: "failed_at", Value: 1}}},
 			)
 		case mlBlobsCollection:
 			// Blobs are found by vhost and key prefix, a blob's chunks by

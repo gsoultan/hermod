@@ -212,6 +212,7 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		s.queries.get(QueryInitMLJobResultsTable),
 		s.queries.get(QueryInitAIBudgetsTable),
 		s.queries.get(QueryInitAIUsageTable),
+		s.queries.get(QueryInitDeadLettersTable),
 		s.queries.get(QueryInitWorkersTable),
 		s.queries.get(QueryInitApprovalsTable),
 		s.queries.get(QueryInitSettingsTable),
@@ -380,6 +381,11 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		"CREATE INDEX IF NOT EXISTS idx_ml_jobs_callback ON ml_jobs(callback_status, callback_next_at)",
 		"CREATE INDEX IF NOT EXISTS idx_ml_jobs_expires ON ml_jobs(expires_at)",
 		"CREATE INDEX IF NOT EXISTS idx_ml_job_results_expires ON ml_job_results(expires_at)",
+		// The dead letter page lists a vhost's dead letters newest first, and
+		// one workflow's; the purge removes them by age.
+		"CREATE INDEX IF NOT EXISTS idx_dead_letters_vhost_failed ON dead_letters(vhost, failed_at DESC)",
+		"CREATE INDEX IF NOT EXISTS idx_dead_letters_wf_failed ON dead_letters(workflow_id, failed_at DESC)",
+		"CREATE INDEX IF NOT EXISTS idx_dead_letters_failed ON dead_letters(failed_at)",
 	}
 
 	for _, q := range indexQueries {

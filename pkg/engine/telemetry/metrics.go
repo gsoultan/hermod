@@ -8,6 +8,14 @@ import (
 )
 
 var (
+	// DeadLetterRecordsDropped counts dead letters left off the dead letter
+	// page because the store fell behind. The messages are still in their
+	// workflow's dead-letter sink; what is lost is only the page's copy.
+	DeadLetterRecordsDropped = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "hermod_dead_letter_records_dropped_total",
+		Help: "Dead letters not kept for the dead letter page because its store fell behind",
+	})
+
 	MessagesProcessed = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "hermod_engine_messages_processed_total",
 		Help: "The total number of processed messages",

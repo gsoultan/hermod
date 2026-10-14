@@ -908,6 +908,10 @@ func (r *Registry) StopAll() {
 	}
 	wg.Wait()
 
+	// Dead letters the last engines parked are still on their way to the
+	// store; they are the ones an operator will look for after the restart.
+	r.FlushDeadLetterRecords(shutdownNotifyFlush)
+
 	// The shutdown alert is dispatched asynchronously, and the process exits
 	// straight after StopAll returns. Without this flush the one notification
 	// that says a worker went down loses the race every time. Bounded so an
@@ -923,16 +927,18 @@ func (r *Registry) StopAll() {
 	}
 }
 
-// deadLetterObserver hands each message wf parks to the dead-letter digest,
-// which mails it through panmail when that is turned on. It runs on the
-// engine's write path: the digest only counts and, for its first few
-// messages, copies what the mail shows, before the engine releases the message.
+// deadLetterObserver hands each message wf parks to the dead letter store, for
+// the dead letter page, and to the dead-letter digest, which mails it through
+// panmail when that is turned on. It runs on the engine's write path, before
+// the engine releases the message: it copies what it needs and queues the
+// write, and the digest only counts and copies its first few samples.
 func (r *Registry) deadLetterObserver(wf storage.Workflow) pkgengine.DeadLetterObserver {
 	ns := r.notificationService
-	if ns == nil {
-		return nil
-	}
 	return func(d pkgengine.DeadLetter) {
+		r.recordDeadLetter(wf, d)
+		if ns == nil {
+			return
+		}
 		ns.DeadLettered(wf, func() notification.DeadLetterSample {
 			payload, truncated := notification.SampleMessage(d.Message)
 			return notification.DeadLetterSample{
@@ -1390,6 +1396,13 @@ func replayTargets(wf storage.Workflow, adj map[string][]string, nodeID, branch 
 // paths build their own sinks and can run with the workflow stopped) there is no
 // dead-letter sink either, and the loss is at least stated rather than silent.
 func (r *Registry) replayLost(ctx context.Context, workflowID string, node *storage.WorkflowNode, eng *pkgengine.Engine, msg hermod.Message, cause error) {
+	if replayingDeadLetter(ctx) {
+		// The dead letter being replayed is still in the queue; parking the
+		// message again would put a second copy beside it.
+		r.broadcastLog(workflowID, "error", fmt.Sprintf(
+			"Node %s failed the replayed dead letter again; it stays in the queue: %v", r.getNodeName(*node), cause))
+		return
+	}
 	if eng != nil && eng.DeadLetterOrphanedMessage(ctx, node.ID, msg, cause) {
 		return
 	}
