@@ -7,6 +7,18 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — Dead-letter alerts by email and Telegram
+
+Dead-letter alerts no longer need Panmail. Settings › Connectivity now has
+**Email every dead-lettered message** on the SMTP card, which mails the same
+per-workflow digest to the Default Recipient through your own SMTP server, and
+**Send every dead-lettered message to Telegram** on the Telegram card, which
+sends a shorter message (the error and up to 5 of the messages, kept under
+Telegram's 4096-character limit) to the Default Chat ID. Each channel is turned
+on separately, and one failing does not stop the others. **Leave message
+contents out of email and Telegram alerts** sends the workflow, node and error
+only; Panmail's own **Leave message contents out** also covers both.
+
 ### Added — Dead letters page
 
 **Dead Letters** in the sidebar lists every message a workflow parked after

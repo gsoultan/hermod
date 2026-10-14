@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"html/template"
 	"net/url"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/gsoultan/gsmail"
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/storage"
 )
@@ -181,17 +183,40 @@ func (s *Service) flushDeadLetters(workflowID string) {
 		if err := json.Unmarshal([]byte(val), &ns); err != nil {
 			return
 		}
-		if !ns.PanmailDeadLetters || !ns.panmailConfigured() {
-			return
+		// Each channel is sent on its own, so one that is down does not
+		// keep the digest from the others.
+		mail := ns.deadLetterMail(b)
+		send := func(channel string, on bool, f func() error) {
+			if !on {
+				return
+			}
+			if err := f(); err != nil && logger != nil {
+				logger.Error("Dead-letter digest could not be sent",
+					"channel", channel,
+					"workflow_id", b.wf.ID,
+					"dead_letters", b.count,
+					"error", err.Error())
+			}
 		}
-		if err := ns.SendPanmail(ctx, resolve, ns.deadLetterMail(b)); err != nil && logger != nil {
-			logger.Error("Dead-letter digest could not be mailed",
-				"channel", "panmail",
-				"workflow_id", b.wf.ID,
-				"dead_letters", b.count,
-				"error", err.Error())
-		}
+		send("panmail", ns.PanmailDeadLetters && ns.panmailConfigured(), func() error {
+			return ns.SendPanmail(ctx, resolve, mail)
+		})
+		send("email", ns.EmailDeadLetters && ns.smtpConfigured(), func() error {
+			return smtpSend(ctx, ns, gsmail.Email{
+				From: ns.SMTPFrom, To: splitAddresses(ns.DefaultEmail), Subject: mail.Subject,
+				Body: []byte(mail.Text), HTMLBody: []byte(mail.HTML),
+			})
+		})
+		send("telegram", ns.TelegramDeadLetters && ns.telegramConfigured(), func() error {
+			return ns.sendTelegramHTML(ctx, ns.deadLetterTelegram(b))
+		})
 	}()
+}
+
+// hideDeadLetterPayload reports whether the digest leaves message contents
+// out. The Panmail setting predates the shared one and still applies.
+func (ns NotificationSettings) hideDeadLetterPayload() bool {
+	return ns.DeadLetterHidePayload || ns.PanmailHidePayload
 }
 
 // deadLetterView is what the digest templates see.
@@ -211,25 +236,12 @@ func (ns NotificationSettings) deadLetterMail(b *deadLetterBatch) PanmailMail {
 		Count:       b.count,
 		Samples:     b.samples,
 		More:        b.count - len(b.samples),
-		HidePayload: ns.PanmailHidePayload,
+		HidePayload: ns.hideDeadLetterPayload(),
 		Opened:      b.opened.UTC().Format(time.RFC3339),
 	}
-	if ns.BaseURL != "" {
-		// The dead letter page, narrowed to this workflow: it shows every
-		// dead letter whatever the workflow's sink is.
-		view.QueueURL = fmt.Sprintf("%s/dead-letters?workflow_id=%s", strings.TrimRight(ns.BaseURL, "/"), url.QueryEscape(b.wf.ID))
-	}
-
-	name := b.wf.Name
-	if name == "" {
-		name = b.wf.ID
-	}
-	noun := "messages"
-	if b.count == 1 {
-		noun = "message"
-	}
+	view.QueueURL = ns.deadLetterPageURL(b.wf.ID)
 	mail := PanmailMail{
-		Subject: fmt.Sprintf("[Hermod] %d %s dead-lettered in %q", b.count, noun, name),
+		Subject: "[Hermod] " + deadLetterHeadline(b),
 		// One window per workflow, so its id and opening instant name it.
 		IdempotencyKey: fmt.Sprintf("hermod-dlq-%s-%d", b.wf.ID, b.opened.UnixNano()),
 	}
@@ -241,6 +253,99 @@ func (ns NotificationSettings) deadLetterMail(b *deadLetterBatch) PanmailMail {
 		mail.HTML = html.String()
 	}
 	return mail
+}
+
+// deadLetterPageURL is the dead letter page narrowed to the workflow: it
+// shows every dead letter whatever the workflow's sink is. Empty without a
+// base URL.
+func (ns NotificationSettings) deadLetterPageURL(workflowID string) string {
+	if ns.BaseURL == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s/dead-letters?workflow_id=%s", strings.TrimRight(ns.BaseURL, "/"), url.QueryEscape(workflowID))
+}
+
+// deadLetterHeadline is "12 messages dead-lettered in "Orders sync"".
+func deadLetterHeadline(b *deadLetterBatch) string {
+	name := b.wf.Name
+	if name == "" {
+		name = b.wf.ID
+	}
+	noun := "messages"
+	if b.count == 1 {
+		noun = "message"
+	}
+	return fmt.Sprintf("%d %s dead-lettered in %q", b.count, noun, name)
+}
+
+// telegramMessageLimit is the most characters Telegram takes in one message.
+const telegramMessageLimit = 4096
+
+// Telegram shows fewer messages than a mail, and less of each, since the
+// whole digest has to fit one chat message.
+const (
+	telegramDeadLetterSamples = 5
+	telegramPayloadCap        = 400
+)
+
+// deadLetterTelegram is the digest as one Telegram message in Telegram's
+// HTML, every value escaped. Payloads are cut so the message fits the limit.
+func (ns NotificationSettings) deadLetterTelegram(b *deadLetterBatch) string {
+	samples := b.samples
+	if len(samples) > telegramDeadLetterSamples {
+		samples = samples[:telegramDeadLetterSamples]
+	}
+	payloadCap := telegramPayloadCap
+	for {
+		text := ns.renderDeadLetterTelegram(b, samples, payloadCap)
+		if utf8.RuneCountInString(text) <= telegramMessageLimit {
+			return text
+		}
+		if payloadCap > 0 {
+			payloadCap /= 2
+			if payloadCap < 40 {
+				payloadCap = 0
+			}
+			continue
+		}
+		if len(samples) > 1 {
+			samples = samples[:len(samples)-1]
+			continue
+		}
+		return string([]rune(text)[:telegramMessageLimit])
+	}
+}
+
+func (ns NotificationSettings) renderDeadLetterTelegram(b *deadLetterBatch, samples []DeadLetterSample, payloadCap int) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "<b>[Hermod] %s</b>\n", html.EscapeString(deadLetterHeadline(b)))
+	for i, s := range samples {
+		fmt.Fprintf(&sb, "\n%d. <code>%s</code> · %s\n", i+1, html.EscapeString(s.MessageID), html.EscapeString(s.Where()))
+		errText := s.Error
+		if errText == "" {
+			errText = "(no error recorded)"
+		}
+		fmt.Fprintf(&sb, "%s\n", html.EscapeString(cutRunes(errText, 300)))
+		if !ns.hideDeadLetterPayload() && s.Payload != "" && payloadCap > 0 {
+			fmt.Fprintf(&sb, "<pre>%s</pre>\n", html.EscapeString(cutRunes(s.Payload, payloadCap)))
+		}
+	}
+	if more := b.count - len(samples); more > 0 {
+		fmt.Fprintf(&sb, "\n…and %d more not shown.\n", more)
+	}
+	if u := ns.deadLetterPageURL(b.wf.ID); u != "" {
+		fmt.Fprintf(&sb, "\n<a href=\"%s\">Open the dead letters</a>", html.EscapeString(u))
+	}
+	return sb.String()
+}
+
+// cutRunes cuts s to at most n characters, marking the cut.
+func cutRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
 }
 
 // Where names the step that gave up on a message.
