@@ -157,15 +157,11 @@ func (req panmailProvidersRequest) fetch(ctx context.Context) ([]map[string]any,
 
 	list := make([]map[string]any, 0, len(providers))
 	for _, p := range providers {
-		domains := p.AllowedDomains
-		if domains == nil {
-			domains = []string{}
+		senders := p.AllowedSenders
+		if senders == nil {
+			senders = []string{}
 		}
-		from := fromDomains(domains)
-		emails := make([]string, len(from))
-		for i, d := range from {
-			emails[i] = req.mailbox + "@" + d
-		}
+		domains, emails := fromSenders(senders, req.mailbox)
 		first := ""
 		if len(emails) > 0 {
 			first = emails[0]
@@ -174,10 +170,13 @@ func (req panmailProvidersRequest) fetch(ctx context.Context) ([]map[string]any,
 			"id":             p.ID,
 			"name":           p.Name,
 			"type":           shortProviderType(p.Type),
+			"allowedSenders": senders,
+			// The gateway's allowed_domains became allowed_senders; the name
+			// stays so workflows that read it keep working.
 			"allowedDomains": domains,
-			"fromDomains":    from,
-			// The gateway returns no From address; these are the node's
-			// mailbox at each domain the provider may send From.
+			"fromDomains":    domains,
+			// Each exact sender as it stands, and the node's mailbox at each
+			// domain the provider may send From.
 			"fromEmails": emails,
 			"fromEmail":  first,
 		})
@@ -185,18 +184,33 @@ func (req panmailProvidersRequest) fetch(ctx context.Context) ([]map[string]any,
 	return list, nil
 }
 
-// fromDomains is the domains a provider may send From, read off its allowed
-// domains: trimmed, lowered, without a leading "@", empties and repeats
-// dropped. The gateway returns no From address, so none is made up here.
-func fromDomains(allowed []string) []string {
-	out := make([]string, 0, len(allowed))
-	for _, d := range allowed {
-		d = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(d), "@"))
-		if d != "" && !slices.Contains(out, d) {
-			out = append(out, d)
+// fromSenders reads a provider's allowed senders: an exact address is a From
+// email as it stands, and a whole domain ("*@example.com") gives a domain and
+// the mailbox at it. Entries are trimmed and lowered, empties and repeats
+// dropped, and the gateway's order kept. The gateway returns no From address
+// for a domain, so none but the node's mailbox is made up.
+func fromSenders(allowed []string, mailbox string) (domains, emails []string) {
+	domains, emails = []string{}, []string{}
+	add := func(list []string, s string) []string {
+		if slices.Contains(list, s) {
+			return list
+		}
+		return append(list, s)
+	}
+	for _, s := range allowed {
+		s = strings.ToLower(strings.TrimSpace(s))
+		local, domain, ok := strings.Cut(s, "@")
+		switch {
+		case !ok || local == "" || domain == "":
+			continue
+		case local == "*":
+			domains = add(domains, domain)
+			emails = add(emails, mailbox+"@"+domain)
+		default:
+			emails = add(emails, s)
 		}
 	}
-	return out
+	return domains, emails
 }
 
 func (t *PanmailProvidersTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {

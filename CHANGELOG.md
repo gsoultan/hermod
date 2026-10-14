@@ -75,6 +75,26 @@ payload out of mail for workflows that carry personal data. Panmail fields take
 only, so a vhost secret cannot redirect the alert gateway or its key. Panmail is
 also an ordinary alert channel and is part of Send Test Notification.
 
+### Changed — Panmail on panmail-sdk 0.1.1: allowed senders, not allowed domains
+
+Hermod moves from panmail-sdk `v0.1.0` to `v0.1.1`. The Panmail gateway
+replaced a provider's `allowed_domains` with `allowed_senders`, where each
+entry is an exact address (`billing@example.com`) or a whole domain
+(`*@example.com`), and the SDK now reads only the new field. The **Panmail
+Providers** node follows it:
+
+- each provider gains `allowedSenders`, the list as the gateway gives it;
+- `fromDomains` is the whole-domain entries, so `*@example.com` gives
+  `example.com`; an exact address grants no domain;
+- `fromEmails` is each exact address as it stands, plus the From mailbox at
+  each whole domain, in the gateway's order, and `fromEmail` is the first;
+- `allowedDomains` is kept for workflows that read it and now carries the same
+  domains as `fromDomains`.
+
+A gateway too old to send `allowedSenders` now gives every provider empty
+lists, so upgrade the gateway alongside Hermod. The panmail sink and the
+Panmail alert channel send exactly as before.
+
 ### Changed — One way to write a secret: `{{secret.NAME}}` and `{{env.NAME}}`
 
 Secrets and server variables are now written the same way in every source,

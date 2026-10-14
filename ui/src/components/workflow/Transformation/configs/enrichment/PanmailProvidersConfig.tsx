@@ -101,9 +101,9 @@ export function PanmailProvidersConfig({ config, updateNodeConfig, nodeId, field
         />
       </FormRow>
       <Text size="xs" c="dimmed">
-        Writes a list of providers into the target field, each with id, name, type, allowedDomains,
-        fromDomains (the domains it may send From), and fromEmail / fromEmails (the From mailbox at
-        those domains; the gateway itself stores no From address).
+        Writes a list of providers into the target field, each with id, name, type, allowedSenders
+        (the addresses and *@domains it may send as), fromDomains (the domains it may send From), and
+        fromEmail / fromEmails (each allowed address, plus the From mailbox at those domains).
       </Text>
     </Stack>
   );
