@@ -37,6 +37,7 @@ func (h *SinkHandler) RegisterSinkRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/sinks/smtp/preview", h.EditorOnly(h.PreviewSmtpTemplate))
 	mux.Handle("POST /api/sinks/smtp/validate", h.EditorOnly(h.ValidateEmail))
 	mux.Handle("POST /api/sinks/fcm/preview", h.EditorOnly(h.PreviewFcmMessage))
+	mux.Handle("POST /api/sinks/fcm/test-send", h.EditorOnly(h.SendFcmTestMessage))
 	mux.Handle("DELETE /api/sinks/{id}", h.EditorOnly(h.DeleteSink))
 }
 

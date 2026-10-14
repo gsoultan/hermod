@@ -135,6 +135,18 @@ describe('the fcm destination picker', () => {
 
     expect(written).toContainEqual(['device_token', '{{.push_token}}'])
   })
+
+  // Appending made "{{.user_id}}{{.push_token}}": two values run together,
+  // which FCM refuses as an invalid token.
+  it('replaces the token field when another is picked', async () => {
+    const written: Written = []
+    ui({ device_token: '{{.user_id}}' }, { written, availableFields: [{ path: 'push_token', type: 'string' }] })
+
+    fireEvent.click(screen.getByRole('button', { name: /insert field into device token/i }))
+    fireEvent.click(await screen.findByRole('option', { name: 'push_token' }))
+
+    expect(written).toContainEqual(['device_token', '{{.push_token}}'])
+  })
 })
 
 /**
@@ -192,16 +204,75 @@ describe('the fcm app data section', () => {
     expect(written.filter(([key]) => key === 'data_json').pop()).toEqual(['data_json', ''])
   })
 
-  it('does not offer the column the message is addressed by', () => {
+  // Leaving the token column out of the list made people think the form had
+  // lost a field. It is listed, switched off, with the reason beside it.
+  it('shows the column the message is addressed by switched off, and says why', () => {
     ui(
       { data_mode: 'none', device_token: '{{.after.fcm_token}}' },
       { availableFields: [{ path: 'order_no', type: 'string' }, { path: 'fcm_token', type: 'string' }] },
     )
-    expect(screen.getByRole('checkbox', { name: 'order_no' })).toBeInTheDocument()
-    expect(screen.queryByRole('checkbox', { name: 'fcm_token' })).not.toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'order_no' })).toBeEnabled()
+    expect(screen.getByRole('checkbox', { name: 'fcm_token' })).toBeDisabled()
+    expect(screen.getByText(/addresses the message, so it is not sent/i)).toBeInTheDocument()
+    expect(screen.getByText('0 of 1 sent')).toBeInTheDocument()
   })
 
-  it('offers no column chips when every column is already sent', () => {
+  // The list stopped at thirty, skipped object and list columns, and skipped a
+  // column the editor knew only inside a change event.
+  it('lists every field of the incoming row', () => {
+    const wide = Array.from({ length: 34 }, (_, i) => ({ path: `col_${i}`, type: 'string' }))
+    ui(
+      { data_mode: 'none' },
+      {
+        availableFields: [
+          ...wide,
+          { path: 'after', type: 'object' },
+          { path: 'after.discount', type: 'any (inferred)' },
+          { path: 'line_items', type: 'array' },
+        ],
+      },
+    )
+    expect(screen.getByRole('checkbox', { name: 'col_33' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'discount' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'line_items' })).toBeInTheDocument()
+    expect(screen.getByText('0 of 36 sent')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Find a field'), { target: { value: 'disc' } })
+    expect(screen.getByRole('checkbox', { name: 'discount' })).toBeInTheDocument()
+    expect(screen.queryByRole('checkbox', { name: 'col_1' })).not.toBeInTheDocument()
+  })
+
+  it('sends every field in one click, objects as JSON, and clears them again', () => {
+    const written: Written = []
+    ui(
+      { data_mode: 'none', data_json: '{"deeplink":"app://x"}' },
+      { written, availableFields: [{ path: 'sku', type: 'string' }, { path: 'tags', type: 'array' }] },
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Select all' }))
+    const all = written.filter(([key]) => key === 'data_json').pop()
+    expect(JSON.parse(all![1] as string)).toEqual({ deeplink: 'app://x', sku: '{{.sku}}', tags: '{{json .tags}}' })
+    expect(screen.getByText('2 of 2 sent')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+    const cleared = written.filter(([key]) => key === 'data_json').pop()
+    expect(JSON.parse(cleared![1] as string)).toEqual({ deeplink: 'app://x' })
+  })
+
+  it('says what no fields means rather than showing an empty list', () => {
+    ui({ data_mode: 'none' })
+    expect(screen.getByText(/no fields to pick from yet/i)).toBeInTheDocument()
+  })
+
+  it('names every field All fields sends, and the one it leaves out', () => {
+    ui(
+      { data_mode: 'fields', device_token: '{{.push_token}}' },
+      { availableFields: [{ path: 'sku', type: 'string' }, { path: 'push_token', type: 'string' }] },
+    )
+    expect(screen.getByText('Sends 1 field')).toBeInTheDocument()
+    expect(screen.getByText(/not sent: push_token/i)).toBeInTheDocument()
+  })
+
+  it('offers no field ticks when every column is already sent', () => {
     ui({ data_mode: 'fields' }, { availableFields: [{ path: 'order_no', type: 'string' }] })
     expect(screen.queryByRole('checkbox', { name: 'order_no' })).not.toBeInTheDocument()
     expect(screen.getByText('Extra keys')).toBeInTheDocument()
@@ -428,5 +499,134 @@ describe('the live fcm message preview', () => {
 
     expect(await screen.findByText(/not valid json/i)).toBeInTheDocument()
     expect(calls).toBe(1)
+  })
+})
+
+/**
+ * "Invalid argument" was the whole of what people were told. The preview now
+ * says which setting a row fails on, under that setting, and what to change.
+ */
+describe('a row the sink would refuse', () => {
+  const refusedOn = (field: string, label: string, fix: string, problem: string) => ({
+    recipients: 0,
+    data_bytes: 0,
+    sent_data_bytes: 0,
+    limit: 4096,
+    refused: `fcm sink: message preview: ${label} (${field}) ${problem}. To fix: ${fix}`,
+    refused_field: field,
+    refused_label: label,
+    refused_fix: fix,
+    sample: { id: '7' },
+  })
+
+  it('says the reason under the setting, leads with it in the preview, and goes there', async () => {
+    server.use(
+      http.post('/api/sinks/fcm/preview', () =>
+        HttpResponse.json(
+          refusedOn('device_token', 'Device token', 'point Device token at the field that holds the token', 'is empty for this row'),
+        ),
+      ),
+    )
+    ui({ device_token: '{{.push_token}}' })
+
+    expect(await screen.findByText('This row would fail: Device token')).toBeInTheDocument()
+    expect(screen.getByText('Is empty for this row.')).toBeInTheDocument()
+    expect(screen.getByText('How to fix:')).toBeInTheDocument()
+    const input = screen.getByRole('textbox', { name: /device token/i })
+    expect(input).toHaveAttribute('aria-invalid', 'true')
+    expect(input).toHaveAccessibleDescription(/point device token at the field/i)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Go to Device token' }))
+    await waitFor(() => expect(input).toHaveFocus())
+  })
+
+  it('opens the folded section that holds the setting', async () => {
+    server.use(
+      http.post('/api/sinks/fcm/preview', () =>
+        HttpResponse.json(
+          refusedOn('android_color', 'Android options → Colour', 'write it as #rrggbb', 'is not a colour FCM accepts'),
+        ),
+      ),
+    )
+    ui({ topic: 'orders' })
+
+    expect(await screen.findByRole('button', { name: /android options.*needs a fix/i })).toBeInTheDocument()
+    const colour = await screen.findByRole('textbox', { name: /colour/i })
+    expect(colour).toHaveAttribute('aria-invalid', 'true')
+  })
+})
+
+/**
+ * Test connection passed for sinks whose every real message FCM refused, and
+ * people read it as "notifications will arrive". The form now sends the
+ * previewed message for real, to one device.
+ */
+describe('the fcm test send', () => {
+  const ready = {
+    message: { token: 'row-device', notification: { title: 'Order 7' } },
+    recipients: 1,
+    data_bytes: 0,
+    sent_data_bytes: 0,
+    limit: 4096,
+    sample: { id: '7' },
+  }
+
+  it('sends the row with the whole config to the device given, and says it was accepted', async () => {
+    let posted: any = null
+    server.use(
+      http.post('/api/sinks/fcm/preview', () => HttpResponse.json(ready)),
+      http.post('/api/sinks/fcm/test-send', async ({ request }) => {
+        posted = await request.json()
+        return HttpResponse.json({ message_id: 'projects/p/messages/1', to: '1 device' })
+      }),
+    )
+    ui(
+      { credentials_json: '{"private_key":"k"}', device_token: '{{.push_token}}', title: 'Order {{.id}}' },
+      { incomingPayload: { id: '7', push_token: 'row-device' } },
+    )
+
+    fireEvent.change(await screen.findByLabelText(/device token for the test/i), { target: { value: 'my-phone' } })
+    fireEvent.click(screen.getByRole('button', { name: /send test notification/i }))
+
+    expect(await screen.findByText('Sent: FCM accepted it')).toBeInTheDocument()
+    expect(screen.getByText(/sent to 1 device/i)).toBeInTheDocument()
+    // Unlike the preview, a real send needs the service account.
+    expect(posted.config.credentials_json).toBe('{"private_key":"k"}')
+    expect(posted.device).toBe('my-phone')
+    expect(posted.sample).toEqual({ id: '7', push_token: 'row-device' })
+  })
+
+  it('says why it was not sent and goes to the setting', async () => {
+    server.use(
+      http.post('/api/sinks/fcm/preview', () => HttpResponse.json(ready)),
+      http.post('/api/sinks/fcm/test-send', () =>
+        HttpResponse.json(
+          { error: 'fcm sink: message preview: Device token (device_token) is not an FCM registration token.', field: 'device_token' },
+          { status: 400 },
+        ),
+      ),
+    )
+    ui({ device_token: '{{.user_id}}' })
+
+    fireEvent.click(await screen.findByRole('button', { name: /send test notification/i }))
+
+    expect(await screen.findByText('Not sent')).toBeInTheDocument()
+    expect(screen.getByText(/is not an FCM registration token/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /go to the setting/i }))
+    await waitFor(() => expect(screen.getByRole('textbox', { name: /^device token\s*\*?$/i })).toHaveFocus())
+  })
+
+  // A topic reaches everyone subscribed to it; a test must not.
+  it('asks for a device when the sink sends to a topic', async () => {
+    server.use(
+      http.post('/api/sinks/fcm/preview', () =>
+        HttpResponse.json({ ...ready, message: { topic: 'everyone', notification: { title: 'x' } }, recipients: 0 }),
+      ),
+    )
+    ui({ topic: 'everyone' })
+    const button = await screen.findByRole('button', { name: /send test notification/i })
+    expect(button).toBeDisabled()
+    fireEvent.change(screen.getByLabelText(/device token for the test/i), { target: { value: 'my-phone' } })
+    expect(button).toBeEnabled()
   })
 })

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"regexp"
 	"sort"
 	"strings"
 	"text/template"
@@ -20,10 +21,18 @@ import (
 // sink that may see thousands of messages a second does not re-parse the same
 // text for each of them.
 type tmpl struct {
+	// field is the configuration key the template is stored under, and entry
+	// the data key for one of the App data values.
 	field  string
+	entry  string
 	raw    string
 	parsed *template.Template
 }
+
+// noValue is what text/template prints for a nil value: a column that is null
+// in this row, or an optional field read with index that the row does not
+// have. It is never what anyone meant to send.
+const noValue = "<no value>"
 
 // compile prepares a templated field. Text with no action is kept as a literal
 // so rendering it costs nothing.
@@ -39,12 +48,26 @@ func compile(field, raw string) (tmpl, error) {
 	//
 	// A field that is genuinely optional is reachable with {{index . "name"}},
 	// which yields the zero value rather than an error.
-	parsed, err := template.New(field).Option("missingkey=error").Parse(raw)
+	parsed, err := template.New(field).Option("missingkey=error").Funcs(funcs).Parse(raw)
 	if err != nil {
-		return tmpl{}, fmt.Errorf("fcm sink: the %s template is not valid: %w", field, err)
+		return tmpl{}, &FieldError{
+			Key:      field,
+			Template: raw,
+			Problem:  fmt.Sprintf("is not a valid template: %v", err),
+			Fix:      `a field is written {{.column}}; every {{ needs a matching }}`,
+		}
 	}
 	t.parsed = parsed
 	return t, nil
+}
+
+// funcs are the functions a template may call.
+//
+// json writes a value the way "All fields" carries it: text as it is, an
+// object or a list as JSON, null as nothing. Without it an object column picked
+// under "Selected fields" arrived as Go's map[k:v].
+var funcs = template.FuncMap{
+	"json": stringify,
 }
 
 func (t tmpl) empty() bool { return t.raw == "" }
@@ -155,15 +178,49 @@ func collectIndexArg(cmd *parse.CommandNode, seen map[string]bool) {
 	}
 }
 
+// render fills the template in from one row.
+//
+// A null column renders as nothing. Go prints it as "<no value>", and that used
+// to be what was sent: as a lock-screen title, and as a registration token —
+// which FCM refused as INVALID_ARGUMENT without saying which value it meant.
+// An empty token is now refused by name before anything is sent.
 func (t tmpl) render(data map[string]any) (string, error) {
 	if t.parsed == nil {
 		return t.raw, nil
 	}
 	var buf bytes.Buffer
 	if err := t.parsed.Execute(&buf, data); err != nil {
-		return "", permanentf("fcm sink: rendering the %s template failed: %v", t.field, err)
+		problem := "could not be filled in from this row: " + execReason(err)
+		if m := missingKey.FindStringSubmatch(err.Error()); m != nil {
+			// A null column is left out of the row altogether, so to the
+			// template "null" and "no such column" are the same thing.
+			problem = fmt.Sprintf("reads the field %q, which is missing or null in this row", m[1])
+		}
+		if t.entry != "" {
+			problem = fmt.Sprintf("key %q %s", t.entry, problem)
+		}
+		return "", &FieldError{
+			Key:      t.field,
+			Template: t.raw,
+			Problem:  problem,
+			Fix: fmt.Sprintf(`pick a field this row has (%s) with the { } button, or write {{index . "name"}} for a field that may be missing`,
+				rowKeys(data)),
+		}
 	}
-	return buf.String(), nil
+	return strings.ReplaceAll(buf.String(), noValue, ""), nil
+}
+
+// missingKey finds the field in text/template's "map has no entry for key".
+var missingKey = regexp.MustCompile(`map has no entry for key "([^"]*)"`)
+
+// execReason is the part of a template execution error a reader can use. Go's
+// own carries the template name and a parse position in front of it.
+func execReason(err error) string {
+	msg := err.Error()
+	if i := strings.LastIndex(msg, ": "); i >= 0 && strings.Contains(msg, "executing") {
+		return msg[i+2:]
+	}
+	return msg
 }
 
 // renderData is what a template sees.

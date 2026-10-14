@@ -174,6 +174,7 @@ POST /api/sinks/discover/columns
 POST /api/sinks/discover/databases
 POST /api/sinks/discover/tables
 POST /api/sinks/fcm/preview
+POST /api/sinks/fcm/test-send
 POST /api/sinks/query
 POST /api/sinks/sample
 POST /api/sinks/smtp/preview

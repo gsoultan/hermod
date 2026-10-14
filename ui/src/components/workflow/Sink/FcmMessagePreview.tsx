@@ -12,10 +12,19 @@ import {
   Stack,
   Table,
   Text,
+  TextInput,
   Textarea,
   ThemeIcon,
 } from '@mantine/core';
-import { IconAlertTriangle, IconBell, IconPhoto, IconSend } from '@tabler/icons-react';
+import {
+  IconAlertTriangle,
+  IconArrowUp,
+  IconBell,
+  IconCircleCheck,
+  IconDeviceMobile,
+  IconPhoto,
+  IconSend,
+} from '@tabler/icons-react';
 import { apiFetch } from '@/api';
 
 /** What POST /api/sinks/fcm/preview answers with. */
@@ -37,6 +46,10 @@ interface FcmPreview {
   largest?: Array<{ key: string; bytes: number }>;
   /** The failure a run would report for this row. */
   refused?: string;
+  /** The setting it is about, its label on the form, and what to change. */
+  refused_field?: string;
+  refused_label?: string;
+  refused_fix?: string;
   sample: Record<string, unknown>;
 }
 
@@ -44,6 +57,35 @@ interface FcmPreview {
 const SETTLE_MS = 350;
 
 const count = (n: number) => n.toLocaleString('en-US');
+
+/** What the form shows under a setting the preview says a row gets wrong. */
+export interface FcmRefusal {
+  /** The configuration key; empty when the refusal is about no one setting. */
+  field: string;
+  label: string;
+  /** What is wrong, without the sink's prefix or the setting's name. */
+  problem: string;
+  fix: string;
+}
+
+/**
+ * The refusal as a reader wants it: what is wrong with which setting, and
+ * apart from it, what to change. The server writes one sentence for logs;
+ * here the setting leads, as a heading, and the fix gets its own line.
+ */
+export function splitRefusal(preview: Pick<FcmPreview, 'refused' | 'refused_field' | 'refused_label' | 'refused_fix'>): FcmRefusal | null {
+  if (!preview.refused) return null;
+  let problem = preview.refused.replace(/^fcm sink: /, '').replace(/^message \S+:? /, '');
+  const field = preview.refused_field ?? '';
+  const label = preview.refused_label ?? '';
+  if (label && problem.startsWith(`${label} (${field}) `)) problem = problem.slice(label.length + field.length + 4);
+  const fix = preview.refused_fix ?? '';
+  const at = fix ? problem.indexOf(`. To fix: ${fix}`) : -1;
+  if (at >= 0) problem = problem.slice(0, at) + problem.slice(at + `. To fix: ${fix}`.length);
+  problem = problem.charAt(0).toUpperCase() + problem.slice(1);
+  if (!/[.!?]$/.test(problem)) problem += '.';
+  return { field, label, problem, fix: fix ? fix.charAt(0).toUpperCase() + fix.slice(1) + (/[.!?]$/.test(fix) ? '' : '.') : '' };
+}
 
 function isJsonOrBlank(text: string): boolean {
   if (!text.trim()) return true;
@@ -67,6 +109,139 @@ function destination(preview: FcmPreview): string {
   if (message.topic) return `everyone subscribed to topic ${message.topic}`;
   if (message.condition) return `devices matching ${message.condition}`;
   return preview.recipients === 1 ? '1 device' : `${count(preview.recipients)} devices`;
+}
+
+/** What POST /api/sinks/fcm/test-send answers with. */
+type TestSendAnswer =
+  | { ok: true; message_id: string; to: string }
+  | { ok: false; error: string; field?: string; fix?: string };
+
+/**
+ * Sends the previewed message for real, to one device.
+ *
+ * Test connection proves the service account and nothing about the message,
+ * so it passed for sinks whose every real message FCM refused — and people
+ * read its success as "notifications will arrive". This sends what a run
+ * sends, built from the same row, so a success means a phone should show it.
+ */
+function TestSend({
+  config,
+  row,
+  byDevice,
+  onGoTo,
+}: {
+  config: Record<string, any>;
+  /** The row the preview is built from; undefined for the example row. */
+  row: unknown;
+  /** Whether the sink addresses devices; a topic would notify everyone on it. */
+  byDevice: boolean;
+  onGoTo?: (field: string) => void;
+}) {
+  const [device, setDevice] = useState('');
+  const [sending, setSending] = useState(false);
+  const [answer, setAnswer] = useState<TestSendAnswer | null>(null);
+  const needsDevice = !byDevice && !device.trim();
+
+  const send = async () => {
+    setSending(true);
+    setAnswer(null);
+    try {
+      const res = await apiFetch('/api/sinks/fcm/test-send', {
+        method: 'POST',
+        silent: true,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'fcm', config, sample: row, device: device.trim() }),
+      });
+      const data = await res.json();
+      setAnswer({ ok: true, ...data });
+    } catch (err: any) {
+      const data = err?.data ?? {};
+      setAnswer({
+        ok: false,
+        error: String(data.error || err?.message || 'The test send failed.').replace(/^fcm sink: /, ''),
+        field: data.field,
+        fix: data.fix,
+      });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <Paper withBorder radius="md" p="sm" component="section" aria-label="Send a test notification">
+      <Stack gap="xs">
+        <Group gap={6}>
+          <IconDeviceMobile size="1rem" aria-hidden />
+          <Text size="sm" fw={600}>
+            Send a test notification
+          </Text>
+        </Group>
+        <Text size="xs" c="dimmed">
+          Sends this message for real, to one device, the way a run would. Test connection only checks the service
+          account; this checks the message too, so if it is accepted the device should show it.
+        </Text>
+        <TextInput
+          label="Device token for the test"
+          placeholder={byDevice ? "Leave empty to use this row's device" : 'Paste the registration token of your device'}
+          description={
+            byDevice
+              ? 'Paste your own device’s token to receive the test yourself.'
+              : 'Required: this sink sends to a topic, and a test should not notify everyone on it.'
+          }
+          value={device}
+          onChange={(e) => setDevice(e.currentTarget.value)}
+          styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)', fontSize: 'var(--mantine-font-size-xs)' } }}
+        />
+        <Group>
+          <Button
+            size="xs"
+            leftSection={<IconSend size="0.9rem" />}
+            loading={sending}
+            disabled={needsDevice}
+            onClick={() => void send()}
+          >
+            Send test notification
+          </Button>
+        </Group>
+        {answer?.ok && (
+          <Alert color="teal" icon={<IconCircleCheck size="1rem" />} title="Sent: FCM accepted it">
+            <Stack gap={4}>
+              <Text size="sm">
+                Sent to {answer.to}. It should appear on the device within a few seconds.
+              </Text>
+              <Text size="xs" c="dimmed">
+                Not showing? Check that the app is installed with notifications allowed, and that the token is current:
+                it changes when the app is reinstalled or its data is cleared. FCM message id:{' '}
+                <Code>{answer.message_id}</Code>
+              </Text>
+            </Stack>
+          </Alert>
+        )}
+        {answer && !answer.ok && (
+          <Alert color="red" icon={<IconAlertTriangle size="1rem" />} title="Not sent">
+            <Stack gap={6}>
+              <Text size="sm" style={{ wordBreak: 'break-word' }}>
+                {answer.error}
+              </Text>
+              {answer.field && onGoTo && (
+                <Group>
+                  <Button
+                    size="compact-xs"
+                    variant="light"
+                    color="red"
+                    leftSection={<IconArrowUp size="0.8rem" />}
+                    onClick={() => onGoTo(answer.field!)}
+                  >
+                    Go to the setting
+                  </Button>
+                </Group>
+              )}
+            </Stack>
+          </Alert>
+        )}
+      </Stack>
+    </Paper>
+  );
 }
 
 /** The notification as a phone would draw it, or a note that it draws nothing. */
@@ -130,10 +305,16 @@ function NotificationMock({ notification }: { notification?: { title?: string; b
 export function FcmMessagePreview({
   config,
   incomingPayload,
+  onRefusal,
+  onGoTo,
 }: {
   config: Record<string, any>;
   /** The row the editor says reaches this sink. */
   incomingPayload?: unknown;
+  /** Told what the current row gets wrong, so the form can say it under the setting. */
+  onRefusal?: (refusal: FcmRefusal | null) => void;
+  /** Takes the reader to a setting by its key. */
+  onGoTo?: (field: string) => void;
 }) {
   const editorRow = asSampleRow(incomingPayload);
   // The sample is the editor's row until someone edits it; after that it is
@@ -218,6 +399,14 @@ export function FcmMessagePreview({
   const noRecipient = !config.device_token && !config.topic && !config.condition;
   const awaitingRecipient = Boolean(refusal) && noRecipient;
 
+  const explained = preview && !awaitingRecipient ? splitRefusal(preview) : null;
+  const explainedKey = JSON.stringify(explained);
+  useEffect(() => {
+    onRefusal?.(explainedKey === 'null' ? null : JSON.parse(explainedKey));
+    // onRefusal is a fresh function each render; the refusal is what changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [explainedKey]);
+
   let status: { label: string; color: string } | null = null;
   if (error) status = { label: 'Cannot build yet', color: 'gray' };
   else if (awaitingRecipient) status = { label: 'Needs a recipient', color: 'gray' };
@@ -259,8 +448,35 @@ export function FcmMessagePreview({
               </Text>
             </Alert>
           ) : (
-            <Alert color="red" icon={<IconAlertTriangle size="1rem" />} title="This row would fail">
-              {refusal}
+            <Alert
+              color="red"
+              icon={<IconAlertTriangle size="1rem" />}
+              title={explained?.label ? `This row would fail: ${explained.label}` : 'This row would fail'}
+            >
+              <Stack gap={6}>
+                <Text size="sm">{explained?.problem ?? refusal}</Text>
+                {explained?.fix && (
+                  <Text size="sm">
+                    <Text span fw={600} inherit>
+                      How to fix:{' '}
+                    </Text>
+                    {explained.fix}
+                  </Text>
+                )}
+                {explained?.field && onGoTo && (
+                  <Group>
+                    <Button
+                      size="compact-xs"
+                      variant="light"
+                      color="red"
+                      leftSection={<IconArrowUp size="0.8rem" />}
+                      onClick={() => onGoTo(explained.field)}
+                    >
+                      Go to {explained.label.split(' → ').pop()}
+                    </Button>
+                  </Group>
+                )}
+              </Stack>
             </Alert>
           ))}
 
@@ -276,6 +492,12 @@ export function FcmMessagePreview({
               </Text>
             </Group>
             <NotificationMock notification={preview.message.notification} />
+            <TestSend
+              config={config}
+              row={sampleText.trim() ? JSON.parse(sampleText) : undefined}
+              byDevice={Boolean(preview.message.token)}
+              onGoTo={onGoTo}
+            />
           </>
         )}
 
