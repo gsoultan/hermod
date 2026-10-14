@@ -24,7 +24,7 @@ function when(iso: string | undefined): string {
  * The secrets a vhost holds for its own workflows.
  *
  * Names only: the API never returns a value, so there is nothing here to
- * reveal. A secret is used by writing secret("NAME") in a workflow of the same
+ * reveal. A secret is used by writing {{secret.NAME}} in a workflow of the same
  * vhost; a name the vhost does not hold falls back to the global secret manager.
  */
 export function SecretsPage() {
@@ -67,7 +67,7 @@ export function SecretsPage() {
   }
 
   const rows = (secrets ?? []).map((s: VHostSecretEntry) => {
-    const usage = `secret("${s.name}")`
+    const usage = `{{secret.${s.name}}}`
     return (
       <Table.Tr key={s.name}>
         <Table.Td fw={500} ff="var(--mantine-font-family-monospace)">{s.name}</Table.Td>
@@ -123,8 +123,8 @@ export function SecretsPage() {
                 </Group>
                 <Text size="sm" c="dimmed">
                   API keys, passwords and tokens a vhost keeps for its own workflows. A value is encrypted,
-                  and is never shown again once saved. Use one as <Code>{'secret("NAME")'}</Code> in an
-                  expression, or <Code>secret:NAME</Code> in a source or sink field.
+                  and is never shown again once saved. Use one as <Code>{'{{secret.NAME}}'}</Code> in any
+                  source, transformation or sink setting.
                 </Text>
               </Box>
               {vhost && (
@@ -166,7 +166,7 @@ export function SecretsPage() {
             </Alert>
           ) : rows.length === 0 ? (
             <EmptyState compact icon={<IconKey size="1.3rem" />} title={`No secrets in ${vhost} yet`}
-              description={<>Add one, then read it in a workflow of this vhost with <Code>{'secret("NAME")'}</Code>. A name this vhost does not hold is read from the global secret manager.</>}
+              description={<>Add one, then read it in a workflow of this vhost with <Code>{'{{secret.NAME}}'}</Code>. A name this vhost does not hold is read from the global secret manager.</>}
               action={{ label: 'Add secret', onClick: () => setEditing({}) }} />
           ) : (
             <Table.ScrollContainer minWidth={700}>

@@ -51,7 +51,7 @@ export function SecretFormModal({ vhost, name, onClose }: { vhost: string; name?
           {!rotating && (
             <TextInput
               label="Name"
-              description={`${secretNameRule} Workflows read it as secret("NAME").`}
+              description={`${secretNameRule} Sources, transformations and sinks read it as {{secret.NAME}}.`}
               placeholder="API_KEY"
               required
               value={newName}

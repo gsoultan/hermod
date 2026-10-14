@@ -1,3 +1,4 @@
+import { isRowTemplate } from './vhostSecrets';
 /**
  * What each connector type minimally needs before its connection step can be
  * left.
@@ -46,13 +47,6 @@ export interface RequiredField {
  */
 const URL_KEYS = ['connection_string', 'uri', 'url'];
 
-/**
- * Whether a configured value is a Go template rather than a literal. The same
- * test the sinks make (`templated` in pkg/comm/sink/panmail/panmail.go), so the
- * form and the factory cannot disagree about which values are rendered.
- */
-const isTemplated = (value: unknown): boolean =>
-  typeof value === 'string' && value.includes('{{');
 
 const hostPort = (port: string): RequiredField[] => [
   { key: 'host', aliases: URL_KEYS, label: 'Host', example: 'db.example.com' },
@@ -217,7 +211,7 @@ const SINK_REQUIREMENTS: Record<string, RequiredField[]> = {
       key: 'allowed_hosts',
       label: 'Allowed gateway hosts',
       example: '*.mail.example.com',
-      when: (config) => isTemplated(config.base_url) || isTemplated(config.api_key),
+      when: (config) => isRowTemplate(config.base_url) || isRowTemplate(config.api_key),
     },
   ],
   // The name field follows the action: the factory's metis case returns an

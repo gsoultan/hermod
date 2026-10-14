@@ -29,7 +29,7 @@ var reservedHeaders = map[string]bool{
 
 // Server is a remote MCP server as the node configures it. URL and header
 // values are templates, resolved per message with ResolveTemplateScoped, so
-// {{secret("NAME")}} works and the message's own data cannot choose them.
+// {{secret.NAME}} works and the message's own data cannot choose them.
 type Server struct {
 	URL     string
 	Headers map[string]string
@@ -97,7 +97,7 @@ func parseHeaders(raw any) (map[string]string, error) {
 }
 
 // Resolve fills the server's templates for msg. Only functions such as
-// secret() resolve; a field of the message resolves to nothing.
+// {{secret.NAME}} resolve; a field of the message resolves to nothing.
 func (s Server) Resolve(msg hermod.Message) (Endpoint, error) {
 	ep := Endpoint{URL: strings.TrimSpace(evaluator.ResolveTemplateScoped(s.URL, msg))}
 	if err := CheckURL(ep.URL); err != nil {

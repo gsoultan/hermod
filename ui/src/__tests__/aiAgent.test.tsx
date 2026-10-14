@@ -205,7 +205,7 @@ describe('AI Agent settings', () => {
       renderConfig({ provider: 'anthropic', goal: 'g', tools: [mcpTool] })
       await user.click(tool(1).getByRole('button', { name: /add header/i }))
       const value = tool(1).getByRole('textbox', { name: /header 1 value/i })
-      expect(value).toHaveAttribute('placeholder', expect.stringContaining('{{secret("NAME")}}'))
+      expect(value).toHaveAttribute('placeholder', expect.stringContaining('{{secret.NAME}}'))
       fireEvent.change(tool(1).getByRole('textbox', { name: /header 1 name/i }), { target: { value: 'Authorization' } })
       fireEvent.change(value, { target: { value: 'Bearer abc' } })
       expect(saved.tools[0].server).toEqual({ url: 'https://mcp.example.com/mcp', headers: { Authorization: 'Bearer abc' } })

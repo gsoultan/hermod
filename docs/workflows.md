@@ -61,7 +61,7 @@ would get (today, more retries with a longer interval on the workflow's `max_ret
 AI mapping suggestions for nodes that keep failing validation are **off** unless
 `HERMOD_SELF_HEALING_AI_PROVIDER` is set, with `HERMOD_SELF_HEALING_AI_MODEL`,
 `HERMOD_SELF_HEALING_AI_BASE_URL` and `HERMOD_SELF_HEALING_AI_API_KEY`. The key must be a
-`{{secret("NAME")}}` reference, which is resolved for the failing workflow's vhost. Every string
+`{{secret.NAME}}` reference, which is resolved for the failing workflow's vhost. Every string
 in the sample is PII-masked before it is sent.
 
 ## Workflows as MCP tools

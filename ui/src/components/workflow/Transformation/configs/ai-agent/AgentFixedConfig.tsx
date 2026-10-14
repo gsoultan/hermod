@@ -19,9 +19,9 @@ const EXAMPLES: Record<string, Record<string, unknown>> = {
   ai_retrieve: {
     provider: 'openai',
     model: 'EMBEDDING_MODEL',
-    apiKey: '{{secret("OPENAI_API_KEY")}}',
+    apiKey: '{{secret.OPENAI_API_KEY}}',
     store: 'pgvector',
-    connectionString: '{{secret("PGVECTOR_URL")}}',
+    connectionString: '{{secret.PGVECTOR_URL}}',
     table: 'documents',
     queryField: 'question',
   },
@@ -91,7 +91,7 @@ export function AgentFixedConfig({ kind, value, onChange }: AgentFixedConfigProp
           <>
             The {kind} settings, as JSON; the model cannot change them. Refer to an argument as a field of the record,
             e.g. <Code>{'{{.email}}'}</Code>. The result always goes to <Code>{TOOL_RESULT_FIELD}</Code>. Use{' '}
-            <Code>{'{{secret("NAME")}}'}</Code> for credentials.
+            <Code>{'{{secret.NAME}}'}</Code> for credentials.
           </>
         }
       />

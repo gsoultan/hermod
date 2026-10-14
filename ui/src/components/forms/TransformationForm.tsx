@@ -145,7 +145,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
 
   const previewMutation = usePreviewTransformation();
 
-  // The vhost of the workflow being edited: whose secrets secret("NAME") reads
+  // The vhost of the workflow being edited: whose secrets {{secret.NAME}} reads
   // in a preview, and whose secret names the value fields offer.
   const editorVHost = useWorkflowStore((s) => s.vhost);
   const secretNames = useVHostSecretNames(editorVHost);

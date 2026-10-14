@@ -51,8 +51,8 @@ func (r *Registry) nodeSecrets() secrets.ScopedManager {
 }
 
 // expandNodeConfig resolves the secret and env references in a node's
-// settings for the vhost msg runs in -- {{secret:NAME}}, {{secret("NAME")}},
-// {{env("NAME")}} and the rest secrets.ExpandTokenReferences reads -- in every
+// settings for the vhost msg runs in -- {{secret.NAME}}, {{env.NAME}} and the
+// older spellings secrets.ExpandTokenReferences still reads -- in every
 // setting, at any depth, except those skipNodeSetting names. Every other token
 // is left for the node to resolve per message, so record data still cannot
 // choose a credential or a destination.

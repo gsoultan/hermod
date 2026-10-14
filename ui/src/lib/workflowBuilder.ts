@@ -11,7 +11,7 @@ export const MAX_DESCRIPTION_LENGTH = 4000
 export interface BuilderConnection {
   provider: string
   model: string
-  /** Always a {{secret("NAME")}} reference; the server refuses a plain key. */
+  /** Always a {{secret.NAME}} reference; the server refuses a plain key. */
   apiKey: string
   baseUrl: string
 }

@@ -42,7 +42,7 @@ export const RESERVED_HEADERS = [
 ] as const
 
 /** The header value the editor suggests, so a credential comes from a secret. */
-export const SECRET_HEADER_HINT = '{{secret("NAME")}}'
+export const SECRET_HEADER_HINT = '{{secret.NAME}}'
 
 /** JSON Schema types a parameter may declare (config.go paramTypes). */
 export const PARAM_TYPES = ['string', 'number', 'integer', 'boolean'] as const

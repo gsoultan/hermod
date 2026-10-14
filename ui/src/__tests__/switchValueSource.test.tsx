@@ -103,7 +103,7 @@ describe('SwitchConfig case value source', () => {
     await pick(user, caseCard(1).getByRole('combobox', { name: 'Compare to type' }), 'Secret')
     await pick(user, caseCard(1).getByRole('combobox', { name: 'Compare to secret' }), 'VIP_CODE')
 
-    expect(updateNodeConfig.mock.calls.at(-1)?.[1].cases[0].value).toBe('{{secret("VIP_CODE")}}')
+    expect(updateNodeConfig.mock.calls.at(-1)?.[1].cases[0].value).toBe('{{secret.VIP_CODE}}')
   })
 })
 

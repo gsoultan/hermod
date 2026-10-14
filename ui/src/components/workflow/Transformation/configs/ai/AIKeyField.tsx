@@ -21,7 +21,7 @@ interface AIKeyFieldProps {
 /**
  * The API key, chosen as the name of a vhost secret.
  *
- * The node stores {{secret("NAME")}} and the engine resolves it for the
+ * The node stores {{secret.NAME}} and the engine resolves it for the
  * message's vhost (genai.connection), so the key itself is never saved in
  * the workflow or carried by an export. A key that was typed in before — or
  * arrived in an imported workflow — is called out and can be cleared, the
@@ -76,7 +76,7 @@ export function AIKeyField({ configKey, label, provider, value, onChange, requir
             <Anchor href="/secrets" target="_blank" size="xs" inherit>
               Secrets
             </Anchor>{' '}
-            page for this workflow&apos;s vhost. The node stores <Code>{'{{secret("NAME")}}'}</Code>, never the key.
+            page for this workflow&apos;s vhost. The node stores <Code>{'{{secret.NAME}}'}</Code>, never the key.
             {!isRequired && ' Optional for this provider.'}
           </>
         }

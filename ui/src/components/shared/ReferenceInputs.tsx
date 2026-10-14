@@ -34,8 +34,9 @@ import { SecretNamesContext } from './TemplateField'
 /** What the server reads: secrets.referenceName. */
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
 
-export const secretToken = (name: string) => `{{secret("${name}")}}`
-export const envToken = (name: string) => `{{env("${name}")}}`
+/** The standard spelling, the one every setting reads: secrets.DottedReference. */
+export const secretToken = (name: string) => `{{secret.${name}}}`
+export const envToken = (name: string) => `{{env.${name}}}`
 
 /**
  * Puts text into the input at its selection, through the native setter and an

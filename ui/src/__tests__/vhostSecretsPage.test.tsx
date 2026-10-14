@@ -89,7 +89,7 @@ describe('Secrets page', () => {
     expect(within(row).getByText('ada')).toBeInTheDocument()
     // Where a secret lives is the point of the page, so it says which vhost this is.
     expect(screen.getByLabelText('VHost shown')).toHaveTextContent('tenant-a')
-    expect(within(row).getByText('secret("API_KEY")')).toBeInTheDocument()
+    expect(within(row).getByText('{{secret.API_KEY}}')).toBeInTheDocument()
     expect(screen.queryByText('OTHER')).toBeNull()
   })
 
@@ -114,7 +114,7 @@ describe('Secrets page', () => {
     await waitFor(() =>
       expect(writes).toEqual([{ method: 'PUT', vhost: 'tenant-a', name: 'API_KEY', body: { value: 's3cret' } }]),
     )
-    expect(await screen.findByText('secret("API_KEY")')).toBeInTheDocument()
+    expect(await screen.findByText('{{secret.API_KEY}}')).toBeInTheDocument()
   })
 
   it('refuses a name an expression could not write, before sending anything', async () => {
@@ -160,7 +160,7 @@ describe('Secrets page', () => {
     await user.click(within(confirm).getByRole('button', { name: /^delete secret$/i }))
 
     await waitFor(() => expect(writes).toEqual([{ method: 'DELETE', vhost: 'tenant-a', name: 'API_KEY' }]))
-    await waitFor(() => expect(screen.queryByText('secret("API_KEY")')).toBeNull())
+    await waitFor(() => expect(screen.queryByText('{{secret.API_KEY}}')).toBeNull())
   })
 
   it('asks which vhost when every vhost is selected', async () => {

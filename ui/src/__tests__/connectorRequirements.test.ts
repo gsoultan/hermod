@@ -256,6 +256,16 @@ describe('a templated panmail gateway', () => {
     ).toEqual([]);
   });
 
+  it('asks for nothing extra when the gateway and key are secrets', () => {
+    expect(
+      missingConnectionFields('sink', 'panmail', {
+        ...base,
+        base_url: '{{secret.PANMAIL_GATEWAYURL}}',
+        api_key: '{{secret.PANMAIL_API_KEY}}',
+      }),
+    ).toEqual([]);
+  });
+
   it('requires an allowlist once the gateway url is templated', () => {
     expect(
       missingConnectionFields('sink', 'panmail', {

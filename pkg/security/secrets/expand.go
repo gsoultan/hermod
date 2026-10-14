@@ -59,12 +59,30 @@ type reference struct {
 
 func (r reference) String() string { return fmt.Sprintf("%s %q", r.kind, r.name) }
 
+// DottedReference reads the inside of a {{ }} token as the standard spelling,
+// secret.NAME or env.NAME, and returns its kind ("secret" or "env") and name.
+// The kind is case-insensitive. A leading dot makes it a message field, as in
+// {{.after.id}}, and a deeper path (secret.A.b) is not a reference either.
+func DottedReference(text string) (kind, name string, ok bool) {
+	text = strings.TrimSpace(text)
+	for _, k := range []string{"secret", "env"} {
+		if rest, found := cutPrefixFold(text, k+"."); found && referenceName.MatchString(rest) {
+			return k, rest, true
+		}
+	}
+	return "", "", false
+}
+
 // parseReference reads the inside of a {{ }} token, or a whole bare value, as
-// a reference: secret:NAME, env:NAME, secret("NAME"), env('NAME', "fallback").
-// Function names are case-insensitive, as the evaluator's are. Anything else
-// -- a field, another function -- is not a reference.
+// a reference: the standard secret.NAME and env.NAME, and the older
+// secret:NAME, env:NAME, secret("NAME"), env('NAME', "fallback"). Function
+// names are case-insensitive, as the evaluator's are. Anything else -- a
+// field, another function -- is not a reference.
 func parseReference(text string) (reference, bool) {
 	text = strings.TrimSpace(text)
+	if kind, name, ok := DottedReference(text); ok {
+		return reference{kind: kind, name: name}, true
+	}
 	for _, kind := range []string{"secret", "env"} {
 		if rest, ok := cutPrefixFold(text, kind+":"); ok {
 			name := strings.TrimSpace(rest)
@@ -140,7 +158,11 @@ func literalArgs(text string) ([]string, bool) {
 // for the vhost the config belongs to, and leaves every other {{ }} token as
 // it was for whatever resolves the value per message.
 //
-// It reads, anywhere in the value:
+// It reads, anywhere in the value, the standard spelling
+//
+//	{{secret.NAME}}  {{env.NAME}}
+//
+// and the older ones, which keep working:
 //
 //	{{secret:NAME}}  {{secret("NAME")}}  {{secret("NAME", "fallback")}}
 //	{{env:NAME}}     {{env("NAME")}}     {{env("NAME", "fallback")}}

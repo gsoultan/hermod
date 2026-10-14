@@ -38,6 +38,14 @@ func TestExpandReferencesResolvesEverySpellingInsideAValue(t *testing.T) {
 		in   string
 		want string
 	}{
+		{"standard secret", "{{secret.DB_PASS}}", "s3cr3t"},
+		{"standard env", "{{ env.PG_HOST }}", "db.internal"},
+		{"standard spelling inside a value", "postgres://app:{{secret.DB_PASS}}@{{env.PG_HOST}}:{{env.PG_PORT}}/sales", "postgres://app:s3cr3t@db.internal:6432/sales"},
+		{"standard spelling, any case", "{{Secret.DB_PASS}}", "s3cr3t"},
+		// A leading dot is a message field, as {{.after.id}} is: never a secret.
+		{"a dotted field named secret is a field", "{{.secret.DB_PASS}}", "{{.secret.DB_PASS}}"},
+		{"a deeper path is not a reference", "{{secret.DB_PASS.x}}", "{{secret.DB_PASS.x}}"},
+		{"bare standard text is text", "secret.DB_PASS", "secret.DB_PASS"},
 		{"legacy whole value", "secret:DB_PASS", "s3cr3t"},
 		{"legacy whole value in braces", "{{secret:DB_PASS}}", "s3cr3t"},
 		{"whole env value in braces", "{{env:PG_HOST}}", "db.internal"},
@@ -86,7 +94,7 @@ func TestExpandReferencesKeepsAJSONValueValid(t *testing.T) {
 // value -- connecting with the literal token as a password helps nobody.
 func TestExpandReferencesReportsWhatItCouldNotResolve(t *testing.T) {
 	mgr := scopedStub{values: map[string]string{"/A": "VALUE-123"}}
-	_, err := ExpandReferences(t.Context(), mgr, "", "{{secret:A}}:{{secret:MISSING}}@{{env:ALSO_MISSING}}")
+	_, err := ExpandReferences(t.Context(), mgr, "", "{{secret.A}}:{{secret.MISSING}}@{{env.ALSO_MISSING}}")
 	if err == nil {
 		t.Fatal("want an error for unresolved references")
 	}

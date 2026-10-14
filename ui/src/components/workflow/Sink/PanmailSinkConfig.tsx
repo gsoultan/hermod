@@ -11,6 +11,7 @@ import {
 import { PasswordInput, TextInput } from '@/components/shared/ReferenceInputs';
 import { IconMail, IconAlertTriangle } from '@tabler/icons-react';
 import { FormRow } from '@/components/common/FormRow';
+import { isRowTemplate } from '@/lib/vhostSecrets';
 
 interface PanmailSinkConfigProps {
   config: any;
@@ -23,16 +24,14 @@ interface PanmailSinkConfigProps {
  *
  * Keys match `createSinkBase` case "panmail" and `pkg/comm/sink/panmail`.
  */
-/** The same test the sinks make: a value holding `{{` is rendered, not literal. */
-const isTemplated = (value: unknown): boolean =>
-  typeof value === 'string' && value.includes('{{');
 
 export function PanmailSinkConfig({ config, updateConfig }: PanmailSinkConfigProps) {
   const idempotent = config.enable_idempotency === 'true';
   // Between them these two decide where a tenant-wide API key is sent. Template
   // either and a row is making that decision, which is what the allowlist bounds
   // — `panmail.New` refuses to start without one.
-  const routed = isTemplated(config.base_url) || isTemplated(config.api_key);
+  // A secret is resolved once, when the sink connects, so it routes nothing.
+  const routed = isRowTemplate(config.base_url) || isRowTemplate(config.api_key);
 
   return (
     <Stack gap="md">
