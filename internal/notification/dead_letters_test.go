@@ -187,7 +187,7 @@ func TestDeadLetterDigestBatchesABurstIntoOneMail(t *testing.T) {
 	for _, want := range []string{
 		"Orders sync", "wf-1", "transform-1", "sink-orders", "m-1",
 		"field total is not a number (row 1)", `{"order":1}`,
-		"https://hermod.example.com/workflows/wf-1/edit?dlq=open",
+		"https://hermod.example.com/dead-letters?workflow_id=wf-1",
 		"5 more",
 	} {
 		if !strings.Contains(text, want) {
@@ -197,7 +197,7 @@ func TestDeadLetterDigestBatchesABurstIntoOneMail(t *testing.T) {
 	if strings.Contains(text, "m-11") {
 		t.Error("text body lists a message past the sample limit")
 	}
-	if html := field(mail, "bodyHtml"); !strings.Contains(html, "/workflows/wf-1/edit?dlq=open") {
+	if html := field(mail, "bodyHtml"); !strings.Contains(html, "/dead-letters?workflow_id=wf-1") {
 		t.Errorf("html body lacks the link back to the queue:\n%s", html)
 	}
 	if field(mail, "idempotencyKey") == "" {

@@ -7,6 +7,37 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — Dead letters page
+
+**Dead Letters** in the sidebar lists every message a workflow parked after
+its retries ran out, whatever the workflow's dead-letter sink is, including
+sinks Hermod cannot read back. Hermod now keeps its own copy of each dead
+letter: the workflow, the node or sink that failed it, the error, the
+payload (up to 256 KB), the metadata and the row as it was before.
+
+- Summary cards: how many are waiting, how many were parked in the last
+  24 hours, the most common error, and how many were replayed this week.
+- Filters by workflow, failing node or sink, time and status, a search over
+  the error and message id, and pages of 25.
+- A side panel per message with its payload, before and after, metadata
+  and history.
+- **Replay** sends a message again from the node that failed it (or the
+  sink that refused it). **Edit and replay** lets you fix the payload first,
+  shows which fields changed, can start from the beginning of the workflow
+  instead, and can test the replay first to show what each node would
+  produce without writing anything. A replay that fails again leaves the
+  message waiting, with the attempt in its history.
+- **Discard** and **Export** (CSV) work on one message or a selection.
+  Replay and discard need the Editor role. Everything is limited to the
+  vhosts you can see.
+
+Dead letters are kept for 30 days (`HERMOD_DEAD_LETTER_RETENTION`, a Go
+duration). Keeping the copy never slows a workflow down: if the store falls
+behind, the copy is skipped and counted in
+`hermod_dead_letter_records_dropped_total`, and the message is still in the
+workflow's dead-letter sink. The Panmail dead-letter mail now links to this
+page, filtered to the workflow.
+
 ### Added — Search in the dead letter sink picker
 
 The **Dead Letter Sink** picker in a workflow's settings now takes a search:
@@ -22,8 +53,7 @@ each workflow parked:
 - the workflow, the node or sink that gave up, the error and when;
 - the message itself, as indented JSON, up to 10 messages and 4 KB each, with
   a count of the rest;
-- a link that opens the editor with the dead-letter inspector already open on
-  the workflow's dead-letter sink.
+- a link to the Dead letters page, filtered to the workflow.
 
 Mail is batched per workflow: the first dead letter opens a one-minute window
 and the window is one mail, so a burst of failures cannot flood an inbox.

@@ -25,8 +25,11 @@ import (
 const (
 	// maxPage bounds one page of the list.
 	maxPage = 200
-	// maxBulk bounds the dead letters one replay, discard or export names.
+	// maxBulk bounds the dead letters one discard or export names.
 	maxBulk = 500
+	// maxBulkReplay bounds one bulk replay, which runs each replay in turn
+	// inside the request.
+	maxBulkReplay = 50
 	// maxReplayBody bounds a replay request, an edited payload included.
 	maxReplayBody = storage.DeadLetterPayloadCap + 64<<10
 	// replayTimeout bounds one replay's walk.
@@ -66,13 +69,23 @@ func (h *Handler) store(w http.ResponseWriter) (storage.DeadLetterStore, bool) {
 	return ds, ok
 }
 
-// scope is the vhosts the caller may see, or nil for all of them.
-func (h *Handler) scope(r *http.Request) []string {
+// scope is the vhosts the caller may see, or nil for all of them, narrowed to
+// the vhost the request names. It writes a 403 for a vhost the caller may not
+// see.
+func (h *Handler) scope(w http.ResponseWriter, r *http.Request) ([]string, bool) {
 	role, vhosts := h.GetRoleAndVHosts(r)
-	if role == storage.RoleAdministrator || slices.Contains(vhosts, "*") {
-		return nil
+	all := role == storage.RoleAdministrator || slices.Contains(vhosts, "*")
+	if v := r.URL.Query().Get("vhost"); v != "" && v != "all" {
+		if !all && !h.HasVHostAccess(v, vhosts) {
+			h.JsonError(w, "Forbidden: no access to vhost "+v, http.StatusForbidden)
+			return nil, false
+		}
+		return []string{v}, true
 	}
-	return append([]string{}, vhosts...)
+	if all {
+		return nil, true
+	}
+	return append([]string{}, vhosts...), true
 }
 
 func (h *Handler) mayAccess(r *http.Request, d storage.DeadLetter) bool {
@@ -158,7 +171,9 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		h.JsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	f.VHosts = h.scope(r)
+	if f.VHosts, ok = h.scope(w, r); !ok {
+		return
+	}
 	page, total, err := ds.ListDeadLetters(r.Context(), f)
 	if err != nil {
 		h.JsonError(w, "Failed to list dead letters", http.StatusInternalServerError)
@@ -173,7 +188,11 @@ func (h *Handler) Stats(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	st, err := ds.DeadLetterStats(r.Context(), h.scope(r), time.Now())
+	vhosts, ok := h.scope(w, r)
+	if !ok {
+		return
+	}
+	st, err := ds.DeadLetterStats(r.Context(), vhosts, time.Now())
 	if err != nil {
 		h.JsonError(w, "Failed to summarise dead letters", http.StatusInternalServerError)
 		return
@@ -403,6 +422,10 @@ func (h *Handler) ReplayMany(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if len(req.IDs) > maxBulkReplay {
+		h.JsonError(w, fmt.Sprintf("replay at most %d dead letters at once", maxBulkReplay), http.StatusBadRequest)
+		return
+	}
 	if h.Registry == nil {
 		h.JsonError(w, "Replaying needs a running control plane", http.StatusServiceUnavailable)
 		return
@@ -501,7 +524,10 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 			h.JsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		f.VHosts, f.Limit, f.Offset = h.scope(r), maxBulk, 0
+		if f.VHosts, ok = h.scope(w, r); !ok {
+			return
+		}
+		f.Limit, f.Offset = maxBulk, 0
 		page, _, err := ds.ListDeadLetters(r.Context(), f)
 		if err != nil {
 			h.JsonError(w, "Failed to list dead letters", http.StatusInternalServerError)

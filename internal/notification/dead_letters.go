@@ -215,7 +215,9 @@ func (ns NotificationSettings) deadLetterMail(b *deadLetterBatch) PanmailMail {
 		Opened:      b.opened.UTC().Format(time.RFC3339),
 	}
 	if ns.BaseURL != "" {
-		view.QueueURL = fmt.Sprintf("%s/workflows/%s/edit?dlq=open", strings.TrimRight(ns.BaseURL, "/"), url.PathEscape(b.wf.ID))
+		// The dead letter page, narrowed to this workflow: it shows every
+		// dead letter whatever the workflow's sink is.
+		view.QueueURL = fmt.Sprintf("%s/dead-letters?workflow_id=%s", strings.TrimRight(ns.BaseURL, "/"), url.QueryEscape(b.wf.ID))
 	}
 
 	name := b.wf.Name

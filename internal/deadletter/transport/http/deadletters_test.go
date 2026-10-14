@@ -180,6 +180,26 @@ func TestTheListIsLimitedToTheUsersVHostsAndNamesTheWorkflow(t *testing.T) {
 	}
 }
 
+// The vhost picked in the header narrows the list to it, and only to a vhost
+// the caller may see.
+func TestTheListNarrowsToTheSelectedVHost(t *testing.T) {
+	st := newStore()
+	serve(st, admin, http.MethodGet, "/api/dead-letters?vhost=b", "")
+	if len(st.listFilter.VHosts) != 1 || st.listFilter.VHosts[0] != "b" {
+		t.Fatalf("vhosts = %v, want [b]", st.listFilter.VHosts)
+	}
+	serve(st, viewerA, http.MethodGet, "/api/dead-letters?vhost=all", "")
+	if len(st.listFilter.VHosts) != 1 || st.listFilter.VHosts[0] != "a" {
+		t.Fatalf("all: vhosts = %v, want the user's [a]", st.listFilter.VHosts)
+	}
+	if rec := serve(st, viewerA, http.MethodGet, "/api/dead-letters?vhost=b", ""); rec.Code != http.StatusForbidden {
+		t.Fatalf("another vhost: status = %d, want 403", rec.Code)
+	}
+	if rec := serve(st, viewerA, http.MethodGet, "/api/dead-letters/stats?vhost=b", ""); rec.Code != http.StatusForbidden {
+		t.Fatalf("stats of another vhost: status = %d, want 403", rec.Code)
+	}
+}
+
 func TestTheListRefusesALimitPastTheCap(t *testing.T) {
 	st := newStore()
 	serve(st, admin, http.MethodGet, "/api/dead-letters?limit=100000", "")
@@ -283,6 +303,10 @@ func TestBulkActionsAreBounded(t *testing.T) {
 	rec := serve(newStore(), editorA, http.MethodPost, "/api/dead-letters/discard", string(raw))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400 for %d ids", rec.Code, len(ids))
+	}
+	raw, _ = json.Marshal(map[string]any{"ids": ids[:maxBulkReplay+1]})
+	if rec := serve(newStore(), editorA, http.MethodPost, "/api/dead-letters/replay", string(raw)); rec.Code != http.StatusBadRequest {
+		t.Fatalf("replay: status = %d, want 400 for %d ids", rec.Code, maxBulkReplay+1)
 	}
 }
 
