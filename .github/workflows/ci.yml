@@ -1201,7 +1201,16 @@ jobs:
         # signal" and no mention of memory. The unit job runs them un-raced at
         # full scale, and raced one test per process, which is what keeps the
         # peak affordable.
-        run: go test -tags=integration -race -short -count=1 -timeout 30m ./...
+        shell: bash
+        run: |
+          set +e -o pipefail
+          go test -tags=integration -race -short -count=1 -timeout 30m ./... 2>&1 | tee /tmp/it.log
+          status=$?
+          if [ $status -ne 0 ]; then
+            msg=$(grep -E -B2 -A20 -- '--- FAIL|^panic:|^FAIL' /tmp/it.log | grep -v '^{"level"' | head -400 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+            echo "::error title=integration failures::${msg}"
+          fi
+          exit $status
 
   # The browser E2E job that used to live here is gone, and so is the last spec
   # in it. production_grade.spec.ts was the only one left: its UI half was
