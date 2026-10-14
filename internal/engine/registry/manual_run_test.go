@@ -61,6 +61,12 @@ func TestRunWorkflowOnceDeliversAndTraces(t *testing.T) {
 	wf := manualWorkflow(storage.WorkflowNode{ID: "greet", Type: "transformation", Config: map[string]any{
 		"transType": "set", "column.greeting": "hello",
 	}})
+	// Saved, as a run from the editor is. The registry's retention sweep,
+	// which starts with it, reclaims the traces of workflows it cannot find,
+	// and could otherwise take this run's steps as it wrote them.
+	if err := reg.GetStorage().CreateWorkflow(t.Context(), wf); err != nil {
+		t.Fatal(err)
+	}
 
 	in := inputMessage(map[string]any{"name": "Ada"})
 	defer in.Release()
