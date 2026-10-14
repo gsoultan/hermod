@@ -29,11 +29,14 @@ type Engine struct {
 	sinkConfigs    []config.SinkConfig
 	sourceConfig   config.SourceConfig
 	deadLetterSink hermod.Sink
-	router         RouterFunc
-	validator      schema.Validator
-	traceRecorder  hermod.TraceRecorder
-	outboxStore    hermod.OutboxStorage
-	dqScorer       *governance.Scorer
+	// onDeadLetter hears every message the dead-letter sink took. Set before
+	// Start, like the sink itself.
+	onDeadLetter  DeadLetterObserver
+	router        RouterFunc
+	validator     schema.Validator
+	traceRecorder hermod.TraceRecorder
+	outboxStore   hermod.OutboxStorage
+	dqScorer      *governance.Scorer
 
 	workflowID string
 	// vhost is the workflow's vhost; see SetVHost.

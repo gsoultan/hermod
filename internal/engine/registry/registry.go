@@ -306,6 +306,7 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 	ns.AddProvider(notification.NewSlackNotificationProvider(s))
 	ns.AddProvider(notification.NewDiscordNotificationProvider(s))
 	ns.AddProvider(notification.NewGenericWebhookProvider(s))
+	ns.AddProvider(notification.NewPanmailNotificationProvider(s))
 	// Without this a failing channel reported itself to stdout and nowhere
 	// else, so a rejected Telegram token looked exactly like no alerts being
 	// due.
@@ -357,6 +358,7 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 		cancel:              cancel,
 	}
 	reg.discoveryService = service.NewDiscoveryService(reg)
+	ns.SetResolver(reg.ResolveGlobalReferences)
 
 	reg.dqScorer.SetNotifier(func(wfID, title, msg string) {
 		ctx := context.Background()
@@ -824,6 +826,15 @@ func (r *Registry) vhostSecrets() *secrets.VHostManager {
 	global := r.secretManager
 	r.secretMu.RUnlock()
 	return &secrets.VHostManager{Store: registryVHostStore{r}, Global: global}
+}
+
+// ResolveGlobalReferences expands the secret and env references in a global
+// setting -- one no vhost owns, such as the notification channels -- from the
+// global secret manager and the HERMOD_ENV_ variables. No vhost's secrets are
+// read: a vhost could otherwise shadow a name the settings use and choose
+// where an administrator's credential is sent.
+func (r *Registry) ResolveGlobalReferences(ctx context.Context, value string) (string, error) {
+	return secrets.ExpandReferences(ctx, r.vhostSecrets(), "", value)
 }
 
 // registryVHostStore reads a vhost's secret out of whatever storage the

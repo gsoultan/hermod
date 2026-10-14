@@ -857,6 +857,7 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 					return
 				}
 				r.engine.recordDeadLetter("")
+				r.engine.parked(m)
 				rs.conclude(reply.DeadLettered, err.Error(), m)
 				if outboxID, exists := hermod.MetadataValue(m, "_outbox_id"); exists && r.engine.outboxStore != nil {
 					_ = r.engine.outboxStore.DeleteOutboxItem(ctx, outboxID)
