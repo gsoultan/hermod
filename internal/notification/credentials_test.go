@@ -33,6 +33,12 @@ func TestChannelErrorsDoNotCarryCredentials(t *testing.T) {
 			SlackWebhook:   "http://127.0.0.1:1/services/T000/B000/" + secret,
 			DiscordWebhook: "http://127.0.0.1:1/api/webhooks/1/" + secret,
 			WebhookURL:     "http://127.0.0.1:1/hook?token=" + secret,
+
+			PanmailURL:        "http://127.0.0.1:1",
+			PanmailAPIKey:     secret,
+			PanmailProviderID: "prov-1",
+			PanmailFrom:       "alerts@example.com",
+			PanmailTo:         "ops@example.com",
 		}
 
 		tested := 0
@@ -49,8 +55,8 @@ func TestChannelErrorsDoNotCarryCredentials(t *testing.T) {
 				t.Errorf("%s: error carries the credential: %s", r.Channel, r.Error)
 			}
 		}
-		if tested != 4 {
-			t.Errorf("examined %d channels, want 4 (telegram, slack, discord, webhook)", tested)
+		if tested != 5 {
+			t.Errorf("examined %d channels, want 5 (telegram, slack, discord, webhook, panmail)", tested)
 		}
 	}
 }

@@ -213,6 +213,57 @@ func (e *Engine) recordDeadLetter(sinkID string) {
 	}
 }
 
+// DeadLetter is one message the dead-letter sink accepted, as the observer set
+// with SetDeadLetterObserver hears it.
+type DeadLetter struct {
+	WorkflowID string
+	MessageID  string
+	// NodeID is the workflow node that rejected the message, when a node did.
+	NodeID string
+	// SinkID is the sink that refused it, when a sink did. Both are empty for
+	// a message that failed validation or reached no sink at all.
+	SinkID   string
+	Error    string
+	FailedAt time.Time
+	// Message is the parked message. It is valid only for the duration of the
+	// callback: the engine releases it afterwards, so copy what you keep.
+	Message hermod.Message
+}
+
+// DeadLetterObserver is called, synchronously, after each successful park. It
+// runs on the write path, so it must not block.
+type DeadLetterObserver func(DeadLetter)
+
+// SetDeadLetterObserver registers fn to hear every message the dead-letter
+// sink accepts. A park that failed is not reported: nothing was kept, and the
+// message stays on the source instead.
+func (e *Engine) SetDeadLetterObserver(fn DeadLetterObserver) {
+	e.onDeadLetter = fn
+}
+
+// parked tells the observer about a message the dead-letter sink just took.
+// What it reports comes from the metadata prepareDLQMessage and the callers
+// put on the message, so it says what the parked copy says.
+func (e *Engine) parked(m hermod.Message) {
+	if e.onDeadLetter == nil || m == nil {
+		return
+	}
+	meta := m.Metadata()
+	failedAt, err := time.Parse(time.RFC3339, meta["_hermod_failed_at"])
+	if err != nil {
+		failedAt = time.Now()
+	}
+	e.onDeadLetter(DeadLetter{
+		WorkflowID: e.workflowID,
+		MessageID:  m.ID(),
+		NodeID:     meta["_hermod_failed_node"],
+		SinkID:     meta["_hermod_failed_sink"],
+		Error:      meta["_hermod_last_error"],
+		FailedAt:   failedAt,
+		Message:    m,
+	})
+}
+
 // DeadLetterNodeFailure sends a message that a workflow node could not process
 // to the dead-letter sink, and reports whether it went anywhere.
 //
@@ -281,6 +332,7 @@ func (e *Engine) deadLetterNodeFailure(ctx context.Context, nodeID string, msg h
 	// The message is preserved. Say so on the message itself, so the engine's
 	// no-target branch acknowledges it rather than parking a second copy.
 	msg.SetMetadata(MetaDeadLettered, "true")
+	e.parked(msg)
 	return true
 }
 
@@ -326,6 +378,7 @@ func (e *Engine) writeToDLQ(ctx context.Context, sinkID string, msgs ...hermod.M
 		}
 		for _, m := range msgs {
 			m.SetMetadata(MetaDeadLettered, "true")
+			e.parked(m)
 		}
 		return nil
 	}
@@ -348,6 +401,7 @@ func (e *Engine) writeToDLQ(ctx context.Context, sinkID string, msgs ...hermod.M
 		// does not carry it, and the caller of a waiting request can be told
 		// its message was parked rather than delivered.
 		m.SetMetadata(MetaDeadLettered, "true")
+		e.parked(m)
 	}
 	return firstErr
 }

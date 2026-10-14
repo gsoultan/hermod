@@ -7,6 +7,27 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — Dead letters mailed through Panmail
+
+A message that lands in the dead-letter queue can now be seen in your inbox.
+Settings → Connectivity has a **Panmail** channel (gateway, API key, provider,
+from, to), and with **Mail every dead-lettered message** on, Hermod mails what
+each workflow parked:
+
+- the workflow, the node or sink that gave up, the error and when;
+- the message itself, as indented JSON, up to 10 messages and 4 KB each, with
+  a count of the rest;
+- a link that opens the editor with the dead-letter inspector already open on
+  the workflow's dead-letter sink.
+
+Mail is batched per workflow: the first dead letter opens a one-minute window
+and the window is one mail, so a burst of failures cannot flood an inbox.
+Shutdown sends any window still open. **Leave message contents out** keeps the
+payload out of mail for workflows that carry personal data. Panmail fields take
+`{{secret.NAME}}` and `{{env.NAME}}`, resolved from the global secret manager
+only, so a vhost secret cannot redirect the alert gateway or its key. Panmail is
+also an ordinary alert channel and is part of Send Test Notification.
+
 ### Added — Customers likely to buy in the next N days
 
 A **When will they buy again** (`reorder`) model now answers "which customers

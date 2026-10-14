@@ -103,6 +103,13 @@ export function useSettingsController() {
     webhook_url: '',
     base_url: '',
     logs_retention_days: 30,
+    panmail_url: '',
+    panmail_api_key: '',
+    panmail_provider_id: '',
+    panmail_from: '',
+    panmail_to: '',
+    panmail_dead_letters: false,
+    panmail_hide_payload: false,
   })
 
   // Settings holds dozens of independent fields across six tabs with no single

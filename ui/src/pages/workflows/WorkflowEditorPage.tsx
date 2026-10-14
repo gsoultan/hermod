@@ -1,5 +1,5 @@
 import { 
-  useMemo, useRef, useState 
+  useEffect, useMemo, useRef, useState 
 } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { 
@@ -41,6 +41,7 @@ import { useWorkflowHotkeys } from './WorkflowEditor/hooks/useWorkflowHotkeys';
 import { WorkflowModals } from './WorkflowEditor/components/WorkflowModals';
 import { WorkflowNodeSettingsModal } from './WorkflowEditor/components/WorkflowNodeSettingsModal';
 import { UnsavedChangesGuard } from './WorkflowEditor/components/UnsavedChangesGuard';
+import { openDeadLetterQueueFromLink } from './WorkflowEditor/utils/deadLetterLink';
 
 const API_BASE = '/api';
 
@@ -86,6 +87,28 @@ function EditorInner() {
 
   // Custom Hooks
   const { isNew, isLoading } = useWorkflowInitialization(id, selectedVHost);
+
+  // The dead-letter mail links here with ?dlq=open: once the workflow has
+  // loaded, open the inspector on its dead-letter sink. Once per visit.
+  const deadLetterLinkHandled = useRef(false);
+  useEffect(() => {
+    if (isLoading || deadLetterLinkHandled.current) return;
+    deadLetterLinkHandled.current = true;
+    const { deadLetterSinkID, setDlqInspectorSink, setDlqInspectorOpened } = useWorkflowStore.getState();
+    void openDeadLetterQueueFromLink({
+      search: window.location.search,
+      deadLetterSinkID,
+      fetchSink: async (sinkID) => {
+        const res = await apiFetch(`${API_BASE}/sinks/${encodeURIComponent(sinkID)}`);
+        if (!res.ok) throw new Error(`sink ${sinkID}: ${res.status}`);
+        return res.json();
+      },
+      open: (sink) => {
+        setDlqInspectorSink(sink);
+        setDlqInspectorOpened(true);
+      },
+    });
+  }, [isLoading]);
 
   const { data: sources } = useQuery({ 
     queryKey: ['sources', vhost], 

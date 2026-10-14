@@ -1224,18 +1224,24 @@ func (h *InfraHandler) TestNotificationSettings(w http.ResponseWriter, r *http.R
 		_ = json.Unmarshal([]byte(val), &ns)
 	}
 
-	results := ns.Test(r.Context())
+	results := ns.TestWith(r.Context(), h.testResolver())
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(results)
 }
 
 func (h *InfraHandler) TestNotificationConfig(w http.ResponseWriter, r *http.Request) {
+	// During first-run setup this answers anyone, with settings they wrote,
+	// sent to a gateway they chose. Resolving references there would hand
+	// them any secret or HERMOD_ENV_ variable by naming it as the api key, so
+	// until an administrator exists the values are tested as written.
+	resolve := notification.Literal
 	if !h.IsFirstRun(r.Context()) {
 		role, _ := h.GetRoleAndVHosts(r)
 		if role != storage.RoleAdministrator {
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
+		resolve = h.testResolver()
 	}
 	var ns notification.NotificationSettings
 	if err := json.NewDecoder(r.Body).Decode(&ns); err != nil {
@@ -1243,9 +1249,18 @@ func (h *InfraHandler) TestNotificationConfig(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	results := ns.Test(r.Context())
+	results := ns.TestWith(r.Context(), resolve)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(results)
+}
+
+// testResolver resolves the references in notification settings the way a
+// real alert does, so Test reports what an alert would meet.
+func (h *InfraHandler) testResolver() notification.Resolver {
+	if h.Registry == nil {
+		return nil
+	}
+	return h.Registry.ResolveGlobalReferences
 }
 
 func (h *InfraHandler) GenerateToken(w http.ResponseWriter, r *http.Request) {

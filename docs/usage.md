@@ -263,6 +263,7 @@ You can download the latest binaries and packages (`.deb`, `.rpm`, `.apk`) from 
 - Settings → Database now pre-fills from the backend via a new admin-only endpoint:
   - GET /api/config/database → returns `{ type, conn }`. For non-SQLite DSNs, passwords are masked in the returned connection string.
 - Notification Settings page includes a "Send Test Notification" button:
-  - POST /api/settings/test (admin-only) sends a test through configured channels in this order: Email → Slack → Discord → Webhook → Telegram. The UI displays per-channel results.
+  - POST /api/settings/test (admin-only) sends a test through configured channels in this order: Email → Slack → Discord → Webhook → Telegram → Panmail. The UI displays per-channel results.
+- Settings → Connectivity → Panmail sends alerts through a Panmail gateway. With **Mail every dead-lettered message** on, each workflow's dead letters are gathered for a minute and mailed as one digest: the workflow, the node or sink that gave up, the error, up to 10 of the messages (4 KB each), and a link that opens the workflow's dead-letter inspector (`/workflows/<id>/edit?dlq=open`, which needs the Base URL). **Leave message contents out** sends everything but the messages. Every Panmail field takes `{{secret.NAME}}` and `{{env.NAME}}`; they resolve from the global secret manager and `HERMOD_ENV_*`, never from a vhost's secrets.
 
 These endpoints require an administrator role and are used by the UI automatically. No additional configuration is needed beyond saving your settings.

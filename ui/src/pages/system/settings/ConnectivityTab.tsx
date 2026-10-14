@@ -1,5 +1,5 @@
-import { Button, Checkbox, Group, NumberInput, Paper, PasswordInput, SimpleGrid, Stack, TextInput, Title } from '@mantine/core';
-import { IconBrandDiscord, IconBrandSlack, IconBrandTelegram, IconMail, IconWebhook } from '@tabler/icons-react';
+import { Button, Checkbox, Code, Group, NumberInput, Paper, PasswordInput, SimpleGrid, Stack, Text, TextInput, Title } from '@mantine/core';
+import { IconBrandDiscord, IconBrandSlack, IconBrandTelegram, IconMail, IconMailForward, IconWebhook } from '@tabler/icons-react';
 
 import type { SettingsController } from './useSettingsController';
 
@@ -68,6 +68,69 @@ export function ConnectivityTab({ ctx }: { ctx: SettingsController }) {
                   checked={notifSettings.smtp_ssl}
                   onChange={(e) => setNotifSettings({ ...notifSettings, smtp_ssl: e.currentTarget.checked })}
                 />
+              </Stack>
+            </Paper>
+
+            <Paper withBorder p="md" radius="md">
+              <Group gap="xs" mb="xs">
+                <IconMailForward size="1.2rem" color="teal" />
+                <Title order={4}>Panmail</Title>
+              </Group>
+              <Text size="sm" c="dimmed" mb="md">
+                Sends alerts through a Panmail gateway. Any field can hold <Code>{'{{secret.NAME}}'}</Code> (a
+                global secret) or <Code>{'{{env.NAME}}'}</Code> (the server&apos;s HERMOD_ENV_NAME).
+              </Text>
+              <Stack gap="md">
+                <Group grow>
+                  <TextInput
+                    label="Gateway URL"
+                    placeholder="https://mail.example.com"
+                    value={notifSettings.panmail_url}
+                    onChange={(e) => setNotifSettings({ ...notifSettings, panmail_url: e.target.value })}
+                  />
+                  <PasswordInput
+                    label="API key"
+                    placeholder="{{secret.PANMAIL_API_KEY}}"
+                    value={notifSettings.panmail_api_key}
+                    onChange={(e) => setNotifSettings({ ...notifSettings, panmail_api_key: e.target.value })}
+                  />
+                </Group>
+                <Group grow>
+                  <TextInput
+                    label="Provider ID"
+                    placeholder="The sending provider, from Panmail's Email Providers page"
+                    value={notifSettings.panmail_provider_id}
+                    onChange={(e) => setNotifSettings({ ...notifSettings, panmail_provider_id: e.target.value })}
+                  />
+                  <TextInput
+                    label="From"
+                    placeholder="alerts@example.com"
+                    value={notifSettings.panmail_from}
+                    onChange={(e) => setNotifSettings({ ...notifSettings, panmail_from: e.target.value })}
+                  />
+                </Group>
+                <TextInput
+                  label="To"
+                  placeholder="ops@example.com, oncall@example.com"
+                  description="Comma-separated. Leave empty to use the Default Recipient above."
+                  value={notifSettings.panmail_to}
+                  onChange={(e) => setNotifSettings({ ...notifSettings, panmail_to: e.target.value })}
+                />
+                <Checkbox
+                  label="Mail every dead-lettered message"
+                  description="One mail per workflow per minute, naming the workflow, the node or sink, the error and up to 10 of the messages, with a link to the dead-letter queue. The link needs the Base URL on the Platform tab."
+                  checked={notifSettings.panmail_dead_letters}
+                  onChange={(e) => setNotifSettings({ ...notifSettings, panmail_dead_letters: e.currentTarget.checked })}
+                />
+                {notifSettings.panmail_dead_letters && (
+                  <Checkbox
+                    ml="xl"
+                    label="Leave message contents out"
+                    description="Send the workflow, node and error only, for messages that hold personal or sensitive data."
+                    checked={notifSettings.panmail_hide_payload}
+                    onChange={(e) => setNotifSettings({ ...notifSettings, panmail_hide_payload: e.currentTarget.checked })}
+                  />
+                )}
               </Stack>
             </Paper>
 

@@ -19,6 +19,7 @@ import (
 	"github.com/gsoultan/hermod/internal/engine/registry/interfaces"
 	"github.com/gsoultan/hermod/internal/engine/registry/traversal"
 	"github.com/gsoultan/hermod/internal/factory"
+	"github.com/gsoultan/hermod/internal/notification"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/comm/buffer"
 	"github.com/gsoultan/hermod/pkg/comm/message"
@@ -446,6 +447,7 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 			dls, err := r.createSinkInternal(ctx, dlsCfg)
 			if err == nil {
 				eng.SetDeadLetterSink(dls)
+				eng.SetDeadLetterObserver(r.deadLetterObserver(wf))
 			} else {
 				r.logger.Error("Registry: failed to create dead letter sink", "sink_id", wf.DeadLetterSinkID, "error", err)
 			}
@@ -911,10 +913,38 @@ func (r *Registry) StopAll() {
 	// that says a worker went down loses the race every time. Bounded so an
 	// unreachable channel cannot hold a rolling deploy open.
 	if r.notificationService != nil {
+		// Dead letters still gathering for a digest go now, or the last
+		// window's failures leave with the process.
+		r.notificationService.FlushDeadLetters()
 		if !r.notificationService.WaitFor(shutdownNotifyFlush) {
 			r.logger.Warn("Shutdown notifications did not finish before the flush deadline",
 				"deadline", shutdownNotifyFlush.String())
 		}
+	}
+}
+
+// deadLetterObserver hands each message wf parks to the dead-letter digest,
+// which mails it through panmail when that is turned on. It runs on the
+// engine's write path: the digest only counts and, for its first few
+// messages, copies what the mail shows, before the engine releases the message.
+func (r *Registry) deadLetterObserver(wf storage.Workflow) pkgengine.DeadLetterObserver {
+	ns := r.notificationService
+	if ns == nil {
+		return nil
+	}
+	return func(d pkgengine.DeadLetter) {
+		ns.DeadLettered(wf, func() notification.DeadLetterSample {
+			payload, truncated := notification.SampleMessage(d.Message)
+			return notification.DeadLetterSample{
+				MessageID: d.MessageID,
+				NodeID:    d.NodeID,
+				SinkID:    d.SinkID,
+				Error:     d.Error,
+				FailedAt:  d.FailedAt,
+				Payload:   payload,
+				Truncated: truncated,
+			}
+		})
 	}
 }
 

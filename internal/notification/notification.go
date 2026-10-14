@@ -50,6 +50,21 @@ type NotificationSettings struct {
 	DiscordWebhook string `json:"discord_webhook"`
 	WebhookURL     string `json:"webhook_url"`
 	BaseURL        string `json:"base_url"`
+
+	// Panmail sends alerts through a panmail gateway. Each value may hold
+	// {{secret.NAME}} or {{env.NAME}} references, resolved at send time.
+	PanmailURL        string `json:"panmail_url"`
+	PanmailAPIKey     string `json:"panmail_api_key"`
+	PanmailProviderID string `json:"panmail_provider_id"`
+	PanmailFrom       string `json:"panmail_from"`
+	// PanmailTo is a comma-separated list. Empty means DefaultEmail.
+	PanmailTo string `json:"panmail_to"`
+	// PanmailDeadLetters mails a digest of every dead-lettered message: the
+	// workflow, the node or sink, the error and the message, batched per
+	// workflow over DeadLetterDigestWindow.
+	PanmailDeadLetters bool `json:"panmail_dead_letters"`
+	// PanmailHidePayload leaves message contents out of those digests.
+	PanmailHidePayload bool `json:"panmail_hide_payload"`
 }
 
 type TestResult struct {
@@ -59,8 +74,13 @@ type TestResult struct {
 }
 
 func (ns NotificationSettings) Test(ctx context.Context) []TestResult {
+	return ns.TestWith(ctx, nil)
+}
+
+// TestWith is Test with the resolver panmail's references are read through.
+func (ns NotificationSettings) TestWith(ctx context.Context, resolve Resolver) []TestResult {
 	wf := storage.Workflow{ID: "test", Name: "Test Notification"}
-	results := make([]TestResult, 0, 5)
+	results := make([]TestResult, 0, 6)
 
 	// Helper to execute and capture result
 	exec := func(ch string, enabled bool, send func() error) {
@@ -89,6 +109,9 @@ func (ns NotificationSettings) Test(ctx context.Context) []TestResult {
 	})
 	exec("telegram", ns.TelegramToken != "" && ns.TelegramChatID != "", func() error {
 		return ns.SendTelegram(ctx, "Hermod Test", "This is a test notification.", wf)
+	})
+	exec("panmail", ns.panmailConfigured(), func() error {
+		return ns.sendPanmailAlert(ctx, resolve, "Hermod Test", "This is a test notification.", wf)
 	})
 
 	return results
@@ -120,12 +143,14 @@ type LeveledProvider interface {
 }
 
 type Service struct {
-	providers []Provider
-	storage   storage.Storage
-	lastSent  map[string]time.Time
-	logger    hermod.Logger
-	inflight  inflight
-	mu        sync.RWMutex
+	providers   []Provider
+	storage     storage.Storage
+	lastSent    map[string]time.Time
+	logger      hermod.Logger
+	resolve     Resolver
+	deadLetters *deadLetterDigest
+	inflight    inflight
+	mu          sync.RWMutex
 }
 
 // inflight counts dispatched notifications still sending.
@@ -173,8 +198,9 @@ func (f *inflight) wait() <-chan struct{} {
 
 func NewService(s storage.Storage) *Service {
 	return &Service{
-		storage:  s,
-		lastSent: make(map[string]time.Time),
+		storage:     s,
+		lastSent:    make(map[string]time.Time),
+		deadLetters: newDeadLetterDigest(),
 	}
 }
 
@@ -192,6 +218,24 @@ func (s *Service) SetLogger(l hermod.Logger) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.logger = l
+}
+
+// resolverSetter is a provider whose settings may hold references.
+type resolverSetter interface {
+	SetResolver(Resolver)
+}
+
+// SetResolver sets how secret and env references in the settings resolve.
+// Call it while wiring up, before alerts flow: providers read it unlocked.
+func (s *Service) SetResolver(r Resolver) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.resolve = r
+	for _, p := range s.providers {
+		if rs, ok := p.(resolverSetter); ok {
+			rs.SetResolver(r)
+		}
+	}
 }
 
 // Wait blocks until every dispatched notification has finished. It exists for
