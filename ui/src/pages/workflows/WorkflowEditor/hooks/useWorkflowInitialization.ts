@@ -69,6 +69,8 @@ function toStoreValues(workflow: any): any {
   // page, so without this the next workflow opened was drawn with the last
   // one's result.
   newValues.testResults = null;
+  // Same for each node's own preview: it ran on this workflow's nodes.
+  newValues.nodePreviews = {};
   return newValues;
 }
 

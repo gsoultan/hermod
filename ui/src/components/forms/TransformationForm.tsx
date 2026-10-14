@@ -148,6 +148,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
   // The vhost of the workflow being edited: whose secrets {{secret.NAME}} reads
   // in a preview, and whose secret names the value fields offer.
   const editorVHost = useWorkflowStore((s) => s.vhost);
+  const setNodePreview = useWorkflowStore((s) => s.setNodePreview);
   const secretNames = useVHostSecretNames(editorVHost);
 
   const transType = selectedNode?.data?.transType || selectedNode?.type || '';
@@ -166,6 +167,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
 
   const runPreview = useCallback(async () => {
     if (!incomingPayload) return;
+    const nodeId = selectedNode.id;
     setTesting(true);
     setPreviewError(null);
     runPreviewRequest(
@@ -181,23 +183,28 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
         onSuccess: (data: any) => {
           if (data?.error) {
             setPreviewError(data.error);
+            setNodePreview(nodeId, null);
           } else if (typeof data?.branch === 'string') {
             // A routing node answers with the branch it took and the message
             // untouched. The panel's Result/Diff/Input tabs all expect a
             // message, so hand it the message; the branch is what the Test
             // button reports.
             setPreviewResult(data.result ?? {});
+            setNodePreview(nodeId, data.result ?? null);
           } else {
             setPreviewResult(data);
+            // The node after this one reads it as its input.
+            setNodePreview(nodeId, data);
           }
         },
         onError: (e: any) => {
           setPreviewError(e?.message || 'Preview failed');
+          setNodePreview(nodeId, null);
         },
         onSettled: () => setTesting(false),
       }
     );
-  }, [runPreviewRequest, incomingPayload, selectedNode.data, transType, editorVHost]);
+  }, [runPreviewRequest, incomingPayload, selectedNode.id, selectedNode.data, transType, editorVHost, setNodePreview]);
 
   // Schedule off *content*, never off callback identity.
   //
@@ -243,7 +250,8 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
     resetPreview();
     setPreviewResult(null);
     setPreviewError(null);
-  }, [hasInput, cancelPreview, resetPreview]);
+    setNodePreview(selectedNode.id, null);
+  }, [hasInput, cancelPreview, resetPreview, selectedNode.id, setNodePreview]);
 
   useEffect(() => {
     if (!incomingPayload || previewsOnDemand) return;

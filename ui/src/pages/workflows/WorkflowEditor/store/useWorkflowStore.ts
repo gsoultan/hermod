@@ -73,6 +73,10 @@ export interface WorkflowState {
   nodeMetrics: Record<string, number>;
   nodeErrorMetrics: Record<string, number>;
   nodeSamples: Record<string, any>;
+  // What each node emitted the last time its own Run Preview ran, by node id.
+  // The node after it reads this as its input (useNodeContext), so a lookup's
+  // previewed object reaches the next node without a whole-workflow simulation.
+  nodePreviews: Record<string, any>;
   sinkCBStatuses: Record<string, string>;
   sinkBufferFill: Record<string, number>;
   workflowDeadLetterCount: number;
@@ -103,6 +107,7 @@ export interface WorkflowState {
   setDlqInspectorSink: (sink: any | null) => void;
   setTestInput: (input: string) => void;
   setTestResults: (results: any[] | null) => void;
+  setNodePreview: (nodeId: string, payload: any | null) => void;
   setSelectedNode: (node: Node | null) => void;
   setQuickAddSource: (source: { nodeId: string; handleId: string | null } | null) => void;
   setTraceInspectorOpened: (opened: boolean) => void;
@@ -229,6 +234,7 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   nodeMetrics: {},
   nodeErrorMetrics: {},
   nodeSamples: {},
+  nodePreviews: {},
   sinkCBStatuses: {},
   sinkBufferFill: {},
   workflowDeadLetterCount: 0,
@@ -281,6 +287,14 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   setDlqInspectorSink: (dlqInspectorSink) => set({ dlqInspectorSink }),
   setTestInput: (testInput) => set({ testInput }),
   setTestResults: (testResults) => set({ testResults }),
+  setNodePreview: (nodeId, payload) => set((state) => {
+    if (payload == null) {
+      if (!(nodeId in state.nodePreviews)) return state;
+      const { [nodeId]: _dropped, ...rest } = state.nodePreviews;
+      return { nodePreviews: rest };
+    }
+    return { nodePreviews: { ...state.nodePreviews, [nodeId]: payload } };
+  }),
   setSelectedNode: (selectedNode) => set({ selectedNode }),
   setQuickAddSource: (quickAddSource) => set({ quickAddSource }),
   setTraceInspectorOpened: (traceInspectorOpened) => set({ traceInspectorOpened }),
@@ -337,6 +351,30 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
       ? { ...state.selectedNode, data: replace ? config : { ...state.selectedNode.data, ...config } }
       : state.selectedNode;
 
-    return { nodes: nextNodes, selectedNode: nextSelectedNode };
+    return {
+      nodes: nextNodes,
+      selectedNode: nextSelectedNode,
+      nodePreviews: withoutPreviewsFrom(state.nodePreviews, nodeId, state.edges),
+    };
   }),
 }));
+
+/**
+ * withoutPreviewsFrom drops the preview of `nodeId` and of every node after it.
+ * Each of those ran on what this node used to emit, so after an edit they
+ * describe a message the workflow no longer produces. An open form previews
+ * again on its own and puts its node's entry back.
+ */
+function withoutPreviewsFrom(previews: Record<string, any>, nodeId: string, edges: Edge[]): Record<string, any> {
+  if (Object.keys(previews).length === 0) return previews;
+  const stale = new Set<string>();
+  const pending = [nodeId];
+  while (pending.length > 0) {
+    const id = pending.pop() as string;
+    if (stale.has(id)) continue;
+    stale.add(id);
+    edges.forEach((e) => { if (e.source === id) pending.push(e.target); });
+  }
+  if (![...stale].some((id) => id in previews)) return previews;
+  return Object.fromEntries(Object.entries(previews).filter(([id]) => !stale.has(id)));
+}
