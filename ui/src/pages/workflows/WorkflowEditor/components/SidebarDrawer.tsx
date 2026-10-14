@@ -3,6 +3,7 @@ import {
   Tabs, Stack, Group, Paper, Text, ScrollArea, Box, ThemeIcon, UnstyledButton, rem, Title, useMantineColorScheme,
   Select, Checkbox, NumberInput, TextInput, Alert, TagsInput, Divider, ActionIcon, SimpleGrid
 } from '@mantine/core';
+import type { ComboboxItem, OptionsFilter } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from '../../../../api';
 import { useShallow } from 'zustand/react/shallow';
@@ -95,6 +96,19 @@ export function SidebarDrawer({
     (Array.isArray(rows) ? rows : []).filter((r) =>
       matchesQuery({ label: r.name, subType: r.type, type: kind }, paletteSearch)
     );
+
+  // The dead-letter sink picker is searched by name and by sink type, so a
+  // vhost with many sinks can find "the kafka one" without scrolling.
+  const dlqSinkOptions = useMemo(
+    () => (Array.isArray(sinks) ? sinks : []).map((s: any) => ({ value: s.id, label: s.name })),
+    [sinks]
+  );
+  const filterDlqSinks: OptionsFilter = ({ options, search }) => {
+    const byID = new Map((Array.isArray(sinks) ? sinks : []).map((s: any) => [s.id, s]));
+    return (options as ComboboxItem[]).filter((o) =>
+      matchesQuery({ label: o.label, subType: byID.get(o.value)?.type }, search)
+    );
+  };
 
   const { colorScheme } = useMantineColorScheme();
   const isDark = colorScheme === 'dark';
@@ -487,7 +501,10 @@ export function SidebarDrawer({
                       <Select
                         label="Dead Letter Sink"
                         placeholder="None"
-                        data={(Array.isArray(sinks) ? sinks : []).map((s: any) => ({ value: s.id, label: s.name }))}
+                        data={dlqSinkOptions}
+                        searchable
+                        filter={filterDlqSinks}
+                        nothingFoundMessage="No sinks match"
                         value={deadLetterSinkID}
                         onChange={(val) => setDeadLetterSinkID(val || '')}
                         clearable

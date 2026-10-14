@@ -7,6 +7,11 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — Search in the dead letter sink picker
+
+The **Dead Letter Sink** picker in a workflow's settings now takes a search:
+type part of a sink's name or its type (for example `kafka`) to narrow the list.
+
 ### Added — Dead letters mailed through Panmail
 
 A message that lands in the dead-letter queue can now be seen in your inbox.
