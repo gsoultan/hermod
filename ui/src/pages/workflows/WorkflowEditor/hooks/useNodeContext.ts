@@ -6,10 +6,11 @@ import { getAllFieldsWithTypes, deepMergeSim, preparePayload, getValByPath, type
 import { ownPayloadOf } from '../sampleCapture';
 
 export function useNodeContext(selectedNode: Node | null, testResults: any[] | null, sources: any[], sinks: any[]) {
-  const { nodes, edges, nodeSamples } = useWorkflowStore(useShallow(state => ({
+  const { nodes, edges, nodeSamples, nodePreviews } = useWorkflowStore(useShallow(state => ({
     nodes: state.nodes,
     edges: state.edges,
-    nodeSamples: state.nodeSamples
+    nodeSamples: state.nodeSamples,
+    nodePreviews: state.nodePreviews
   })));
 
   const contextDataRaw = useMemo(() => {
@@ -81,6 +82,12 @@ export function useNodeContext(selectedNode: Node | null, testResults: any[] | n
           // nodes in between made.
           const simulated = simulatedOutput(nodeId);
           if (simulated) return { payload: preparePayload(simulated), skipped: depth };
+          // Then what the node's own Run Preview emitted. Without it the walk
+          // went straight past a previewed lookup to the source's sample, so the
+          // node after it never saw the object the lookup added and could only
+          // list its target field as "any (inferred)".
+          const previewed = nodePreviews?.[nodeId];
+          if (previewed) return { payload: preparePayload(previewed), skipped: depth };
           const own = ownPayload(node);
           if (own) return { payload: preparePayload(own), skipped: depth };
 
@@ -263,7 +270,7 @@ export function useNodeContext(selectedNode: Node | null, testResults: any[] | n
     }
 
     return JSON.stringify({ incomingPayload, availableFields, sinkSchema, upstreamSource, inputSkipped });
-  }, [selectedNode?.id, edges, nodes, testResults, sources, sinks, nodeSamples]);
+  }, [selectedNode?.id, edges, nodes, testResults, sources, sinks, nodeSamples, nodePreviews]);
 
   return useMemo(() => JSON.parse(contextDataRaw), [contextDataRaw]);
 }
