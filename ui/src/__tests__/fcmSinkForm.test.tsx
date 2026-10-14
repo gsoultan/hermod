@@ -555,3 +555,78 @@ describe('a row the sink would refuse', () => {
     expect(colour).toHaveAttribute('aria-invalid', 'true')
   })
 })
+
+/**
+ * Test connection passed for sinks whose every real message FCM refused, and
+ * people read it as "notifications will arrive". The form now sends the
+ * previewed message for real, to one device.
+ */
+describe('the fcm test send', () => {
+  const ready = {
+    message: { token: 'row-device', notification: { title: 'Order 7' } },
+    recipients: 1,
+    data_bytes: 0,
+    sent_data_bytes: 0,
+    limit: 4096,
+    sample: { id: '7' },
+  }
+
+  it('sends the row with the whole config to the device given, and says it was accepted', async () => {
+    let posted: any = null
+    server.use(
+      http.post('/api/sinks/fcm/preview', () => HttpResponse.json(ready)),
+      http.post('/api/sinks/fcm/test-send', async ({ request }) => {
+        posted = await request.json()
+        return HttpResponse.json({ message_id: 'projects/p/messages/1', to: '1 device' })
+      }),
+    )
+    ui(
+      { credentials_json: '{"private_key":"k"}', device_token: '{{.push_token}}', title: 'Order {{.id}}' },
+      { incomingPayload: { id: '7', push_token: 'row-device' } },
+    )
+
+    fireEvent.change(await screen.findByLabelText(/device token for the test/i), { target: { value: 'my-phone' } })
+    fireEvent.click(screen.getByRole('button', { name: /send test notification/i }))
+
+    expect(await screen.findByText('Sent: FCM accepted it')).toBeInTheDocument()
+    expect(screen.getByText(/sent to 1 device/i)).toBeInTheDocument()
+    // Unlike the preview, a real send needs the service account.
+    expect(posted.config.credentials_json).toBe('{"private_key":"k"}')
+    expect(posted.device).toBe('my-phone')
+    expect(posted.sample).toEqual({ id: '7', push_token: 'row-device' })
+  })
+
+  it('says why it was not sent and goes to the setting', async () => {
+    server.use(
+      http.post('/api/sinks/fcm/preview', () => HttpResponse.json(ready)),
+      http.post('/api/sinks/fcm/test-send', () =>
+        HttpResponse.json(
+          { error: 'fcm sink: message preview: Device token (device_token) is not an FCM registration token.', field: 'device_token' },
+          { status: 400 },
+        ),
+      ),
+    )
+    ui({ device_token: '{{.user_id}}' })
+
+    fireEvent.click(await screen.findByRole('button', { name: /send test notification/i }))
+
+    expect(await screen.findByText('Not sent')).toBeInTheDocument()
+    expect(screen.getByText(/is not an FCM registration token/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /go to the setting/i }))
+    await waitFor(() => expect(screen.getByRole('textbox', { name: /^device token\s*\*?$/i })).toHaveFocus())
+  })
+
+  // A topic reaches everyone subscribed to it; a test must not.
+  it('asks for a device when the sink sends to a topic', async () => {
+    server.use(
+      http.post('/api/sinks/fcm/preview', () =>
+        HttpResponse.json({ ...ready, message: { topic: 'everyone', notification: { title: 'x' } }, recipients: 0 }),
+      ),
+    )
+    ui({ topic: 'everyone' })
+    const button = await screen.findByRole('button', { name: /send test notification/i })
+    expect(button).toBeDisabled()
+    fireEvent.change(screen.getByLabelText(/device token for the test/i), { target: { value: 'my-phone' } })
+    expect(button).toBeEnabled()
+  })
+})

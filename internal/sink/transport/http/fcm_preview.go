@@ -49,21 +49,8 @@ func (h *SinkHandler) PreviewFcmMessage(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	sample := req.Sample
-	if len(sample) == 0 {
-		sample = exampleRow()
-	}
-	msg := message.AcquireMessage()
+	sample, msg := fcmSampleMessage(req.Sample)
 	defer message.ReleaseMessage(msg)
-	// Defaults first, then the sample through the populator every other
-	// preview uses: a captured change event's own operation, table and
-	// before/after images land where a run's message keeps them, not as two
-	// extra columns named "after" and "before".
-	msg.SetID("preview")
-	msg.SetOperation(hermod.OpCreate)
-	msg.SetTable("orders")
-	msg.SetSchema("public")
-	message.PopulateFromMap(msg, sample)
 
 	preview, err := factory.PreviewFCMMessage(factory.SinkConfig{Type: req.Type, Config: req.Config}, msg)
 	if err != nil {
@@ -73,4 +60,24 @@ func (h *SinkHandler) PreviewFcmMessage(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(fcmPreviewResponse{Preview: preview, Sample: sample})
+}
+
+// fcmSampleMessage is the message a sample row becomes, as a run would carry
+// it, and the row it was built from: the example row when none was sent. The
+// caller releases the message.
+func fcmSampleMessage(sample map[string]any) (map[string]any, hermod.Message) {
+	if len(sample) == 0 {
+		sample = exampleRow()
+	}
+	msg := message.AcquireMessage()
+	// Defaults first, then the sample through the populator every other
+	// preview uses: a captured change event's own operation, table and
+	// before/after images land where a run's message keeps them, not as two
+	// extra columns named "after" and "before".
+	msg.SetID("preview")
+	msg.SetOperation(hermod.OpCreate)
+	msg.SetTable("orders")
+	msg.SetSchema("public")
+	message.PopulateFromMap(msg, sample)
+	return sample, msg
 }

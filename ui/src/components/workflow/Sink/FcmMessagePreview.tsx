@@ -12,10 +12,19 @@ import {
   Stack,
   Table,
   Text,
+  TextInput,
   Textarea,
   ThemeIcon,
 } from '@mantine/core';
-import { IconAlertTriangle, IconArrowUp, IconBell, IconPhoto, IconSend } from '@tabler/icons-react';
+import {
+  IconAlertTriangle,
+  IconArrowUp,
+  IconBell,
+  IconCircleCheck,
+  IconDeviceMobile,
+  IconPhoto,
+  IconSend,
+} from '@tabler/icons-react';
 import { apiFetch } from '@/api';
 
 /** What POST /api/sinks/fcm/preview answers with. */
@@ -100,6 +109,139 @@ function destination(preview: FcmPreview): string {
   if (message.topic) return `everyone subscribed to topic ${message.topic}`;
   if (message.condition) return `devices matching ${message.condition}`;
   return preview.recipients === 1 ? '1 device' : `${count(preview.recipients)} devices`;
+}
+
+/** What POST /api/sinks/fcm/test-send answers with. */
+type TestSendAnswer =
+  | { ok: true; message_id: string; to: string }
+  | { ok: false; error: string; field?: string; fix?: string };
+
+/**
+ * Sends the previewed message for real, to one device.
+ *
+ * Test connection proves the service account and nothing about the message,
+ * so it passed for sinks whose every real message FCM refused — and people
+ * read its success as "notifications will arrive". This sends what a run
+ * sends, built from the same row, so a success means a phone should show it.
+ */
+function TestSend({
+  config,
+  row,
+  byDevice,
+  onGoTo,
+}: {
+  config: Record<string, any>;
+  /** The row the preview is built from; undefined for the example row. */
+  row: unknown;
+  /** Whether the sink addresses devices; a topic would notify everyone on it. */
+  byDevice: boolean;
+  onGoTo?: (field: string) => void;
+}) {
+  const [device, setDevice] = useState('');
+  const [sending, setSending] = useState(false);
+  const [answer, setAnswer] = useState<TestSendAnswer | null>(null);
+  const needsDevice = !byDevice && !device.trim();
+
+  const send = async () => {
+    setSending(true);
+    setAnswer(null);
+    try {
+      const res = await apiFetch('/api/sinks/fcm/test-send', {
+        method: 'POST',
+        silent: true,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'fcm', config, sample: row, device: device.trim() }),
+      });
+      const data = await res.json();
+      setAnswer({ ok: true, ...data });
+    } catch (err: any) {
+      const data = err?.data ?? {};
+      setAnswer({
+        ok: false,
+        error: String(data.error || err?.message || 'The test send failed.').replace(/^fcm sink: /, ''),
+        field: data.field,
+        fix: data.fix,
+      });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <Paper withBorder radius="md" p="sm" component="section" aria-label="Send a test notification">
+      <Stack gap="xs">
+        <Group gap={6}>
+          <IconDeviceMobile size="1rem" aria-hidden />
+          <Text size="sm" fw={600}>
+            Send a test notification
+          </Text>
+        </Group>
+        <Text size="xs" c="dimmed">
+          Sends this message for real, to one device, the way a run would. Test connection only checks the service
+          account; this checks the message too, so if it is accepted the device should show it.
+        </Text>
+        <TextInput
+          label="Device token for the test"
+          placeholder={byDevice ? "Leave empty to use this row's device" : 'Paste the registration token of your device'}
+          description={
+            byDevice
+              ? 'Paste your own device’s token to receive the test yourself.'
+              : 'Required: this sink sends to a topic, and a test should not notify everyone on it.'
+          }
+          value={device}
+          onChange={(e) => setDevice(e.currentTarget.value)}
+          styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)', fontSize: 'var(--mantine-font-size-xs)' } }}
+        />
+        <Group>
+          <Button
+            size="xs"
+            leftSection={<IconSend size="0.9rem" />}
+            loading={sending}
+            disabled={needsDevice}
+            onClick={() => void send()}
+          >
+            Send test notification
+          </Button>
+        </Group>
+        {answer?.ok && (
+          <Alert color="teal" icon={<IconCircleCheck size="1rem" />} title="Sent: FCM accepted it">
+            <Stack gap={4}>
+              <Text size="sm">
+                Sent to {answer.to}. It should appear on the device within a few seconds.
+              </Text>
+              <Text size="xs" c="dimmed">
+                Not showing? Check that the app is installed with notifications allowed, and that the token is current:
+                it changes when the app is reinstalled or its data is cleared. FCM message id:{' '}
+                <Code>{answer.message_id}</Code>
+              </Text>
+            </Stack>
+          </Alert>
+        )}
+        {answer && !answer.ok && (
+          <Alert color="red" icon={<IconAlertTriangle size="1rem" />} title="Not sent">
+            <Stack gap={6}>
+              <Text size="sm" style={{ wordBreak: 'break-word' }}>
+                {answer.error}
+              </Text>
+              {answer.field && onGoTo && (
+                <Group>
+                  <Button
+                    size="compact-xs"
+                    variant="light"
+                    color="red"
+                    leftSection={<IconArrowUp size="0.8rem" />}
+                    onClick={() => onGoTo(answer.field!)}
+                  >
+                    Go to the setting
+                  </Button>
+                </Group>
+              )}
+            </Stack>
+          </Alert>
+        )}
+      </Stack>
+    </Paper>
+  );
 }
 
 /** The notification as a phone would draw it, or a note that it draws nothing. */
@@ -350,6 +492,12 @@ export function FcmMessagePreview({
               </Text>
             </Group>
             <NotificationMock notification={preview.message.notification} />
+            <TestSend
+              config={config}
+              row={sampleText.trim() ? JSON.parse(sampleText) : undefined}
+              byDevice={Boolean(preview.message.token)}
+              onGoTo={onGoTo}
+            />
           </>
         )}
 
