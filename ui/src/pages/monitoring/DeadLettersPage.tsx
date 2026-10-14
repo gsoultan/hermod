@@ -205,8 +205,8 @@ export function DeadLettersPage() {
           value={whenFilter} onChange={(v) => setWhenFilter((v as When) || 'any')} allowDeselect={false} w={150} />
         <Select label="Status" data={[{ value: 'queued', label: 'Waiting' }, { value: 'replayed', label: 'Replayed' }, { value: 'discarded', label: 'Discarded' }, { value: 'all', label: 'All' }]}
           value={status} onChange={(v) => setStatus((v as DeadLetterFilters['status']) || 'queued')} allowDeselect={false} w={140} />
-        <Tooltip label="Refresh">
-          <Button variant="subtle" onClick={() => refetch()} loading={isFetching} aria-label="Refresh"><IconRefresh size={16} /></Button>
+        <Tooltip label="Refresh dead letters">
+          <Button variant="subtle" onClick={() => refetch()} loading={isFetching} aria-label="Refresh dead letters"><IconRefresh size={16} /></Button>
         </Tooltip>
       </Group>
 

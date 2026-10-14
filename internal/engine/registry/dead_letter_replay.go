@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -70,11 +71,9 @@ func deadLetterMessage(dl storage.DeadLetter, payload []byte) (*message.DefaultM
 	}
 	m.SetPayload(payload)
 	for k, v := range dl.Metadata {
-		m.SetMetadata(k, v)
-	}
-	meta := m.MetadataRef()
-	for _, k := range failureMarks {
-		delete(meta, k)
+		if !slices.Contains(failureMarks, k) {
+			m.SetMetadata(k, v)
+		}
 	}
 	return m, nil
 }
