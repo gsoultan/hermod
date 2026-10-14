@@ -71,7 +71,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/gsoultan/gsmail v0.4.0
 	github.com/gsoultan/metis-sdk v0.1.0
-	github.com/gsoultan/panmail-sdk v0.1.0
+	github.com/gsoultan/panmail-sdk v0.1.1
 	github.com/hamba/avro/v2 v2.31.0
 	github.com/hashicorp/vault/api v1.13.0
 	github.com/jackc/pglogrepl v0.0.0-20251213150135-2e8d0df862c1

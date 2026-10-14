@@ -45,7 +45,7 @@ func newPanmailGateway(t *testing.T, status int, reply string) *panmailGateway {
 }
 
 const twoProviders = `{"providers":[
-  {"id":"p1","name":"Primary","type":"PROVIDER_TYPE_SMTP","allowedDomains":["example.com"],
+  {"id":"p1","name":"Primary","type":"PROVIDER_TYPE_SMTP","allowedSenders":["*@example.com"],
    "smtp":{"host":"smtp.example.com","username":"u"}},
   {"id":"p2","name":"Bulk","type":"PROVIDER_TYPE_SES"}
 ]}`
@@ -97,7 +97,11 @@ func TestPanmailProvidersWritesTheListToTheTargetField(t *testing.T) {
 	if first["id"] != "p1" || first["name"] != "Primary" || first["type"] != "smtp" {
 		t.Fatalf("first = %#v", first)
 	}
-	if d, _ := first["allowedDomains"].([]string); len(d) != 1 || d[0] != "example.com" {
+	if a, _ := first["allowedSenders"].([]string); !slices.Equal(a, []string{"*@example.com"}) {
+		t.Fatalf("allowedSenders = %#v", first["allowedSenders"])
+	}
+	// Workflows written against the old gateway field still read the domains.
+	if d, _ := first["allowedDomains"].([]string); !slices.Equal(d, []string{"example.com"}) {
 		t.Fatalf("allowedDomains = %#v", first["allowedDomains"])
 	}
 	if list[1]["type"] != "ses" {
@@ -112,12 +116,12 @@ func TestPanmailProvidersWritesTheListToTheTargetField(t *testing.T) {
 	}
 }
 
-// Each result says which domains it may send From. The gateway returns no From
-// address, so none is made up: fromDomains is the allowed domains, tidied.
+// Each result says which domains it may send From: the whole-domain entries of
+// its allowed senders, tidied. An exact address grants no domain.
 func TestPanmailProvidersAddsTheFromDomains(t *testing.T) {
 	g := newPanmailGateway(t, http.StatusOK, `{"providers":[
   {"id":"p1","name":"Primary","type":"PROVIDER_TYPE_SMTP",
-   "allowedDomains":[" Example.com","@mail.example.com","example.com",""]},
+   "allowedSenders":[" *@Example.com","billing@other.example","*@mail.example.com","*@example.com",""]},
   {"id":"p2","name":"Bulk","type":"PROVIDER_TYPE_SES"}
 ]}`)
 	tr, reg := newPanmailProvidersFixture()
@@ -132,7 +136,7 @@ func TestPanmailProvidersAddsTheFromDomains(t *testing.T) {
 	if !ok || !slices.Equal(from, []string{"example.com", "mail.example.com"}) {
 		t.Fatalf("fromDomains = %#v", list[0]["fromDomains"])
 	}
-	// No allowed domains means none to send From, written as an empty list.
+	// No allowed senders means none to send From, written as an empty list.
 	if d, ok := list[1]["fromDomains"].([]string); !ok || len(d) != 0 {
 		t.Fatalf("fromDomains with no allowed domains = %#v", list[1]["fromDomains"])
 	}
@@ -146,7 +150,7 @@ func TestPanmailProvidersAddsTheFromDomains(t *testing.T) {
 // send From: the gateway returns no address, so the mailbox is the user's.
 func TestPanmailProvidersAddsTheFromEmails(t *testing.T) {
 	g := newPanmailGateway(t, http.StatusOK, `{"providers":[
-  {"id":"p1","name":"Primary","type":"PROVIDER_TYPE_SMTP","allowedDomains":["Example.com","mail.example.com"]},
+  {"id":"p1","name":"Primary","type":"PROVIDER_TYPE_SMTP","allowedSenders":["*@Example.com","*@mail.example.com"]},
   {"id":"p2","name":"Bulk","type":"PROVIDER_TYPE_SES"}
 ]}`)
 
@@ -182,6 +186,35 @@ func TestPanmailProvidersAddsTheFromEmails(t *testing.T) {
 				t.Fatalf("fromEmails with no allowed domains = %#v", list[1]["fromEmails"])
 			}
 		})
+	}
+}
+
+// An exact address is a From email as it stands, in the gateway's order with
+// the mailbox composed at each whole domain; the mailbox is not applied to it.
+func TestPanmailProvidersKeepsExactSendersAsFromEmails(t *testing.T) {
+	g := newPanmailGateway(t, http.StatusOK, `{"providers":[
+  {"id":"p1","name":"Primary","type":"PROVIDER_TYPE_SMTP",
+   "allowedSenders":["Billing@Example.com","*@example.com","billing@example.com"]}
+]}`)
+	tr, reg := newPanmailProvidersFixture()
+
+	got, err := runPanmailProviders(t, tr, reg, map[string]any{
+		"baseUrl": g.srv.URL, "apiKey": "k", "fromMailbox": "alerts",
+	}, nil)
+	if err != nil {
+		t.Fatalf("Transform: %v", err)
+	}
+	p := got["panmail_providers"].([]map[string]any)[0]
+
+	want := []string{"billing@example.com", "alerts@example.com"}
+	if e, ok := p["fromEmails"].([]string); !ok || !slices.Equal(e, want) {
+		t.Fatalf("fromEmails = %#v, want %v", p["fromEmails"], want)
+	}
+	if p["fromEmail"] != want[0] {
+		t.Fatalf("fromEmail = %#v, want %q", p["fromEmail"], want[0])
+	}
+	if d, ok := p["fromDomains"].([]string); !ok || !slices.Equal(d, []string{"example.com"}) {
+		t.Fatalf("fromDomains = %#v", p["fromDomains"])
 	}
 }
 
