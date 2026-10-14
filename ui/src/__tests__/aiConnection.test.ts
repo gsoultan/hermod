@@ -63,15 +63,18 @@ describe('AI provider catalogue', () => {
 })
 
 // The key is resolved with evaluator.ResolveTemplateScoped, so the node stores
-// a {{secret("NAME")}} token and the value stays in the vhost's secrets.
+// a {{secret.NAME}} token and the value stays in the vhost's secrets.
 describe('API key as a vhost secret', () => {
   it('writes the secret token the backend resolves', () => {
-    expect(secretToken('OPENAI_KEY')).toBe('{{secret("OPENAI_KEY")}}')
-    expect(secretToken('  OPENAI_KEY ')).toBe('{{secret("OPENAI_KEY")}}')
+    expect(secretToken('OPENAI_KEY')).toBe('{{secret.OPENAI_KEY}}')
+    expect(secretToken('  OPENAI_KEY ')).toBe('{{secret.OPENAI_KEY}}')
     expect(secretToken('')).toBe('')
   })
 
   it('reads the secret name back from the token', () => {
+    expect(secretNameFromKey('{{secret.OPENAI_KEY}}')).toBe('OPENAI_KEY')
+    expect(secretNameFromKey('{{ secret.A_B }}')).toBe('A_B')
+    expect(secretNameFromKey('{{.secret.A_B}}')).toBe('')
     expect(secretNameFromKey('{{secret("OPENAI_KEY")}}')).toBe('OPENAI_KEY')
     expect(secretNameFromKey('{{ secret("A_B") }}')).toBe('A_B')
     expect(secretNameFromKey("{{secret('X')}}")).toBe('X')

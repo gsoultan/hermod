@@ -238,7 +238,7 @@ export function APILookupConfig({
                 />
                 <TemplateField
                   label="Password"
-                  placeholder='{{secret("API_PASSWORD")}}'
+                  placeholder='{{secret.API_PASSWORD}}'
                   value={config.password || ''}
                   onChange={(password) => set({ password })}
                   availableFields={fieldPaths}
@@ -250,7 +250,7 @@ export function APILookupConfig({
             {config.authType === 'bearer' && (
               <TemplateField
                 label="Token"
-                placeholder='{{secret("API_TOKEN")}}'
+                placeholder='{{secret.API_TOKEN}}'
                 value={config.token || ''}
                 onChange={(token) => set({ token })}
                 availableFields={fieldPaths}

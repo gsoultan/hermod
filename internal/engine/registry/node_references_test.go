@@ -21,6 +21,7 @@ func TestTransformationSettingsResolveSecretAndEnvReferences(t *testing.T) {
 		`key-{{secret("ONLY_B")}}`:          "key-b-only",
 		`{{env("REGION")}}`:                 "eu-west-1",
 		"{{env:REGION}}/{{secret:API_KEY}}": "eu-west-1/b-key",
+		"{{env.REGION}}/{{secret.API_KEY}}": "eu-west-1/b-key",
 	} {
 		if got := previewSecret(t, reg, "tenant-b", expr); got != want {
 			t.Errorf("%s wrote %#v, want %#v", expr, got, want)

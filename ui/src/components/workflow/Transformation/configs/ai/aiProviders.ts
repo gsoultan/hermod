@@ -9,7 +9,7 @@
  *    kind fails with "an API key is required";
  *  - openai_compatible fails without a base URL;
  *  - the key is resolved with evaluator.ResolveTemplateScoped, so a vhost
- *    secret is referenced as {{secret("NAME")}};
+ *    secret is referenced as {{secret.NAME}};
  *  - a key without "{{" is the plaintext key workflow_validation_ai.go warns
  *    about.
  */
@@ -86,15 +86,20 @@ export function canEmbed(provider: string | undefined): boolean {
 
 export function secretToken(name: string): string {
   const n = name.trim()
-  return n ? `{{secret("${n}")}}` : ''
+  return n ? `{{secret.${n}}}` : ''
 }
 
-const SECRET_TOKEN = /^\{\{\s*secret\(\s*["']([^"']+)["']\s*\)\s*\}\}$/
+/**
+ * {{secret.NAME}}, or the older {{secret("NAME")}}. The name is read loosely,
+ * so one a secret cannot have is shown, and called out, rather than lost.
+ */
+const SECRET_TOKEN = /^\{\{\s*(?:secret\.([^{}]+?)|secret\(\s*["']([^"']+)["']\s*\))\s*\}\}$/i
 
-/** The NAME in a {{secret("NAME")}} key, or '' when the key is anything else. */
+/** The NAME in a {{secret.NAME}} key, or '' when the key is anything else. */
 export function secretNameFromKey(key: unknown): string {
   if (typeof key !== 'string') return ''
-  return SECRET_TOKEN.exec(key.trim())?.[1] ?? ''
+  const m = SECRET_TOKEN.exec(key.trim())
+  return m?.[1] ?? m?.[2] ?? ''
 }
 
 /** A key typed into the node: saved with the workflow and exported with it. */

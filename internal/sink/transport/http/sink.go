@@ -251,7 +251,10 @@ func (h *SinkHandler) TestSink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := factory.SinkConfig{Type: snk.Type, Config: snk.Config}
+	if !h.AllowConnectorVHost(w, r, snk.VHost) {
+		return
+	}
+	cfg := factory.SinkConfig{Type: snk.Type, VHost: snk.VHost, Config: snk.Config}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 
@@ -271,7 +274,10 @@ func (h *SinkHandler) DiscoverSinkDatabases(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	cfg := factory.SinkConfig{Type: snk.Type, Config: snk.Config}
+	if !h.AllowConnectorVHost(w, r, snk.VHost) {
+		return
+	}
+	cfg := factory.SinkConfig{Type: snk.Type, VHost: snk.VHost, Config: snk.Config}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 
@@ -292,7 +298,10 @@ func (h *SinkHandler) DiscoverSinkTables(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	cfg := factory.SinkConfig{Type: snk.Type, Config: snk.Config}
+	if !h.AllowConnectorVHost(w, r, snk.VHost) {
+		return
+	}
+	cfg := factory.SinkConfig{Type: snk.Type, VHost: snk.VHost, Config: snk.Config}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 
@@ -316,7 +325,10 @@ func (h *SinkHandler) DiscoverSinkColumns(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	cfg := factory.SinkConfig{Type: req.Sink.Type, Config: req.Sink.Config}
+	if !h.AllowConnectorVHost(w, r, req.Sink.VHost) {
+		return
+	}
+	cfg := factory.SinkConfig{Type: req.Sink.Type, VHost: req.Sink.VHost, Config: req.Sink.Config}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 
@@ -340,7 +352,10 @@ func (h *SinkHandler) SampleSinkTable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := factory.SinkConfig{Type: req.Sink.Type, Config: req.Sink.Config}
+	if !h.AllowConnectorVHost(w, r, req.Sink.VHost) {
+		return
+	}
+	cfg := factory.SinkConfig{Type: req.Sink.Type, VHost: req.Sink.VHost, Config: req.Sink.Config}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 
@@ -365,7 +380,10 @@ func (h *SinkHandler) BrowseSinkTable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := factory.SinkConfig{Type: req.Sink.Type, Config: req.Sink.Config}
+	if !h.AllowConnectorVHost(w, r, req.Sink.VHost) {
+		return
+	}
+	cfg := factory.SinkConfig{Type: req.Sink.Type, VHost: req.Sink.VHost, Config: req.Sink.Config}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 
@@ -392,6 +410,9 @@ func (h *SinkHandler) QuerySink(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.JsonError(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if !h.AllowConnectorVHost(w, r, req.Config.VHost) {
 		return
 	}
 
@@ -511,7 +532,10 @@ func (h *SinkHandler) TruncateSinkTable(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	cfg := factory.SinkConfig{Type: req.Sink.Type, Config: req.Sink.Config}
+	if !h.AllowConnectorVHost(w, r, req.Sink.VHost) {
+		return
+	}
+	cfg := factory.SinkConfig{Type: req.Sink.Type, VHost: req.Sink.VHost, Config: req.Sink.Config}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 

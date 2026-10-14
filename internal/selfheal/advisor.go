@@ -17,7 +17,7 @@ import (
 const (
 	EnvProvider = "HERMOD_SELF_HEALING_AI_PROVIDER"
 	EnvModel    = "HERMOD_SELF_HEALING_AI_MODEL"
-	// EnvAPIKey must be a {{secret("NAME")}} reference; it is resolved for
+	// EnvAPIKey must be a {{secret.NAME}} reference; it is resolved for
 	// the vhost of the workflow being helped.
 	EnvAPIKey  = "HERMOD_SELF_HEALING_AI_API_KEY" //nolint:gosec // G101: the name of an environment variable, not a credential.
 	EnvBaseURL = "HERMOD_SELF_HEALING_AI_BASE_URL"
@@ -37,7 +37,7 @@ func AdvisorFromEnv(getenv func(string) string, workflows WorkflowGetter) (optim
 	}
 	key := strings.TrimSpace(getenv(EnvAPIKey))
 	if key != "" && !strings.Contains(key, "{{") {
-		return nil, errors.New(EnvAPIKey + ` must be a vhost secret reference such as {{secret("OPENAI_API_KEY")}}; AI mapping suggestions are off`)
+		return nil, errors.New(EnvAPIKey + ` must be a vhost secret reference such as {{secret.OPENAI_API_KEY}}; AI mapping suggestions are off`)
 	}
 	conn := map[string]any{
 		"provider": provider, "model": getenv(EnvModel), "apiKey": key, "baseUrl": getenv(EnvBaseURL),

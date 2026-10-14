@@ -76,7 +76,7 @@ export function RequestBodyEditor({
             label="Insert field into body"
             fieldPaths={fieldPaths}
             onPick={insertAt(ref)}
-            onPickSecret={(name) => insertTokenAt(ref)(`{{secret('${name}')}}`)}
+            onPickSecret={(name) => insertTokenAt(ref)(`{{secret.${name}}}`)}
           />
         )}
         <FunctionPicker label="Insert function into body" onPick={(fn) => insertTokenAt(ref)(callToken(fn.name, fn.args))} />

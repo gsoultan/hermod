@@ -93,7 +93,7 @@ describe('ValueBuilder', () => {
     await pick(user, screen.getByRole('combobox', { name: 'Value › text type' }), /secret/i)
     await pick(user, screen.getByRole('combobox', { name: 'Value › text secret' }), 'API_KEY')
 
-    expect(saved()).toBe('{{lower(secret("API_KEY"))}}')
+    expect(saved()).toBe('{{lower(secret.API_KEY)}}')
   })
 
   it('adds another argument to a function that takes any number', async () => {

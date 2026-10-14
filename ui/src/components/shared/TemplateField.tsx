@@ -43,7 +43,7 @@ export interface TemplateFieldProps extends CommonProps {
   buildToken?: (fieldPath: string) => string
   /**
    * Called to build the insertion text from a selected secret name.
-   * Default is a template token: {{secret("NAME")}}
+   * Default is a template token: {{secret.NAME}}
    */
   buildSecretToken?: (name: string) => string
   /**
@@ -61,7 +61,7 @@ export interface TemplateFieldProps extends CommonProps {
   functions?: 'expression' | 'token'
   /**
    * A credential: typed text is hidden until revealed. A secret reference --
-   * {{secret("NAME")}} -- is only a name, so it is shown as written.
+   * {{secret.NAME}} -- is only a name, so it is shown as written.
    */
   masked?: boolean
   /** Monospace text, for URLs, headers and other machine-read values. */
@@ -80,7 +80,7 @@ export interface TemplateFieldProps extends CommonProps {
 }
 
 function defaultBuildSecretToken(name: string) {
-  return `{{secret("${name}")}}`
+  return `{{secret.${name}}}`
 }
 
 function defaultBuildToken(fieldPath: string) {
@@ -110,7 +110,7 @@ export function TemplateField({
   'aria-label': ariaLabel,
 }: TemplateFieldProps) {
   const [revealed, setRevealed] = useState(false)
-  const hidden = masked && !revealed && !/^\s*\{\{\s*secret[(:]/.test(value || '')
+  const hidden = masked && !revealed && !/^\s*\{\{\s*(secret|env)\s*[(:.]/i.test(value || '')
   const [opened, setOpened] = useState(false)
   const [building, setBuilding] = useState(false)
   const [q, setQ] = useState('')
@@ -279,7 +279,7 @@ export function TemplateField({
                   {...ESCAPE_STOPS_HERE}
                   style={{ borderRadius: 6, border: '1px solid var(--mantine-color-default-border)' }}
                   onClick={() => {
-                    insertReference(`secret("${name}")`, buildSecretToken(name))
+                    insertReference(`secret.${name}`, buildSecretToken(name))
                     setOpened(false)
                   }}
                 >

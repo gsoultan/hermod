@@ -312,13 +312,17 @@ write.
 ### Secret and env references in every setting
 
 Every setting of a source, a sink and a workflow node can hold secret and env
-references, anywhere in its value: `{{secret:NAME}}`, `{{secret("NAME")}}`,
-`{{env("NAME")}}`, each with an optional fallback (`{{env("REGION", "eu")}}`),
-and the legacy bare `secret:NAME` on connectors
-(`secrets.ExpandReferences`).
+references, anywhere in its value. The standard spelling is `{{secret.NAME}}`
+and `{{env.NAME}}`, beside a record field's `{{.after.id}}`: no leading dot is
+a secret or a variable, a leading dot is the record. Inside a function call they
+are `secret.NAME` and `env.NAME`, as a field is `source.x`. The older
+`{{secret:NAME}}`, `{{secret("NAME")}}` and `{{env("NAME", "fallback")}}`, and
+the bare `secret:NAME` on connectors, still resolve (`secrets.ExpandReferences`).
+`{{.secret.NAME}}` is a record field and never a secret.
 
 - **When:** a connector resolves them once, when it connects, for its own
-  vhost. A node resolves them per message for its workflow's vhost, through the
+  vhost; Test connection, discovery and sampling read the same vhost, and a
+  caller without access to it is refused. A node resolves them per message for its workflow's vhost, through the
   expression cache. Field and function tokens are left alone, so record data
   still cannot pick a credential or a destination.
 - **Env** means `HERMOD_ENV_<NAME>` on the server, after the secret manager

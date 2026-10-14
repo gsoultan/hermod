@@ -106,7 +106,7 @@ export function AIRetrieveConfig({ config, nodeId, updateNodeConfig, availableFi
         <>
           <TemplateField
             label="Connection string"
-            placeholder={'{{secret("PGVECTOR_URL")}}'}
+            placeholder={'{{secret.PGVECTOR_URL}}'}
             value={str(config.connectionString)}
             onChange={(connectionString) => set({ connectionString })}
             secretsOnly
@@ -116,7 +116,7 @@ export function AIRetrieveConfig({ config, nodeId, updateNodeConfig, availableFi
             error={errorFor('connectionString')}
             description={
               <>
-                A PostgreSQL URL. Use <Code>{'{{secret("NAME")}}'}</Code> to read it from a vhost secret; record fields
+                A PostgreSQL URL. Use <Code>{'{{secret.NAME}}'}</Code> to read it from a vhost secret; record fields
                 are not filled in here.
               </>
             }
@@ -124,7 +124,7 @@ export function AIRetrieveConfig({ config, nodeId, updateNodeConfig, availableFi
           {typedIn(config.connectionString) && (
             <Text size="xs" c="var(--mantine-color-yellow-text)">
               This connection string is saved with the workflow and included in exports. If it carries a password,
-              save it as a vhost secret and use {'{{secret("NAME")}}'}.
+              save it as a vhost secret and use {'{{secret.NAME}}'}.
             </Text>
           )}
           <Group grow align="flex-start" gap="sm">
@@ -191,7 +191,7 @@ export function AIRetrieveConfig({ config, nodeId, updateNodeConfig, availableFi
             error={errorFor('indexHost')}
             description={
               <>
-                The index&apos;s https URL from the Pinecone console. <Code>{'{{secret("NAME")}}'}</Code> works here.
+                The index&apos;s https URL from the Pinecone console. <Code>{'{{secret.NAME}}'}</Code> works here.
               </>
             }
           />

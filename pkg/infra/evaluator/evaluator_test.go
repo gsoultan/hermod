@@ -630,3 +630,75 @@ func TestEnvFunctionReadsTheHermodEnvNamespace(t *testing.T) {
 		t.Errorf("template env() = %q", got)
 	}
 }
+
+// {{secret.NAME}} and {{env.NAME}} are the standard spelling, and every way a
+// template is reached reads them for the message's vhost, as secret() does.
+// With a leading dot the token is a message field, as {{.after.id}} is.
+func TestStandardReferenceSpellingResolvesInEveryTemplate(t *testing.T) {
+	t.Cleanup(func() { SetSecretSource(nil) })
+	SetSecretSource(fakeScopedSource{"tenant-a/API_KEY": "a-key", "/API_KEY": "global-key"})
+	t.Setenv("HERMOD_ENV_EVAL_STD_REGION", "eu-west-1")
+	t.Setenv("HERMOD_EVAL_STD_PLAIN", "plain")
+
+	msg := message.AcquireMessage()
+	t.Cleanup(msg.Release)
+	msg.SetVHost("tenant-a")
+	msg.SetData("guess", "a-key")
+	msg.SetData("secret", map[string]any{"API_KEY": "from-the-row"})
+
+	for name, got := range map[string]string{
+		"ResolveTemplateMsg":    ResolveTemplateMsg("{{secret.API_KEY}}|{{ env.EVAL_STD_REGION }}|{{env.HERMOD_EVAL_STD_PLAIN}}", msg),
+		"ResolveTemplateScoped": ResolveTemplateScoped("{{secret.API_KEY}}|{{env.EVAL_STD_REGION}}|{{env.HERMOD_EVAL_STD_PLAIN}}", msg),
+	} {
+		if want := "a-key|eu-west-1|"; got != want {
+			t.Errorf("%s = %q, want %q", name, got, want)
+		}
+	}
+	if got := ResolveTemplateMsg("{{.secret.API_KEY}}", msg); got != "from-the-row" {
+		t.Errorf("{{.secret.API_KEY}} = %q, want the row's field", got)
+	}
+	if got := ResolveTemplate("{{secret.API_KEY}}", nil); got != "global-key" {
+		t.Errorf("ResolveTemplate with no message = %q, want the global secret", got)
+	}
+	cond := []map[string]any{{"field": "guess", "operator": "=", "value": "{{secret.API_KEY}}"}}
+	if !EvaluateConditions(msg, cond) {
+		t.Error("a condition value's {{secret.API_KEY}} did not read the vhost's secret")
+	}
+}
+
+// Inside a call, secret.NAME and env.NAME are arguments as source.x is: the
+// spelling the value builder writes there. On its own a dotted name is still
+// what it always was -- a field, or text -- so a column named "secret" is
+// never read as one.
+func TestStandardReferenceSpellingAsAFunctionArgument(t *testing.T) {
+	t.Cleanup(func() { SetSecretSource(nil) })
+	SetSecretSource(fakeScopedSource{"tenant-a/API_KEY": "a-key"})
+	t.Setenv("HERMOD_ENV_EVAL_ARG_REGION", "eu")
+	msg := message.AcquireMessage()
+	t.Cleanup(msg.Release)
+	msg.SetVHost("tenant-a")
+	msg.SetData("secret", map[string]any{"API_KEY": "from-the-row"})
+	e := NewEvaluator()
+
+	for expr, want := range map[string]any{
+		"concat('Bearer ', secret.API_KEY)": "Bearer a-key",
+		"upper(env.EVAL_ARG_REGION)":        "EU",
+		"concat(source.secret.API_KEY)":     "from-the-row",
+		"secret.API_KEY":                    "secret.API_KEY",
+	} {
+		if got := e.ParseAndEvaluate(msg, expr); got != want {
+			t.Errorf("%s = %#v, want %#v", expr, got, want)
+		}
+	}
+	// A Set Fields value is an expression as a whole, where the editor puts
+	// secret.NAME next to source.x; quoted, it is the text.
+	if got := e.EvaluateAdvancedExpression(msg, "secret.API_KEY"); got != "a-key" {
+		t.Errorf("a Set value secret.API_KEY = %#v, want the vhost's secret", got)
+	}
+	if got := e.EvaluateAdvancedExpression(msg, `"secret.API_KEY"`); got != "secret.API_KEY" {
+		t.Errorf("a quoted Set value = %#v, want the text", got)
+	}
+	if got := EvaluateField(msg, "secret.API_KEY"); got != "from-the-row" {
+		t.Errorf("the field secret.API_KEY = %#v, want the row's value", got)
+	}
+}

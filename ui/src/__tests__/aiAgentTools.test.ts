@@ -151,7 +151,7 @@ describe('ai_agent validation', () => {
         }),
       ).toEqual(
         ['Authorization', 'Proxy-Authorization', 'Cookie', 'X-Api-Key', 'X-Auth-Token', 'X-Client-Secret', 'X-Password'].map(
-          (h) => `warning [0]: MCP tool "m" stores header "${h}" in the workflow. Use {{secret("NAME")}} instead.`,
+          (h) => `warning [0]: MCP tool "m" stores header "${h}" in the workflow. Use {{secret.NAME}} instead.`,
         ),
       )
     })

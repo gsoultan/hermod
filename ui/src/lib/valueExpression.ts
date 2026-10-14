@@ -6,7 +6,7 @@
  * spelling evaluator.ParseAndEvaluate runs, and writes it back the same way:
  *
  *   field     source.customer.email
- *   secret    secret("API_KEY")             (env("API_KEY") reads the same)
+ *   secret    secret.API_KEY   env.REGION   (secret("API_KEY") reads the same)
  *   text      "eu-west"  'say "hi"'  -5  true
  *   call      upper(trim(source.name))
  *
@@ -18,7 +18,7 @@
 export type ValueNode =
   | { kind: 'text'; value: string; /** Written without quotes: a number or a boolean. */ bare?: boolean }
   | { kind: 'field'; path: string }
-  | { kind: 'secret'; name: string }
+  | { kind: 'secret'; name: string; /** env.NAME: read from HERMOD_ENV_NAME after the secrets. */ env?: boolean }
   | { kind: 'call'; fn: string; args: ValueNode[] }
 
 /**
@@ -39,6 +39,14 @@ export interface RootTokens {
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
 const PATH = /^[^\s{}()"',+*/<>=!&|]+$/
 const NUMBER = /^-?\d+(\.\d+)?$/
+/** secrets.DottedReference: the standard spelling, secret.NAME and env.NAME. */
+const DOTTED = /^(secret|env)\.([A-Za-z_][A-Za-z0-9_]*)$/i
+
+function dottedReference(text: string): ValueNode | null {
+  const m = DOTTED.exec(text.trim())
+  if (!m) return null
+  return m[1].toLowerCase() === 'env' ? { kind: 'secret', name: m[2], env: true } : { kind: 'secret', name: m[2] }
+}
 
 /** evaluator.parseArgs: commas outside quotes and brackets. */
 function splitArguments(text: string): string[] | null {
@@ -113,6 +121,8 @@ export function parseExpression(raw: string): ValueNode | null {
     const path = expr.slice(7)
     return PATH.test(path) ? { kind: 'field', path } : null
   }
+  const dotted = dottedReference(expr)
+  if (dotted) return dotted
 
   if (!expr.endsWith(')')) return null
   const open = openingParen(expr)
@@ -125,7 +135,7 @@ export function parseExpression(raw: string): ValueNode | null {
   const lower = fn.toLowerCase()
   if ((lower === 'secret' || lower === 'env') && parts.length === 1) {
     const name = unquote(parts[0])
-    if (name !== null) return { kind: 'secret', name }
+    if (name !== null) return lower === 'env' ? { kind: 'secret', name, env: true } : { kind: 'secret', name }
   }
 
   const args: ValueNode[] = []
@@ -147,7 +157,7 @@ export function formatExpression(node: ValueNode): string {
     case 'field':
       return `source.${node.path}`
     case 'secret':
-      return `secret(${quoted(node.name)})`
+      return `${node.env ? 'env' : 'secret'}.${node.name}`
     case 'call':
       // A function not picked yet is what it wraps.
       if (!node.fn) return node.args[0] ? formatExpression(node.args[0]) : ''
@@ -162,6 +172,9 @@ const WHOLE_SECRET = /^secret:([^\s{}]+)$/
 function parseTokenInner(inner: string): ValueNode | null {
   const secret = WHOLE_SECRET.exec(inner)
   if (secret) return { kind: 'secret', name: secret[1] }
+  // Before the field test: {{secret.NAME}} is a secret; {{.secret.NAME}} a field.
+  const dotted = dottedReference(inner)
+  if (dotted) return dotted
   if (!inner.includes('(') && !inner.startsWith('source.') && PATH.test(inner) && !NUMBER.test(inner)) {
     return { kind: 'field', path: inner.replace(/^\./, '') }
   }
@@ -197,8 +210,10 @@ export function parseValue(value: unknown, mode: ValueMode): ValueNode | null {
     return parseExpression(trimmed)
   }
 
-  // expression: a call or a source path is an expression; anything else is
-  // literal text, which ParseAndEvaluate hands back as typed.
+  // expression: a call, a source path or secret.NAME is an expression;
+  // anything else is literal text, which ParseAndEvaluate hands back as typed.
+  const dotted = dottedReference(trimmed)
+  if (dotted) return dotted
   if (trimmed.endsWith(')') || trimmed.startsWith('source.')) {
     const node = parseExpression(trimmed)
     if (node) return node
@@ -207,13 +222,15 @@ export function parseValue(value: unknown, mode: ValueMode): ValueNode | null {
 }
 
 const defaultFieldToken = (path: string) => `{{.${path.replace(/^\./, '')}}}`
-const defaultSecretToken = (name: string) => `{{secret(${quoted(name)})}}`
+/** The standard spelling, as a whole value. */
+export const referenceToken = (node: { name: string; env?: boolean }) => `{{${node.env ? 'env' : 'secret'}.${node.name}}}`
 
 /** A node written back as a saved value for the given mode. */
 export function formatValue(node: ValueNode, mode: ValueMode, tokens: RootTokens = {}): string {
   if (node.kind === 'call' && !node.fn) return node.args[0] ? formatValue(node.args[0], mode, tokens) : ''
   const fieldToken = tokens.field ?? defaultFieldToken
-  const secretToken = tokens.secret ?? defaultSecretToken
+  const secretToken = (node: { name: string; env?: boolean }) =>
+    node.env || !tokens.secret ? referenceToken(node) : tokens.secret(node.name)
 
   if (mode === 'field') {
     switch (node.kind) {
@@ -222,7 +239,10 @@ export function formatValue(node: ValueNode, mode: ValueMode, tokens: RootTokens
       case 'text':
         return node.value === '' ? '' : formatExpression(node)
       case 'secret':
-        return tokens.secret ? tokens.secret(node.name) : formatExpression(node)
+        // A bare dotted name is a field here (EvaluateField), so on its own a
+        // secret keeps the function spelling.
+        if (tokens.secret && !node.env) return tokens.secret(node.name)
+        return `${node.env ? 'env' : 'secret'}(${quoted(node.name)})`
       case 'call':
         return formatExpression(node)
     }
@@ -234,7 +254,7 @@ export function formatValue(node: ValueNode, mode: ValueMode, tokens: RootTokens
     case 'field':
       return node.path ? fieldToken(node.path) : ''
     case 'secret':
-      return node.name ? secretToken(node.name) : ''
+      return node.name ? secretToken(node) : ''
     case 'call':
       return mode === 'token' ? `{{${formatExpression(node)}}}` : formatExpression(node)
   }

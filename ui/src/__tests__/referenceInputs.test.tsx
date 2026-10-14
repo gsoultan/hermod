@@ -36,7 +36,7 @@ describe('secret and env references in config inputs', () => {
     renderWith(<Controlled />)
     const menu = await openMenu(user)
     await user.click(within(menu).getByRole('button', { name: 'DB_PASS', hidden: true }))
-    expect(screen.getByRole('textbox', { name: 'Password' })).toHaveValue('{{secret("DB_PASS")}}')
+    expect(screen.getByRole('textbox', { name: 'Password' })).toHaveValue('{{secret.DB_PASS}}')
   })
 
   it('inserts at the cursor, keeping what is around it', async () => {
@@ -47,7 +47,7 @@ describe('secret and env references in config inputs', () => {
     input.setSelectionRange(15, 15)
     const menu = await openMenu(user)
     await user.click(within(menu).getByRole('button', { name: 'API_KEY', hidden: true }))
-    expect(input).toHaveValue('postgres://app:{{secret("API_KEY")}}@db')
+    expect(input).toHaveValue('postgres://app:{{secret.API_KEY}}@db')
   })
 
   it('inserts an environment variable by name', async () => {
@@ -57,7 +57,7 @@ describe('secret and env references in config inputs', () => {
     expect(within(menu).getByText(/no secrets/i)).toBeInTheDocument()
     await user.type(within(menu).getByRole('textbox', { name: /environment variable/i, hidden: true }), 'PG_HOST')
     await user.click(within(menu).getByRole('button', { name: /insert variable/i, hidden: true }))
-    expect(screen.getByRole('textbox', { name: 'Password' })).toHaveValue('{{env("PG_HOST")}}')
+    expect(screen.getByRole('textbox', { name: 'Password' })).toHaveValue('{{env.PG_HOST}}')
   })
 
   it('refuses an environment variable name the server would not read', async () => {
@@ -73,7 +73,7 @@ describe('secret and env references in config inputs', () => {
     renderWith(<Controlled password />)
     const menu = await openMenu(user)
     await user.click(within(menu).getByRole('button', { name: 'DB_PASS', hidden: true }))
-    expect(screen.getByLabelText('Password')).toHaveValue('{{secret("DB_PASS")}}')
+    expect(screen.getByLabelText('Password')).toHaveValue('{{secret.DB_PASS}}')
   })
 
   it('offers nothing on a read-only input', () => {

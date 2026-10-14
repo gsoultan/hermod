@@ -58,8 +58,8 @@ export interface NotAFunction {
   suggestion?: string
 }
 
-// env() is not in the catalog -- it is an older spelling of secret() -- but
-// the engine runs it.
+// env() is not in the catalog -- a setting reads a variable as {{env.NAME}} --
+// but the engine runs it.
 const KNOWN_NAMES = new Set([...EXPRESSION_FUNCTIONS.map((f) => f.name.toLowerCase()), 'env'])
 
 function suggestionFor(name: string): string | undefined {

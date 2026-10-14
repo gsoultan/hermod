@@ -45,7 +45,7 @@ export function SecurityTab({ ctx }: { ctx: SettingsController }) {
               </Group>
               <Stack gap="md">
                 <Text size="sm" c="dimmed">
-                  Configure external secret managers to securely resolve sensitive configuration values (marked with <Code>secret:</Code> prefix).
+                  Configure external secret managers to securely resolve sensitive configuration values (referenced as <Code>{'{{secret.NAME}}'}</Code>).
                 </Text>
                 <Text size="sm" c="dimmed">
                   This is the global manager, shared by every vhost. A secret saved for a vhost on the Secrets page is read first; a name that vhost does not hold is read from here.
@@ -69,7 +69,7 @@ export function SecurityTab({ ctx }: { ctx: SettingsController }) {
                     placeholder="e.g. HERMOD_SECRET_"
                     value={envPrefix}
                     onChange={(e) => setEnvPrefix(e.currentTarget.value)}
-                    description={'Secrets are read only from variables with this prefix (HERMOD_SECRET_ when blank): secret("API_KEY") reads HERMOD_SECRET_API_KEY.'}
+                    description={'Secrets are read only from variables with this prefix (HERMOD_SECRET_ when blank): {{secret.API_KEY}} reads HERMOD_SECRET_API_KEY.'}
                   />
                 )}
                 {secretType === 'vault' && (

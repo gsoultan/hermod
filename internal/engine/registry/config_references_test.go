@@ -32,6 +32,7 @@ func TestConnectorConfigsResolveSecretAndEnvReferencesAnywhere(t *testing.T) {
 		"token":    `Bearer {{secret("ONLY_B")}}`,
 		"url":      "https://api/{{.after.id}}",
 		"password": "secret:API_KEY",
+		"gateway":  "https://{{env.PG_HOST}}/{{secret.ONLY_B}}",
 	}
 	if _, err := reg.createSource(t.Context(), factory.SourceConfig{ID: "s", Type: "test", VHost: "tenant-b", Config: cfg}); err != nil {
 		t.Fatalf("createSource: %v", err)
@@ -45,6 +46,7 @@ func TestConnectorConfigsResolveSecretAndEnvReferencesAnywhere(t *testing.T) {
 		"token":    "Bearer b-only",
 		"url":      "https://api/{{.after.id}}",
 		"password": "b-key",
+		"gateway":  "https://db.internal/b-only",
 	}
 	for name, got := range map[string]map[string]string{"source": gotSource, "sink": gotSink} {
 		for k, v := range want {

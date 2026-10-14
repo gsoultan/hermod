@@ -61,3 +61,21 @@ export function useVHostSecretNames(vhost: string | undefined, enabled = true): 
   })
   return (data ?? []).map((s) => s.name)
 }
+
+/**
+ * The secret and env references the engine resolves when a connector
+ * connects (secrets.parseReference): {{secret.NAME}} and {{env.NAME}}, the
+ * standard spelling, and the older secret:NAME and secret("NAME", "fallback").
+ */
+const REFERENCE_TOKEN =
+  /\{\{\s*(?:(?:secret|env)\s*[.:]\s*[A-Za-z_][A-Za-z0-9_]*|(?:secret|env)\s*\(\s*(["'])[A-Za-z_][A-Za-z0-9_]*\1\s*(?:,\s*(["'])[^"']*\2\s*)?\))\s*\}\}/gi
+
+/**
+ * Whether a connector value is still a template once its references are
+ * resolved -- the `{{` a sink then renders per message (`templated` in
+ * pkg/comm/sink/panmail). A secret alone is resolved once, at connect, and
+ * leaves a fixed value.
+ */
+export function isRowTemplate(value: unknown): boolean {
+  return typeof value === 'string' && value.replace(REFERENCE_TOKEN, '').includes('{{')
+}
