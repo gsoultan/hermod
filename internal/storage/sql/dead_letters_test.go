@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -237,7 +238,7 @@ func TestDeadLetterPurgeRemovesOnlyOlderOnes(t *testing.T) {
 	ctx := t.Context()
 	now := time.Now().UTC()
 	for i, age := range []time.Duration{time.Hour, 10 * 24 * time.Hour, 40 * 24 * time.Hour} {
-		if err := st.PutDeadLetter(ctx, sampleDeadLetter(fmt.Sprint(i), "", "wf", now.Add(-age))); err != nil {
+		if err := st.PutDeadLetter(ctx, sampleDeadLetter(strconv.Itoa(i), "", "wf", now.Add(-age))); err != nil {
 			t.Fatal(err)
 		}
 	}

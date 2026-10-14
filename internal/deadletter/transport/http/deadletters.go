@@ -278,16 +278,7 @@ func (h *Handler) Replay(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if d.Status != storage.DeadLetterQueued {
-		h.JsonError(w, "This dead letter was already "+string(d.Status), http.StatusConflict)
-		return
-	}
-	if d.Truncated && req.Payload == nil {
-		h.JsonError(w, registry.ErrDeadLetterTruncated.Error(), http.StatusUnprocessableEntity)
-		return
-	}
-	if h.Registry == nil {
-		h.JsonError(w, "Replaying needs a running control plane", http.StatusServiceUnavailable)
+	if !h.replayable(w, d, req) {
 		return
 	}
 	wf, err := h.Storage.GetWorkflow(r.Context(), d.WorkflowID)
@@ -312,6 +303,22 @@ func (h *Handler) Replay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, out)
+}
+
+// replayable answers the request itself, and says false, when d cannot be
+// replayed as asked.
+func (h *Handler) replayable(w http.ResponseWriter, d storage.DeadLetter, req replayRequest) bool {
+	switch {
+	case d.Status != storage.DeadLetterQueued:
+		h.JsonError(w, "This dead letter was already "+string(d.Status), http.StatusConflict)
+	case d.Truncated && req.Payload == nil:
+		h.JsonError(w, registry.ErrDeadLetterTruncated.Error(), http.StatusUnprocessableEntity)
+	case h.Registry == nil:
+		h.JsonError(w, "Replaying needs a running control plane", http.StatusServiceUnavailable)
+	default:
+		return true
+	}
+	return false
 }
 
 func replayErrorStatus(err error) int {
