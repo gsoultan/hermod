@@ -11,6 +11,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
+
+	"github.com/gsoultan/gsmail"
 
 	"github.com/gsoultan/hermod/internal/storage"
 )
@@ -187,7 +190,7 @@ func TestDeadLetterDigestBatchesABurstIntoOneMail(t *testing.T) {
 	for _, want := range []string{
 		"Orders sync", "wf-1", "transform-1", "sink-orders", "m-1",
 		"field total is not a number (row 1)", `{"order":1}`,
-		"https://hermod.example.com/workflows/wf-1/edit?dlq=open",
+		"https://hermod.example.com/dead-letters?workflow_id=wf-1",
 		"5 more",
 	} {
 		if !strings.Contains(text, want) {
@@ -197,7 +200,7 @@ func TestDeadLetterDigestBatchesABurstIntoOneMail(t *testing.T) {
 	if strings.Contains(text, "m-11") {
 		t.Error("text body lists a message past the sample limit")
 	}
-	if html := field(mail, "bodyHtml"); !strings.Contains(html, "/workflows/wf-1/edit?dlq=open") {
+	if html := field(mail, "bodyHtml"); !strings.Contains(html, "/dead-letters?workflow_id=wf-1") {
 		t.Errorf("html body lacks the link back to the queue:\n%s", html)
 	}
 	if field(mail, "idempotencyKey") == "" {
@@ -416,5 +419,184 @@ func TestLiteralResolvesNothing(t *testing.T) {
 	}
 	if _, keys := gw.requests(); len(keys) != 1 || keys[0] != "{{env:PANMAIL_KEY}}" {
 		t.Fatalf("X-API-Key = %v, want the reference as written", keys)
+	}
+}
+
+// sentEmails replaces the SMTP send for the test and records what it was given.
+func sentEmails(t *testing.T) func() []gsmail.Email {
+	t.Helper()
+	var mu sync.Mutex
+	var got []gsmail.Email
+	prev := smtpSend
+	smtpSend = func(_ context.Context, _ NotificationSettings, e gsmail.Email) error {
+		mu.Lock()
+		defer mu.Unlock()
+		got = append(got, e)
+		return nil
+	}
+	t.Cleanup(func() { smtpSend = prev })
+	return func() []gsmail.Email {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]gsmail.Email(nil), got...)
+	}
+}
+
+// telegramBot stands in for the Telegram Bot API and records each message.
+func telegramBot(t *testing.T) func() []map[string]string {
+	t.Helper()
+	var mu sync.Mutex
+	var got []map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		body["path"] = r.URL.Path
+		mu.Lock()
+		got = append(got, body)
+		mu.Unlock()
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	t.Cleanup(srv.Close)
+	prev := telegramAPIBase
+	telegramAPIBase = srv.URL
+	t.Cleanup(func() { telegramAPIBase = prev })
+	return func() []map[string]string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]map[string]string(nil), got...)
+	}
+}
+
+func smtpAndTelegramSettings() NotificationSettings {
+	return NotificationSettings{
+		BaseURL:  "https://hermod.example.com",
+		SMTPHost: "smtp.example.com", SMTPPort: 587, SMTPFrom: "hermod@example.com",
+		DefaultEmail:  "ops@example.com, oncall@example.com",
+		TelegramToken: "123:abc", TelegramChatID: "-100200",
+	}
+}
+
+// The digest goes to every channel it is turned on for, not only Panmail.
+func TestDeadLetterDigestGoesByEmailAndTelegram(t *testing.T) {
+	emails := sentEmails(t)
+	telegram := telegramBot(t)
+	settings := smtpAndTelegramSettings()
+	settings.EmailDeadLetters = true
+	settings.TelegramDeadLetters = true
+	svc, timer := digestService(t, settings)
+
+	for i := 1; i <= 12; i++ {
+		svc.DeadLettered(ordersWorkflow, sample(i))
+	}
+	timer.fire(t, 0)
+	svc.Wait()
+
+	mails := emails()
+	if len(mails) != 1 {
+		t.Fatalf("sent %d emails, want 1", len(mails))
+	}
+	m := mails[0]
+	if m.From != "hermod@example.com" || len(m.To) != 2 || m.To[1] != "oncall@example.com" {
+		t.Fatalf("from %q to %v", m.From, m.To)
+	}
+	if !strings.Contains(m.Subject, `12 messages dead-lettered in "Orders sync"`) {
+		t.Errorf("subject = %q", m.Subject)
+	}
+	for _, want := range []string{"transform-1", "field total is not a number (row 1)", `{"order":1}`, "/dead-letters?workflow_id=wf-1", "2 more"} {
+		if !strings.Contains(string(m.Body), want) {
+			t.Errorf("text body lacks %q", want)
+		}
+	}
+	if !strings.Contains(string(m.HTMLBody), "/dead-letters?workflow_id=wf-1") {
+		t.Error("the email has no HTML body with the link")
+	}
+
+	msgs := telegram()
+	if len(msgs) != 1 {
+		t.Fatalf("sent %d Telegram messages, want 1", len(msgs))
+	}
+	tg := msgs[0]
+	if tg["chat_id"] != "-100200" || tg["parse_mode"] != "HTML" || tg["path"] != "/bot123:abc/sendMessage" {
+		t.Fatalf("telegram request = %v", tg)
+	}
+	for _, want := range []string{"12 messages dead-lettered", "Orders sync", "m-1", "transform-1", "field total is not a number (row 1)", "/dead-letters?workflow_id=wf-1"} {
+		if !strings.Contains(tg["text"], want) {
+			t.Errorf("telegram text lacks %q:\n%s", want, tg["text"])
+		}
+	}
+	if n := utf8.RuneCountInString(tg["text"]); n > telegramMessageLimit {
+		t.Errorf("telegram text is %d characters, over the limit %d", n, telegramMessageLimit)
+	}
+}
+
+// A channel that is configured but not turned on for dead letters gets
+// nothing: an inbox that takes alerts did not ask for every parked message.
+func TestDeadLetterDigestOnlyGoesWhereItIsTurnedOn(t *testing.T) {
+	emails := sentEmails(t)
+	telegram := telegramBot(t)
+	settings := smtpAndTelegramSettings()
+	settings.TelegramDeadLetters = true
+	svc, timer := digestService(t, settings)
+
+	svc.DeadLettered(ordersWorkflow, sample(1))
+	timer.fire(t, 0)
+	svc.Wait()
+
+	if n := len(emails()); n != 0 {
+		t.Errorf("email got %d digests with email dead letters off", n)
+	}
+	if n := len(telegram()); n != 1 {
+		t.Errorf("telegram got %d digests, want 1", n)
+	}
+}
+
+// Telegram reads the message as HTML, so what other systems wrote is
+// escaped, and a huge payload is cut to fit Telegram's limit.
+func TestDeadLetterTelegramEscapesAndFits(t *testing.T) {
+	telegram := telegramBot(t)
+	settings := smtpAndTelegramSettings()
+	settings.TelegramDeadLetters = true
+	svc, timer := digestService(t, settings)
+
+	for i := range 10 {
+		svc.DeadLettered(storage.Workflow{ID: "wf-x", Name: "<b>evil</b>"}, func() DeadLetterSample {
+			return DeadLetterSample{MessageID: fmt.Sprint("m-", i), NodeID: "n", Error: "<script>x</script>",
+				Payload: strings.Repeat("é", 3000)}
+		})
+	}
+	timer.fire(t, 0)
+	svc.Wait()
+
+	msgs := telegram()
+	if len(msgs) != 1 {
+		t.Fatalf("sent %d, want 1", len(msgs))
+	}
+	text := msgs[0]["text"]
+	if strings.Contains(text, "<script>") || strings.Contains(text, "<b>evil</b>") {
+		t.Fatalf("telegram text was not escaped:\n%s", text)
+	}
+	if n := utf8.RuneCountInString(text); n > telegramMessageLimit {
+		t.Fatalf("telegram text is %d characters, over %d", n, telegramMessageLimit)
+	}
+}
+
+func TestDeadLetterContentsCanBeLeftOutOfEveryChannel(t *testing.T) {
+	emails := sentEmails(t)
+	telegram := telegramBot(t)
+	settings := smtpAndTelegramSettings()
+	settings.EmailDeadLetters, settings.TelegramDeadLetters, settings.DeadLetterHidePayload = true, true, true
+	svc, timer := digestService(t, settings)
+
+	svc.DeadLettered(ordersWorkflow, sample(1))
+	timer.fire(t, 0)
+	svc.Wait()
+
+	// The payload is {"order":1}; HTML escapes its quotes.
+	carries := func(s string) bool { return strings.Contains(s, `order":1`) || strings.Contains(s, "order&#34;:1") }
+	if m := emails(); len(m) != 1 || carries(string(m[0].Body)) || carries(string(m[0].HTMLBody)) {
+		t.Errorf("the email carries the payload:\n%s\n%s", m[0].Body, m[0].HTMLBody)
+	}
+	if tg := telegram(); len(tg) != 1 || carries(tg[0]["text"]) {
+		t.Errorf("the telegram message carries the payload: %v", tg)
 	}
 }

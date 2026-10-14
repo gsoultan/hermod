@@ -65,6 +65,29 @@ type NotificationSettings struct {
 	PanmailDeadLetters bool `json:"panmail_dead_letters"`
 	// PanmailHidePayload leaves message contents out of those digests.
 	PanmailHidePayload bool `json:"panmail_hide_payload"`
+
+	// EmailDeadLetters and TelegramDeadLetters send the same dead-letter
+	// digest through SMTP and Telegram.
+	EmailDeadLetters    bool `json:"email_dead_letters"`
+	TelegramDeadLetters bool `json:"telegram_dead_letters"`
+	// DeadLetterHidePayload leaves message contents out of the digest on
+	// every channel.
+	DeadLetterHidePayload bool `json:"dead_letter_hide_payload"`
+}
+
+// smtpConfigured reports whether email has a server and a recipient.
+func (ns NotificationSettings) smtpConfigured() bool {
+	return ns.SMTPHost != "" && ns.DefaultEmail != ""
+}
+
+// telegramConfigured reports whether Telegram has a bot and a chat.
+func (ns NotificationSettings) telegramConfigured() bool {
+	return ns.TelegramToken != "" && ns.TelegramChatID != ""
+}
+
+// smtpSend sends one email with ns's SMTP settings. Tests replace it.
+var smtpSend = func(ctx context.Context, ns NotificationSettings, email gsmail.Email) error {
+	return smtp.NewSender(ns.SMTPHost, ns.SMTPPort, ns.SMTPUser, ns.SMTPPassword, ns.SMTPSSL).Send(ctx, email)
 }
 
 type TestResult struct {
@@ -398,8 +421,6 @@ func (ns NotificationSettings) SendEmail(ctx context.Context, title, message str
 		return nil
 	}
 
-	sender := smtp.NewSender(ns.SMTPHost, ns.SMTPPort, ns.SMTPUser, ns.SMTPPassword, ns.SMTPSSL)
-
 	body := fmt.Sprintf("%s\n\nWorkflow: %s (%s)", message, wf.Name, wf.ID)
 	if ns.BaseURL != "" {
 		body += fmt.Sprintf("\nDetails: %s/workflows/%s", ns.BaseURL, wf.ID)
@@ -412,7 +433,7 @@ func (ns NotificationSettings) SendEmail(ctx context.Context, title, message str
 		Body:    []byte(body),
 	}
 
-	return sender.Send(ctx, email)
+	return smtpSend(ctx, ns, email)
 }
 
 func (p *EmailNotificationProvider) Type() string {
@@ -465,7 +486,11 @@ func (ns NotificationSettings) SendTelegram(ctx context.Context, title, message 
 		text += fmt.Sprintf("\n<a href=\"%s/workflows/%s\">View Details</a>",
 			html.EscapeString(ns.BaseURL), html.EscapeString(wf.ID))
 	}
+	return ns.sendTelegramHTML(ctx, text)
+}
 
+// sendTelegramHTML sends text, already HTML-escaped, to the configured chat.
+func (ns NotificationSettings) sendTelegramHTML(ctx context.Context, text string) error {
 	apiURL := fmt.Sprintf("%s/bot%s/sendMessage", telegramAPIBase, ns.TelegramToken)
 	body, _ := json.Marshal(map[string]string{
 		"chat_id":    ns.TelegramChatID,

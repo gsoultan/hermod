@@ -40,6 +40,10 @@ GET /api/config/status
 GET /api/config/storage
 GET /api/dashboard/history
 GET /api/dashboard/stats
+GET /api/dead-letters
+GET /api/dead-letters/export
+GET /api/dead-letters/stats
+GET /api/dead-letters/{id}
 GET /api/forms/{path...}
 GET /api/infra/lineage
 GET /api/infra/mesh-health
@@ -148,6 +152,9 @@ POST /api/config/database
 POST /api/config/database/test
 POST /api/config/databases
 POST /api/config/setup
+POST /api/dead-letters/discard
+POST /api/dead-letters/replay
+POST /api/dead-letters/{id}/replay
 POST /api/files/upload
 POST /api/forgot-password
 POST /api/forms/{path...}

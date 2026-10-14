@@ -24,6 +24,7 @@ import (
 	chathttp "github.com/gsoultan/hermod/internal/chat/transport/http"
 	"github.com/gsoultan/hermod/internal/config"
 	dashboardhttp "github.com/gsoultan/hermod/internal/dashboard/transport/http"
+	deadletterhttp "github.com/gsoultan/hermod/internal/deadletter/transport/http"
 	"github.com/gsoultan/hermod/internal/engine/registry"
 	executionshttp "github.com/gsoultan/hermod/internal/executions/transport/http"
 	fileshttp "github.com/gsoultan/hermod/internal/files/transport/http"
@@ -174,6 +175,7 @@ func (s *Server) Routes() http.Handler {
 	proposalH := selfhealhttp.NewProposalHandler(s.Handler)
 	mlH := mlhttp.NewHandler(s.Handler)
 	aiBudgetH := aibudgethttp.NewHandler(s.Handler)
+	deadLetterH := deadletterhttp.NewHandler(s.Handler)
 	lineageH := lineagehttp.NewHandler(s.Handler)
 
 	// Health endpoints (unauthenticated; used by Kubernetes and load balancers)
@@ -196,6 +198,7 @@ func (s *Server) Routes() http.Handler {
 	sourceH.RegisterSourceRoutes(mux)
 	sinkH.RegisterSinkRoutes(mux)
 	approvalH.RegisterApprovalRoutes(mux)
+	deadLetterH.RegisterRoutes(mux)
 	authH.RegisterAuthRoutes(mux)
 	infraH.RegisterInfrastructureRoutes(mux)
 	schemaH.RegisterSchemaRoutes(mux)
