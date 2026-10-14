@@ -156,6 +156,10 @@ func newUnconnected(cfg Config) (*Sink, error) {
 		}
 	}
 
+	if err := validateStatic(cfg); err != nil {
+		return nil, err
+	}
+
 	s := &Sink{
 		cfg:       cfg,
 		formatter: cfg.Formatter,
@@ -205,7 +209,7 @@ func (s *Sink) compileTemplates(cfg Config) error {
 		raw  string
 		dst  *tmpl
 	}{
-		{"token", cfg.Token, &s.token},
+		{"device_token", cfg.Token, &s.token},
 		{"topic", cfg.Topic, &s.topic},
 		{"condition", cfg.Condition, &s.condition},
 		{"title", cfg.Title, &s.title},
@@ -226,10 +230,15 @@ func (s *Sink) compileTemplates(cfg Config) error {
 		*f.dst = compiled
 	}
 	for key, raw := range cfg.Data {
-		compiled, err := compile("data."+key, raw)
+		compiled, err := compile("data_json", raw)
 		if err != nil {
+			var fe *FieldError
+			if errors.As(err, &fe) {
+				fe.Problem = fmt.Sprintf("key %q %s", key, fe.Problem)
+			}
 			return err
 		}
+		compiled.entry = key
 		s.data[key] = compiled
 	}
 	return nil
@@ -368,12 +377,12 @@ func (s *Sink) Write(ctx context.Context, msg hermod.Message) error {
 	}
 
 	if len(msgs) == 1 {
-		return s.sendOne(ctx, c, msgs[0])
+		return s.sendOne(ctx, c, msgs[0], msg.ID())
 	}
 	return s.sendEach(ctx, c, msgs)
 }
 
-func (s *Sink) sendOne(ctx context.Context, c client, m *messaging.Message) error {
+func (s *Sink) sendOne(ctx context.Context, c client, m *messaging.Message, msgID string) error {
 	var err error
 	if s.cfg.DryRun {
 		_, err = c.SendDryRun(ctx, m)
@@ -381,9 +390,23 @@ func (s *Sink) sendOne(ctx context.Context, c client, m *messaging.Message) erro
 		_, err = c.Send(ctx, m)
 	}
 	if err != nil {
-		return fmt.Errorf("fcm sink: send failed: %w", classify(err, m.Token))
+		classified := s.classifyFor(err, m, msgID)
+		if _, ok := asFieldError(classified); ok {
+			// Already a whole sentence, starting with the sink's name.
+			return classified
+		}
+		return fmt.Errorf("fcm sink: send failed: %w", classified)
 	}
 	return nil
+}
+
+// classifyFor is classify, with an INVALID_ARGUMENT explained in terms of the
+// setting that caused it.
+func (s *Sink) classifyFor(err error, m *messaging.Message, msgID string) error {
+	if messaging.IsInvalidArgument(err) {
+		return s.explainInvalid(err, m, msgID)
+	}
+	return classify(err, m.Token)
 }
 
 // sendEach issues one call per message concurrently and reports what failed.
@@ -414,11 +437,12 @@ func (s *Sink) sendEach(ctx context.Context, c client, msgs []*messaging.Message
 		if r.Success || r.Error == nil {
 			continue
 		}
-		var token string
+		var classified error
 		if i < len(msgs) {
-			token = msgs[i].Token
+			classified = s.classifyFor(r.Error, msgs[i], "")
+		} else {
+			classified = classify(r.Error, "")
 		}
-		classified := classify(r.Error, token)
 		if !errors.Is(classified, ErrPermanent) {
 			allPermanent = false
 		}

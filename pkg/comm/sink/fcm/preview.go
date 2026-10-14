@@ -41,6 +41,13 @@ type Preview struct {
 	// Refused is the failure a run would report for this message. Empty means
 	// it would be sent.
 	Refused string `json:"refused,omitempty"`
+	// RefusedField is the configuration key Refused is about, so the editor
+	// can say it under that field. Empty when it is about no one setting.
+	RefusedField string `json:"refused_field,omitempty"`
+	// RefusedLabel is that setting's name on the form, and RefusedFix what to
+	// change, said apart from Refused so the editor can lead with them.
+	RefusedLabel string `json:"refused_label,omitempty"`
+	RefusedFix   string `json:"refused_fix,omitempty"`
 }
 
 // PreviewMessage builds the FCM message msg would become under cfg, through the
@@ -75,6 +82,13 @@ func PreviewMessage(cfg Config, msg hermod.Message) (Preview, error) {
 		// The classification is for the retry machinery. To a reader it is a
 		// prefix in front of the sentence they wanted.
 		out.Refused = strings.TrimPrefix(err.Error(), ErrPermanent.Error()+": ")
+		if fe, ok := asFieldError(err); ok {
+			out.RefusedField = fe.Key
+			if fe.Key != "" {
+				out.RefusedLabel = labelOf(fe.Key)
+			}
+			out.RefusedFix = fe.Fix
+		}
 		return out, nil
 	}
 

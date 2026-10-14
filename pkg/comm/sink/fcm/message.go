@@ -72,7 +72,10 @@ func (s *Sink) resolveTarget(msg hermod.Message, data map[string]any) (target, e
 		}
 		tokens := splitList(rendered)
 		if len(tokens) == 0 {
-			return target{}, permanentf("fcm sink: the token template rendered nothing for message %s; there is no device to send to", msg.ID())
+			return target{}, &FieldError{Key: "device_token", MessageID: msg.ID(), Template: s.cfg.Token,
+				Problem: "is empty for this row, so there is no device to send to",
+				Fix: "the field it reads is null or blank in this row. Leave out rows without a token with a filter " +
+					"before this sink, or point Device token at the field that holds the device's registration token"}
 		}
 		return target{tokens: tokens}, nil
 	case !s.topic.empty():
@@ -81,7 +84,9 @@ func (s *Sink) resolveTarget(msg hermod.Message, data map[string]any) (target, e
 			return target{}, err
 		}
 		if rendered = strings.TrimSpace(rendered); rendered == "" {
-			return target{}, permanentf("fcm sink: the topic template rendered nothing for message %s", msg.ID())
+			return target{}, &FieldError{Key: "topic", MessageID: msg.ID(), Template: s.cfg.Topic,
+				Problem: "is empty for this row",
+				Fix:     "the field it reads is null or blank in this row; give it a value or a fixed part, such as orders-{{.region}}"}
 		}
 		return target{topic: rendered}, nil
 	case !s.condition.empty():
@@ -90,7 +95,9 @@ func (s *Sink) resolveTarget(msg hermod.Message, data map[string]any) (target, e
 			return target{}, err
 		}
 		if rendered = strings.TrimSpace(rendered); rendered == "" {
-			return target{}, permanentf("fcm sink: the condition template rendered nothing for message %s", msg.ID())
+			return target{}, &FieldError{Key: "condition", MessageID: msg.ID(), Template: s.cfg.Condition,
+				Problem: "is empty for this row",
+				Fix:     "the field it reads is null or blank in this row"}
 		}
 		return target{condition: rendered}, nil
 	}
@@ -103,6 +110,18 @@ func (s *Sink) resolveTarget(msg hermod.Message, data map[string]any) (target, e
 // build turns one hermod message into the FCM message (or messages, for a
 // multicast) that carry it.
 func (s *Sink) build(msg hermod.Message) ([]*messaging.Message, error) {
+	out, err := s.buildUnchecked(msg)
+	if err != nil {
+		// A refusal from a template knows its setting but not its message.
+		if fe, ok := asFieldError(err); ok && fe.MessageID == "" {
+			fe.MessageID = msg.ID()
+		}
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *Sink) buildUnchecked(msg hermod.Message) ([]*messaging.Message, error) {
 	data := renderData(msg)
 
 	tgt, err := s.resolveTarget(msg, data)
@@ -131,6 +150,9 @@ func (s *Sink) build(msg hermod.Message) ([]*messaging.Message, error) {
 		Condition:    tgt.condition,
 	}
 	if err := s.applyPlatforms(&base, data); err != nil {
+		return nil, err
+	}
+	if err := s.validate(&base); err != nil {
 		return nil, err
 	}
 
@@ -464,7 +486,8 @@ func (s *Sink) apnsBadgeCount(data map[string]any) (*int, error) {
 	}
 	n, err := strconv.Atoi(rendered)
 	if err != nil {
-		return nil, permanentf("fcm sink: apns_badge rendered %q, which is not a whole number", rendered)
+		return nil, &FieldError{Key: "apns_badge", Template: s.cfg.APNS.Badge, Value: rendered, HasValue: true,
+			Problem: "is not a whole number", Fix: "the badge is the count shown on the app icon, such as 3"}
 	}
 	return &n, nil
 }

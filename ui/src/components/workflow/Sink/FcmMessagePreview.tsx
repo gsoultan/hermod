@@ -15,7 +15,7 @@ import {
   Textarea,
   ThemeIcon,
 } from '@mantine/core';
-import { IconAlertTriangle, IconBell, IconPhoto, IconSend } from '@tabler/icons-react';
+import { IconAlertTriangle, IconArrowUp, IconBell, IconPhoto, IconSend } from '@tabler/icons-react';
 import { apiFetch } from '@/api';
 
 /** What POST /api/sinks/fcm/preview answers with. */
@@ -37,6 +37,10 @@ interface FcmPreview {
   largest?: Array<{ key: string; bytes: number }>;
   /** The failure a run would report for this row. */
   refused?: string;
+  /** The setting it is about, its label on the form, and what to change. */
+  refused_field?: string;
+  refused_label?: string;
+  refused_fix?: string;
   sample: Record<string, unknown>;
 }
 
@@ -44,6 +48,35 @@ interface FcmPreview {
 const SETTLE_MS = 350;
 
 const count = (n: number) => n.toLocaleString('en-US');
+
+/** What the form shows under a setting the preview says a row gets wrong. */
+export interface FcmRefusal {
+  /** The configuration key; empty when the refusal is about no one setting. */
+  field: string;
+  label: string;
+  /** What is wrong, without the sink's prefix or the setting's name. */
+  problem: string;
+  fix: string;
+}
+
+/**
+ * The refusal as a reader wants it: what is wrong with which setting, and
+ * apart from it, what to change. The server writes one sentence for logs;
+ * here the setting leads, as a heading, and the fix gets its own line.
+ */
+export function splitRefusal(preview: Pick<FcmPreview, 'refused' | 'refused_field' | 'refused_label' | 'refused_fix'>): FcmRefusal | null {
+  if (!preview.refused) return null;
+  let problem = preview.refused.replace(/^fcm sink: /, '').replace(/^message \S+:? /, '');
+  const field = preview.refused_field ?? '';
+  const label = preview.refused_label ?? '';
+  if (label && problem.startsWith(`${label} (${field}) `)) problem = problem.slice(label.length + field.length + 4);
+  const fix = preview.refused_fix ?? '';
+  const at = fix ? problem.indexOf(`. To fix: ${fix}`) : -1;
+  if (at >= 0) problem = problem.slice(0, at) + problem.slice(at + `. To fix: ${fix}`.length);
+  problem = problem.charAt(0).toUpperCase() + problem.slice(1);
+  if (!/[.!?]$/.test(problem)) problem += '.';
+  return { field, label, problem, fix: fix ? fix.charAt(0).toUpperCase() + fix.slice(1) + (/[.!?]$/.test(fix) ? '' : '.') : '' };
+}
 
 function isJsonOrBlank(text: string): boolean {
   if (!text.trim()) return true;
@@ -130,10 +163,16 @@ function NotificationMock({ notification }: { notification?: { title?: string; b
 export function FcmMessagePreview({
   config,
   incomingPayload,
+  onRefusal,
+  onGoTo,
 }: {
   config: Record<string, any>;
   /** The row the editor says reaches this sink. */
   incomingPayload?: unknown;
+  /** Told what the current row gets wrong, so the form can say it under the setting. */
+  onRefusal?: (refusal: FcmRefusal | null) => void;
+  /** Takes the reader to a setting by its key. */
+  onGoTo?: (field: string) => void;
 }) {
   const editorRow = asSampleRow(incomingPayload);
   // The sample is the editor's row until someone edits it; after that it is
@@ -218,6 +257,14 @@ export function FcmMessagePreview({
   const noRecipient = !config.device_token && !config.topic && !config.condition;
   const awaitingRecipient = Boolean(refusal) && noRecipient;
 
+  const explained = preview && !awaitingRecipient ? splitRefusal(preview) : null;
+  const explainedKey = JSON.stringify(explained);
+  useEffect(() => {
+    onRefusal?.(explainedKey === 'null' ? null : JSON.parse(explainedKey));
+    // onRefusal is a fresh function each render; the refusal is what changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [explainedKey]);
+
   let status: { label: string; color: string } | null = null;
   if (error) status = { label: 'Cannot build yet', color: 'gray' };
   else if (awaitingRecipient) status = { label: 'Needs a recipient', color: 'gray' };
@@ -259,8 +306,35 @@ export function FcmMessagePreview({
               </Text>
             </Alert>
           ) : (
-            <Alert color="red" icon={<IconAlertTriangle size="1rem" />} title="This row would fail">
-              {refusal}
+            <Alert
+              color="red"
+              icon={<IconAlertTriangle size="1rem" />}
+              title={explained?.label ? `This row would fail: ${explained.label}` : 'This row would fail'}
+            >
+              <Stack gap={6}>
+                <Text size="sm">{explained?.problem ?? refusal}</Text>
+                {explained?.fix && (
+                  <Text size="sm">
+                    <Text span fw={600} inherit>
+                      How to fix:{' '}
+                    </Text>
+                    {explained.fix}
+                  </Text>
+                )}
+                {explained?.field && onGoTo && (
+                  <Group>
+                    <Button
+                      size="compact-xs"
+                      variant="light"
+                      color="red"
+                      leftSection={<IconArrowUp size="0.8rem" />}
+                      onClick={() => onGoTo(explained.field)}
+                    >
+                      Go to {explained.label.split(' → ').pop()}
+                    </Button>
+                  </Group>
+                )}
+              </Stack>
             </Alert>
           ))}
 
