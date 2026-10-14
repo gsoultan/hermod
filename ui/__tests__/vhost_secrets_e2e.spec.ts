@@ -46,7 +46,7 @@ test('a secret saved for a vhost is read by that vhost’s workflow', async ({ p
   await expect(dialog).toBeHidden();
 
   // It is listed by name; the value is nowhere on the page.
-  await expect(page.getByText(`secret("${name}")`)).toBeVisible();
+  await expect(page.getByText(`{{secret.${name}}}`)).toBeVisible();
   await expect(page.getByText(value)).toHaveCount(0);
 
   // The API lists the name and never the value.
@@ -54,7 +54,8 @@ test('a secret saved for a vhost is read by that vhost’s workflow', async ({ p
   expect(listed.body).toContain(name);
   expect(listed.body).not.toContain(value);
 
-  // A workflow of the same vhost names it in a Set Fields value.
+  // A workflow of the same vhost names it in a Set Fields value, spelled as
+  // the editor writes it there: secret.NAME, as a field is source.x.
   const post = async (path: string, body: unknown) => {
     const res = await apiRequest(page, path, { method: 'POST', body });
     if (res.status >= 400) throw new Error(`fixture setup failed: POST ${path} -> ${res.status} ${res.body}`);
@@ -71,7 +72,7 @@ test('a secret saved for a vhost is read by that vhost’s workflow', async ({ p
       { id: 'n-src', type: 'source', ref_id: source.id, x: 100, y: 100 },
       {
         id: 'n-set', type: 'transformation', x: 400, y: 100,
-        config: { transType: 'set', lastSample: { id: 1 }, 'column.key': `secret("${name}")` },
+        config: { transType: 'set', lastSample: { id: 1 }, 'column.key': `secret.${name}` },
       },
     ],
     edges: [],
