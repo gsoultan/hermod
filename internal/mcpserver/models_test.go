@@ -227,7 +227,7 @@ func TestARecommenderIsARecommendTool(t *testing.T) {
 		"user and for":   `{"user": "1", "for": {"salesman": "R1"}}`,
 		"rules, no for":  `{"user": "1", "rules": [{"kind": "pin", "ids": ["a"]}]}`,
 		"window, no for": `{"user": "1", "within_days": 14}`,
-		"unknown for":    `{"for": {"region": "N"}}`,
+		"unknown for":    `{"for": {"district": "N"}}`,
 	} {
 		if _, err := svc.RecommendTool(t.Context(), caller, tool, json.RawMessage(args)); err == nil {
 			t.Errorf("%s: the call was not refused", name)
@@ -276,8 +276,16 @@ func TestARecommenderIsARecommendTool(t *testing.T) {
 	if _, ok := props["stock"]; !ok {
 		t.Errorf("no stock: %v", props)
 	}
+	// Of one price tier, channel and region.
+	if _, err := svc.RecommendTool(t.Context(), caller, tool, json.RawMessage(
+		`{"for": {"product": "S1", "price_tier": "Gold", "channel": "Retail", "region": "N"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if w := models.recs[5]; w.For == nil || w.For.PriceTier != "Gold" || w.For.Channel != "Retail" || w.For.Region != "N" {
+		t.Errorf("tier request = %+v", w)
+	}
 	forProps, _ := props["for"].(map[string]any)["properties"].(map[string]any)
-	for _, p := range []string{"all_customers", "segment", "size", "brand", "subcategory"} {
+	for _, p := range []string{"all_customers", "segment", "size", "brand", "subcategory", "price_tier", "channel", "region"} {
 		if _, ok := forProps[p]; !ok {
 			t.Errorf("for has no %s: %v", p, forProps)
 		}

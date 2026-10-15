@@ -903,6 +903,9 @@ SELECT customer_id, product_id, quantity, order_date FROM order_lines
 | Customers | Territory | Region, area or route. |
 | Customers | Customer category | Every customer on a list carries it, and a list can be filtered to one category or size. |
 | Customers | Customer size | Every customer on a list carries it, and a list can be filtered to one category or size. |
+| Customers | Price tier | Every customer on a list carries it, and a list can be filtered to one value of it. |
+| Customers | Channel | Every customer on a list carries it, and a list can be filtered to one value of it. |
+| Customers | Region | Every customer on a list carries it, and a list can be filtered to one value of it. |
 | Customers | Latitude | Plans nearby customers on the same day, and finds nearby customers of the same category. |
 | Customers | Longitude | Plans nearby customers on the same day, and finds nearby customers of the same category. |
 | Customers | Credit hold | Yes when the customer must not be offered anything. |
@@ -969,15 +972,23 @@ SELECT customer_id, product_id, order_date, SUM(quantity) AS quantity, SUM(amoun
 | Products | Subcategory | Finer than the category: a new product goes to the customers who buy its subcategory, and lists can be filtered to one. Needs at least two products in a subcategory to tell them apart. |
 | Products | Pack size | Suggests how much to order in whole packs: "3 cartons (40 pcs)" from the customer's usual quantity per order. Needs quantities on the orders; it shows for products the customer has bought before, such as reorders. |
 | Products | Unit | Names the pack in a suggested quantity ("cartons"); "packs" without it. Works with a pack size. |
-| Products | Launch date | A product launched within the last 60 days is offered to the customers who buy its brand or subcategory, with the reason "New, launched 2026-09-15", even before it has sales. Needs the date on the new products; older ones may leave it empty. |
+| Products | Launch date | A product launched within the last 60 days (the Rules step can set 1 to 365) is offered to the customers who buy its brand or subcategory, with the reason "New, launched 2026-09-15", even before it has sales. Needs the date on the new products; older ones may leave it empty. |
 | Products | End date | A product past its end date is never recommended. Works on any product that has one; leave it empty for products still sold. |
 | Products | Stock | A product with no stock (0 or less) is not recommended: its substitute is offered in its place, "Instead of P-315 (out of stock)". Stock is as of training; a call can give today's stock in "stock". Needs a number for every product it should apply to; empty is in stock. |
 | Products | Substitute | The product offered instead of one that is out of stock or past its end date. Needs the substitute's id, as in the orders, and stock or end dates to act on. |
-| Customers | Customers table | Lets rules stay inside a territory. A category and size offer each customer what others of its kind buy, nearby ones first when it has coordinates. |
+| Customers | Customers table | Lets rules stay inside a territory. A category, size, price tier, channel and region offer each customer what others of its kind buy, nearby ones first when it has coordinates. |
 | Customers | Customer category | Customers of the same category and size are each other's peers: Hermod offers what the peers buy, most of all to customers with few orders yet. |
 | Customers | Customer size | Customers of the same category and size are each other's peers: Hermod offers what the peers buy, most of all to customers with few orders yet. A number (headcount, revenue) is cut into small, medium and large. |
+| Customers | Price tier | With a category or size, it narrows the peers further: customers of the same price tier, channel or region buy alike, so only they count as each other's peers. Leave it empty where it does not apply; works on any customer that has one. |
+| Customers | Channel | With a category or size, it narrows the peers further: customers of the same price tier, channel or region buy alike, so only they count as each other's peers. Leave it empty where it does not apply; works on any customer that has one. |
+| Customers | Region | With a category or size, it narrows the peers further: customers of the same price tier, channel or region buy alike, so only they count as each other's peers. Leave it empty where it does not apply; works on any customer that has one. |
 | Customers | Latitude | With a category or size, the peers are the nearby customers of the same kind: the 20 nearest within 5 km (a reason then reads "Bought by 7 of 12 Minimarket customers within 5 km"). |
 | Customers | Longitude | With a category or size, the peers are the nearby customers of the same kind: the 20 nearest within 5 km (a reason then reads "Bought by 7 of 12 Minimarket customers within 5 km"). |
+| Returns | Returns table | Stops offering a product a customer sent back half or more of. |
+| Returns | Quantity | A product a customer sent back 50% or more of what it bought is not offered to it again; other customers are unaffected. Needs quantities on the orders too; an empty quantity counts as one. |
+| Quotes | Quotes table | Stops offering a product whose quote was lost in the last 90 days, and reminds of one quoted and not ordered yet. |
+| Quotes | Outcome | A quote lost (lost, rejected or declined) within the last 90 days keeps the product from that customer. Any other outcome counts as open. Needs the outcome on the lost quotes; won ones may say anything. |
+| Quotes | Date | A quote of the last 90 days not lost and not ordered since is offered with the reason "Quoted on 2026-09-20, not ordered yet", a little higher. Works on any quote with a readable date. |
 
 **How much data**
 
@@ -1036,6 +1047,9 @@ SELECT customer_id, product_id, order_date, SUM(quantity) AS quantity, SUM(amoun
 | Customers | Customers table | Lets rules skip customers on credit hold. |
 | Customers | Customer category | Every customer on a list carries it, and a list can be filtered to one category or size. |
 | Customers | Customer size | Every customer on a list carries it, and a list can be filtered to one category or size. |
+| Customers | Price tier | Every customer on a list carries it, and a list can be filtered to one value of it. |
+| Customers | Channel | Every customer on a list carries it, and a list can be filtered to one value of it. |
+| Customers | Region | Every customer on a list carries it, and a list can be filtered to one value of it. |
 
 **How much data**
 
@@ -1101,9 +1115,12 @@ SELECT customer_id, product_id, order_date, SUM(quantity) AS quantity, SUM(amoun
 | Orders or invoice lines | Date | Hermod tests on each customer's latest orders and can measure the history. |
 | Orders or invoice lines | Quantity | Products bought in larger amounts count as stronger likes. |
 | Orders or invoice lines | Amount | Lets Hermod leave out credit notes (negative amounts). |
-| Customers | Customers table | Lets rules skip customers on credit hold. A category and size find customers like those who buy it, nearby ones first. |
+| Customers | Customers table | Lets rules skip customers on credit hold. A category, size, price tier, channel and region find customers like those who buy it, nearby ones first. |
 | Customers | Customer category | Customers of the same category and size are each other's peers: a customer whose peers buy a product is likely to want it, most of all one with few orders yet. |
 | Customers | Customer size | Customers of the same category and size are each other's peers: a customer whose peers buy a product is likely to want it, most of all one with few orders yet. A number (headcount, revenue) is cut into small, medium and large. |
+| Customers | Price tier | With a category or size, it narrows the peers further: customers of the same price tier, channel or region buy alike, so only they count as each other's peers. Leave it empty where it does not apply; works on any customer that has one. |
+| Customers | Channel | With a category or size, it narrows the peers further: customers of the same price tier, channel or region buy alike, so only they count as each other's peers. Leave it empty where it does not apply; works on any customer that has one. |
+| Customers | Region | With a category or size, it narrows the peers further: customers of the same price tier, channel or region buy alike, so only they count as each other's peers. Leave it empty where it does not apply; works on any customer that has one. |
 | Customers | Latitude | With a category or size, the peers are the nearby customers of the same kind: the 20 nearest within 5 km (a reason then reads "Bought by 7 of 12 Minimarket customers within 5 km"). |
 | Customers | Longitude | With a category or size, the peers are the nearby customers of the same kind: the 20 nearest within 5 km (a reason then reads "Bought by 7 of 12 Minimarket customers within 5 km"). |
 | Products | Products table | Helps with products that have few sales yet. |
@@ -1115,6 +1132,10 @@ SELECT customer_id, product_id, order_date, SUM(quantity) AS quantity, SUM(amoun
 | Products | End date | A product past its end date has no audience: nobody is offered it. Works on any product that has one; leave it empty for products still sold. |
 | Products | Stock | A product with no stock (0 or less) has no audience until it is back. Stock is as of training; a call can give today's in "stock". Needs a number for every product it should apply to. |
 | Products | Substitute | Carried on each product's fields. Needs the substitute's id, as in the orders. |
+| Returns | Returns table | Counts a customer who sent the product back half or more for less. |
+| Returns | Quantity | A customer who sent back 50% or more of the product counts half in its audience. Needs quantities on the orders too; an empty quantity counts as one. |
+| Quotes | Quotes table | Leaves out customers who turned the product down in the last 90 days. |
+| Quotes | Outcome | A customer who lost (lost, rejected or declined) a quote for the product within the last 90 days is left out of its audience. Any other outcome counts as open. Needs the outcome on the lost quotes. |
 
 **How much data**
 
@@ -1661,12 +1682,15 @@ what. Send `task: "recommendation"` with `scenario` and `data`:
   "scenario": "visits",
   "data": {
     "transactions": {"dataset": "orders", "customer": "cust_id", "product": "sku", "date": "order_date", "quantity": "qty", "amount": "total"},
-    "customers":    {"dataset": "customers", "id": "cust_id", "salesman": "rep", "territory": "region", "segment": "tier", "lat": "lat", "lon": "lon", "blocked": "credit_hold"},
+    "customers":    {"dataset": "customers", "id": "cust_id", "salesman": "rep", "territory": "region", "segment": "tier", "price_tier": "price_list",
+                     "channel": "channel", "region": "province", "lat": "lat", "lon": "lon", "blocked": "credit_hold"},
     "products":     {"dataset": "items", "id": "sku", "category": "cat", "subcategory": "subcat", "brand": "brand", "price": "price", "margin": "margin",
                      "pack_size": "pack_qty", "unit": "uom", "launch_date": "launched", "end_date": "discontinued", "stock": "on_hand",
                      "substitute": "replacement_sku", "active": "active"},
     "visits":       {"dataset": "visits", "customer": "cust_id", "date": "visit_date", "salesman": "rep", "outcome": "result"},
-    "salesmen":     {"dataset": "reps", "id": "rep", "visits_per_day": "cap", "working_days": "days"}
+    "salesmen":     {"dataset": "reps", "id": "rep", "visits_per_day": "cap", "working_days": "days"},
+    "returns":      {"dataset": "returns", "customer": "cust_id", "product": "sku", "date": "return_date", "quantity": "qty"},
+    "quotes":       {"dataset": "quotes", "customer": "cust_id", "product": "sku", "date": "quote_date", "outcome": "status", "reason": "lost_reason"}
   },
   "weights": {"reorder_due": 0.35, "churn_risk": 0.2, "value": 0.2, "opportunity": 0.1, "neglect": 0.15},
   "rules": [{"kind": "exclude", "days": 7}],
@@ -1694,7 +1718,10 @@ what. Send `task: "recommendation"` with `scenario` and `data`:
 - `near_km` (0.1 to 500, 5 by default) and `near_peers` (3 to 200, 20 by
   default) set how near a customer's nearby peers are: see below.
 - `new_days` (1 to 365, 60 by default) is how recently a product must have
-  launched to count as new: see Product details below.
+  launched to count as new: see Product details below. The console asks it
+  as **New products: launched within N days** when the products have launch
+  dates, and training a model again starts from its last version's
+  `near_km`, `near_peers` and `new_days`.
 - `features`, `params`, `preset`, `device: "gpu"` and custom scripts are
   refused for a scenario.
 
@@ -1733,6 +1760,20 @@ peer share is part of the scored lists, so the metrics show what it adds.
 Every list of customers (a visit plan, reorders, an audience) carries each
 customer's `segment` and `size` in its `fields`. A model trained before
 categories and sizes, or without them, answers exactly as it did.
+
+**Price tier, channel and region.** `customers.price_tier` (the price list or
+tier a customer buys on), `customers.channel` (such as Modern trade or
+Online) and `customers.region` (a province or city, wider than a territory)
+are optional text columns. Each one a customer has joins its peer key next to
+the category and size: a customer's peers are the customers that share every
+one of those attributes it has (one it lacks matches any), so Gold Modern-trade minimarkets in the North are each
+other's peers and not those on another price list. The nearby rule is the
+same: the nearby peers are the nearest customers sharing that key. A reason
+names the whole key, "Bought by 9 of 14 Minimarket · Gold · North
+customers". Every list of customers carries the three in its `fields`, a
+list can be filtered to one value of each (below), and a build writes them
+when its table has the columns. A model trained without them answers, and
+its artifact is, exactly as before.
 
 **Product details.** The `products` role takes optional details next to
 `category`, `price` and `margin`: `brand`, `subcategory`, `pack_size` (pieces
@@ -1784,8 +1825,37 @@ of the scored lists the evaluation runs, so the metrics show what they add.
 A model trained without product details, or before them, answers exactly as
 it did: its artifact is byte-for-byte what it was.
 
+**Returns and quotes.** Two more optional roles say what a customer did not
+want. `returns` (`customer`, `product` and `date` required, `quantity`
+optional, one when empty) is one row per product sent back; `quotes`
+(`customer`, `product` and `date` required, `outcome` and `reason` optional)
+one row per product quoted.
+
+- **Returned.** A product a customer sent back 50% or more of (returned
+  quantity against the quantity it bought, all time) is not offered to it in
+  its products, and counts half (×0.5) in that product's audience. Other
+  customers, and products returned less, are unaffected.
+- **Lost quote.** A quote whose outcome is lost, lose, loss, rejected or
+  declined (in any case), dated within the last 90 days and not followed by
+  an order of that product, keeps the product out of that customer's
+  products and leaves the customer out of the product's audience. The latest
+  quote of a customer and product is the one that counts.
+- **Quoted, not ordered yet.** A quote of the last 90 days with any other
+  outcome (open, sent, won or empty) and no order of the product since is
+  offered in the customer's products a little higher (+0.1), up to 10 of
+  them taken as candidates, with the reason `quoted`: "Quoted on 2026-09-20,
+  not ordered yet".
+- **Peers.** Won quotes do not count as purchases: peers, the
+  collaborative filter and every other signal read only `transactions`.
+
+The kept returns and quotes go in the artifact (`signals` in its header) and
+the evaluation reports `returns`, how many customer and product pairs were
+returned past the share. Training without either role, or a model from
+before them, gives byte-for-byte the artifact and answers it gave.
+
 The version keeps `scenario`, `roles` (as sent), `weights` and
-`applied_weights`, `rules`, `metrics` and `baseline`, `baselines_named`,
+`applied_weights`, `rules`, `near_km`, `near_peers` and `new_days` (training
+again in the console starts from them), `metrics` and `baseline`, `baselines_named`,
 `evaluation`, `health` and up to three `samples`, each a result in the shape
 below.
 
@@ -1895,6 +1965,9 @@ curl -X POST https://hermod.example.com/api/ml/serve/default/visit-plan/recommen
   reorders, an audience) to one customer category and size, in any case; a
   numeric size is bucketed as in training. They are refused for products or
   similar products, and for a model trained without that attribute.
+- `price_tier`, `channel` and `region` in `for` keep a list of customers to
+  one price tier, channel and region in the same way, and are refused where
+  `segment` is.
 - `brand` and `subcategory` in `for` keep a list of products (a customer's
   products, similar products) to one brand and subcategory, in any case.
   They are refused for lists of customers, and for a model trained without
@@ -1924,7 +1997,8 @@ The reason codes are `reorder_due`, `churn_risk`, `high_value`, `whitespace`
 `bought_together`, `peer_group` (customers of the same category and size,
 or nearby ones, buy it), `brand` (the customer buys a lot of its brand),
 `new_product` (launched recently), `substitute` (in place of a product out of
-stock or discontinued), `same_kind` (same subcategory or brand), `popular`,
+stock or discontinued), `same_kind` (same subcategory or brand), `quoted`
+(quoted recently and not ordered yet), `popular`,
 `boosted` and `pinned`; the text is plain
 English with the numbers behind it.
 
@@ -1938,13 +2012,13 @@ call with `subject` for `for` (`all_customers` a bool), `period_from` and
 `period_to`, `within_days`, and each rule as a `google.protobuf.Struct`; each
 result names its subject in `subject`, and each `ScenarioPick` carries
 `due_date`, `overdue` and `products` (`DueProduct`: `id`, `due_date`,
-`overdue`, `fields`). `ScenarioSubject` takes `segment` and `size`, and
-`brand` and `subcategory`; `RecommendScenarioRequest.stock` is the `stock`
+`overdue`, `fields`). `ScenarioSubject` takes `segment`, `size`,
+`price_tier`, `channel` and `region`, and `brand` and `subcategory`; `RecommendScenarioRequest.stock` is the `stock`
 map; each `ScenarioResult` carries `summary`. `Recommend` answers carry
 `recommendation_id`.
 
 **MCP:** the `recommend_<model>` tool also takes `for` (with
-`all_customers`, `segment`, `size`, `brand` and `subcategory`), `territory`,
+`all_customers`, `segment`, `size`, `price_tier`, `channel`, `region`, `brand` and `subcategory`), `territory`,
 `period`, `within_days`, `k`, `rules`, `exclude_seen` and `stock`, and answers `{"model", "vhost", "recommendation_id",
 "results"}`.
 
@@ -1952,8 +2026,9 @@ map; each `ScenarioResult` carries `summary`. `Recommend` answers carry
 `salesman`, `customer` or `product` (and `user` or `item` as before),
 `periodDays` (a visit plan from today), `withinDays` (a reorder window from
 today, 1 to 366), `segment` and `size` (a list of customers of one category
-and size), `brand` and `subcategory` (a list of products of one brand and
-subcategory), `rules` (a JSON list), `idField`, `k`, `excludeSeen` and
+and size), `priceTier`, `channel` and `region` (a list of customers of one
+price tier, channel and region), `brand` and `subcategory` (a list of
+products of one brand and subcategory), `rules` (a JSON list), `idField`, `k`, `excludeSeen` and
 `outputField`. It writes the first result's items to `outputField`, each with
 `id`, `score`, `rank`, `reasons`, `fields`, the call's `recommendation_id`,
 and `plan_date`, or `due_date` with `overdue` and `products`, where set.
@@ -2079,7 +2154,9 @@ products are for), and optional `brand` and `subcategory` text columns and
 a `suggested_qty` integer column get a listed product's brand, subcategory
 and suggested quantity in whole packs (NULL when there is none: a build of
 products to offer leaves out what the customer already bought, so most rows
-have none). The
+have none). Optional `price_tier`, `channel` and `region` text columns get
+each listed customer's (or the products' customer's) price tier, channel and
+region. The
 products a customer is due for are in the API answer, not in the table. `replace` deletes
 the model's earlier rows in the same transaction; `append` keeps them. A
 build of more than 1,000,000 rows is refused. `GET .../build` shows it with
@@ -2090,7 +2167,7 @@ The **Build recommendations** workflow node (`ml_recommend_build`) does the
 same from a workflow: `model`, `for`, `periodDays`, `withinDays`, `k`, and
 optionally `targetSourceId`, `targetTable`, `targetMode` and `maxRows`
 (10,000 by default). It emits one message per row, with the row's fields
-(`due_date`, `segment`, `size`, `brand`, `subcategory` and `suggested_qty` among them) on the incoming record, after writing them when a
+(`due_date`, `segment`, `size`, `brand`, `subcategory`, `suggested_qty`, `price_tier`, `channel` and `region` among them) on the incoming record, after writing them when a
 target is set; more rows than `maxRows` fails the record before anything is
 written.
 

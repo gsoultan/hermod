@@ -24,7 +24,14 @@ the products' details (b2b.with_details: brand, subcategory, pack size and
 unit, launch and end dates, stock, substitute), and the "_shop" runs the
 worker's product details tests' shops, so products, audience and similar
 weigh brands and new products, leave out what cannot be offered for its
-substitute, and products suggest a quantity (similar_scores).
+substitute, and products suggest a quantity (similar_scores). The
+"_market" runs map the peer tests' customers' price tier and region besides
+their category and size, so peers are of all four, and the audience lists
+carry the customers' tier, channel and region. The "_signals" runs add the
+details shops' returns and quotes (the worker's returns and quotes tests):
+products leave out what a customer returned or lost a quote of and offer an
+open quote with its date, and an audience leaves out a lost quote and counts
+a returned product half; their cases also ask with what was bought.
 """
 
 from __future__ import annotations
@@ -46,7 +53,9 @@ from hermod_ml import recommend, scenarios  # noqa: E402
 from hermod_ml.app import create_app  # noqa: E402
 from hermod_ml.settings import Settings  # noqa: E402
 from tests.b2b import data_roles, generate, with_details  # noqa: E402
-from tests.test_scenarios import detail_body, detail_tables, near_body, near_tables, peer_body, peer_tables  # noqa: E402
+from tests.test_scenarios import (  # noqa: E402
+    detail_body, detail_tables, market_body, market_customers, near_body, near_tables, peer_body, peer_tables, signal_body, signal_tables,
+)
 
 VHOST = "fixture"
 
@@ -86,7 +95,11 @@ def ranked_pool(b, cattrs, scenario: str, rep: str) -> list[dict]:
             for r, (s, u, reasons, due) in enumerate(ranked)]
 
 
-def cases(scenario: str, model: recommend.Model, customers: tuple[str, ...] = (), products: tuple[str, ...] = ()) -> list[dict]:
+def cases(scenario: str, model: recommend.Model, customers: tuple[str, ...] = (), products: tuple[str, ...] = (),
+          seen: tuple[str, ...] = ()) -> list[dict]:
+    """The calls of a fixture and what the worker answered. seen are
+    customers (products, for an audience) asked about again with what they
+    bought listed too."""
     b = built(model)
     cattrs = {k: v for k, v in model.extra["customer_attrs"].items()}
     out = []
@@ -103,7 +116,7 @@ def cases(scenario: str, model: recommend.Model, customers: tuple[str, ...] = ()
     if scenario == "products":
         # The customers with the fewest orders lean on their peers most.
         fewest = [int(u) for u in np.argsort(np.diff(model.seen.indptr), kind="stable")[:2]] + [b.users.index(c) for c in customers]
-        for u, k, exclude in [(0, 10, True), (3, 5, True), (11, 10, False), (40, 20, True)] + [(u, 10, True) for u in fewest] + [(12, 100, True), (fewest[0], 100, True), (fewest[-1], 100, True)]:
+        for u, k, exclude in [(0, 10, True), (3, 5, True), (11, 10, False), (40, 20, True)] + [(u, 10, True) for u in fewest] + [(12, 100, True), (fewest[0], 100, True), (fewest[-1], 100, True)] + [(b.users.index(c), 16, False) for c in seen]:
             u %= len(b.users)  # a small model has fewer customers
             picks = scenarios.product_scores(b, u, k, exclude)
             items = [scenarios._item(b.items[i], s, r + 1, reasons, item_fields(b, i, u)) for r, (i, s, reasons) in enumerate(picks)]
@@ -112,7 +125,7 @@ def cases(scenario: str, model: recommend.Model, customers: tuple[str, ...] = ()
                 case["summary"] = summary
             out.append(case)
     if scenario == "audience":
-        for i, k, exclude in [(int(p), 10, True) for p in model.popular[:3]] + [(5, 15, False)] + [(b.items.index(p), 10, True) for p in products]:
+        for i, k, exclude in [(int(p), 10, True) for p in model.popular[:3]] + [(5, 15, False)] + [(b.items.index(p), 10, True) for p in products] + [(b.items.index(p), 40, False) for p in seen]:
             picks = scenarios.audience_scores(b, i, k, exclude)
             out.append({"today": today, "product": b.items[i], "k": k, "exclude_seen": exclude,
                         "items": [scenarios._item(b.users[u], s, r + 1, reasons, customer_fields(b, cattrs, u)) for r, (u, s, reasons) in enumerate(picks)]})
@@ -209,6 +222,43 @@ def main(names: list[str]) -> None:
             (out_dir / f"{name}.rec").write_bytes(raw)
             (out_dir / f"{name}.json").write_text(json.dumps(cases(scenario, model, ("K01", "K02", "K10", "K30"), ("I1", "I4", "I6", "M6")), indent=1) + "\n")
             print(name, len(raw), "bytes", model.algorithm, {k: round(v, 3) for k, v in meta["metrics"].items()})
+
+        # The peer tests' customers with a price tier, channel and region.
+        load_rows(client, "mcustomers", market_customers())
+        for name, scenario in (("products_market", "products"), ("audience_market", "audience")):
+            if names and name not in names:
+                continue
+            columns = {"segment": "kind", "size": "staff", "price_tier": "pricing", "channel": "chan", "region": "area"}
+            write(client, out_dir, name, scenario, market_body(scenario, columns), ("Rl16", "Hs17", "Om12"), ())
+
+        # The details shops' returns and quotes.
+        sig = signal_tables()
+        load_rows(client, "dreturns", sig["returns"])
+        load_rows(client, "dquotes", sig["quotes"])
+        returned = sig["returned"][0]
+        for name, scenario, customers, products, seen in (
+                ("products_signals", "products", ("K02", "K05", "K06", "K07", "K10"), (), ("K02", "K07", "K10")),
+                ("audience_signals", "audience", (), ("M1", "M3", returned), (returned, "M1"))):
+            if names and name not in names:
+                continue
+            write(client, out_dir, name, scenario, signal_body(scenario), customers, products, seen)
+
+
+def load_rows(client: TestClient, dataset: str, rows: list[dict]) -> None:
+    resp = client.post(f"/v1/datasets/{VHOST}/{dataset}/rows", json={"rows": rows, "replace": True})
+    assert resp.status_code == 200, resp.text
+
+
+def write(client: TestClient, out_dir: Path, name: str, scenario: str, body: dict, customers: tuple[str, ...], products: tuple[str, ...],
+          seen: tuple[str, ...] = ()) -> None:
+    resp = client.post(f"/v1/models/{VHOST}/{name}/train", json=body)
+    assert resp.status_code == 200, resp.text
+    meta = resp.json()
+    raw = client.get(f"/v1/models/{VHOST}/{name}/versions/{meta['version']}/model.rec").content
+    model = recommend.decode(raw)
+    (out_dir / f"{name}.rec").write_bytes(raw)
+    (out_dir / f"{name}.json").write_text(json.dumps(cases(scenario, model, customers, products, seen), indent=1) + "\n")
+    print(name, len(raw), "bytes", model.algorithm, {k: round(v, 3) for k, v in meta["metrics"].items()})
 
 
 if __name__ == "__main__":

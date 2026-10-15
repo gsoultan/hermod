@@ -600,3 +600,44 @@ func TestRecommendKeepsABrandAndTakesStock(t *testing.T) {
 		}
 	}
 }
+
+// for.price_tier, for.channel and for.region on the editor route keep only
+// those customers, and every customer listed carries all three.
+func TestRecommendKeepsAPriceTierChannelAndRegion(t *testing.T) {
+	h, store, stub := scenarioAPI(t)
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "pkg", "ml", "recommend", "testdata", "scenario", "audience_market.rec"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stub.rec = raw
+	store.models["tenant-a/who"] = storage.MLModel{VHost: "tenant-a", Name: "who", Backend: storage.MLBackendWorker,
+		RemoteVersion: "2", Task: storage.MLTaskRecommendation}
+	w := call(h.RecommendScenario, editorA, http.MethodPost, "tenant-a", "who",
+		`{"for":{"product":"S1","price_tier":"Gold","channel":"Retail","region":"S"},"k":50}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+	var out struct {
+		Results []struct {
+			Items []struct {
+				ID     string         `json:"id"`
+				Fields map[string]any `json:"fields"`
+			} `json:"items"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Results[0].Items) == 0 {
+		t.Fatalf("nobody: %s", w.Body)
+	}
+	for _, it := range out.Results[0].Items {
+		if it.Fields["price_tier"] != "Gold" || it.Fields["channel"] != "Retail" || it.Fields["region"] != "S" {
+			t.Errorf("%s: fields %v", it.ID, it.Fields)
+		}
+	}
+	if w := call(h.RecommendScenario, editorA, http.MethodPost, "tenant-a", "who", `{"for":{"product":"S1","region":false}}`); w.Code != http.StatusBadRequest ||
+		!strings.Contains(w.Body.String(), "region") {
+		t.Errorf("region false: %d %s", w.Code, w.Body)
+	}
+}

@@ -556,3 +556,43 @@ func TestABuildWritesBrandSubcategoryAndSuggestedQuantityWhenTheTableHasThem(t *
 		}
 	}
 }
+
+func TestABuildWritesPriceTierChannelAndRegionWhenTheTableHasThem(t *testing.T) {
+	svc := scenarioService(t, "audience_market", storage.MLQuotas{})
+	rows, err := svc.BuildRecommendations(t.Context(), "v", "recs", ModelBuild{For: BuildAllProducts, K: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) == 0 {
+		t.Fatal("no rows")
+	}
+	for _, r := range rows {
+		if r.PriceTier == "" || r.Channel == "" || r.Region == "" {
+			t.Fatalf("%s: tier %q, channel %q, region %q", r.ItemID, r.PriceTier, r.Channel, r.Region)
+		}
+	}
+	db := newTargetDB(t)
+	for _, col := range []string{"price_tier", "channel", "region"} {
+		if _, err := db.ExecContext(t.Context(), `ALTER TABLE recs_out ADD COLUMN `+col+` TEXT`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	target := BuildTarget{SourceID: "target", Table: "recs_out"}
+	if err := WriteBuild(t.Context(), db, "sqlite", target, "recs", rows); err != nil {
+		t.Fatal(err)
+	}
+	var n, tiers, channels, regions int
+	if err := db.QueryRowContext(t.Context(), `SELECT COUNT(*), COUNT(price_tier), COUNT(channel), COUNT(region) FROM recs_out`).
+		Scan(&n, &tiers, &channels, &regions); err != nil {
+		t.Fatal(err)
+	}
+	if n != len(rows) || tiers != n || channels != n || regions != n {
+		t.Fatalf("%d rows, %d tiers, %d channels, %d regions", n, tiers, channels, regions)
+	}
+	// A table without them still takes the build.
+	t.Run("without them", func(t *testing.T) {
+		if err := WriteBuild(t.Context(), newTargetDB(t), "sqlite", target, "recs", rows); err != nil {
+			t.Fatalf("a table without them: %v", err)
+		}
+	})
+}

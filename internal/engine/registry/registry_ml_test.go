@@ -568,3 +568,36 @@ func TestMLRecommendBuildCarriesBrandAndSubcategory(t *testing.T) {
 		}
 	}
 }
+
+// The Predict node's Recommend mode with a price tier, channel and region:
+// only those customers of a product's audience, each carrying all three;
+// and the Build Recommendations node's rows carry them.
+func TestMLRecommendKeepsAPriceTierChannelAndRegion(t *testing.T) {
+	reg := scenarioRegistry(t, "audience_market")
+	got := transform(t, reg, map[string]any{"sku": "S1"}, map[string]any{
+		"transType": "ml_predict", "model": "due", "mode": "recommend", "recommendFor": "product", "idField": "sku",
+		"priceTier": "gold", "channel": "retail", "region": "n", "k": "50", "outputField": "gold",
+	})
+	items, _ := got["gold"].([]map[string]any)
+	if len(items) == 0 {
+		t.Fatalf("gold = %#v, want S1's Gold Retail customers in N", got["gold"])
+	}
+	for _, it := range items {
+		fields, _ := it["fields"].(map[string]any)
+		if fields["price_tier"] != "Gold" || fields["channel"] != "Retail" || fields["region"] != "N" {
+			t.Errorf("%v: fields %v", it["id"], fields)
+		}
+	}
+	rows, _, err := reg.MLRecommendBuild(t.Context(), "default", "due", map[string]any{"for": "all_products", "k": 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) == 0 {
+		t.Fatal("no rows")
+	}
+	for _, row := range rows {
+		if row["price_tier"] == "" || row["channel"] == "" || row["region"] == "" || row["region"] == nil {
+			t.Errorf("%v: tier %v, channel %v, region %v", row["item_id"], row["price_tier"], row["channel"], row["region"])
+		}
+	}
+}

@@ -34,6 +34,12 @@ type recommender interface {
 	MLRecommend(ctx context.Context, vhost, model string, req map[string]any) ([]map[string]any, error)
 }
 
+// subjectKeys names a config filter's key in a scenario subject.
+var subjectKeys = map[string]string{
+	"segment": "segment", "size": "size", "brand": "brand", "subcategory": "subcategory",
+	"priceTier": "price_tier", "channel": "channel", "region": "region",
+}
+
 // recommendInto is the node's Recommend mode: it reads a person's id (or an
 // item's) from the message and writes the model's items onto it.
 //
@@ -57,6 +63,8 @@ type recommender interface {
 //   - segment, size: for a list of customers (a visit plan, reorders, a
 //     product's audience), only the customers of that category and size;
 //     a size is small, medium or large, or a number the model buckets.
+//   - priceTier, channel, region: for a list of customers, only the
+//     customers of that price tier, channel and region.
 //   - brand, subcategory: for a list of products (a customer's products or
 //     reorders, products like one), only the products of that brand and
 //     subcategory.
@@ -78,8 +86,8 @@ func recommendInto(ctx context.Context, msg hermod.Message, model string, config
 	subject, scenario := req["for"].(map[string]any)
 	switch {
 	case scenario:
-		// The subject is the one key without a value; segment, size, brand
-		// and subcategory have theirs.
+		// The subject is the one key without a value; the filters have
+		// theirs.
 		for k, v := range subject {
 			if v == nil {
 				subject[k] = id
@@ -157,7 +165,7 @@ func recommendRequest(config map[string]any) (map[string]any, string, error) {
 		}
 		req["within_days"] = within
 	}
-	for _, key := range []string{"segment", "size", "brand", "subcategory"} {
+	for _, key := range []string{"segment", "size", "brand", "subcategory", "priceTier", "channel", "region"} {
 		// The editor may save a numeric size as a number.
 		v, _ := recommend.ID(config[key])
 		if v = strings.TrimSpace(v); v == "" {
@@ -166,7 +174,7 @@ func recommendRequest(config map[string]any) (map[string]any, string, error) {
 		if !scenario {
 			return nil, "", fmt.Errorf(`ml_predict: %s applies to a scenario model's recommendFor "salesman", "customer" or "product"`, key)
 		}
-		subject[key] = v
+		subject[subjectKeys[key]] = v
 	}
 	rules, err := configRules(config["rules"])
 	if err != nil {

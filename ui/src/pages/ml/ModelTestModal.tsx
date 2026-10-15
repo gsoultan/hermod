@@ -12,29 +12,40 @@ import {
 import { FormRow } from '@/components/common/FormRow'
 import { DueCustomerList, RecommendAnswer, RecommendedList } from './scenarioItems'
 
-/** A customer category and size a list of customers is kept to; empty for any. */
+/** A customer category, size, price tier, channel and region a list of customers is kept to; empty for any. */
 interface CustomerGroup {
   segment: string
   size: string
+  price_tier: string
+  channel: string
+  region: string
 }
 
-const ANY_GROUP: CustomerGroup = { segment: '', size: '' }
+const ANY_GROUP: CustomerGroup = { segment: '', size: '', price_tier: '', channel: '', region: '' }
 
-/** The "for" keys that keep a list of customers to one category and size. */
-const groupFor = (g: CustomerGroup) => ({
-  ...(g.segment.trim() ? { segment: g.segment.trim() } : {}),
-  ...(g.size.trim() ? { size: g.size.trim() } : {}),
-})
+/** The "for" keys that keep a list of customers to one of each. */
+const groupFor = (g: CustomerGroup) =>
+  Object.fromEntries((Object.keys(ANY_GROUP) as Array<keyof CustomerGroup>).filter((k) => g[k].trim()).map((k) => [k, g[k].trim()]))
 
-/** Customer category and size, to keep a list of customers to one of each. */
+/** Customer category, size, price tier, channel and region, to keep a list of customers to one of each. */
 function CustomerGroupFields({ value, onChange }: { value: CustomerGroup; onChange: (g: CustomerGroup) => void }) {
   return (
-    <FormRow cols={2}>
-      <TextInput label="Category" description="Optional: only customers of this customer category." placeholder="any"
-        value={value.segment} onChange={(e) => onChange({ ...value, segment: e.currentTarget.value })} />
-      <Autocomplete label="Size" description="Optional: only customers of this size (small, medium, large or your own label)." placeholder="any"
-        data={['small', 'medium', 'large']} value={value.size} onChange={(size) => onChange({ ...value, size })} />
-    </FormRow>
+    <>
+      <FormRow cols={2}>
+        <TextInput label="Category" description="Optional: only customers of this customer category." placeholder="any"
+          value={value.segment} onChange={(e) => onChange({ ...value, segment: e.currentTarget.value })} />
+        <Autocomplete label="Size" description="Optional: only customers of this size (small, medium, large or your own label)." placeholder="any"
+          data={['small', 'medium', 'large']} value={value.size} onChange={(size) => onChange({ ...value, size })} />
+      </FormRow>
+      <FormRow cols={3}>
+        <TextInput label="Price tier" description="Optional: only customers on this price tier." placeholder="any"
+          value={value.price_tier} onChange={(e) => onChange({ ...value, price_tier: e.currentTarget.value })} />
+        <TextInput label="Channel" description="Optional: only customers of this channel." placeholder="any"
+          value={value.channel} onChange={(e) => onChange({ ...value, channel: e.currentTarget.value })} />
+        <TextInput label="Region" description="Optional: only customers in this region." placeholder="any"
+          value={value.region} onChange={(e) => onChange({ ...value, region: e.currentTarget.value })} />
+      </FormRow>
+    </>
   )
 }
 
