@@ -24,8 +24,6 @@ export interface WorkflowState {
   drawerTab: string;
   settingsOpened: boolean;
   testModalOpened: boolean;
-  dlqInspectorOpened: boolean;
-  dlqInspectorSink: any | null;
   testInput: string;
   testResults: any[] | null;
   /**
@@ -46,7 +44,8 @@ export interface WorkflowState {
   aiGeneratorOpened: boolean;
   complianceReportOpened: boolean;
 
-  deadLetterSinkID: string;
+  /** Keep messages the workflow cannot deliver on the Dead Letters page. */
+  deadLetters: boolean;
   dlqThreshold: number;
   prioritizeDLQ: boolean;
   maxRetries: number;
@@ -103,8 +102,6 @@ export interface WorkflowState {
   setDrawerTab: (tab: string) => void;
   setSettingsOpened: (opened: boolean) => void;
   setTestModalOpened: (opened: boolean) => void;
-  setDlqInspectorOpened: (opened: boolean) => void;
-  setDlqInspectorSink: (sink: any | null) => void;
   setTestInput: (input: string) => void;
   setTestResults: (results: any[] | null) => void;
   setNodePreview: (nodeId: string, payload: any | null) => void;
@@ -121,7 +118,7 @@ export interface WorkflowState {
   setComplianceReportOpened: (opened: boolean) => void;
   setPulseEnabled: (val: boolean) => void;
 
-  setDeadLetterSinkID: (id: string) => void;
+  setDeadLetters: (on: boolean) => void;
   setDlqThreshold: (threshold: number) => void;
   setPrioritizeDLQ: (prioritize: boolean) => void;
   setMaxRetries: (retries: number) => void;
@@ -190,8 +187,6 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   drawerTab: 'nodes',
   settingsOpened: false,
   testModalOpened: false,
-  dlqInspectorOpened: false,
-  dlqInspectorSink: null,
   testInput: '{\n  "payload": "test"\n}',
   testResults: null,
   persistedBaseline: null,
@@ -207,7 +202,7 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   aiGeneratorOpened: false,
   complianceReportOpened: false,
 
-  deadLetterSinkID: '',
+  deadLetters: true,
   dlqThreshold: 0,
   prioritizeDLQ: false,
   maxRetries: 3,
@@ -283,8 +278,6 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   setDrawerTab: (drawerTab) => set({ drawerTab }),
   setSettingsOpened: (settingsOpened) => set({ settingsOpened }),
   setTestModalOpened: (testModalOpened) => set({ testModalOpened }),
-  setDlqInspectorOpened: (dlqInspectorOpened) => set({ dlqInspectorOpened }),
-  setDlqInspectorSink: (dlqInspectorSink) => set({ dlqInspectorSink }),
   setTestInput: (testInput) => set({ testInput }),
   // A workflow run is newer than every node preview made before it, so those
   // previews go: useNodeContext reads a node's preview ahead of the run, and
@@ -313,7 +306,7 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   setComplianceReportOpened: (complianceReportOpened) => set({ complianceReportOpened }),
   setPulseEnabled: (val) => set({ pulseEnabled: val }),
 
-  setDeadLetterSinkID: (deadLetterSinkID) => set({ deadLetterSinkID }),
+  setDeadLetters: (deadLetters) => set({ deadLetters }),
   setDlqThreshold: (dlqThreshold) => set({ dlqThreshold }),
   setPrioritizeDLQ: (prioritizeDLQ) => set({ prioritizeDLQ }),
   setMaxRetries: (maxRetries) => set({ maxRetries }),

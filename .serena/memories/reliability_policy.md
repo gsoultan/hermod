@@ -1,17 +1,18 @@
 # The workflow Reliability Policy
 
 Four settings in the editor's Settings tab (`SidebarDrawer.tsx`, "Reliability
-Policy"): **Dead Letter Sink**, **DLQ Alert Threshold**, **Prioritize DLQ on
-startup**, **Dry-Run Mode**. They are persisted as columns on `workflows` and
-read by `registry_workflow.go` when it builds an engine. Three of the four did
-not work; the audit and the fixes are below.
+Policy"): **Keep failed messages on the Dead Letters page** (`dead_letters`; it
+replaced the Dead Letter Sink picker), **DLQ Alert Threshold**, **Replay dead
+letters on startup** (`prioritize_dlq`), **Dry-Run Mode**. They are persisted as
+columns on `workflows` and read by `registry_workflow.go` when it builds an
+engine. Three of the four did not work; the audit and the fixes are below.
 
 ## Dry-run means: read normally, write nowhere, acknowledge nothing
 
 The rule is one sentence and it is load-bearing. `writeToSink` /
 `writeBatchToSink` return the `errDryRun` sentinel (`pkg/engine/writer.go`)
 *before* every other branch — above the safe-mode divert and above the
-failed-validation divert, both of which write to the dead-letter sink. It used
+failed-validation divert, both of which park a dead letter. It used
 to sit below them, so a "dry" run performed real writes against a real
 destination.
 
@@ -68,7 +69,7 @@ it started", never "N messages in the DLQ".
 
 `internal/engine/worker/sync.go` is the *only* live-reconfiguration path;
 `PUT /api/workflows/{id}` persists and returns without restarting anything. The
-comparison used to be Name, VHost, DeadLetterSinkID and the graph, so every other
+comparison used to be Name, VHost, the dead-letter sink and the graph, so every other
 engine setting was inert on a running workflow — ticking Dry-Run Mode showed the
 badge and changed nothing until an unrelated restart.
 
@@ -77,29 +78,27 @@ with the overrides `registry_workflow.go` applies**. Anything listed there and
 missing here is a setting that silently does not take effect. Same bug class as
 [reachability_tests](reachability_tests.md).
 
-## Prioritize DLQ, and which sinks can be drained
+## Dead letters are Hermod's own store, not a sink the user picks
 
-`PrioritizeDLQ` wraps the source at start-up (`runner.go`) in a
-`source.PrioritySource`: a 50 ms bounded read from the DLQ first, tagged
-`_hermod_source=recovery`, then a blocking read from the primary; `Ack` routes
-back to whichever produced the message. `POST /workflows/{id}/drain` does the
-same on demand via `Engine.DrainDLQ`.
+There is no dead-letter sink setting any more. With `dead_letters` on,
+`registry.deadLetterQueue` hands the engine a `deadLetterSink`
+(`internal/engine/registry/dead_letter_store.go`) whose `Write` is a synchronous
+`PutDeadLetter`: the engine acknowledges the source only after the park, so a
+store that refuses is a failed park and the message stays on its source. Off,
+there is no dead-letter sink and a failed message is never acknowledged.
 
-`DrainDLQ` swaps `e.source` **while the read loop is using it**. That was a real
-data race (`engine.go` write vs `runner.go` `Ack` read). The field is now read
-through `currentSource()` behind `sourceMu` — its own mutex, not `e.mu`, because
-the read loop touches the source per message and sharing the engine-wide lock
-would serialise the pipeline behind it. Never read `e.source` directly.
+The old design picked a sink that was *also* a source so `PrioritizeDLQ` and
+`POST /workflows/{id}/drain` could read it back through `Engine.DrainDLQ`; a
+message replayed or discarded on the page stayed in that sink and a later drain
+sent it again. Now both replay from the store (`dead_letter_drain.go`): one at a
+time, from the failing node, settling each delivered one, stopping after 5
+failures in a row, guarded per dead letter by `replayingDeadLetters` so the
+page's Replay and a drain never deliver one twice. `PurgeDeadLetters` removes
+only settled letters, because a waiting one has no other copy.
 
-Both features need the dead-letter sink to be a type that is *also* a source.
-The editor answered that from a hand-written list of 25 sink types and it had
-drifted both ways — four types advertised that are not sources (workflow refused
-to start), nine that work omitted (checkbox greyed out, feature unreachable).
-`internal/factory/dlq_recovery.go` owns the list, `GET
-/api/sinks/capabilities/dlq-recovery` serves it, and the editor asks. The drift
-test reads the case labels out of both factory switches with `go/ast` rather than
-keeping a third copy — which is how `ftp` and `s3` were found missing and
-`scylladb` (a source that is not a sink) found wrongly present.
+Legacy `dead_letter_sink_id` is read as on: `Workflow.UnmarshalJSON`, the SQL
+read (`dead_letters OR dead_letter_sink_id <> ''`, and every write clears the
+old column) and the mongo decode. Old sink contents are left untouched.
 
 ## Notification tests must call notifyOnStatusChange
 

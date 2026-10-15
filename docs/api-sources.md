@@ -176,7 +176,7 @@ happened:
 | `delivered` | Written to every sink the workflow routed it to | 200 |
 | `completed` | The workflow ran and had nothing to write: it has no sink, or it is a dry run | 200 |
 | `filtered` | The workflow dropped it on purpose: a filter, validator or deduplicate node let it go no further, or its outcome had no edge to follow | 200 |
-| `dead_lettered` | It failed and was parked in the dead-letter sink; `error` says why | 502 |
+| `dead_lettered` | It failed and was parked as a dead letter; `error` says why | 502 |
 | `failed` | It failed and is not preserved; `error` says why | 502 |
 | `pending` | The response timeout ran out first. The record is still being processed — do not send it again | 202 |
 

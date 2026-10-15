@@ -148,8 +148,12 @@ type Registry struct {
 	startTime time.Time
 
 	notificationService *notification.Service
-	// deadLetterRecords keeps parked messages for the dead letter page.
-	deadLetterRecords deadLetterRecorder
+	// replayingDeadLetters holds the ids of dead letters being replayed in
+	// this process, so a click and a drain cannot deliver one twice.
+	replayingDeadLetters sync.Map
+	// drainingDeadLetters holds the ids of workflows whose dead letters are
+	// being drained, so a second drain does not race the first.
+	drainingDeadLetters sync.Map
 	// aiBudget is built on first use; see AIBudget.
 	aiBudget     *aibudget.Service
 	aiBudgetOnce sync.Once
@@ -2207,35 +2211,11 @@ func (r *Registry) checkNodeRef(node storage.WorkflowNode, kind string, lookup f
 	return nil
 }
 
-// checkDLQPrioritization requires a workflow that reads its dead-letter queue
-// first to have one, of a type Hermod can also read from.
+// checkDLQPrioritization warns, for a workflow that replays its dead letters
+// each time it starts, about each sink that would see a message twice.
 func (r *Registry) checkDLQPrioritization(ctx context.Context, wf storage.Workflow) error {
-	if !wf.PrioritizeDLQ {
+	if !wf.PrioritizeDLQ || r.store() == nil {
 		return nil
-	}
-	if wf.DeadLetterSinkID == "" {
-		return errors.New("PrioritizeDLQ is enabled but no Dead Letter Sink is configured")
-	}
-	if r.store() == nil {
-		return nil
-	}
-	dlqSink, err := r.GetSinkConfig(ctx, wf.DeadLetterSinkID)
-	if err != nil {
-		return fmt.Errorf("dead letter sink %s not found: %w", wf.DeadLetterSinkID, err)
-	}
-	// Verify that the DLQ sink type is also a valid source type.
-	// CreateSource will return an error if the type is not supported as a source.
-	// We use a dummy config for validation.
-	testSrc, err := r.createSourceInternal(context.Background(), factory.SourceConfig{
-		Type:   dlqSink.Type,
-		VHost:  dlqSink.VHost,
-		Config: dlqSink.Config,
-	})
-	if err != nil {
-		return fmt.Errorf("dead letter sink %s (type %s) cannot be used as a source for PrioritizeDLQ: %w", wf.DeadLetterSinkID, dlqSink.Type, err)
-	}
-	if testSrc != nil {
-		_ = testSrc.Close()
 	}
 	r.warnSinksWithoutIdempotency(ctx, wf)
 	return nil
@@ -2250,7 +2230,7 @@ func (r *Registry) warnSinksWithoutIdempotency(ctx context.Context, wf storage.W
 		}
 		snk, err := r.GetSinkConfig(ctx, node.RefID)
 		if err == nil && snk.Config["enable_idempotency"] != "true" {
-			r.logger.Warn("Workflow has PrioritizeDLQ enabled but sink does not have idempotency enabled; enable idempotency to avoid side effects during re-processing", "workflow_id", wf.ID, "sink_id", snk.ID)
+			r.logger.Warn("Workflow replays its dead letters on startup but sink does not have idempotency enabled; enable idempotency to avoid side effects during re-processing", "workflow_id", wf.ID, "sink_id", snk.ID)
 		}
 	}
 }

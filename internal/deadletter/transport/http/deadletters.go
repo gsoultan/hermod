@@ -14,7 +14,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gsoultan/hermod/internal/api/handlers"
@@ -39,9 +38,6 @@ const (
 // Handler serves the dead letter routes.
 type Handler struct {
 	*handlers.Handler
-	// replaying holds the ids of dead letters being replayed in this process,
-	// so a double click cannot deliver the message twice.
-	replaying sync.Map
 }
 
 // NewHandler wraps the shared API handler.
@@ -332,36 +328,15 @@ func replayErrorStatus(err error) int {
 // A replay that fails again leaves it in the queue, with the attempt in its
 // history.
 func (h *Handler) replay(r *http.Request, ds storage.DeadLetterStore, wf storage.Workflow, d storage.DeadLetter, req replayRequest) replayOutcome {
-	out := replayOutcome{ID: d.ID}
-	if _, busy := h.replaying.LoadOrStore(d.ID, struct{}{}); busy {
-		out.Status, out.Error = "busy", "this dead letter is already being replayed"
-		return out
-	}
-	defer h.replaying.Delete(d.ID)
-
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), replayTimeout)
 	defer cancel()
-	res, err := h.Registry.ReplayDeadLetter(ctx, wf, d, req.options())
-	if err != nil {
-		out.Status, out.Error = "not_replayed", err.Error()
-		return out
-	}
-	out.Result = &res
-	by := username(r)
 	detail := describeReplay(req)
-	if res.Status == registry.RunFailed {
-		out.Status, out.Error = "failed", firstStepError(res)
-		_ = ds.AddDeadLetterEvent(ctx, d.ID, storage.NewDeadLetterEvent("replay_failed", by, detail+": "+out.Error))
-		return out
+	o := h.Registry.ReplayAndSettleDeadLetter(ctx, ds, wf, d, req.options(), username(r), detail)
+	out := replayOutcome{ID: d.ID, Status: o.Status, Error: o.Error, Result: o.Result}
+	if o.Status == registry.ReplayReplayed {
+		h.RecordAuditLog(r, "INFO", "Replayed dead letter "+d.ID, "REPLAY_DEAD_LETTER", d.WorkflowID, "", d.SinkID,
+			map[string]string{"dead_letter_id": d.ID, "message_id": d.MessageID, "detail": detail})
 	}
-	if err := ds.SettleDeadLetter(ctx, d.ID, storage.DeadLetterReplayed, storage.NewDeadLetterEvent("replayed", by, detail)); err != nil &&
-		!errors.Is(err, storage.ErrDeadLetterSettled) {
-		h.Registry.GetLogger().Error("A dead letter was replayed but could not be marked replayed",
-			"dead_letter_id", d.ID, "error", err)
-	}
-	out.Status = "replayed"
-	h.RecordAuditLog(r, "INFO", "Replayed dead letter "+d.ID, "REPLAY_DEAD_LETTER", d.WorkflowID, "", d.SinkID,
-		map[string]string{"dead_letter_id": d.ID, "message_id": d.MessageID, "detail": detail})
 	return out
 }
 
@@ -376,15 +351,6 @@ func describeReplay(req replayRequest) string {
 		parts = append(parts, "from the failed node")
 	}
 	return strings.Join(parts, ", ")
-}
-
-func firstStepError(res registry.RunResult) string {
-	for _, s := range res.Steps {
-		if s.Error != "" {
-			return s.Error
-		}
-	}
-	return "the message failed again"
 }
 
 // bulkRequest names dead letters for a replay, discard or export.
@@ -480,9 +446,9 @@ func (h *Handler) bulkTarget(r *http.Request, ds storage.DeadLetterStore, id str
 	return d, ""
 }
 
-// Discard takes each named dead letter out of the queue. The message stays in
-// the workflow's dead-letter sink; this is the page's record that it was
-// dealt with.
+// Discard takes each named dead letter out of the queue: the message is
+// given up on, and the record stays on the page, marked discarded, until
+// retention removes it.
 func (h *Handler) Discard(w http.ResponseWriter, r *http.Request) {
 	ds, ok := h.store(w)
 	if !ok {

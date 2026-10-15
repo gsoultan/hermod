@@ -151,9 +151,9 @@ func (g *SelfCorrectionGate) applyFix(workflowID, nodeID string, action Correcti
 			fmt.Sprintf("Workflow '%s' is averaging more than a second per message. Consider a smaller batch size on its slowest sink.", workflowID))
 	case ActionSafeMode:
 		// Advisory only. The node counters are lifetime totals, so acting on
-		// them would pin the whole workflow to the dead-letter sink long after
+		// them would pin the whole workflow to the dead-letter queue long after
 		// the failures stopped; an operator decides.
-		g.notify(workflowID, "CRITICAL: Safe Mode recommended", fmt.Sprintf("Node '%s' of workflow '%s' is failing more than half of its messages. Consider enabling Safe Mode to divert traffic to the dead-letter sink while you investigate.", nodeID, workflowID))
+		g.notify(workflowID, "CRITICAL: Safe Mode recommended", fmt.Sprintf("Node '%s' of workflow '%s' is failing more than half of its messages. Consider enabling Safe Mode to divert traffic to the Dead Letters page while you investigate.", nodeID, workflowID))
 	case ActionSuggestMapping:
 		g.suggestMapping(workflowID, nodeID, status.NodeSamples)
 	case ActionNotifyOperator:

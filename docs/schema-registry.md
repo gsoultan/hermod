@@ -19,7 +19,7 @@ Configuration:
 
 Messages that fail validation are:
 - Logged as errors in the live workflow logs.
-- Automatically redirected to the **Dead Letter Sink** (if configured).
+- Kept on the **Dead Letters** page when the workflow keeps failed messages there.
 - Dropped from the pipeline to prevent downstream corruption.
 
 ### Confluent Schema Registry interop

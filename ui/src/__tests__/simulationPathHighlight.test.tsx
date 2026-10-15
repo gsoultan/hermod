@@ -165,7 +165,7 @@ describe('the canvas after a simulation', () => {
       nodeMetrics: {},
       nodeErrorMetrics: {},
       edgeThroughput: {},
-      deadLetterSinkID: '',
+      deadLetters: true,
     })
   })
 

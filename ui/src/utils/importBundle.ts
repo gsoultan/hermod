@@ -25,7 +25,6 @@ export interface ImportWorkflow {
   id: string
   name: string
   vhost?: string
-  dead_letter_sink_id?: string
   nodes: ImportNode[]
   edges: any[]
   [key: string]: any
@@ -309,10 +308,6 @@ export function applyConflictDecisions(
         }
       }
     }
-  }
-
-  if (next.workflow.dead_letter_sink_id) {
-    next.workflow.dead_letter_sink_id = rewrite(next.workflow.dead_letter_sink_id)!
   }
 
   // The workflow last: its own ID is not referenced by anything in the bundle.

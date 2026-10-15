@@ -158,12 +158,11 @@ describe('detectConflicts', () => {
 })
 
 describe('applyConflictDecisions', () => {
-  // The bundle that exercises all four places a workflow names a resource.
+  // The bundle that exercises every place a workflow names a resource.
   const bundle = (): ImportBundle => ({
     workflow: {
       id: 'wf-1',
       name: 'Orders',
-      dead_letter_sink_id: 'snk-dlq',
       nodes: [
         { id: 'n1', type: 'source', ref_id: 'src-main' },
         { id: 'n2', type: 'transformation', config: { transType: 'db_lookup', sourceId: 'src-lookup' } },
@@ -180,7 +179,6 @@ describe('applyConflictDecisions', () => {
     ],
     sinks: [
       { id: 'snk-out', name: 'Out', type: 'postgres', config: {} },
-      { id: 'snk-dlq', name: 'DLQ', type: 'postgres', config: {} },
     ],
   })
 
@@ -215,13 +213,12 @@ describe('applyConflictDecisions', () => {
     expect(lookup.id).not.toBe(sql.id)
   })
 
-  it('rewrites a copied sink at its node and at the dead-letter reference', () => {
-    const out = applyConflictDecisions(bundle(), { 'snk-out': 'copy', 'snk-dlq': 'copy' }, seq())
+  it('rewrites a copied sink at its node', () => {
+    const out = applyConflictDecisions(bundle(), { 'snk-out': 'copy' }, seq())
     const out1 = out.sinks.find((s) => s.name === 'Out')!
-    const dlq = out.sinks.find((s) => s.name === 'DLQ')!
 
     expect(out.workflow.nodes[3].ref_id).toBe(out1.id)
-    expect(out.workflow.dead_letter_sink_id).toBe(dlq.id)
+    expect(out1.id).not.toBe('snk-out')
   })
 
   it('gives the workflow a new ID without disturbing its node IDs', () => {

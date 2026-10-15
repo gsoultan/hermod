@@ -231,7 +231,10 @@ func (s *mongoStorage) DeadLetterStats(ctx context.Context, vhosts []string, now
 }
 
 func (s *mongoStorage) PurgeDeadLetters(ctx context.Context, cutoff time.Time) (int64, error) {
-	res, err := s.db.Collection(deadLettersCollection).DeleteMany(ctx, bson.M{"failed_at": bson.M{"$lt": cutoff.UTC()}})
+	res, err := s.db.Collection(deadLettersCollection).DeleteMany(ctx, bson.M{
+		"failed_at": bson.M{"$lt": cutoff.UTC()},
+		"status":    bson.M{"$ne": string(storage.DeadLetterQueued)},
+	})
 	if err != nil {
 		return 0, fmt.Errorf("purging dead letters: %w", err)
 	}

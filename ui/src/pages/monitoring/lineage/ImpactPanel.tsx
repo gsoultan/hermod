@@ -5,7 +5,7 @@ import { relationLabel } from '@/lib/lineage'
 import { kindWords } from './LineageGraphView'
 
 /** How an asset downstream is reached, by the relation into it. */
-const writtenWords: Record<string, string> = { writes: 'written by', dead_letter: 'dead-lettered by', trains: 'trained by' }
+const writtenWords: Record<string, string> = { writes: 'written by', trains: 'trained by' }
 
 const plural =(n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
 

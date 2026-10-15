@@ -13,7 +13,7 @@ Key Metrics:
 - `hermod_engine_sink_writes_total`: Successful writes per sink.
 - `hermod_engine_sink_write_errors_total`: Failed writes per sink.
 - `hermod_engine_processing_duration_seconds`: End-to-end processing latency.
-- `hermod_engine_dead_letter_total`: Messages sent to the Dead Letter Sink.
+- `hermod_engine_dead_letter_total`: Messages parked as dead letters (kept on the Dead Letters page).
 
 Workflow Metrics:
 - `hermod_workflow_node_processed_total`: Number of messages processed by a specific workflow node.

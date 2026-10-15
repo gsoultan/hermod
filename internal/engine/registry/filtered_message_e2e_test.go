@@ -18,8 +18,8 @@ import (
 // "the workflow has sinks and routed this to none of them", which is also what
 // a sink that could not be resolved looks like — and since the day that shape
 // was found acknowledging records during a sink outage, the engine has refused
-// to treat it as handled: it parks the record in the dead-letter sink, or with
-// none configured leaves it unacknowledged, and counts it as undeliverable.
+// to treat it as handled: it parks the record on the Dead Letters page, or with
+// dead letters off leaves it unacknowledged, and counts it as undeliverable.
 //
 // That is the right answer for a record nothing could deliver and the wrong
 // one for a record a filter was asked to drop.
@@ -75,7 +75,7 @@ func (s *twoRecordSource) wasAcked(id string) bool {
 	return s.acked[id]
 }
 
-func filterWorkflow(deadLetterSinkID string) storage.Workflow {
+func filterWorkflow(deadLetters bool) storage.Workflow {
 	return storage.Workflow{
 		ID:   "wf-filter",
 		Name: "wf-filter",
@@ -93,18 +93,19 @@ func filterWorkflow(deadLetterSinkID string) storage.Workflow {
 			{ID: "e1", SourceID: "src", TargetID: "only-kept"},
 			{ID: "e2", SourceID: "only-kept", TargetID: "out"},
 		},
-		DeadLetterSinkID: deadLetterSinkID,
-		MaxRetries:       1,
-		RetryInterval:    "10ms",
+		DeadLetters:   deadLetters,
+		MaxRetries:    1,
+		RetryInterval: "10ms",
 	}
 }
 
 func TestARecordAFilterDropsIsNotDeadLettered(t *testing.T) {
-	reg := NewRegistry(newPipeStorage())
-	sinks := map[string]*pipeSink{"snk-out": {name: "out"}, "snk-dlq": {name: "dlq"}}
+	st := newPipeDeadLetterStorage()
+	reg := NewRegistry(st)
+	sinks := map[string]*pipeSink{"snk-out": {name: "out"}}
 	src := &twoRecordSource{}
 
-	stop := startForeachPipeline(t, reg, filterWorkflow("snk-dlq"), src, sinks)
+	stop := startForeachPipeline(t, reg, filterWorkflow(true), src, sinks)
 	defer stop()
 
 	if !waitUntil(t, 15*time.Second, "the kept record to be delivered", func() bool {
@@ -120,8 +121,8 @@ func TestARecordAFilterDropsIsNotDeadLettered(t *testing.T) {
 	if got := sinks["snk-out"].count(); got != 1 {
 		t.Errorf("the sink received %d records, want only the one the filter kept", got)
 	}
-	if got := sinks["snk-dlq"].count(); got != 0 {
-		t.Errorf("the dead-letter sink holds %d record(s): a record the filter dropped "+
+	if got := len(st.all()); got != 0 {
+		t.Errorf("the Dead Letters page holds %d record(s): a record the filter dropped "+
 			"on purpose was parked as though it had failed", got)
 	}
 	if !src.wasAcked("dropped") {
@@ -129,7 +130,7 @@ func TestARecordAFilterDropsIsNotDeadLettered(t *testing.T) {
 	}
 }
 
-// With no dead-letter sink the dropped record has nowhere to be parked, and the
+// With dead letters off the dropped record has nowhere to be parked, and the
 // engine leaves it unacknowledged. For a replication slot that is a record the
 // source believes is still outstanding.
 func TestARecordAFilterDropsIsAcknowledged(t *testing.T) {
@@ -137,7 +138,7 @@ func TestARecordAFilterDropsIsAcknowledged(t *testing.T) {
 	sinks := map[string]*pipeSink{"snk-out": {name: "out"}}
 	src := &twoRecordSource{}
 
-	stop := startForeachPipeline(t, reg, filterWorkflow(""), src, sinks)
+	stop := startForeachPipeline(t, reg, filterWorkflow(false), src, sinks)
 	defer stop()
 
 	if !waitUntil(t, 15*time.Second, "the kept record to be delivered", func() bool {

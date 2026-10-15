@@ -8,7 +8,7 @@
 // The settings Save writes. Run state (active, status) is not among them: it
 // changes underneath the editor without anyone editing anything.
 const PERSISTED_SETTINGS = [
-  'name', 'vhost', 'workerID', 'deadLetterSinkID', 'dlqThreshold', 'prioritizeDLQ',
+  'name', 'vhost', 'workerID', 'deadLetters', 'dlqThreshold', 'prioritizeDLQ',
   'maxRetries', 'retryInterval', 'reconnectInterval', 'schemaType', 'schema', 'tags',
   'dryRun', 'workspaceID', 'cpuRequest', 'memoryRequest', 'throughputRequest',
   'idleTimeout', 'tier', 'cron', 'retentionDays', 'traceSampleRate', 'traceRetention',

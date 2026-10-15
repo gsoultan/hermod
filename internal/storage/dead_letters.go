@@ -37,7 +37,7 @@ var ErrDeadLetterSettled = errors.New("this dead letter has already been replaye
 var ErrDeadLettersUnsupported = errors.New("this storage backend cannot keep dead letters")
 
 // DeadLetter is one message a workflow could not deliver, as Hermod keeps it
-// whatever the workflow's dead-letter sink is: what failed, where, why, and
+// for the Dead Letters page: what failed, where, why, and
 // the message itself, so it can be read, replayed or discarded from the UI.
 type DeadLetter struct {
 	ID         string `json:"id"`
@@ -124,7 +124,9 @@ type DeadLetterStore interface {
 	// replay that failed and left the dead letter in the queue.
 	AddDeadLetterEvent(ctx context.Context, id string, ev DeadLetterEvent) error
 	DeadLetterStats(ctx context.Context, vhosts []string, now time.Time) (DeadLetterStats, error)
-	// PurgeDeadLetters deletes dead letters that failed before cutoff.
+	// PurgeDeadLetters deletes dead letters that failed before cutoff and
+	// were replayed or discarded. One still waiting is the only copy of its
+	// message, so it stays until someone deals with it.
 	PurgeDeadLetters(ctx context.Context, cutoff time.Time) (int64, error)
 }
 

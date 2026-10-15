@@ -46,13 +46,12 @@ const (
 
 // Edge relations. Every edge points the way data flows.
 const (
-	RelReads      = "reads"       // asset -> workflow
-	RelLooksUp    = "looks_up"    // asset -> workflow, per message enrichment
-	RelRetrieves  = "retrieves"   // vector index -> workflow
-	RelPredicts   = "predicts"    // model -> workflow
-	RelWrites     = "writes"      // workflow -> asset
-	RelDeadLetter = "dead_letter" // workflow -> its dead-letter sink's asset
-	RelTrains     = "trains"      // workflow -> model, or dataset -> model
+	RelReads     = "reads"     // asset -> workflow
+	RelLooksUp   = "looks_up"  // asset -> workflow, per message enrichment
+	RelRetrieves = "retrieves" // vector index -> workflow
+	RelPredicts  = "predicts"  // model -> workflow
+	RelWrites    = "writes"    // workflow -> asset
+	RelTrains    = "trains"    // workflow -> model, or dataset -> model
 )
 
 // Ref is a stored record that points at an asset: a source or sink.

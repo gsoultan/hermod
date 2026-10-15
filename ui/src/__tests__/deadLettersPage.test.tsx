@@ -108,12 +108,12 @@ describe('Dead letters page', () => {
     expect(within(table).getByText('connection refused')).toBeInTheDocument()
   })
 
-  it('says which workflows land here and that the sink keeps its own copy', async () => {
+  it('says which workflows land here, with no mention of a dead letter sink', async () => {
     deadLetterApi()
     renderPage()
 
-    expect(await screen.findByText(/workflows with a dead letter sink/i)).toBeInTheDocument()
-    expect(screen.getByText(/does not remove the copy in the workflow's dead letter sink/i)).toBeInTheDocument()
+    expect(await screen.findByText(/workflows that keep failed messages here/i)).toBeInTheDocument()
+    expect(screen.queryByText(/dead.letter sink/i)).not.toBeInTheDocument()
   })
 
   it('searches, and asks only for waiting messages by default', async () => {

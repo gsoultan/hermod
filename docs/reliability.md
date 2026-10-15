@@ -31,19 +31,20 @@ Valid JSON keeps its decoded type; bytes that are not JSON at all are kept as te
 
 This matters for sinks that serialise the whole message, meaning any sink configured with `format: json` or `format: cdc`. A sink with no `format` set publishes the raw payload bytes directly and is unaffected either way.
 
-### Dead Letter Sink (DLQ) Prioritization
+### Dead letters
 
-In high-reliability scenarios, some messages might fail to be written to the primary sink even after all retry attempts. Hermod can redirect these messages to a **Dead Letter Sink**.
+Some messages fail even after every retry: a sink keeps refusing them, a node cannot process them, or they fail validation. What happens next is the workflow's **Dead letters** switch (`dead_letters`), under Reliability Policy in the workflow's settings.
 
-If you want to ensure that historical failures are processed before new data (e.g., during recovery after a downstream outage), enable **DLQ Prioritization**:
+- **On** (the default for a workflow created in the editor): Hermod keeps the message in its own store and acknowledges it to the source, so the source moves on. The message is listed on the **Dead Letters** page with what failed it, where and why, and can be replayed, edited and replayed, or discarded there. If Hermod cannot store it, it is not acknowledged and stays on the source.
+- **Off**: the message is not acknowledged. It stays on the source and is delivered again, which holds the source's position (a replication slot, a queue) until the cause goes away.
 
-1.  **Configure a Dead Letter Sink**: Assign a Sink (e.g., a Postgres table) to the workflow's `dead_letter_sink_id`.
-2.  **Enable Prioritize DLQ**: Set `prioritize_dlq: true` in the workflow configuration.
-3.  **Automatic Recovery**: When the workflow starts, Hermod will first attempt to "drain" all messages from the Dead Letter Sink before switching to the primary source stream.
+A waiting dead letter is the only copy of its message, so retention (`HERMOD_DEAD_LETTER_RETENTION`, 30 days by default) removes only dead letters already replayed or discarded.
 
-**Note**: The Sink assigned as a DLQ must also implement the `hermod.Source` interface (e.g., Postgres, MySQL, NATS, Kafka).
+**Draining.** The workflow's **Drain DLQ** action replays every dead letter it has waiting, in the background, each from the node or sink that failed it, and marks each one that goes through as replayed. With **Replay dead letters on startup** (`prioritize_dlq`) it does the same each time the workflow starts, for example after a destination outage. A drain stops after five replays in a row fail, since the cause is most likely still there.
 
-A sample template for this configuration is available at `examples/templates/reliability_recovery_dlq.json`.
+Workflows saved by a release that named a dead-letter sink (`dead_letter_sink_id`) read as having dead letters on. Messages already in that sink stay there; Hermod no longer writes to or reads from it.
+
+A sample template is available at `examples/templates/reliability_recovery_dlq.json`.
 
 ## Delivery guarantee
 

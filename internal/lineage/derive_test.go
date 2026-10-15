@@ -366,15 +366,6 @@ func TestDeriveBatchSQLReadsItsDelegatesDatabase(t *testing.T) {
 	}
 }
 
-func TestDeriveDeadLetterSink(t *testing.T) {
-	dlq := storage.Sink{ID: "dlq", Type: "kafka", Config: hermod.StringMap{"brokers": "b:9092", "topic": "dlq"}}
-	in := Inputs{Sinks: []storage.Sink{dlq}, Workflows: []storage.Workflow{{ID: "wf", DeadLetterSinkID: "dlq"}}}
-	g := Derive(in)
-	if len(g.Edges) != 1 || g.Edges[0].Relation != RelDeadLetter || g.Edges[0].To != "topic:kafka://b:9092/dlq" {
-		t.Fatalf("edges = %+v", g.Edges)
-	}
-}
-
 // Two workflows connect through an asset when one writes what the other reads,
 // even though each names its own source and sink record.
 func TestDeriveJoinsWorkflowsThroughASharedAsset(t *testing.T) {

@@ -314,7 +314,7 @@ func (t *WorkflowTraversal) processNode(ctx context.Context, currID string) {
 				currNode.ID, err), currMsg.ID())
 		default:
 			t.Registry.BroadcastLog(t.WorkflowID, "ERROR", fmt.Sprintf(
-				"Node %s failed and there is no dead-letter sink, so the message is lost: %v",
+				"Node %s failed and the workflow keeps no dead letters, so the message is lost: %v",
 				currNode.ID, err), currMsg.ID())
 		}
 	}
