@@ -1696,7 +1696,7 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 		var leaseUntil sql.NullTime
 		var ownerID sql.NullString
 		var dlqSinkID, retryInterval, reconnectInterval sql.NullString
-		var prioritizeDLQ, dryRun sql.NullBool
+		var deadLetters, prioritizeDLQ, dryRun sql.NullBool
 		var maxRetries, retentionDays, dlqThreshold sql.NullInt64
 		var schemaType, schema, cron, idleTimeout, tier, workspaceID, traceRetention, auditRetention sql.NullString
 		var traceSampleRate sql.NullFloat64
@@ -1705,7 +1705,7 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 		// NULL for any workflow written before the column existed and not yet
 		// reached by the Init backfill.
 		var createdAt sql.NullTime
-		if err := rows.Scan(&wf.ID, &wf.Name, &wf.VHost, &wf.Active, &wf.Status, &wf.WorkerID, &ownerID, &leaseUntil, &nodesJSON, &edgesJSON, &dlqSinkID, &prioritizeDLQ, &maxRetries, &retryInterval, &reconnectInterval, &dryRun, &schemaType, &schema, &retentionDays, &cron, &idleTimeout, &tier, &traceSampleRate, &dlqThreshold, &tagsJSON, &workspaceID, &traceRetention, &auditRetention, &cpuReq, &memReq, &throughputReq, &totalProcessed, &totalErrors, &totalLag, &createdAt); err != nil {
+		if err := rows.Scan(&wf.ID, &wf.Name, &wf.VHost, &wf.Active, &wf.Status, &wf.WorkerID, &ownerID, &leaseUntil, &nodesJSON, &edgesJSON, &dlqSinkID, &deadLetters, &prioritizeDLQ, &maxRetries, &retryInterval, &reconnectInterval, &dryRun, &schemaType, &schema, &retentionDays, &cron, &idleTimeout, &tier, &traceSampleRate, &dlqThreshold, &tagsJSON, &workspaceID, &traceRetention, &auditRetention, &cpuReq, &memReq, &throughputReq, &totalProcessed, &totalErrors, &totalLag, &createdAt); err != nil {
 			return nil, 0, err
 		}
 		if cpuReq.Valid {
@@ -1751,9 +1751,8 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 			t := leaseUntil.Time
 			wf.LeaseUntil = &t
 		}
-		if dlqSinkID.Valid {
-			wf.DeadLetterSinkID = dlqSinkID.String
-		}
+		// A dead-letter sink named by an earlier release keeps dead letters on.
+		wf.DeadLetters = deadLetters.Bool || (dlqSinkID.Valid && dlqSinkID.String != "")
 		if prioritizeDLQ.Valid {
 			wf.PrioritizeDLQ = prioritizeDLQ.Bool
 		}
@@ -1818,7 +1817,7 @@ func (s *sqlStorage) CreateWorkflow(ctx context.Context, wf storage.Workflow) er
 	exec := func() error {
 		_, e := s.exec(ctx,
 			s.queries.get(QueryCreateWorkflow),
-			wf.ID, wf.Name, wf.VHost, wf.Active, wf.Status, wf.WorkerID, string(nodesJSON), string(edgesJSON), wf.DeadLetterSinkID, wf.PrioritizeDLQ, wf.MaxRetries, wf.RetryInterval, wf.ReconnectInterval, wf.DryRun, wf.SchemaType, wf.Schema, wf.RetentionDays, wf.Cron, wf.IdleTimeout, string(wf.Tier), wf.TraceSampleRate, wf.DLQThreshold, string(tagsJSON), wf.WorkspaceID, wf.TraceRetention, wf.AuditRetention, wf.CPURequest, wf.MemoryRequest, wf.ThroughputRequest, wf.TotalProcessed, wf.TotalErrors, wf.TotalLag, wf.CreatedAt,
+			wf.ID, wf.Name, wf.VHost, wf.Active, wf.Status, wf.WorkerID, string(nodesJSON), string(edgesJSON), "", wf.DeadLetters, wf.PrioritizeDLQ, wf.MaxRetries, wf.RetryInterval, wf.ReconnectInterval, wf.DryRun, wf.SchemaType, wf.Schema, wf.RetentionDays, wf.Cron, wf.IdleTimeout, string(wf.Tier), wf.TraceSampleRate, wf.DLQThreshold, string(tagsJSON), wf.WorkspaceID, wf.TraceRetention, wf.AuditRetention, wf.CPURequest, wf.MemoryRequest, wf.ThroughputRequest, wf.TotalProcessed, wf.TotalErrors, wf.TotalLag, wf.CreatedAt,
 		)
 		return e
 	}
@@ -1833,7 +1832,7 @@ func (s *sqlStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow) er
 	exec := func() error {
 		_, e := s.exec(ctx,
 			s.queries.get(QueryUpdateWorkflow),
-			wf.Name, wf.VHost, wf.Active, wf.Status, wf.WorkerID, string(nodesJSON), string(edgesJSON), wf.DeadLetterSinkID, wf.PrioritizeDLQ, wf.MaxRetries, wf.RetryInterval, wf.ReconnectInterval, wf.DryRun, wf.SchemaType, wf.Schema, wf.RetentionDays, wf.Cron, wf.IdleTimeout, string(wf.Tier), wf.TraceSampleRate, wf.DLQThreshold, string(tagsJSON), wf.WorkspaceID, wf.TraceRetention, wf.AuditRetention, wf.CPURequest, wf.MemoryRequest, wf.ThroughputRequest, wf.TotalProcessed, wf.TotalErrors, wf.TotalLag, wf.ID,
+			wf.Name, wf.VHost, wf.Active, wf.Status, wf.WorkerID, string(nodesJSON), string(edgesJSON), "", wf.DeadLetters, wf.PrioritizeDLQ, wf.MaxRetries, wf.RetryInterval, wf.ReconnectInterval, wf.DryRun, wf.SchemaType, wf.Schema, wf.RetentionDays, wf.Cron, wf.IdleTimeout, string(wf.Tier), wf.TraceSampleRate, wf.DLQThreshold, string(tagsJSON), wf.WorkspaceID, wf.TraceRetention, wf.AuditRetention, wf.CPURequest, wf.MemoryRequest, wf.ThroughputRequest, wf.TotalProcessed, wf.TotalErrors, wf.TotalLag, wf.ID,
 		)
 		return e
 	}
@@ -1871,7 +1870,7 @@ func (s *sqlStorage) GetWorkflow(ctx context.Context, id string) (storage.Workfl
 	var leaseUntil sql.NullTime
 	var ownerID sql.NullString
 	var dlqSinkID, retryInterval, reconnectInterval sql.NullString
-	var prioritizeDLQ, dryRun sql.NullBool
+	var deadLetters, prioritizeDLQ, dryRun sql.NullBool
 	var maxRetries, retentionDays, dlqThreshold sql.NullInt64
 	var schemaType, schema, cron, idleTimeout, tier, workspaceID, traceRetention, auditRetention sql.NullString
 	var traceSampleRate sql.NullFloat64
@@ -1880,7 +1879,7 @@ func (s *sqlStorage) GetWorkflow(ctx context.Context, id string) (storage.Workfl
 	// NULL for any workflow written before the column existed and not yet
 	// reached by the Init backfill.
 	var createdAt sql.NullTime
-	if err := row.Scan(&wf.ID, &wf.Name, &wf.VHost, &wf.Active, &wf.Status, &wf.WorkerID, &ownerID, &leaseUntil, &nodesJSON, &edgesJSON, &dlqSinkID, &prioritizeDLQ, &maxRetries, &retryInterval, &reconnectInterval, &dryRun, &schemaType, &schema, &retentionDays, &cron, &idleTimeout, &tier, &traceSampleRate, &dlqThreshold, &tagsJSON, &workspaceID, &traceRetention, &auditRetention, &cpuReq, &memReq, &throughputReq, &totalProcessed, &totalErrors, &totalLag, &createdAt); err != nil {
+	if err := row.Scan(&wf.ID, &wf.Name, &wf.VHost, &wf.Active, &wf.Status, &wf.WorkerID, &ownerID, &leaseUntil, &nodesJSON, &edgesJSON, &dlqSinkID, &deadLetters, &prioritizeDLQ, &maxRetries, &retryInterval, &reconnectInterval, &dryRun, &schemaType, &schema, &retentionDays, &cron, &idleTimeout, &tier, &traceSampleRate, &dlqThreshold, &tagsJSON, &workspaceID, &traceRetention, &auditRetention, &cpuReq, &memReq, &throughputReq, &totalProcessed, &totalErrors, &totalLag, &createdAt); err != nil {
 		if err == sql.ErrNoRows {
 			return storage.Workflow{}, storage.ErrNotFound
 		}
@@ -1929,9 +1928,8 @@ func (s *sqlStorage) GetWorkflow(ctx context.Context, id string) (storage.Workfl
 		t := leaseUntil.Time
 		wf.LeaseUntil = &t
 	}
-	if dlqSinkID.Valid {
-		wf.DeadLetterSinkID = dlqSinkID.String
-	}
+	// A dead-letter sink named by an earlier release keeps dead letters on.
+	wf.DeadLetters = deadLetters.Bool || (dlqSinkID.Valid && dlqSinkID.String != "")
 	if prioritizeDLQ.Valid {
 		wf.PrioritizeDLQ = prioritizeDLQ.Bool
 	}

@@ -115,11 +115,6 @@ func (b *builder) addWorkflow(wf storage.Workflow) {
 			}
 		}
 	}
-
-	if s, ok := b.sinks[wf.DeadLetterSinkID]; ok && wf.DeadLetterSinkID != "" {
-		as, ref := b.sinkAssets(s)
-		b.link(as, &ref, Edge{From: wfID, Relation: RelDeadLetter, WorkflowID: wf.ID})
-	}
 }
 
 // link adds each asset and an edge like e to or from it: e names the

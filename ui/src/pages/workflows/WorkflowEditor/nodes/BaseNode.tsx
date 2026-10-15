@@ -64,31 +64,6 @@ export const TargetHandle = ({ position, color, style }: any) => {
   );
 };
 
-/**
- * An invisible attachment point for an edge the editor draws itself, such as
- * the dead-letter edges. React Flow draws no edge it cannot attach to a handle
- * of the right type, and a sink has no source handle, so without this those
- * edges were never drawn. Nothing can be dragged from or connected to it.
- */
-export const AnchorHandle = ({ type, position, id }: { type: 'source' | 'target'; position: Position; id: string }) => (
-  <Handle
-    type={type}
-    position={position}
-    id={id}
-    isConnectable={false}
-    style={{
-      opacity: 0,
-      pointerEvents: 'none',
-      width: 1,
-      height: 1,
-      minWidth: 0,
-      minHeight: 0,
-      border: 'none',
-      background: 'transparent',
-    }}
-  />
-);
-
 export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected }: {
   id: string, 
   type: string, 
@@ -132,7 +107,6 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
       bufferFill: state.sinkBufferFill[data.ref_id],
       sourceStatus: state.sourceStatus,
       sinkStatus: state.sinkStatuses[data.ref_id],
-      workflowDeadLetterCount: state.workflowDeadLetterCount,
       // The same object until the next run, so a telemetry frame does not
       // re-render the node on its account.
       simulation: nodeSimulationResult(state.testResults, id),
@@ -144,7 +118,7 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
   const sample = live.sample ?? data.sample;
   const cbStatus = live.cbStatus ?? data.cbStatus;
   const bufferFill = live.bufferFill ?? data.bufferFill;
-  const { sourceStatus, sinkStatus, workflowDeadLetterCount, simulation } = live;
+  const { sourceStatus, sinkStatus, simulation } = live;
 
   const nodeStatus = type === 'Source' ? sourceStatus : (type === 'Sink' ? sinkStatus : null);
 
@@ -155,7 +129,7 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
   const simulationColor = simulation ? SIMULATION_STATUS_STYLE[simulation.status].color : null;
   const reached = simulation && simulation.status !== 'skipped';
   const faded = simulation?.status === 'skipped' && !hovered && !selected;
-  const borderStyle = data.isDLQ ? 'dashed' : 'solid';
+  const borderStyle = 'solid';
   const borderWidth = errorCount > 0 ? '3px' : '2px';
   
   // Reliability Indicators
@@ -311,28 +285,10 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
           />
         </Box>
       )}
-      {data.isDLQ && (
-        <Box 
-          style={{ 
-            position: 'absolute', 
-            top: -10, 
-            left: 10,
-            background: 'var(--mantine-color-orange-6)',
-            borderRadius: '4px',
-            padding: '2px 6px',
-            color: 'white',
-            fontSize: 'var(--mantine-font-size-xs)',
-            fontWeight: 800,
-            zIndex: 10
-          }}
-        >
-          DEAD LETTER SINK
-        </Box>
-      )}
       <Box style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
         <Box 
           style={{ 
-            background: data.isDLQ ? 'var(--mantine-color-orange-1)' : `var(--mantine-color-${color}-1)`, 
+            background: `var(--mantine-color-${color}-1)`, 
             padding: '4px', 
             borderRadius: '4px',
             display: 'flex',
@@ -340,7 +296,7 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
             justifyContent: 'center'
           }}
         >
-          <Icon size="1.2rem" color={data.isDLQ ? 'var(--mantine-color-orange-6)' : `var(--mantine-color-${color}-6)`} />
+          <Icon size="1.2rem" color={`var(--mantine-color-${color}-6)`} />
         </Box>
         <Box style={{ flex: 1, overflow: 'hidden' }}>
           <Text size="xs" fw={700} c="dimmed" style={{ textTransform: 'uppercase', letterSpacing: '0.5px', fontSize: 'var(--mantine-font-size-xs)' }}>
@@ -380,9 +336,9 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
         </Box>
       )}
 
-      {(data.dlqCount !== undefined || (data.isDLQ && workflowDeadLetterCount > 0)) && (
+      {data.dlqCount !== undefined && (
         <Box style={{ position: 'absolute', bottom: -8, left: 10, background: 'var(--mantine-color-orange-6)', color: 'white', borderRadius: '10px', padding: '0 6px', fontSize: 'var(--mantine-font-size-xs)', fontWeight: 700 }}>
-          ⚠️ {(data.dlqCount || (data.isDLQ ? workflowDeadLetterCount : 0)).toLocaleString()} FAILED
+          ⚠️ {(data.dlqCount || 0).toLocaleString()} FAILED
         </Box>
       )}
 

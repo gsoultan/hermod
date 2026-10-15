@@ -49,9 +49,9 @@ func retryWorkflow(retry map[string]any) storage.Workflow {
 			{ID: "e1", SourceID: "src", TargetID: "flaky"},
 			{ID: "e2", SourceID: "flaky", TargetID: "out"},
 		},
-		DeadLetterSinkID: "snk-dlq",
-		MaxRetries:       1,
-		RetryInterval:    "10ms",
+		DeadLetters:   true,
+		MaxRetries:    1,
+		RetryInterval: "10ms",
 	}
 }
 
@@ -60,8 +60,9 @@ func retryWorkflow(retry map[string]any) storage.Workflow {
 func TestANodeRetryPolicyRetriesInARunningWorkflow(t *testing.T) {
 	flaky.calls.Store(0)
 	flaky.failUntil.Store(2)
-	reg := NewRegistry(newPipeStorage())
-	sinks := map[string]*pipeSink{"snk-out": {name: "out"}, "snk-dlq": {name: "dlq"}}
+	st := newPipeDeadLetterStorage()
+	reg := NewRegistry(st)
+	sinks := map[string]*pipeSink{"snk-out": {name: "out"}}
 
 	stop := startForeachPipeline(t, reg,
 		retryWorkflow(map[string]any{"maxAttempts": float64(3), "backoff": "5ms"}),
@@ -76,7 +77,7 @@ func TestANodeRetryPolicyRetriesInARunningWorkflow(t *testing.T) {
 	if got := flaky.calls.Load(); got != 3 {
 		t.Errorf("the node ran %d times, want 3 (two failures, then success)", got)
 	}
-	if got := sinks["snk-dlq"].count(); got != 0 {
+	if got := len(st.all()); got != 0 {
 		t.Errorf("%d message(s) were dead-lettered although a retry succeeded", got)
 	}
 }
@@ -86,8 +87,9 @@ func TestANodeRetryPolicyRetriesInARunningWorkflow(t *testing.T) {
 func TestANodeThatFailsEveryAttemptIsDeadLettered(t *testing.T) {
 	flaky.calls.Store(0)
 	flaky.failUntil.Store(-1)
-	reg := NewRegistry(newPipeStorage())
-	sinks := map[string]*pipeSink{"snk-out": {name: "out"}, "snk-dlq": {name: "dlq"}}
+	st := newPipeDeadLetterStorage()
+	reg := NewRegistry(st)
+	sinks := map[string]*pipeSink{"snk-out": {name: "out"}}
 
 	stop := startForeachPipeline(t, reg,
 		retryWorkflow(map[string]any{"maxAttempts": float64(3), "backoff": "5ms"}),
@@ -95,7 +97,7 @@ func TestANodeThatFailsEveryAttemptIsDeadLettered(t *testing.T) {
 	defer stop()
 
 	if !waitUntil(t, 15*time.Second, "the failed message to be dead-lettered", func() bool {
-		return sinks["snk-dlq"].count() >= 1
+		return len(st.all()) >= 1
 	}) {
 		t.Fatalf("the message was never dead-lettered; the node ran %d time(s)", flaky.calls.Load())
 	}

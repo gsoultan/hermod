@@ -118,6 +118,6 @@
     ],
     "max_retries": 5,
     "retry_interval": "1s",
-    "dead_letter_sink_id": "local_storage"
+    "dead_letters": true
   }
 }

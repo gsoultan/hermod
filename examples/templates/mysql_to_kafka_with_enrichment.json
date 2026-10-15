@@ -73,5 +73,6 @@
   ],
   "max_retries": 5,
   "retry_interval": "1s",
+  "dead_letters": true,
   "prioritize_dlq": true
 }

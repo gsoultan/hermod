@@ -1671,7 +1671,6 @@ func collectWorkflowRefs(wf storage.Workflow) (sources, sinks []exportRef) {
 		}
 	}
 
-	addSink(wf.DeadLetterSinkID, "")
 	return sources, sinks
 }
 

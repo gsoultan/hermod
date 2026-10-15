@@ -75,10 +75,6 @@ func TestExportImportRoundTripAcrossInstances(t *testing.T) {
 		ID: "src-lookup", Name: "Customer master", Type: "mysql", VHost: "default", Active: true,
 		Config: hermod.StringMap{"host": "crm.internal", "db_password": "s3cret-crm", "use_cdc": "false"},
 	}
-	dlqSink := storage.Sink{
-		ID: "snk-dlq", Name: "Dead letters", Type: "postgres", VHost: "default", Active: true,
-		Config: hermod.StringMap{"host": "dlq.internal", "db_password": "s3cret-dlq"},
-	}
 	outSink := storage.Sink{
 		ID: "snk-out", Name: "Warehouse", Type: "postgres", VHost: "default", Active: true,
 		Config: hermod.StringMap{"host": "dw.internal", "db_password": "s3cret-dw"},
@@ -88,7 +84,7 @@ func TestExportImportRoundTripAcrossInstances(t *testing.T) {
 			t.Fatalf("seed source %s: %v", src.ID, err)
 		}
 	}
-	for _, snk := range []storage.Sink{dlqSink, outSink} {
+	for _, snk := range []storage.Sink{outSink} {
 		if err := origin.CreateSink(ctx, snk); err != nil {
 			t.Fatalf("seed sink %s: %v", snk.ID, err)
 		}
@@ -96,7 +92,7 @@ func TestExportImportRoundTripAcrossInstances(t *testing.T) {
 
 	wf := storage.Workflow{
 		ID: "wf-orders", Name: "Orders to warehouse", VHost: "default", Active: true,
-		DeadLetterSinkID: "snk-dlq",
+		DeadLetters: true,
 		Nodes: []storage.WorkflowNode{
 			{ID: "n1", Type: "source", RefID: "src-main"},
 			{ID: "n2", Type: "transformation", Config: map[string]any{
@@ -143,8 +139,8 @@ func TestExportImportRoundTripAcrossInstances(t *testing.T) {
 		t.Errorf("imported workflow does not match: name=%q nodes=%d edges=%d",
 			gotWF.Name, len(gotWF.Nodes), len(gotWF.Edges))
 	}
-	if gotWF.DeadLetterSinkID != "snk-dlq" {
-		t.Errorf("imported workflow lost its dead-letter sink: %q", gotWF.DeadLetterSinkID)
+	if !gotWF.DeadLetters {
+		t.Error("imported workflow lost its dead letters setting")
 	}
 
 	// Every reference the workflow makes must resolve on the target. This is the
@@ -167,7 +163,7 @@ func TestExportImportRoundTripAcrossInstances(t *testing.T) {
 				ref.kind, ref.id, got.Config["db_password"], ref.password)
 		}
 	}
-	for _, id := range []string{"snk-out", "snk-dlq"} {
+	for _, id := range []string{"snk-out"} {
 		got, err := target.GetSink(ctx, id)
 		if err != nil {
 			t.Errorf("sink %s did not travel with the bundle: %v", id, err)

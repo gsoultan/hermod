@@ -10,7 +10,7 @@ Tracked actions include:
 - Workflow lifecycle (Create, Update, Delete, Start, Stop)
 - Source and Sink management
 - User authentication and role changes
-- Dead Letter Sink draining
+- Draining a workflow's dead letters
 
 Audit logs are stored in the primary database (SQL or MongoDB) and can be viewed by Administrators in the **Audit Logs** page in the dashboard.
 

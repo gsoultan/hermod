@@ -14,7 +14,6 @@ way has been wrong.
 | Node config, any node type | `sourceId` | `db_lookup` (`pkg/comm/transformer/lookup/db_lookup.go:65`) |
 | Node config, any node type | `sourceId` or `sourceID` | enrichment SQL (`pkg/comm/transformer/advanced/execute_sql.go:35`, `SQLConfig.tsx` writes both spellings) |
 | Source config, transitively | `source_id` | a `batch_sql` source delegates its connection to another source (`internal/engine/registry/registry.go:801`) |
-| Workflow | `dead_letter_sink_id` | DLQ |
 
 `collectWorkflowRefs` scans *any* node's config for the two `sourceId`
 spellings rather than matching on node type. Node type is written three

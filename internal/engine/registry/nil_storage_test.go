@@ -63,9 +63,9 @@ func TestRegistry_Methods_NilStorage(t *testing.T) {
 func TestRegistry_ValidateWorkflow_NilStorage(t *testing.T) {
 	reg := NewRegistry(nil)
 	wf := storage.Workflow{
-		ID:               "wf1",
-		PrioritizeDLQ:    true,
-		DeadLetterSinkID: "dlq1",
+		ID:            "wf1",
+		PrioritizeDLQ: true,
+		DeadLetters:   true,
 		Nodes: []storage.WorkflowNode{
 			{ID: "n1", Type: "sink", RefID: "s1"},
 		},

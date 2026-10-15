@@ -181,6 +181,26 @@ func newPipeStorage() *pipeStorage {
 	return &pipeStorage{statuses: make(map[string]string)}
 }
 
+// pipeDeadLetterStorage is a pipeStorage with a dead letter store, so a
+// workflow that keeps its dead letters has somewhere to keep them.
+type pipeDeadLetterStorage struct {
+	*pipeStorage
+	memDeadLetters
+	// workflow, when set, is what GetWorkflow returns.
+	workflow *storage.Workflow
+}
+
+func (s *pipeDeadLetterStorage) GetWorkflow(ctx context.Context, id string) (storage.Workflow, error) {
+	if s.workflow != nil && s.workflow.ID == id {
+		return *s.workflow, nil
+	}
+	return s.pipeStorage.GetWorkflow(ctx, id)
+}
+
+func newPipeDeadLetterStorage() *pipeDeadLetterStorage {
+	return &pipeDeadLetterStorage{pipeStorage: newPipeStorage()}
+}
+
 func (m *pipeStorage) GetSource(ctx context.Context, id string) (storage.Source, error) {
 	return storage.Source{ID: id, Name: id, Type: "test"}, nil
 }

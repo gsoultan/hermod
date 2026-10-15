@@ -379,15 +379,15 @@ export function Layout({ children }: LayoutProps) {
       },
       {
         id: `drain-${wf.id}`,
-        label: `Drain DLQ: ${wf.name}`,
-        description: `Prioritize dead letters before live`,
+        label: `Replay dead letters: ${wf.name}`,
+        description: `Replay the failed messages waiting on the Dead Letters page`,
         onClick: async () => {
-          if (!await confirm({ title: 'Drain dead-letter queue', message: `Drain the DLQ for "${wf.name}"?`, consequence: 'Failed messages are re-processed through the pipeline.', confirmLabel: 'Drain DLQ' })) return;
+          if (!await confirm({ title: 'Replay dead letters', message: `Replay the dead letters waiting for "${wf.name}"?`, consequence: 'Each one is sent again from the node or sink that failed it. Those that go through leave the Dead Letters page; those that fail again stay.', confirmLabel: 'Replay' })) return;
           try {
             await apiFetch(`/api/workflows/${wf.id}/drain`, { method: 'POST', silent: true });
-            notifications.show({ id: `wf-drain-${wf.id}`, title: 'DLQ', message: `Requested DLQ drain for "${wf.name}"`, color: 'blue' });
+            notifications.show({ id: `wf-drain-${wf.id}`, title: 'Dead letters', message: `Replaying the dead letters waiting for "${wf.name}"`, color: 'blue' });
           } catch (e: any) {
-            notifications.show({ id: `wf-drain-error-${wf.id}`, title: 'Error', message: e.message || 'Failed to drain DLQ', color: 'red' });
+            notifications.show({ id: `wf-drain-error-${wf.id}`, title: 'Error', message: e.message || 'Could not replay the dead letters', color: 'red' });
           }
         },
         leftSection: <IconHistory size="1.2rem" />,

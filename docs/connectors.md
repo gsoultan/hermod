@@ -134,7 +134,7 @@ inverted:
   just handed out and is deliberately not persisted.
 - The external-task source **distinguishes an acknowledgement from a success**.
   Hermod acknowledges a message it could not deliver but did preserve — a node
-  that failed, or a sink that refused, parks it in the dead-letter sink and then
+  that failed, or a sink that refused, parks it as a dead letter and then
   acknowledges so the source stops replaying it. Taken at face value that would
   complete the BPMN task, and the process would advance to its next step —
   approving the payment, shipping the order — on work that is sitting in a

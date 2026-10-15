@@ -26,7 +26,7 @@ export interface LineageNode {
 export interface LineageEdge {
   from: string
   to: string
-  relation: 'reads' | 'looks_up' | 'retrieves' | 'predicts' | 'writes' | 'dead_letter' | 'trains'
+  relation: 'reads' | 'looks_up' | 'retrieves' | 'predicts' | 'writes' | 'trains'
   workflow_id?: string
   node_id?: string
 }
@@ -81,7 +81,6 @@ const relationWords: Record<LineageEdge['relation'], string> = {
   retrieves: 'retrieves from',
   predicts: 'predicts with',
   writes: 'writes',
-  dead_letter: 'dead-letters to',
   trains: 'trains',
 }
 

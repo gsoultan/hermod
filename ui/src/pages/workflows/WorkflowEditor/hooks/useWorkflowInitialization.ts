@@ -17,7 +17,7 @@ function toStoreValues(workflow: any): any {
     workerID: workflow.worker_id || '',
     active: workflow.active || false,
     workflowStatus: workflow.status || 'Stopped',
-    deadLetterSinkID: workflow.dead_letter_sink_id || '',
+    deadLetters: workflow.dead_letters || false,
     dlqThreshold: workflow.dlq_threshold || 0,
     prioritizeDLQ: workflow.prioritize_dlq || false,
     maxRetries: workflow.max_retries || 3,

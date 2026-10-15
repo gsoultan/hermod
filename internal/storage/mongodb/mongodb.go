@@ -1004,11 +1004,15 @@ func (s *mongoStorage) ListWorkflows(ctx context.Context, filter storage.CommonF
 		var wf struct {
 			storage.Workflow `bson:",inline"`
 			ID               string `bson:"_id"`
+			// LegacyDeadLetterSinkID is the dead-letter sink an earlier release
+			// named; a workflow that had one keeps its dead letters.
+			LegacyDeadLetterSinkID string `bson:"dead_letter_sink_id"`
 		}
 		if err := cursor.Decode(&wf); err != nil {
 			return nil, 0, err
 		}
 		wf.Workflow.ID = wf.ID
+		wf.DeadLetters = wf.DeadLetters || wf.LegacyDeadLetterSinkID != ""
 		wfs = append(wfs, wf.Workflow)
 	}
 
@@ -1121,7 +1125,8 @@ func (s *mongoStorage) CreateWorkflow(ctx context.Context, wf storage.Workflow) 
 		"worker_id":           wf.WorkerID,
 		"nodes":               wf.Nodes,
 		"edges":               wf.Edges,
-		"dead_letter_sink_id": wf.DeadLetterSinkID,
+		"dead_letter_sink_id": "",
+		"dead_letters":        wf.DeadLetters,
 		"prioritize_dlq":      wf.PrioritizeDLQ,
 		"max_retries":         wf.MaxRetries,
 		"retry_interval":      wf.RetryInterval,
@@ -1156,7 +1161,8 @@ func (s *mongoStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow) 
 		"worker_id":           wf.WorkerID,
 		"nodes":               wf.Nodes,
 		"edges":               wf.Edges,
-		"dead_letter_sink_id": wf.DeadLetterSinkID,
+		"dead_letter_sink_id": "",
+		"dead_letters":        wf.DeadLetters,
 		"prioritize_dlq":      wf.PrioritizeDLQ,
 		"max_retries":         wf.MaxRetries,
 		"retry_interval":      wf.RetryInterval,
@@ -1208,6 +1214,9 @@ func (s *mongoStorage) GetWorkflow(ctx context.Context, id string) (storage.Work
 	var wf struct {
 		storage.Workflow `bson:",inline"`
 		ID               string `bson:"_id"`
+		// LegacyDeadLetterSinkID is the dead-letter sink an earlier release
+		// named; a workflow that had one keeps its dead letters.
+		LegacyDeadLetterSinkID string `bson:"dead_letter_sink_id"`
 	}
 	err := coll.FindOne(ctx, bson.M{"_id": id}).Decode(&wf)
 	if errors.Is(err, mongo.ErrNoDocuments) {
@@ -1217,6 +1226,7 @@ func (s *mongoStorage) GetWorkflow(ctx context.Context, id string) (storage.Work
 		return storage.Workflow{}, err
 	}
 	wf.Workflow.ID = wf.ID
+	wf.DeadLetters = wf.DeadLetters || wf.LegacyDeadLetterSinkID != ""
 	return wf.Workflow, nil
 }
 

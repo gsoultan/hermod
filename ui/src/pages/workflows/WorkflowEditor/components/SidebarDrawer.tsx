@@ -1,9 +1,8 @@
 import { useState, useMemo } from 'react';
 import { 
   Tabs, Stack, Group, Paper, Text, ScrollArea, Box, ThemeIcon, UnstyledButton, rem, Title, useMantineColorScheme,
-  Select, Checkbox, NumberInput, TextInput, Alert, TagsInput, Divider, ActionIcon, SimpleGrid
+  Select, Switch, Checkbox, NumberInput, TextInput, TagsInput, Divider, ActionIcon, SimpleGrid
 } from '@mantine/core';
-import type { ComboboxItem, OptionsFilter } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from '../../../../api';
 import { useShallow } from 'zustand/react/shallow';
@@ -14,12 +13,11 @@ import { CronInput } from '../../../../components/shared/CronInput';
 import { AICopilot } from '../../../../components/shared/AICopilot';
 import { NODE_CATEGORIES, categoryKey, paletteItemData } from '../constants/nodeCategories';
 import { filterCategories, matchesQuery, countMatches } from '../utils/paletteSearch';
-import { dlqRecoverySupported } from '@/utils/dlqRecovery';
 import { McpExposureSwitch } from './McpExposureSwitch';
 import { 
   IconDatabase, IconTable, IconX, IconPlus,
   IconCloudUpload, IconRobot, IconPuzzle, IconSettingsAutomation, IconAdjustments, IconShieldLock,
-  IconInfoCircle, IconRefresh, IconFilter, IconTags, IconSearch
+  IconRefresh, IconFilter, IconTags, IconSearch
 } from '@tabler/icons-react';
 interface SidebarDrawerProps {
   onDragStart: (event: any, nodeType: string, refId: string, label: string, subType: string, extraData?: any) => void;
@@ -32,11 +30,11 @@ export function SidebarDrawer({
   onDragStart, onAddItem, sources, sinks
 }: SidebarDrawerProps) {
   const { 
-    drawerOpened, drawerTab, deadLetterSinkID, dlqThreshold, prioritizeDLQ, dryRun, 
+    drawerOpened, drawerTab, deadLetters, dlqThreshold, prioritizeDLQ, dryRun, 
     maxRetries, retryInterval, reconnectInterval, workspaceID, schemaType, schema, tags,
     cpuRequest, memoryRequest, throughputRequest,
     cron,
-    setDrawerOpened, setDrawerTab, setDeadLetterSinkID, setDlqThreshold, setPrioritizeDLQ, 
+    setDrawerOpened, setDrawerTab, setDeadLetters, setDlqThreshold, setPrioritizeDLQ, 
     setDryRun, setMaxRetries, setRetryInterval, setReconnectInterval, 
     setWorkspaceID, setSchemaType, setSchema, setTags, 
     setCPURequest, setMemoryRequest, setThroughputRequest, setCron,
@@ -44,7 +42,7 @@ export function SidebarDrawer({
   } = useWorkflowStore(useShallow(state => ({
     drawerOpened: state.drawerOpened,
     drawerTab: state.drawerTab,
-    deadLetterSinkID: state.deadLetterSinkID,
+    deadLetters: state.deadLetters,
     dlqThreshold: state.dlqThreshold,
     prioritizeDLQ: state.prioritizeDLQ,
     dryRun: state.dryRun,
@@ -62,7 +60,7 @@ export function SidebarDrawer({
     nodes: state.nodes,
     setDrawerOpened: state.setDrawerOpened,
     setDrawerTab: state.setDrawerTab,
-    setDeadLetterSinkID: state.setDeadLetterSinkID,
+    setDeadLetters: state.setDeadLetters,
     setDlqThreshold: state.setDlqThreshold,
     setPrioritizeDLQ: state.setPrioritizeDLQ,
     setDryRun: state.setDryRun,
@@ -97,19 +95,6 @@ export function SidebarDrawer({
       matchesQuery({ label: r.name, subType: r.type, type: kind }, paletteSearch)
     );
 
-  // The dead-letter sink picker is searched by name and by sink type, so a
-  // vhost with many sinks can find "the kafka one" without scrolling.
-  const dlqSinkOptions = useMemo(
-    () => (Array.isArray(sinks) ? sinks : []).map((s: any) => ({ value: s.id, label: s.name })),
-    [sinks]
-  );
-  const filterDlqSinks: OptionsFilter = ({ options, search }) => {
-    const byID = new Map((Array.isArray(sinks) ? sinks : []).map((s: any) => [s.id, s]));
-    return (options as ComboboxItem[]).filter((o) =>
-      matchesQuery({ label: o.label, subType: byID.get(o.value)?.type }, search)
-    );
-  };
-
   const { colorScheme } = useMantineColorScheme();
   const isDark = colorScheme === 'dark';
 
@@ -122,26 +107,6 @@ export function SidebarDrawer({
   });
   const workspaces = workspacesResponse || [];
 
-  // Which dead-letter sinks the engine can also read back, for "Prioritize DLQ
-  // on startup" and the Drain DLQ button.
-  //
-  // This used to be a literal list of 25 sink types in this file. It had
-  // drifted both ways: it advertised four types that are not sources, so the
-  // checkbox was offered and StartWorkflow then refused the workflow, and it
-  // omitted nine that work, greying the checkbox out for them. The factory
-  // decides; the editor asks.
-  const { data: dlqRecoveryTypes } = useQuery<string[]>({
-    queryKey: ['sink-capabilities', 'dlq-recovery'],
-    queryFn: async () => {
-      // silent: a capability lookup nobody asked for should not throw a red
-      // banner over the canvas. On failure the query has no data, which
-      // dlqRecoverySupported reads as "not known yet" and answers optimistically.
-      const res = await apiFetch('/api/sinks/capabilities/dlq-recovery', { silent: true });
-      const data = await res.json();
-      return Array.isArray(data?.types) ? data.types : [];
-    },
-    staleTime: Infinity,
-  });
 
   const { data: plugins } = useQuery<any[]>({
     queryKey: ['marketplace', 'plugins', 'installed'],
@@ -211,9 +176,6 @@ export function SidebarDrawer({
       </Stack>
     );
   };
-
-  const selectedDLQSink = (sinks || []).find(s => s.id === deadLetterSinkID);
-  const dlqSupportsRecovery = dlqRecoverySupported(selectedDLQSink, dlqRecoveryTypes);
 
   const renderDraggableItem = (item: any) => (
     <UnstyledButton
@@ -498,19 +460,18 @@ export function SidebarDrawer({
                     </Group>
                     
                     <Stack gap="md">
-                      <Select
-                        label="Dead Letter Sink"
-                        placeholder="None"
-                        data={dlqSinkOptions}
-                        searchable
-                        filter={filterDlqSinks}
-                        nothingFoundMessage="No sinks match"
-                        value={deadLetterSinkID}
-                        onChange={(val) => setDeadLetterSinkID(val || '')}
-                        clearable
+                      <Switch
+                        label="Keep failed messages on the Dead Letters page"
+                        description={deadLetters
+                          ? 'A message that still fails after its retries is kept on the Dead Letters page, to replay or discard there, and the source moves on.'
+                          : 'Failed messages stay on the source and are retried, which holds the source back until they go through.'}
+                        checked={deadLetters}
+                        onChange={(e) => {
+                          const on = e.currentTarget.checked;
+                          setDeadLetters(on);
+                          if (!on) setPrioritizeDLQ(false);
+                        }}
                         size="xs"
-                        description="Sink for messages that exhaust retries. Each one is also listed on the Dead Letters page; without one, nothing reaches that page."
-                        error={deadLetterSinkID && !dlqSupportsRecovery ? "This sink type cannot be read back for recovery" : null}
                       />
                       <NumberInput
                         label="DLQ Alert Threshold"
@@ -521,17 +482,13 @@ export function SidebarDrawer({
                         size="xs"
                         description="Trigger alert when DLQ reaches this count"
                       />
-                      {deadLetterSinkID && !dlqSupportsRecovery && (
-                        <Alert color="yellow" icon={<IconInfoCircle size="0.8rem" />} py="xs" styles={{ message: { fontSize: rem(10) } }}>
-                          Draining the queue means reading messages back out of it, so the dead-letter sink has to be a type Hermod can also read as a source.
-                        </Alert>
-                      )}
                       <Stack gap="xs">
                         <Checkbox 
-                          label={<Text size="xs" fw={500}>Prioritize DLQ on startup</Text>}
+                          label={<Text size="xs" fw={500}>Replay dead letters on startup</Text>}
+                          description="Each time the workflow starts, replay what it has waiting on the Dead Letters page."
                           checked={prioritizeDLQ}
                           onChange={(e) => setPrioritizeDLQ(e.currentTarget.checked)}
-                          disabled={!!(deadLetterSinkID && !dlqSupportsRecovery)}
+                          disabled={!deadLetters}
                         />
                         
                         <Checkbox 

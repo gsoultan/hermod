@@ -7,6 +7,39 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Changed — No more dead letter sink: Hermod keeps failed messages itself
+
+A workflow's **Dead Letter Sink** setting is gone. Choosing a sink to park
+failed messages in duplicated the Dead Letters page, and a message replayed or
+discarded on the page stayed in that sink and could be sent again by a later
+drain. In its place is one switch under Reliability Policy, **Keep failed
+messages on the Dead Letters page**:
+
+- **On** (the default for a workflow made in the editor): a message that runs
+  out of retries is stored by Hermod and shown on the Dead Letters page, then
+  acknowledged on its source. If Hermod cannot store it, it is not
+  acknowledged and stays on the source.
+- **Off**: a failed message is not acknowledged and stays on its source, which
+  delivers it again. This is what a workflow with no dead letter sink did.
+
+**Drain DLQ** (command palette: **Replay dead letters**) and **Replay dead
+letters on startup** (was "Prioritize DLQ on startup") now replay the
+messages waiting on the Dead Letters page, one at a time, each from the node
+or sink that failed it. A drain stops after 5 failures in a row; what fails
+stays waiting with the attempt in its history. A message is never replayed by
+two callers at once.
+
+The canvas no longer draws the dead-letter edges, lineage no longer has a
+`dead_letter` relation, and `GET /api/sinks/capabilities/dlq-recovery` is
+removed. Retention now removes only replayed and discarded dead letters,
+since the page is the only copy of a waiting one.
+
+**Upgrading.** A workflow saved with a dead letter sink (`dead_letter_sink_id`)
+reads as having the switch on, in the API, in exports and in imported bundles.
+Messages already in that sink are left where they are: Hermod no longer writes
+to it or reads from it, so drain them with that system's own tools if you
+need them. The sink itself is kept as an ordinary sink.
+
 ### Added — Deep learning on little CPU, memory and disk
 
 Networks (`mlp` on the built-in engine, `pytorch_mlp` and `keras_mlp` on the
@@ -221,10 +254,9 @@ only; Panmail's own **Leave message contents out** also covers both.
 ### Added — Dead letters page
 
 **Dead Letters** in the sidebar lists every message a workflow parked after
-its retries ran out, whatever the workflow's dead-letter sink is, including
-sinks Hermod cannot read back. Hermod now keeps its own copy of each dead
-letter: the workflow, the node or sink that failed it, the error, the
-payload (up to 256 KB), the metadata and the row as it was before.
+its retries ran out. Hermod keeps each dead letter itself: the workflow, the
+node or sink that failed it, the error, the payload (up to 256 KB), the
+metadata and the row as it was before.
 
 - Summary cards: how many are waiting, how many were parked in the last
   24 hours, the most common error, and how many were replayed this week.
@@ -242,17 +274,10 @@ payload (up to 256 KB), the metadata and the row as it was before.
   Replay and discard need the Editor role. Everything is limited to the
   vhosts you can see.
 
-Dead letters are kept for 30 days (`HERMOD_DEAD_LETTER_RETENTION`, a Go
-duration). Keeping the copy never slows a workflow down: if the store falls
-behind, the copy is skipped and counted in
-`hermod_dead_letter_records_dropped_total`, and the message is still in the
-workflow's dead-letter sink. The Panmail dead-letter mail now links to this
+Replayed and discarded dead letters are kept for 30 days
+(`HERMOD_DEAD_LETTER_RETENTION`, a Go duration); waiting ones are kept until
+they are replayed or discarded. The Panmail dead-letter mail now links to this
 page, filtered to the workflow.
-
-### Added — Search in the dead letter sink picker
-
-The **Dead Letter Sink** picker in a workflow's settings now takes a search:
-type part of a sink's name or its type (for example `kafka`) to narrow the list.
 
 ### Added — Dead letters mailed through Panmail
 

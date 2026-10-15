@@ -2,7 +2,7 @@
   "name": "Reliability: Advanced Recovery & DLQ Managed Re-drive",
   "vhost": "default",
   "active": false,
-  "dead_letter_sink_id": "snk-postgres-dlq",
+  "dead_letters": true,
   "prioritize_dlq": true,
   "max_retries": 5,
   "retry_interval": "10s",

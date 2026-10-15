@@ -425,7 +425,6 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 			engCfg.ReconnectInterval = d
 		}
 	}
-	engCfg.PrioritizeDLQ = wf.PrioritizeDLQ
 	engCfg.DryRun = wf.DryRun
 	// Apply the per-workflow trace sample rate BEFORE SetConfig: SetConfig copies
 	// the config by value into the engine, so any field set on engCfg afterwards
@@ -434,26 +433,11 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 	engCfg.TraceSampleRate = wf.TraceSampleRate
 	eng.SetConfig(engCfg)
 
-	// Set Dead Letter Sink if configured
-	if wf.DeadLetterSinkID != "" {
-		dbDls, err := r.GetSinkConfig(ctx, wf.DeadLetterSinkID)
-		if err == nil {
-			dlsCfg := factory.SinkConfig{
-				ID:     dbDls.ID,
-				Type:   dbDls.Type,
-				VHost:  dbDls.VHost,
-				Config: dbDls.Config,
-			}
-			dls, err := r.createSinkInternal(ctx, dlsCfg)
-			if err == nil {
-				eng.SetDeadLetterSink(dls)
-				eng.SetDeadLetterObserver(r.deadLetterObserver(wf))
-			} else {
-				r.logger.Error("Registry: failed to create dead letter sink", "sink_id", wf.DeadLetterSinkID, "error", err)
-			}
-		} else {
-			r.logger.Error("Registry: failed to get dead letter sink", "sink_id", wf.DeadLetterSinkID, "error", err)
-		}
+	// A workflow that keeps its dead letters parks them in Hermod's own store,
+	// for the Dead Letters page. One that does not leaves them on the source.
+	if dlq := r.deadLetterQueue(wf); dlq != nil {
+		eng.SetDeadLetterSink(dlq)
+		eng.SetDeadLetterObserver(r.deadLetterObserver(wf))
 	}
 
 	// Set source config for engine reconnect loop
@@ -572,6 +556,10 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 	}
 
 	go r.runWorkflowEngine(eng, ctx, cancel, done, id, wf, ms, sinks)
+
+	if wf.PrioritizeDLQ {
+		r.drainDeadLetters(wf, "Workflow start")
+	}
 
 	return nil
 }
@@ -908,10 +896,6 @@ func (r *Registry) StopAll() {
 	}
 	wg.Wait()
 
-	// Dead letters the last engines parked are still on their way to the
-	// store; they are the ones an operator will look for after the restart.
-	r.FlushDeadLetterRecords(shutdownNotifyFlush)
-
 	// The shutdown alert is dispatched asynchronously, and the process exits
 	// straight after StopAll returns. Without this flush the one notification
 	// that says a worker went down loses the race every time. Bounded so an
@@ -927,15 +911,14 @@ func (r *Registry) StopAll() {
 	}
 }
 
-// deadLetterObserver hands each message wf parks to the dead letter store, for
-// the dead letter page, and to the dead-letter digest, which mails it through
-// panmail when that is turned on. It runs on the engine's write path, before
-// the engine releases the message: it copies what it needs and queues the
-// write, and the digest only counts and copies its first few samples.
+// deadLetterObserver hands each message wf parks to the dead-letter digest,
+// which mails it through panmail when that is turned on. The message is
+// already on the Dead Letters page: the park was the write that kept it. It
+// runs on the engine's write path, so the digest only counts and copies its
+// first few samples.
 func (r *Registry) deadLetterObserver(wf storage.Workflow) pkgengine.DeadLetterObserver {
 	ns := r.notificationService
 	return func(d pkgengine.DeadLetter) {
-		r.recordDeadLetter(wf, d)
 		if ns == nil {
 			return
 		}
@@ -1082,17 +1065,6 @@ func (r *Registry) notifyOnStatusChange(ctx context.Context, id string, update t
 			fmt.Sprintf("Workflow '%s' (ID: %s) has dead-lettered %d messages since it started, exceeding the threshold of %d",
 				workflow.Name, workflow.ID, update.DeadLetterCount, workflow.DLQThreshold), workflow)
 	}
-}
-
-func (r *Registry) DrainWorkflowDLQ(ctx context.Context, id string) error {
-	r.mu.RLock()
-	ae, ok := r.engines[id]
-	r.mu.RUnlock()
-	if !ok {
-		return fmt.Errorf("workflow engine %s not running on this worker", id)
-	}
-
-	return ae.engine.DrainDLQ(ctx)
 }
 
 func (r *Registry) StopEngineWithoutUpdate(ctx context.Context, id string) error {
@@ -1407,10 +1379,10 @@ func (r *Registry) replayLost(ctx context.Context, workflowID string, node *stor
 		return
 	}
 	r.broadcastLog(workflowID, "error", fmt.Sprintf(
-		"Node %s failed on a resumed message and there is no dead-letter sink, so the message is lost: %v",
+		"Node %s failed on a resumed message and the workflow keeps no dead letters, so the message is lost: %v",
 		r.getNodeName(*node), cause))
 	if r.logger != nil {
-		r.logger.Error("Resumed message lost: no dead-letter sink",
+		r.logger.Error("Resumed message lost: the workflow keeps no dead letters",
 			"workflow_id", workflowID, "node_id", node.ID, "error", cause)
 	}
 }

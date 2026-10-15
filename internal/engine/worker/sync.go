@@ -273,7 +273,7 @@ func (w *Worker) hasConfigChanged(wf storage.Workflow, sctx SyncContext) bool {
 // workflowRuntimeConfigDiffers reports whether a saved workflow differs from
 // the running one in any field the engine reads at build time.
 //
-// This used to compare Name, VHost and DeadLetterSinkID and nothing else, so
+// This used to compare Name, VHost and the dead-letter sink and nothing else, so
 // every other engine setting was inert on a running workflow: the reliability
 // policy in particular. Ticking "Dry-Run Mode" and saving showed the badge in
 // the editor and changed nothing in the engine, which kept writing to the real
@@ -286,7 +286,7 @@ func (w *Worker) hasConfigChanged(wf storage.Workflow, sctx SyncContext) bool {
 func workflowRuntimeConfigDiffers(cur, next storage.Workflow) bool {
 	return cur.Name != next.Name ||
 		cur.VHost != next.VHost ||
-		cur.DeadLetterSinkID != next.DeadLetterSinkID ||
+		cur.DeadLetters != next.DeadLetters ||
 		cur.PrioritizeDLQ != next.PrioritizeDLQ ||
 		cur.DryRun != next.DryRun ||
 		cur.DLQThreshold != next.DLQThreshold ||

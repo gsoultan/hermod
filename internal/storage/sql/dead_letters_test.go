@@ -233,14 +233,20 @@ func TestDeadLetterStats(t *testing.T) {
 	// in tenant-b: the top error is about what is still in this queue.
 }
 
-func TestDeadLetterPurgeRemovesOnlyOlderOnes(t *testing.T) {
+// The Dead Letters page is the only copy of a waiting dead letter, so age
+// alone never removes one: only those already replayed or discarded go.
+func TestDeadLetterPurgeRemovesOnlyOlderSettledOnes(t *testing.T) {
 	st := deadLetterStore(t)
 	ctx := t.Context()
 	now := time.Now().UTC()
-	for i, age := range []time.Duration{time.Hour, 10 * 24 * time.Hour, 40 * 24 * time.Hour} {
+	for i, age := range []time.Duration{time.Hour, 10 * 24 * time.Hour, 40 * 24 * time.Hour, 50 * 24 * time.Hour} {
 		if err := st.PutDeadLetter(ctx, sampleDeadLetter(strconv.Itoa(i), "", "wf", now.Add(-age))); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// 3 is old and still waiting; 2 is old and was replayed.
+	if err := st.SettleDeadLetter(ctx, "2", storage.DeadLetterReplayed, storage.NewDeadLetterEvent("replayed", "test", "")); err != nil {
+		t.Fatal(err)
 	}
 	n, err := st.PurgeDeadLetters(ctx, now.Add(-30*24*time.Hour))
 	if err != nil {
@@ -249,8 +255,11 @@ func TestDeadLetterPurgeRemovesOnlyOlderOnes(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("purged %d, want 1", n)
 	}
-	if _, total, _ := st.ListDeadLetters(ctx, storage.DeadLetterFilter{}); total != 2 {
-		t.Fatalf("%d left, want 2", total)
+	if _, err := st.GetDeadLetter(ctx, "3"); err != nil {
+		t.Fatalf("an old dead letter still waiting was purged: %v", err)
+	}
+	if _, total, _ := st.ListDeadLetters(ctx, storage.DeadLetterFilter{}); total != 3 {
+		t.Fatalf("%d left, want 3", total)
 	}
 }
 

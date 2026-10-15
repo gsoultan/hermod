@@ -142,7 +142,7 @@ export function useWorkflowMutations(
           workflow: { 
             name: s.name, 
             vhost: s.vhost, 
-            dead_letter_sink_id: s.deadLetterSinkID,
+            dead_letters: s.deadLetters,
             dlq_threshold: s.dlqThreshold,
             prioritize_dlq: s.prioritizeDLQ,
             max_retries: s.maxRetries,
@@ -200,7 +200,7 @@ export function useWorkflowMutations(
         active: s.active,
         status: s.workflowStatus,
         worker_id: s.workerID,
-        dead_letter_sink_id: s.deadLetterSinkID,
+        dead_letters: s.deadLetters,
         dlq_threshold: s.dlqThreshold,
         prioritize_dlq: s.prioritizeDLQ,
         max_retries: s.maxRetries,

@@ -1,5 +1,5 @@
 import { 
-  Alert, Button, Group, JsonInput, Modal, Stack, Text, Tabs, PasswordInput, Table, ScrollArea, Badge, Loader, TextInput, ThemeIcon, Code, Box, Paper, Tooltip
+  Alert, Button, Group, JsonInput, Modal, Stack, Text, Tabs, PasswordInput, ScrollArea, Badge, Loader, TextInput, ThemeIcon, Code, Box, Paper, Tooltip
 } from '@mantine/core';
 import { useShallow } from 'zustand/react/shallow';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
@@ -16,18 +16,16 @@ interface ModalsProps {
 export function Modals({ onRunSimulation, isTesting }: ModalsProps) {
   const { id: workflowID } = useParams({ strict: false }) as any;
   const { 
-    testModalOpened, dlqInspectorOpened, dlqInspectorSink, testInput,
+    testModalOpened, testInput,
     traceInspectorOpened, traceMessageID,
     sampleInspectorOpened, sampleNodeId, nodeSamples,
     complianceReportOpened,
-    setTestModalOpened, setDlqInspectorOpened, setTestInput,
+    setTestModalOpened, setTestInput,
     setTraceInspectorOpened, setSampleInspectorOpened,
     setComplianceReportOpened,
     nodes
   } = useWorkflowStore(useShallow(state => ({
     testModalOpened: state.testModalOpened,
-    dlqInspectorOpened: state.dlqInspectorOpened,
-    dlqInspectorSink: state.dlqInspectorSink,
     testInput: state.testInput,
     traceInspectorOpened: state.traceInspectorOpened,
     traceMessageID: state.traceMessageID,
@@ -36,7 +34,6 @@ export function Modals({ onRunSimulation, isTesting }: ModalsProps) {
     nodeSamples: state.nodeSamples,
     complianceReportOpened: state.complianceReportOpened,
     setTestModalOpened: state.setTestModalOpened,
-    setDlqInspectorOpened: state.setDlqInspectorOpened,
     setTestInput: state.setTestInput,
     setTraceInspectorOpened: state.setTraceInspectorOpened,
     setSampleInspectorOpened: state.setSampleInspectorOpened,
@@ -47,10 +44,6 @@ export function Modals({ onRunSimulation, isTesting }: ModalsProps) {
   const [cryptoKey, setCryptoKey] = useState('');
   const [saveStatus, setSaveStatus] = useState<null | { ok: boolean; msg: string }>(null);
 
-  // DLQ Inspector state
-  const [failedMessages, setFailedMessages] = useState<any[]>([]);
-  const [isLoadingMessages, setIsLoadingLoadingMessages] = useState(false);
-  const [messagesError, setMessagesError] = useState<string | null>(null);
 
   // Trace Inspector state
   const [traceData, setTraceData] = useState<any | null>(null);
@@ -140,40 +133,6 @@ export function Modals({ onRunSimulation, isTesting }: ModalsProps) {
       fetchTrace(traceMessageID);
     }
   }, [traceInspectorOpened, traceMessageID, fetchTrace]);
-
-  const fetchFailedMessages = useCallback(async () => {
-    if (!dlqInspectorSink) return;
-    setIsLoadingLoadingMessages(true);
-    setMessagesError(null);
-    try {
-      const res = await apiFetch('/api/sinks/browse', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sink: dlqInspectorSink,
-          table: dlqInspectorSink.config?.table || 'hermod_messages', // Guessing table name
-          limit: 50
-        })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setFailedMessages(data);
-      } else {
-        const err = await res.json();
-        setMessagesError(err.error || 'Failed to fetch messages');
-      }
-    } catch (e: any) {
-      setMessagesError(e.message);
-    } finally {
-      setIsLoadingLoadingMessages(false);
-    }
-  }, [dlqInspectorSink]);
-
-  useEffect(() => {
-    if (dlqInspectorOpened) {
-      fetchFailedMessages();
-    }
-  }, [dlqInspectorOpened, fetchFailedMessages]);
 
   function generateKey(len = 32) {
     const bytes = new Uint8Array(len);
@@ -289,77 +248,6 @@ export function Modals({ onRunSimulation, isTesting }: ModalsProps) {
           >
             Run Simulation
           </Button>
-        </Group>
-      </Stack>
-    </Modal>
-
-    <Modal
-      opened={dlqInspectorOpened}
-      onClose={() => setDlqInspectorOpened(false)}
-      title={
-        <Group gap="xs">
-          <IconSearch size="1.2rem" color="var(--mantine-color-orange-6)" />
-          <Text fw={700}>Dead Letter Sink Inspector: {dlqInspectorSink?.name}</Text>
-        </Group>
-      }
-      size="xl"
-    >
-      <Stack gap="md">
-        <Alert icon={<IconInfoCircle size="1rem" />} color="orange">
-          Below are messages that failed all retry attempts and were redirected to this DLQ sink.
-          Click a message to view failure details and original payload.
-        </Alert>
-
-        {messagesError && (
-          <Alert icon={<IconAlertCircle size="1rem" />} color="red" title="Error fetching messages">
-            {messagesError}
-          </Alert>
-        )}
-
-        <ScrollArea h={400}>
-          <Table verticalSpacing="xs">
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Time</Table.Th>
-                <Table.Th>Original Sink</Table.Th>
-                <Table.Th>Error</Table.Th>
-                <Table.Th>Actions</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {isLoadingMessages ? (
-                <Table.Tr><Table.Td colSpan={4}><Group justify="center" py="xl"><Loader size="sm" /><Text size="sm">Loading messages...</Text></Group></Table.Td></Table.Tr>
-              ) : (Array.isArray(failedMessages) ? failedMessages : []).length === 0 ? (
-                <Table.Tr><Table.Td colSpan={4}><Text ta="center" py="xl" c="dimmed">No failed messages found in this sink.</Text></Table.Td></Table.Tr>
-              ) : (Array.isArray(failedMessages) ? failedMessages : []).map((msg, idx) => (
-                <Table.Tr key={msg.id || idx}>
-                  <Table.Td>
-                    <Text size="xs">{formatDateTime(msg.metadata?._hermod_failed_at)}</Text>
-                  </Table.Td>
-                  <Table.Td>
-                    <Badge size="xs" variant="outline">{msg.metadata?._hermod_failed_sink || 'Unknown'}</Badge>
-                  </Table.Td>
-                  <Table.Td>
-                    <Text size="xs" truncate maw={300} c="red">{msg.metadata?._hermod_last_error || 'No error details'}</Text>
-                  </Table.Td>
-                  <Table.Td>
-                    <Button variant="subtle" size="xs" leftSection={<IconEye size="0.8rem" />} onClick={() => {
-                      setTestInput(msg.after || msg.payload || '{}');
-                      setDlqInspectorOpened(false);
-                      setTestModalOpened(true);
-                    }}>
-                      Inspect
-                    </Button>
-                  </Table.Td>
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
-        </ScrollArea>
-
-        <Group justify="flex-end">
-          <Button variant="outline" color="orange" onClick={fetchFailedMessages} loading={isLoadingMessages}>Refresh</Button>
-          <Button onClick={() => setDlqInspectorOpened(false)}>Close</Button>
         </Group>
       </Stack>
     </Modal>

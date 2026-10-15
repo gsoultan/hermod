@@ -204,7 +204,7 @@ test('a workflow exports with every source it references, and the wizard imports
  *
  * Choosing "import as a separate copy" hands out new ids, and every reference
  * inside the bundle has to follow — a source node's ref_id, a db_lookup's
- * sourceId, a batch_sql's source_id, the dead-letter sink. Missing one produces
+ * sourceId, a batch_sql's source_id, a sink node's ref_id. Missing one produces
  * a workflow that imports cleanly and then cannot start, which is precisely the
  * failure the export side already had. So this drives the real screen and then
  * reads the references back out of storage.

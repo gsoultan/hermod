@@ -49,10 +49,9 @@ function when(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' })
 }
 
-// DeadLettersPage lists every message a workflow parked in its dead-letter
-// sink after its retries ran out, whatever the sink's type, and replays or
-// discards them. The page keeps its own copy: replaying or discarding one here
-// leaves the sink's copy where it is.
+// DeadLettersPage lists every message a workflow that keeps dead letters
+// parked after its retries ran out, and replays or discards them. Hermod's own
+// store is the only copy.
 export function DeadLettersPage() {
   const qc = useQueryClient()
   const confirm = useConfirm()
@@ -143,7 +142,7 @@ export function DeadLettersPage() {
   const askDiscard = async (ids: string[]) => {
     const ok = await confirm({
       title: ids.length === 1 ? 'Discard this message' : `Discard ${ids.length} messages`,
-      message: 'They leave the queue on this page. The copy in the workflow\'s dead-letter sink is not touched.',
+      message: 'They leave the queue on this page and are not sent again.',
       confirmLabel: 'Discard',
     })
     if (ok) discard.mutate(ids)
@@ -178,7 +177,7 @@ export function DeadLettersPage() {
       <Group justify="space-between" align="flex-start">
         <Box>
           <Title order={2}>Dead letters</Title>
-          <Text c="dimmed" size="sm">Messages that workflows with a dead letter sink parked after their retries ran out. Replay them once the cause is fixed, or discard them. Replaying or discarding here does not remove the copy in the workflow's dead letter sink, so draining that queue later sends the message again.</Text>
+          <Text c="dimmed" size="sm">Failed messages from workflows that keep failed messages here, once their retries ran out. Replay them once the cause is fixed, or discard them.</Text>
         </Box>
         <Group gap="xs">
           <Button variant="default" leftSection={<IconDownload size={16} />} onClick={() => exportCSV()}>Export CSV</Button>

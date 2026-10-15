@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -133,24 +134,29 @@ const (
 )
 
 type Workflow struct {
-	ID                string         `json:"id"`
-	Name              string         `json:"name"`
-	VHost             string         `json:"vhost"`
-	Active            bool           `json:"active"`
-	Status            string         `json:"status,omitempty"`
-	WorkerID          string         `json:"worker_id"`
-	OwnerID           string         `json:"owner_id,omitempty"`
-	LeaseUntil        *time.Time     `json:"lease_until" omitzero:"true"`
-	Nodes             []WorkflowNode `json:"nodes"`
-	Edges             []WorkflowEdge `json:"edges"`
-	DeadLetterSinkID  string         `json:"dead_letter_sink_id,omitempty"`
-	PrioritizeDLQ     bool           `json:"prioritize_dlq,omitempty"`
-	MaxRetries        int            `json:"max_retries,omitempty"`
-	RetryInterval     string         `json:"retry_interval,omitempty"`
-	ReconnectInterval string         `json:"reconnect_interval,omitempty"`
-	DryRun            bool           `json:"dry_run,omitempty"`
-	IdleTimeout       string         `json:"idle_timeout,omitempty"` // e.g. "5m"
-	Tier              WorkflowTier   `json:"tier,omitempty"`
+	ID         string         `json:"id"`
+	Name       string         `json:"name"`
+	VHost      string         `json:"vhost"`
+	Active     bool           `json:"active"`
+	Status     string         `json:"status,omitempty"`
+	WorkerID   string         `json:"worker_id"`
+	OwnerID    string         `json:"owner_id,omitempty"`
+	LeaseUntil *time.Time     `json:"lease_until" omitzero:"true"`
+	Nodes      []WorkflowNode `json:"nodes"`
+	Edges      []WorkflowEdge `json:"edges"`
+	// DeadLetters keeps a message the workflow cannot deliver, once its
+	// retries run out, on the Dead Letters page and acknowledges it to the
+	// source. Off, the message stays on the source and is redelivered.
+	DeadLetters bool `json:"dead_letters,omitempty" bson:"dead_letters"`
+	// PrioritizeDLQ replays the workflow's waiting dead letters each time it
+	// starts. It needs DeadLetters.
+	PrioritizeDLQ     bool         `json:"prioritize_dlq,omitempty"`
+	MaxRetries        int          `json:"max_retries,omitempty"`
+	RetryInterval     string       `json:"retry_interval,omitempty"`
+	ReconnectInterval string       `json:"reconnect_interval,omitempty"`
+	DryRun            bool         `json:"dry_run,omitempty"`
+	IdleTimeout       string       `json:"idle_timeout,omitempty"` // e.g. "5m"
+	Tier              WorkflowTier `json:"tier,omitempty"`
 	// RetentionDays optionally overrides global log retention for this workflow.
 	// nil means inherit the global setting; 0 means keep forever; >0 means days to retain.
 	RetentionDays     *int     `json:"retention_days,omitempty"`
@@ -174,6 +180,25 @@ type Workflow struct {
 	// the creation time rather than the last-touched time. The bson tag is here
 	// because the mongo backend writes snake_case keys explicitly.
 	CreatedAt time.Time `json:"created_at" bson:"created_at"`
+}
+
+// UnmarshalJSON reads a workflow written by a release that named a
+// dead-letter sink instead of keeping dead letters itself: one that named a
+// sink keeps its dead letters.
+func (w *Workflow) UnmarshalJSON(b []byte) error {
+	type plain Workflow
+	var v struct {
+		plain
+		LegacyDeadLetterSinkID string `json:"dead_letter_sink_id"`
+	}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	*w = Workflow(v.plain)
+	if v.LegacyDeadLetterSinkID != "" {
+		w.DeadLetters = true
+	}
+	return nil
 }
 
 type WorkflowHealth struct {

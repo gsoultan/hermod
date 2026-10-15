@@ -28,7 +28,7 @@ Engine flags and settings:
 - `engine.drain_timeout` (default: 10s)
   - Logs a warning if sink writers take longer than this to drain on shutdown. Set `0` to wait indefinitely.
 - `prioritize_dlq` (per‑workflow)
-  - When enabled and a DLQ sink is present, Hermod drains DLQ first before consuming the primary source to avoid starvation of historical failures.
+  - When enabled, each time the workflow starts Hermod replays, in the background, the dead letters it has waiting on the Dead Letters page.
 
 Sink batching and backpressure (per sink):
 

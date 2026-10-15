@@ -1,13 +1,7 @@
 import { Position } from '@xyflow/react';
-import { Button, Stack } from '@mantine/core';
-import { AnchorHandle, BaseNode, PlusHandle, TargetHandle } from './BaseNode';
-import { useWorkflowStore, type WorkflowState } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
-import { useShallow } from 'zustand/react/shallow';
-import { useParams } from '@tanstack/react-router';
-import { apiFetch } from '../../../../api';
-import { notifications } from '@mantine/notifications';
-import { useState, memo } from 'react';
-import { IconArrowsExchange, IconBrandDiscord, IconBrandFacebook, IconBrandInstagram, IconBrandLinkedin, IconBrandSlack, IconBrandTiktok, IconBrandTwitter, IconCircles, IconCloudUpload, IconDatabase, IconDeviceFloppy, IconFileSpreadsheet, IconMail, IconMessage, IconSearch, IconSettingsAutomation, IconTerminal2, IconWorld } from '@tabler/icons-react';
+import { BaseNode, PlusHandle, TargetHandle } from './BaseNode';
+import { memo } from 'react';
+import { IconBrandDiscord, IconBrandFacebook, IconBrandInstagram, IconBrandLinkedin, IconBrandSlack, IconBrandTiktok, IconBrandTwitter, IconCircles, IconCloudUpload, IconDatabase, IconDeviceFloppy, IconFileSpreadsheet, IconMail, IconMessage, IconSettingsAutomation, IconTerminal2, IconWorld } from '@tabler/icons-react';
 const SourceNodeImpl = ({ id, data, selected }: any) => {
   const getIcon = () => {
     if (data.type === 'webhook' || data.type === 'form' || data.type === 'graphql') return IconWorld;
@@ -29,21 +23,11 @@ const SourceNodeImpl = ({ id, data, selected }: any) => {
   return (
     <BaseNode id={id} type="Source" color="blue" icon={getIcon()} data={data} selected={selected}>
       <PlusHandle type="source" position={Position.Right} nodeId={id} color="blue" />
-      {/* Where the dead-letter recovery edge comes back in, from below. */}
-      <AnchorHandle type="target" position={Position.Bottom} id="recovery" />
     </BaseNode>
   );
 };
 
 const SinkNodeImpl = ({ id, data, selected }: any) => {
-  const { id: workflowId } = useParams({ strict: false }) as any;
-  const { active, setDlqInspectorSink, setDlqInspectorOpened } = useWorkflowStore(useShallow((state: WorkflowState) => ({
-    active: state.active,
-    setDlqInspectorSink: state.setDlqInspectorSink,
-    setDlqInspectorOpened: state.setDlqInspectorOpened,
-  })));
-  const [isDraining, setIsDraining] = useState(false);
-
   const getIcon = () => {
     if (['postgres', 'mysql', 'mariadb', 'mssql', 'oracle', 'mongodb', 'cassandra', 'sqlite', 'clickhouse', 'yugabyte'].includes(data.type)) return IconDatabase;
     if (data.type === 'api' || data.type === 'http') return IconCloudUpload;
@@ -63,66 +47,9 @@ const SinkNodeImpl = ({ id, data, selected }: any) => {
     return IconDatabase;
   };
 
-  const handleInspect = (e: any) => {
-    e.stopPropagation();
-    setDlqInspectorSink({ id: data.ref_id, type: data.type, name: data.label, config: data });
-    setDlqInspectorOpened(true);
-  };
-
-  const handleDrain = async (e: any) => {
-    e.stopPropagation();
-    if (!workflowId || workflowId === 'new') return;
-    setIsDraining(true);
-    try {
-      const res = await apiFetch(`/api/workflows/${workflowId}/drain`, { method: 'POST' });
-      if (res.ok) {
-        notifications.show({ title: 'DLQ Draining', message: 'The engine will now prioritize messages from this sink.', color: 'blue' });
-      } else {
-        const err = await res.json();
-        notifications.show({ title: 'Drain Failed', message: err.error || 'Failed to trigger drain', color: 'red' });
-      }
-    } catch (err: any) {
-      notifications.show({ title: 'Error', message: err.message, color: 'red' });
-    } finally {
-      setIsDraining(false);
-    }
-  };
-
   return (
     <BaseNode id={id} type="Sink" color="green" icon={getIcon()} data={data} selected={selected}>
       <TargetHandle position={Position.Left} color="green" />
-      {/* The dead-letter edges drop from a sink's bottom into the top of the
-          dead-letter sink, which sends its recovery edge out of its left side:
-          drawn for the usual layout, with the dead-letter sink below the flow. */}
-      <AnchorHandle type="source" position={Position.Bottom} id="dlq" />
-      <AnchorHandle type="target" position={Position.Top} id="dlq-in" />
-      <AnchorHandle type="source" position={Position.Left} id="recovery-out" />
-      {data.isDLQ && (
-        <Stack gap="xs" mt="xs">
-          <Button 
-            variant="light" 
-            color="orange" 
-            size="compact-xs" 
-            fullWidth 
-            leftSection={<IconSearch size="0.7rem" />}
-            onClick={handleInspect}
-          >
-            Inspect DLQ
-          </Button>
-          <Button 
-            variant="outline" 
-            color="blue" 
-            size="compact-xs" 
-            fullWidth 
-            leftSection={<IconArrowsExchange size="0.7rem" />}
-            onClick={handleDrain}
-            loading={isDraining}
-            disabled={!active}
-          >
-            Drain Now
-          </Button>
-        </Stack>
-      )}
     </BaseNode>
   );
 };

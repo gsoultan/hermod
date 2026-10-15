@@ -225,7 +225,7 @@ import (
 //
 // dead_letters is the same case: a standalone table only the dead letter page
 // reads. A rollback stops adding to it and leaves the rows it has.
-const knownSchemaFingerprint = "1c98f6f960cdfdb0036dc126926e1d20da89651537d2dcfe052e72865ade3d43"
+const knownSchemaFingerprint = "32e61410473bf93c0660155fe5b1504375ce49d58ce836ac7a514accc5fc5288"
 
 func TestSchemaVersionIsReconsideredWhenTheSchemaChanges(t *testing.T) {
 	if got := SchemaFingerprint(); got != knownSchemaFingerprint {

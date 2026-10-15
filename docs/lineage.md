@@ -19,7 +19,6 @@ The graph comes from stored configuration only. Each asset is identified by the 
 | --- | --- |
 | Source node | The source's tables (`tables`), or its database when it runs a query; its topic, subject, stream or queue; its file, bucket or URL; its inbound path (webhook, chat, form, GraphQL, gRPC) |
 | Sink node | The sink's table, collection, topic, stream, queue, index, bucket prefix, file, URL, dataset or entity. A `failover` or `txgroup` sink adds the assets of its member sinks |
-| Dead-letter sink | The assets of the workflow's dead-letter sink (`dead_letter`) |
 | `db_lookup` | The looked-up table in the database of its `sourceId` (`looks_up`) |
 | `api_lookup`, `reference_lookup` | The endpoint at `url` and the file at `filePath` (`looks_up`) |
 | `execute_sql` | The database of its `sourceId` (`writes`). The statement itself is free SQL and is not parsed |
