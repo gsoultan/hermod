@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Gembit Soultan Shirazi. All rights reserved.
+// Copyright (c) 2025 Gembit Soultan Shirazi. All rights reserved.
 // SPDX-License-Identifier: LicenseRef-Hermod-Proprietary
 //
 // Hermod: real-time Postgres CDC and data pipelines in one Go binary.
@@ -26,7 +26,7 @@ import (
 // their syntax statement, and protoc-gen-go and protoc-gen-go-grpc both print a
 // file's leading syntax comments before their "Code generated" line, so
 // regenerating keeps the header in place.
-const copyrightHeader = `// Copyright (c) 2026 Gembit Soultan Shirazi. All rights reserved.
+const copyrightHeader = `// Copyright (c) 2025 Gembit Soultan Shirazi. All rights reserved.
 // SPDX-License-Identifier: LicenseRef-Hermod-Proprietary
 //
 // Hermod: real-time Postgres CDC and data pipelines in one Go binary.

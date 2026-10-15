@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Gembit Soultan Shirazi. All rights reserved.
+// Copyright (c) 2025 Gembit Soultan Shirazi. All rights reserved.
 // SPDX-License-Identifier: LicenseRef-Hermod-Proprietary
 //
 // Hermod: real-time Postgres CDC and data pipelines in one Go binary.
