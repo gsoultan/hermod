@@ -92,6 +92,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("PUT /api/vhosts/{vhost}/ml/datasets/{name}/file", h.EditorOnly(h.UploadDataset))
 	mux.Handle("POST /api/vhosts/{vhost}/ml/datasets/{name}/query", h.EditorOnly(h.DatasetFromQuery))
 	mux.Handle("DELETE /api/vhosts/{vhost}/ml/datasets/{name}", h.EditorOnly(h.DeleteDataset))
+	mux.Handle("GET /api/vhosts/{vhost}/ml/sources/{id}/tables", h.EditorOnly(h.SourceTables))
+	mux.Handle("GET /api/vhosts/{vhost}/ml/sources/{id}/columns", h.EditorOnly(h.SourceColumns))
+	mux.Handle("POST /api/vhosts/{vhost}/ml/sources/{id}/preview", h.EditorOnly(h.PreviewQuery))
 	mux.Handle("POST /api/vhosts/{vhost}/ml/models/{name}/train", h.EditorOnly(h.TrainModel))
 	mux.Handle("POST /api/vhosts/{vhost}/ml/train-check", h.EditorOnly(h.TrainCheck))
 	mux.HandleFunc("GET /api/vhosts/{vhost}/ml/models/{name}/versions", h.ListVersions)
@@ -200,6 +203,8 @@ func (h *Handler) fail(w http.ResponseWriter, err error) {
 		h.JsonError(w, err.Error(), http.StatusNotImplemented)
 	case errors.Is(err, ml.ErrTooManyRows), errors.Is(err, ml.ErrBadJob):
 		h.JsonError(w, err.Error(), http.StatusBadRequest)
+	case errors.Is(err, ml.ErrSourceNotFound), errors.Is(err, ml.ErrSourceTableNotFound):
+		h.JsonError(w, err.Error(), http.StatusNotFound)
 	case errors.Is(err, ml.ErrJobNotFound):
 		h.JsonError(w, "this vhost has no job by that id", http.StatusNotFound)
 	case errors.Is(err, storage.ErrMLJobsUnsupported):

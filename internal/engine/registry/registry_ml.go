@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -312,20 +313,30 @@ func (r *Registry) purgeMLPredictionLogs(ctx context.Context, store, logStore st
 	}
 }
 
-// MLDatasetFromQuery replaces a vhost's dataset with what a query on one of
-// the vhost's database sources returns. A source of another vhost is refused:
-// its credentials are not this vhost's to use.
-func (r *Registry) MLDatasetFromQuery(ctx context.Context, vhost, dataset, sourceID, query string, maxRows int) (int, error) {
+// mlSource is one of the vhost's database sources, for reading a dataset
+// from. A source of another vhost is refused: its credentials are not this
+// vhost's to use.
+func (r *Registry) mlSource(ctx context.Context, vhost, sourceID string) (storage.Source, error) {
 	src, err := r.GetSourceConfig(ctx, sourceID)
 	if err != nil {
-		return 0, fmt.Errorf("source %q: %w", sourceID, err)
+		return storage.Source{}, fmt.Errorf("source %q: %w: %w", sourceID, ml.ErrSourceNotFound, err)
 	}
 	srcVHost := src.VHost
 	if srcVHost == "" {
 		srcVHost = "default"
 	}
 	if srcVHost != vhost {
-		return 0, fmt.Errorf("source %q does not belong to vhost %q", sourceID, vhost)
+		return storage.Source{}, fmt.Errorf("source %q does not belong to vhost %q: %w", sourceID, vhost, ml.ErrSourceNotFound)
+	}
+	return src, nil
+}
+
+// MLDatasetFromQuery replaces a vhost's dataset with what a query on one of
+// the vhost's database sources returns.
+func (r *Registry) MLDatasetFromQuery(ctx context.Context, vhost, dataset, sourceID, query string, maxRows int) (int, error) {
+	src, err := r.mlSource(ctx, vhost, sourceID)
+	if err != nil {
+		return 0, err
 	}
 	svc := r.MLService()
 	if _, err := svc.Worker(); err != nil {
@@ -336,6 +347,55 @@ func (r *Registry) MLDatasetFromQuery(ctx context.Context, vhost, dataset, sourc
 		return 0, fmt.Errorf("opening source %q: %w", sourceID, err)
 	}
 	return svc.DatasetFromQuery(ctx, vhost, dataset, db, query, maxRows)
+}
+
+func mlSourceDiscoveryConfig(src storage.Source) factory.SourceConfig {
+	return factory.SourceConfig{ID: src.ID, Type: src.Type, VHost: src.VHost, Config: src.Config}
+}
+
+// MLSourceTables lists the tables of one of the vhost's database sources,
+// for building a dataset query. The source is named by id, so its
+// credentials stay on the server.
+func (r *Registry) MLSourceTables(ctx context.Context, vhost, sourceID string) ([]string, error) {
+	src, err := r.mlSource(ctx, vhost, sourceID)
+	if err != nil {
+		return nil, err
+	}
+	return r.DiscoverTables(ctx, mlSourceDiscoveryConfig(src))
+}
+
+// MLSourceColumns lists the columns of a table of one of the vhost's
+// database sources. The table must be one the source lists: some sources
+// put the name into their catalogue query as it is given.
+func (r *Registry) MLSourceColumns(ctx context.Context, vhost, sourceID, table string) ([]hermod.ColumnInfo, error) {
+	src, err := r.mlSource(ctx, vhost, sourceID)
+	if err != nil {
+		return nil, err
+	}
+	cfg := mlSourceDiscoveryConfig(src)
+	tables, err := r.DiscoverTables(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	if !slices.Contains(tables, table) {
+		return nil, fmt.Errorf("%q: %w", table, ml.ErrSourceTableNotFound)
+	}
+	return r.DiscoverSourceColumns(ctx, cfg, table)
+}
+
+// MLPreviewQuery runs a dataset query on one of the vhost's database
+// sources and returns its first rows, without the worker: what a dataset
+// filled from it would start with.
+func (r *Registry) MLPreviewQuery(ctx context.Context, vhost, sourceID, query string, limit int) (ml.QueryPreview, error) {
+	src, err := r.mlSource(ctx, vhost, sourceID)
+	if err != nil {
+		return ml.QueryPreview{}, err
+	}
+	db, err := r.GetOrOpenDB(src)
+	if err != nil {
+		return ml.QueryPreview{}, fmt.Errorf("opening source %q: %w", sourceID, err)
+	}
+	return ml.PreviewQuery(ctx, db, query, limit)
 }
 
 // trainRequest is what the Train Model node sends.

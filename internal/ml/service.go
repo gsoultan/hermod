@@ -44,6 +44,13 @@ var (
 	ErrNoLiveVersion = errors.New("no version of this model is live yet")
 	// ErrVersionNotFound is returned for a version the model does not have.
 	ErrVersionNotFound = errors.New("model version not found")
+	// ErrSourceNotFound is returned for a database source a dataset is read
+	// from that the vhost does not hold: missing, or another vhost's, whose
+	// credentials are not this vhost's to use.
+	ErrSourceNotFound = errors.New("database source not found")
+	// ErrSourceTableNotFound is returned for a table the database source
+	// does not list.
+	ErrSourceTableNotFound = errors.New("the database source has no table by that name")
 )
 
 // servingKeyPrefix marks a serving key so a leaked one is recognisable in a

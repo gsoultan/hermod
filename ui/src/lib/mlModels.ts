@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '@/api'
+import type { SourceColumn } from './mlQueryBuilder'
 
 /**
  * The wire protocols a model server can speak (pkg/ml/inference.Backend), and
@@ -761,6 +762,41 @@ export async function datasetFromQuery(
     silent: true,
   })
   return (await res.json()) as { name: string; rows: number }
+}
+
+const sourceUrl = (vhost: string, id: string) =>
+  `/api/vhosts/${encodeURIComponent(vhost)}/ml/sources/${encodeURIComponent(id)}`
+
+/** The tables of one of the vhost's database sources, for the query builder. */
+export async function listSourceTables(vhost: string, sourceId: string, signal?: AbortSignal): Promise<string[]> {
+  const res = await apiFetch(`${sourceUrl(vhost, sourceId)}/tables`, { signal, silent: true })
+  const body = await res.json()
+  return Array.isArray(body) ? (body as string[]) : []
+}
+
+/** The columns of a table of one of the vhost's database sources. */
+export async function listSourceColumns(vhost: string, sourceId: string, table: string, signal?: AbortSignal): Promise<SourceColumn[]> {
+  const res = await apiFetch(`${sourceUrl(vhost, sourceId)}/columns?table=${encodeURIComponent(table)}`, { signal, silent: true })
+  const body = await res.json()
+  return Array.isArray(body) ? (body as SourceColumn[]) : []
+}
+
+/** The first rows a dataset query returns; `more` says it returns more. */
+export interface QueryPreview {
+  columns: string[]
+  rows: Array<Record<string, unknown>>
+  more: boolean
+}
+
+/** Runs a dataset query on the source and returns its first rows, filling nothing. */
+export async function previewQuery(vhost: string, sourceId: string, query: string, limit = 20): Promise<QueryPreview> {
+  const res = await apiFetch(`${sourceUrl(vhost, sourceId)}/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, limit }),
+    silent: true,
+  })
+  return (await res.json()) as QueryPreview
 }
 
 export async function deleteDataset(vhost: string, name: string): Promise<void> {

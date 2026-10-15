@@ -85,6 +85,61 @@ func (s *Service) DatasetFromQuery(ctx context.Context, vhost, dataset string, d
 	return up.total, nil
 }
 
+// MaxPreviewRows caps what PreviewQuery returns: enough to see what the
+// columns hold, little enough to show in a dialog.
+const MaxPreviewRows = 100
+
+// QueryPreview is the first rows a dataset query returns, as the dataset
+// would get them. More says the query returns rows past these.
+type QueryPreview struct {
+	Columns []string         `json:"columns"`
+	Rows    []map[string]any `json:"rows"`
+	More    bool             `json:"more"`
+}
+
+// PreviewQuery runs a dataset query the way DatasetFromQuery does (a SELECT
+// only, in a read-only transaction where the driver offers one) and keeps
+// its first limit rows, at most MaxPreviewRows; 0 means MaxPreviewRows. It
+// stops reading after them, so nothing is sent anywhere and a large result
+// is not read through.
+func PreviewQuery(ctx context.Context, db *sql.DB, query string, limit int) (QueryPreview, error) {
+	if !readsOnly(query) {
+		return QueryPreview{}, errors.New("a dataset query must be a SELECT")
+	}
+	if limit <= 0 || limit > MaxPreviewRows {
+		limit = MaxPreviewRows
+	}
+	var q interface {
+		QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	} = db
+	if tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true}); err == nil {
+		defer func() { _ = tx.Rollback() }()
+		q = tx
+	}
+	rows, err := q.QueryContext(ctx, query)
+	if err != nil {
+		return QueryPreview{}, fmt.Errorf("running the dataset query: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	cols, err := rows.Columns()
+	if err != nil {
+		return QueryPreview{}, fmt.Errorf("reading the dataset query's columns: %w", err)
+	}
+	p := QueryPreview{Columns: cols, Rows: []map[string]any{}}
+	errFull := errors.New("preview full")
+	err = scanRows(rows, limit, func(row map[string]any) error {
+		p.Rows = append(p.Rows, row)
+		return nil
+	}, func() error { return errFull })
+	switch {
+	case errors.Is(err, errFull):
+		p.More = true
+	case err != nil:
+		return QueryPreview{}, err
+	}
+	return p, nil
+}
+
 // uploader sends rows to a dataset in chunks; the first chunk replaces it.
 type uploader struct {
 	ctx            context.Context

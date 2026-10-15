@@ -46,6 +46,17 @@ function trainingApi({ ready = true, algorithms }: { ready?: boolean; algorithms
       writes.push({ method: 'UPLOAD', path: `${params.vhost}/${params.name}${new URL(request.url).search}`, body: await request.text() })
       return HttpResponse.json({ ...customers, name: params.name })
     }),
+    http.get('/api/vhosts/:vhost/ml/sources/:id/tables', () => HttpResponse.json(['public.customers', 'public.orders'])),
+    http.get('/api/vhosts/:vhost/ml/sources/:id/columns', ({ request }) => {
+      writes.push({ method: 'COLUMNS', path: new URL(request.url).search })
+      return HttpResponse.json([
+        { name: 'id', type: 'integer', is_pk: true }, { name: 'amount', type: 'numeric' }, { name: 'country', type: 'text' },
+      ])
+    }),
+    http.post('/api/vhosts/:vhost/ml/sources/:id/preview', async ({ params, request }) => {
+      writes.push({ method: 'PREVIEW', path: `${params.vhost}/${params.id}`, body: await request.json() })
+      return HttpResponse.json({ columns: ['country', 'amount'], rows: [{ country: 'ID', amount: 12.5 }, { country: 'SG', amount: 40 }], more: true })
+    }),
     http.post('/api/vhosts/:vhost/ml/datasets/:name/query', async ({ params, request }) => {
       writes.push({ method: 'QUERY', path: `${params.vhost}/${params.name}`, body: await request.json() })
       return HttpResponse.json({ name: params.name, rows: 42 })
@@ -183,11 +194,75 @@ describe('Training on the Models page', () => {
     const dialog = await screen.findByRole('dialog')
     await user.type(within(dialog).getByRole('textbox', { name: /dataset name/i }), 'orders')
     await pick(user, dialog, /database source/i, 'CRM database')
-    await user.type(within(dialog).getByRole('textbox', { name: /query/i }), 'SELECT * FROM orders')
+    await user.click(within(dialog).getByRole('radio', { name: /write sql/i }))
+    await user.type(within(dialog).getByRole('textbox', { name: /^query/i }), 'SELECT * FROM orders')
     await user.click(within(dialog).getByRole('button', { name: /read rows/i }))
     await waitFor(() => expect(writes.find((w) => w.method === 'QUERY')).toBeTruthy())
     expect(writes.find((w) => w.method === 'QUERY')!.body).toEqual({ source_id: 'crm', query: 'SELECT * FROM orders', max_rows: 0 })
     expect(await within(dialog).findByText(/42 rows/)).toBeInTheDocument()
+  })
+
+  it('builds the query from a table, its columns and a filter, without writing SQL', async () => {
+    const writes = trainingApi()
+    renderPage()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('tab', { name: 'Data' }))
+    await user.click(await screen.findByRole('button', { name: /from a database/i }))
+    const dialog = await screen.findByRole('dialog')
+    await user.type(within(dialog).getByRole('textbox', { name: /dataset name/i }), 'orders')
+    await pick(user, dialog, /database source/i, 'CRM database')
+    await pick(user, dialog, /^table/i, 'public.orders')
+    await waitFor(() => expect(writes.find((w) => w.method === 'COLUMNS')?.path).toBe('?table=public.orders'))
+    await user.click(await within(dialog).findByRole('checkbox', { name: /^country/ }))
+    await user.click(within(dialog).getByRole('checkbox', { name: /^amount/ }))
+    await user.click(within(dialog).getByRole('button', { name: /add a filter/i }))
+    await pick(user, dialog, /filter 1 column/i, 'amount')
+    await pick(user, dialog, /filter 1 condition/i, 'at least')
+    await user.type(within(dialog).getByRole('textbox', { name: /filter 1 value/i }), '10')
+
+    const sql = 'SELECT "country", "amount"\nFROM "public"."orders"\nWHERE "amount" >= 10'
+    expect(within(dialog).getByLabelText(/the query it runs/i)).toHaveTextContent('WHERE "amount" >= 10')
+    await user.click(within(dialog).getByRole('button', { name: /read rows/i }))
+    await waitFor(() => expect(writes.find((w) => w.method === 'QUERY')).toBeTruthy())
+    expect(writes.find((w) => w.method === 'QUERY')!.body).toEqual({ source_id: 'crm', query: sql, max_rows: 0 })
+
+    // Taken on as SQL, the statement is the builder's, to edit.
+    await user.click(within(dialog).getByRole('button', { name: /edit as sql/i }))
+    expect(within(dialog).getByRole('textbox', { name: /^query/i })).toHaveValue(sql)
+  })
+
+  it('previews the first rows of a query before reading them', async () => {
+    const writes = trainingApi()
+    renderPage()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('tab', { name: 'Data' }))
+    await user.click(await screen.findByRole('button', { name: /from a database/i }))
+    const dialog = await screen.findByRole('dialog')
+    await pick(user, dialog, /database source/i, 'CRM database')
+    await pick(user, dialog, /^table/i, 'public.orders')
+    await user.click(within(dialog).getByRole('button', { name: /preview rows/i }))
+    const table = await within(dialog).findByRole('table', { name: /first rows the query returns/i })
+    expect(within(table).getByText('SG')).toBeInTheDocument()
+    expect(within(dialog).getByText(/the query returns more/i)).toBeInTheDocument()
+    expect(writes.find((w) => w.method === 'PREVIEW')!.body).toEqual({ query: 'SELECT *\nFROM "public"."orders"', limit: 20 })
+    // Nothing was read into a dataset.
+    expect(writes.find((w) => w.method === 'QUERY')).toBeUndefined()
+  })
+
+  it('names the dataset after the file and shows its first rows before uploading', async () => {
+    const writes = trainingApi()
+    renderPage()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('tab', { name: 'Data' }))
+    await user.click(await screen.findByRole('button', { name: /upload a file/i }))
+    const dialog = await screen.findByRole('dialog')
+    const file = new File(['region,amount\nEU,10\nAPAC,7\n'], 'Q3 orders.csv', { type: 'text/csv' })
+    await user.upload(within(dialog).getByLabelText(/file/i, { selector: 'input[type=file]' }), file)
+    expect(within(dialog).getByRole('textbox', { name: /dataset name/i })).toHaveValue('Q3_orders')
+    const table = await within(dialog).findByRole('table', { name: /first rows of q3 orders\.csv/i })
+    expect(within(table).getByText('APAC')).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: /^upload$/i }))
+    await waitFor(() => expect(writes.find((w) => w.method === 'UPLOAD')?.path).toBe('tenant-a/Q3_orders?format=csv'))
   })
 
   it('trains a model and says why the new version did not go live', async () => {

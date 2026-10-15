@@ -247,7 +247,7 @@ export function QueryHelp({ onUseQuery }: { onUseQuery: (query: string) => void 
       <Text size="sm">
         {g.rows} The query should return {columnList(g.required)}{optional ? `, and if you have them ${optional}` : ''}.
       </Text>
-      <Code block aria-label="Example query">{g.query}</Code>
+      <Code block aria-label="Example query" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{g.query}</Code>
       <Group gap="xs">
         <Button variant="light" size="xs" onClick={() => onUseQuery(g.query)}>Use this example</Button>
         {g.bigQuery && (
