@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
 
 	"github.com/gsoultan/hermod/pkg/ml/builtin/table"
@@ -63,6 +64,7 @@ func (e *Engine) routes() {
 	m.HandleFunc("DELETE /v1/datasets/{vhost}/{name}", e.handle(func(r *http.Request) (any, error) {
 		return nil, e.datasets.delete(r.Context(), r.PathValue("vhost"), r.PathValue("name"))
 	}))
+	m.HandleFunc("GET /v1/datasets/{vhost}/{name}/sample", e.handle(e.sampleDataset))
 	m.HandleFunc("GET /v1/datasets/{vhost}/{name}/export", e.handle(refuse("Copying a dataset to a worker pool")))
 	m.HandleFunc("PUT /v1/datasets/{vhost}/{name}/import", e.handle(refuse("Copying a dataset from a worker pool")))
 
@@ -188,21 +190,24 @@ func (e *Engine) uploadFile(r *http.Request) (any, error) {
 		return nil, err
 	}
 	format := r.URL.Query().Get("format")
-	if format != "csv" && format != "xlsx" {
-		return nil, badRequest("Query parameter 'format' must be 'csv' or 'xlsx'.")
+	if !slices.Contains(worker.FileFormats, format) {
+		return nil, badRequest("Query parameter 'format' must be 'csv', 'xlsx' or 'parquet'.")
 	}
 	raw, err := e.body(r)
 	if err != nil {
 		return nil, err
 	}
 	var t *table.Table
-	if format == "csv" {
+	switch format {
+	case "csv":
 		if len(bytes.TrimSpace(raw)) == 0 {
 			return nil, badRequest("The CSV file is empty.")
 		}
 		t, err = table.ParseCSV(bytes.NewReader(raw))
-	} else {
+	case "xlsx":
 		t, err = table.ParseXLSX(raw)
+	default:
+		t, err = table.ParseParquet(raw)
 	}
 	if err != nil {
 		return nil, badRequest("%s.", err)

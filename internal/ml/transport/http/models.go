@@ -88,6 +88,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/ml/worker/connection/test", h.AdminOnly(h.CheckWorkerConnection))
 	mux.HandleFunc("GET /api/vhosts/{vhost}/ml/datasets", h.ListDatasets)
 	mux.Handle("GET /api/vhosts/{vhost}/ml/datasets/{name}", h.EditorOnly(h.GetDataset))
+	mux.Handle("GET /api/vhosts/{vhost}/ml/datasets/{name}/profile", h.EditorOnly(h.ProfileDataset))
 	mux.Handle("PUT /api/vhosts/{vhost}/ml/datasets/{name}/file", h.EditorOnly(h.UploadDataset))
 	mux.Handle("POST /api/vhosts/{vhost}/ml/datasets/{name}/query", h.EditorOnly(h.DatasetFromQuery))
 	mux.Handle("DELETE /api/vhosts/{vhost}/ml/datasets/{name}", h.EditorOnly(h.DeleteDataset))
@@ -179,7 +180,7 @@ func (h *Handler) fail(w http.ResponseWriter, err error) {
 		h.JsonError(w, err.Error(), http.StatusTooManyRequests)
 	case errors.As(err, &quota):
 		h.JsonError(w, err.Error(), http.StatusForbidden)
-	case errors.Is(err, storage.ErrMLQuotasUnsupported):
+	case errors.Is(err, storage.ErrMLQuotasUnsupported), errors.Is(err, ml.ErrAnalysisUnsupported):
 		h.JsonError(w, err.Error(), http.StatusNotImplemented)
 	case errors.Is(err, ml.ErrModelNotFound):
 		h.JsonError(w, "this vhost has no model by that name", http.StatusNotFound)

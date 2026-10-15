@@ -50,6 +50,30 @@ top-100 cap took the graph from 2,582 inputs and 689,498 B to 282 inputs and
 86,144 B (28,459 B as int8), and batch scoring from 50,595 to 324,125 rows/s.
 PyTorch training on the worker was not measured.
 
+### Added — Dataset analysis and Parquet upload
+
+Every dataset on the Machine Learning page's **Data** tab has an **Analyze**
+button. It says in plain words what the data holds; which models it suits
+(predict a category, predict a number, recommendations), with a **Train this
+model** button that opens training with the dataset and column filled in;
+and what to fix before training, worst first, each with how: empty and
+mostly empty columns, constant columns, duplicate rows, ID-like columns,
+high-cardinality text, unusual values, skewed numbers, a dominant answer,
+future dates and near-copy columns. Per column it shows the kind, gaps,
+distinct values, numbers (range, median, average, middle half), top values
+with their shares, dates per month and a small chart; it also lists the
+number columns that move together. A big dataset is measured on 50,000 rows
+spread over all of it, and the dialog says so.
+
+- **Parquet upload.** Datasets can be uploaded as Parquet as well as CSV and
+  Excel, on the built-in engine and the hermod-ml worker, with the same size
+  limit and quotas. Nested columns are refused with the column's name.
+- **Getting started** has a **Check your data** step between getting data
+  and training, which analyzes the newest dataset.
+- **API.** `GET /api/vhosts/{vhost}/ml/datasets/{name}/profile`; both engines
+  serve `GET /v1/datasets/{vhost}/{name}/sample?rows=N`. A hermod-ml worker
+  from before this release answers the analysis with `501`: update it.
+
 ### Added — Product details in recommendations
 
 A recommendation scenario's products table can now name each product's

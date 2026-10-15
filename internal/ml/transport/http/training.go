@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/gsoultan/hermod/internal/ml"
@@ -13,7 +14,7 @@ import (
 	"github.com/gsoultan/hermod/pkg/ml/worker"
 )
 
-// maxDatasetFile bounds an uploaded CSV or Excel dataset. It is streamed to
+// maxDatasetFile bounds an uploaded CSV, Excel or Parquet dataset. It is streamed to
 // the worker, never held here; the worker applies its own limit too.
 const maxDatasetFile = 200 << 20
 
@@ -125,15 +126,16 @@ func (h *Handler) GetDataset(w http.ResponseWriter, r *http.Request) {
 	}{info, refresh})
 }
 
-// UploadDataset replaces a dataset with a CSV or Excel file sent as the body.
+// UploadDataset replaces a dataset with a CSV, Excel or Parquet file sent as
+// the body.
 func (h *Handler) UploadDataset(w http.ResponseWriter, r *http.Request) {
 	vhost, _, ok := h.access(w, r, true)
 	if !ok {
 		return
 	}
 	format := r.URL.Query().Get("format")
-	if format != "csv" && format != "xlsx" {
-		h.JsonError(w, "a dataset file is CSV (format=csv) or Excel .xlsx (format=xlsx)", http.StatusBadRequest)
+	if !slices.Contains(worker.FileFormats, format) {
+		h.JsonError(w, "a dataset file is CSV (format=csv), Excel .xlsx (format=xlsx) or Parquet (format=parquet)", http.StatusBadRequest)
 		return
 	}
 	name := r.PathValue("name")
@@ -150,6 +152,23 @@ func (h *Handler) UploadDataset(w http.ResponseWriter, r *http.Request) {
 	h.RecordAuditLog(r, "INFO", "Uploaded dataset "+name+" in vhost "+vhost, "update", vhost, "vhost", "",
 		map[string]any{"dataset": name, "format": format, "rows": info.Rows})
 	writeJSON(w, info)
+}
+
+// ProfileDataset analyzes a dataset (pkg/ml/profile): its columns, its
+// problems with how to fix them, and the numeric columns that move together,
+// computed on a sample of a big one. The profile quotes values, so it needs
+// the Editor role, as reading the rows does.
+func (h *Handler) ProfileDataset(w http.ResponseWriter, r *http.Request) {
+	vhost, _, ok := h.access(w, r, true)
+	if !ok {
+		return
+	}
+	p, err := h.service().ProfileDataset(r.Context(), vhost, r.PathValue("name"))
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	writeJSON(w, p)
 }
 
 // queryRequest fills a dataset from one of the vhost's database sources.

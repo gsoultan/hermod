@@ -365,7 +365,7 @@ describe('Models page for a first-time user', () => {
     guidedApi()
     renderPage()
     const guide = await screen.findByRole('region', { name: /getting started/i })
-    expect(within(guide).getByRole('listitem', { name: /add your data/i })).toBeInTheDocument()
+    expect(within(guide).getByRole('listitem', { name: /get your data/i })).toBeInTheDocument()
     expect(within(guide).getByRole('listitem', { name: /use it/i })).toBeInTheDocument()
     expect(await within(guide).findByRole('button', { name: /start training/i })).toBeInTheDocument()
   })

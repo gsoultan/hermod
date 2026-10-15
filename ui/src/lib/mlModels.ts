@@ -734,9 +734,14 @@ export async function getDataset(vhost: string, name: string, signal?: AbortSign
   return (await res.json()) as DatasetInfo
 }
 
-/** Replaces a dataset with a CSV or Excel file, sent as the request body. */
+/**
+ * Replaces a dataset with a CSV, Excel or Parquet file, sent as the request
+ * body; the format is the file's extension, and anything else is sent as CSV
+ * for the server to judge.
+ */
 export async function uploadDataset(vhost: string, name: string, file: File): Promise<DatasetInfo> {
-  const format = file.name.toLowerCase().endsWith('.xlsx') ? 'xlsx' : 'csv'
+  const ext = file.name.toLowerCase().split('.').pop()
+  const format = ext === 'xlsx' || ext === 'parquet' ? ext : 'csv'
   const res = await apiFetch(`${datasetUrl(vhost, name)}/file?format=${format}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/octet-stream' },

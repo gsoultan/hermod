@@ -22,7 +22,7 @@ vi.mock('@tanstack/react-router', () => ({
  * Getting started on the Machine Learning page. People could not find the
  * page (the sidebar said "Models"), did not know training needs the hermod-ml
  * worker, and saw Train a model, Datasets and the neural networks vanish when
- * the worker was missing. The page now walks them through four steps, says
+ * the worker was missing. The page now walks them through five steps, says
  * exactly what is missing, and never hides an action it can explain instead.
  */
 
@@ -83,9 +83,21 @@ function pageApi({ worker = off as any, datasets = [] as any[], models = [] as a
     http.get('/api/vhosts/:vhost/ml/jobs', () => HttpResponse.json({ data: [], total: 0 })),
     http.get('/api/vhosts/:vhost/ml/quotas', () => HttpResponse.json({ quotas: { vhost: 'tenant-a', ...noQuotas }, defaults: noQuotas, effective: noQuotas })),
     http.get('/api/vhosts/:vhost/ml/models/:name/versions', () => HttpResponse.json({ data: [], total: 0 })),
+    http.get('/api/vhosts/:vhost/ml/datasets/:name/profile', ({ params }) => HttpResponse.json(profileOf(String(params.name)))),
   )
   return calls
 }
+
+/** What the server says of a customers table (pkg/ml/profile). */
+const profileOf = (dataset: string) => ({
+  dataset, rows: 1200, column_count: 3, sample_rows: 1200, sampled: false, max_sample_rows: 50000, duplicate_rows: 0,
+  columns: [
+    { name: 'age', type: 'number', kind: 'number', missing: 0, missing_share: 0, distinct: 60 },
+    { name: 'plan', type: 'string', kind: 'category', missing: 0, missing_share: 0, distinct: 3 },
+    { name: 'churned', type: 'string', kind: 'yes_no', missing: 0, missing_share: 0, distinct: 2 },
+  ],
+  warnings: [], correlations: [], computed_at: '2026-10-15T00:00:00Z',
+})
 
 function SelectVHost({ vhost }: { vhost: string }) {
   const { setSelectedVHost, setAvailableVHosts } = useVHost()
@@ -181,7 +193,7 @@ describe('Getting started: the training worker', () => {
     expect(calls.datasets).toBe(0)
 
     // Steps that need the worker say so instead of offering a dead button.
-    const data = await step(/add your data/i)
+    const data = await step(/get your data/i)
     expect(within(data).getByRole('button', { name: /go to datasets/i })).toBeDisabled()
     const model = await step(/train a model/i)
     expect(within(model).getByRole('button', { name: /start training/i })).toBeDisabled()
@@ -269,7 +281,7 @@ describe('Getting started: the built-in engine', () => {
     expect(within(worker).getByText('Optional')).toBeInTheDocument()
     expect(within(worker).getByText(/built-in engine/i)).toBeInTheDocument()
     expect(within(worker).getByRole('button', { name: /set up the worker/i })).toBeEnabled()
-    const data = await step(/add your data/i)
+    const data = await step(/get your data/i)
     expect(within(data).getByRole('button', { name: /go to datasets/i })).toBeEnabled()
     const model = await step(/train a model/i)
     expect(within(model).getByRole('button', { name: /start training/i })).toBeEnabled()
@@ -311,24 +323,48 @@ describe('Getting started: the built-in engine beside a worker', () => {
 })
 
 describe('Getting started: data, training and use', () => {
-  it('marks Add your data done once the vhost has a dataset, and goes to Datasets', async () => {
+  it('marks Get your data done once the vhost has a dataset, and goes to Datasets', async () => {
     pageApi({ worker: slim, datasets: [customers] })
     renderPage()
     const user = userEvent.setup()
-    const data = await step(/add your data/i)
+    const data = await step(/get your data/i)
     expect(await within(data).findByText('Done')).toBeInTheDocument()
     await user.click(within(data).getByRole('button', { name: /go to datasets/i }))
     expect(screen.getByRole('heading', { name: 'Datasets' })).toHaveFocus()
   })
 
-  it('keeps Add your data to do while there is no dataset, and training waits for one', async () => {
+  it('keeps Get your data to do while there is no dataset, and training waits for one', async () => {
     pageApi({ worker: slim })
     renderPage()
-    const data = await step(/add your data/i)
+    const data = await step(/get your data/i)
     expect(await within(data).findByText('To do')).toBeInTheDocument()
     const model = await step(/train a model/i)
     expect(within(model).getByRole('button', { name: /start training/i })).toBeDisabled()
     expect(within(model).getByText(/add a dataset first/i)).toBeInTheDocument()
+  })
+
+  it('keeps Check your data to do until a dataset is analyzed, and analyzes the newest one', async () => {
+    const orders = { ...customers, name: 'orders', updated_at: '2026-10-12T00:00:00Z' }
+    pageApi({ worker: slim, datasets: [customers, orders] })
+    renderPage()
+    const user = userEvent.setup()
+    const check = await step(/check your data/i)
+    expect(within(check).getByText('To do')).toBeInTheDocument()
+    await user.click(await within(check).findByRole('button', { name: /analyze orders/i }))
+    const dialog = await screen.findByRole('dialog', { name: /check orders/i })
+    expect(await within(dialog).findByText(/1,200 rows and 3 columns/)).toBeInTheDocument()
+    expect(within(check).getByText('Done')).toBeInTheDocument()
+  })
+
+  it('starts training from the analysis with the dataset and column it suggested', async () => {
+    pageApi({ worker: slim, datasets: [customers] })
+    renderPage()
+    const user = userEvent.setup()
+    await user.click(await within(await step(/check your data/i)).findByRole('button', { name: /analyze customers/i }))
+    const dialog = await screen.findByRole('dialog', { name: /check customers/i })
+    await user.click(await within(dialog).findByRole('button', { name: /train: .*\(churned\)/i }))
+    const train = await screen.findByRole('dialog', { name: /train a model/i })
+    expect(within(train).getByRole('combobox', { name: /^dataset/i })).toHaveValue('customers')
   })
 
   it('opens the Train dialog from the guide once there is data', async () => {
@@ -405,7 +441,7 @@ describe('Getting started: hiding the guide', () => {
   it('cannot be hidden while a step is left', async () => {
     pageApi({ worker: slim, datasets: [customers] })
     renderPage()
-    await step(/add your data/i)
+    await step(/get your data/i)
     expect(screen.queryByRole('button', { name: /hide the guide/i })).not.toBeInTheDocument()
   })
 })

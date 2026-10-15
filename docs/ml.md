@@ -28,7 +28,7 @@ flowchart LR
     C1["REST POST /api/ml/serve/{vhost}/{name}"]
     C2["gRPC hermod.ml.v1.InferenceService/Predict"]
   end
-  D["Datasets<br/>CSV / Excel upload<br/>or a SQL query"] --> A3
+  D["Datasets<br/>CSV / Excel / Parquet upload<br/>or a SQL query"] --> A3
   B1 --> B6["<b>Collect Dataset</b> sink"] -- "fresh rows" --> D
   D -- "schedule or N new rows" --> R["<b>Retrain policy</b><br/>train, go live by rule"]
   R -. "live version" .-> B2
@@ -41,7 +41,7 @@ flowchart LR
 
 Open **Machine Learning** in the sidebar (Editors and Administrators; the
 page is at `/ml/models`). **Getting started**, at the top, walks through the
-four steps from nothing to a model in use, and shows which are done for the
+five steps from nothing to a model in use, and shows which are done for the
 vhost you are on:
 
 1. **Connect the training worker**: whether Hermod has a worker, whether the
@@ -52,14 +52,18 @@ vhost you are on:
    and a **Deep learning** switch), paste its address and token, then **Test
    connection** and **Save**. **Check again** asks Hermod again without
    reloading the page.
-2. **Add your data**: done once the vhost has a dataset; **Go to Datasets**
+2. **Get your data**: done once the vhost has a dataset; **Go to Datasets**
    opens the **Data** tab ([Datasets](#datasets)).
-3. **Train a model**: done once the vhost has a model trained here; **Start
+3. **Check your data**: **Analyze** opens the analysis of the newest dataset
+   ([Analyzing a dataset](#analyzing-a-dataset)), which also offers to train
+   what the data suits. Done once a dataset was analyzed in this browser, or a
+   model was trained.
+4. **Train a model**: done once the vhost has a model trained here; **Start
    training** opens the Train dialog.
-4. **Use it**: done once a trained model has a live version; it offers
+5. **Use it**: done once a trained model has a live version; it offers
    **Make it live** (the model's versions) or **Try your model** (one row).
 
-Once all four are done the guide can be hidden; that is remembered per user in
+Once all five are done the guide can be hidden; that is remembered per user in
 the browser.
 
 The page has one main button, **Add model**. It first asks how:
@@ -195,7 +199,7 @@ It is configured with environment variables; none is needed.
 | `HERMOD_ML_BUILTIN_THREADS` | the CPUs Go may use | Goroutines a training uses; it also caps a network's `threads`. |
 | `HERMOD_ML_TRAIN_TIMEOUT` | as for the worker | Bounds each training; it is cancelled when it runs out. |
 
-**How it matches the worker.** It reads CSV, Excel and JSON rows with the
+**How it matches the worker.** It reads CSV, Excel, Parquet and JSON rows with the
 worker's typing rules, prepares features the same way (median or most
 frequent value for a gap, one-hot text, scaled numbers), holds back the same
 share for testing, and reports the same metric names, baselines, warnings,
@@ -342,7 +346,13 @@ still bounds it on Hermod's side.
 
 On the **Machine Learning** page, on the **Data** tab:
 
-- **Upload a file**: CSV, or Excel `.xlsx` (first sheet, header row), up to 200 MB.
+- **Upload a file**: CSV, Excel `.xlsx` (first sheet, header row) or Parquet,
+  up to 200 MB. A Parquet file must have plain columns: a list, map or nested
+  group is refused with its column's name (flatten it first). Its types are
+  kept: whole and decimal numbers become numbers, booleans yes/no, dates
+  `2026-10-15`, timestamps ISO-8601 text (with `+00:00` when the file says
+  UTC), and dictionary-encoded text plain text. The size limit and the
+  vhost's quotas apply as to the other formats.
 - **From a database**: a `SELECT` on one of the vhost's database sources
   (Postgres, MySQL/MariaDB, SQL Server, Oracle, SQLite, ClickHouse, DB2), run
   read-only with the source's own credentials, at most 1,000,000 rows unless you
@@ -357,6 +367,64 @@ On the **Machine Learning** page, on the **Data** tab:
 Filling a dataset again replaces its rows. Both forms say, for the kind of
 model you pick, which columns the file or query should hold, with a CSV
 template or an example query.
+
+Each dataset has an **Analyze** button; the eye button opens the same
+dialog on its first rows, and the clock button refreshes it on a schedule.
+An uploaded file is analyzed as soon as it is in, and **From a database**
+offers **Check this data** once the rows are read.
+
+### Analyzing a dataset
+
+**Analyze** checks a dataset before you train on it, in four tabs:
+
+- **Overview**: the size and kinds of columns in a sentence or two; **What
+  this data is good for**, the kinds of model the columns suit (predict a
+  category, predict a number, recommendations), each with why, whether it is
+  ready, and **Train this model**, which opens the Train dialog with the
+  dataset, the column to predict or the recommendation scenario filled in;
+  and **Things to check**, worst first, each with **How to fix**.
+- **Columns**: per column, its kind (number, category, date, yes/no, free
+  text, ID, empty), how many cells are empty and how many values differ; for
+  a number its range, median, average, middle half and a histogram; for a
+  category its most common values and their shares; for a date its range and
+  rows per month (per year past 36 months).
+- **Related columns**: the number columns that move together most
+  (correlation 0.3 or more, the ten strongest).
+- **First rows**: the rows the server keeps for a preview.
+
+The checks:
+
+Each check says how serious it is: **Fix before training**, **Worth fixing**
+or **Good to know**.
+
+| Check | When | Seriousness |
+|---|---|---|
+| Few rows | under 10 rows (training refuses), or under 100 | fix before training / worth fixing |
+| Empty column | no row has a value | worth fixing |
+| Mostly empty | 60% or more empty | worth fixing |
+| Constant | one value in every row | good to know |
+| Duplicate rows | the same row more than once | worth fixing above 1% of rows, else good to know |
+| Looks like an ID | a different value in 95% or more of the rows | good to know |
+| Many different texts | free text, or a category with very many values | good to know |
+| Unusual values | numbers far outside the rest (3 × the middle half past it) | good to know |
+| Skewed | a long tail of large or small values | good to know |
+| Imbalanced | one value in 90% or more of the rows | good to know |
+| Future dates | dates after today | worth fixing |
+| Near copies | two number columns that move together almost exactly | good to know |
+
+The thresholds are the ones training's own data check uses, so the analysis
+and the Train dialog agree.
+
+**Big datasets.** The analysis reads at most 50,000 rows (and 1,000,000
+cells), spread evenly over the whole dataset; above that the numbers are
+close estimates and the dialog says so. Text longer than 200 characters is
+cut for the analysis. The rows are read on the engine that holds the dataset,
+built-in or worker, and measured by Hermod; a hermod-ml worker older than
+analysis answers `501` with "update it".
+
+**API.** `GET /api/vhosts/{vhost}/ml/datasets/{name}/profile` returns the
+analysis as JSON (Editors and Administrators of the vhost). The engines
+serve the sample it reads at `GET /v1/datasets/{vhost}/{name}/sample?rows=N`.
 
 ### Training
 
