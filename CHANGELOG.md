@@ -7,6 +7,49 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — Deep learning on little CPU, memory and disk
+
+Networks (`mlp` on the built-in engine, `pytorch_mlp` and `keras_mlp` on the
+worker) now cost less to train, store and serve. See
+[Deep learning on little CPU, memory and disk](docs/ml.md#deep-learning-on-little-cpu-memory-and-disk).
+
+- **float32.** The built-in network trains and scores in float32, from a
+  float32 copy of the rows, instead of float64.
+- **int8 weights.** After training, the weights are quantised to int8 (one
+  scale per layer on the built-in engine; ONNX Runtime's dynamic
+  quantisation on the worker) and checked on the held-back rows: a
+  classifier may lose at most 0.5 points of accuracy, a regression may add
+  at most 1% to its RMSE. New `params.precision`: `auto` (default, int8
+  within tolerance, float32 otherwise), `float32` or `int8`.
+- **Threads.** New `params.threads` (0 to 256, default every CPU but one),
+  capped by `HERMOD_ML_BUILTIN_THREADS` or the worker's new
+  `HERMOD_ML_TRAIN_THREADS`. The built-in engine trains the same network for
+  any thread count. The worker scores each model on
+  `HERMOD_ML_SERVE_THREADS` ONNX Runtime threads (default 1).
+- **Text columns.** The worker's networks one-hot encode the 100 most
+  frequent values of a text column, as the built-in engine does.
+- **Recorded.** A network's version has `efficiency`: the precision asked
+  for and kept, the threads, and both scores. Versions trained before score
+  exactly as they did.
+- The console's deep-learning parameters have **Weights** and **Training
+  threads** fields.
+
+Measured with `ml/bench/gomlp` (generated table of 40 columns, one run each,
+on a shared 4-CPU VM under load, so times carry several percent of noise):
+
+| Built-in `mlp` | 200,000 rows, before | after | 1,000,000 rows, before | after |
+|---|---|---|---|---|
+| Training CPU | 38.8 s | 29.7 s | 161.2 s | 113.9 s |
+| Peak resident memory | 171 MB | 157 MB | 814 MB | 755 MB |
+| Saved model | 186,084 B | 21,761 B | 183,459 B | 22,171 B |
+| Scoring one row, p50 | 8.7 µs | 5.0 µs | 6.9 µs | 4.7 µs |
+| Test accuracy | 0.8293 | 0.8294 | 0.8362 | 0.8360 |
+
+On the worker (`ml/bench/worker_deep.py serve`, default network shape) the
+top-100 cap took the graph from 2,582 inputs and 689,498 B to 282 inputs and
+86,144 B (28,459 B as int8), and batch scoring from 50,595 to 324,125 rows/s.
+PyTorch training on the worker was not measured.
+
 ### Added — Price tier, channel, region, returns and quotes in recommendations
 
 - A recommendation scenario's customers table can now name each customer's

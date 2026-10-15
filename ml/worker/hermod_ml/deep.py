@@ -7,6 +7,12 @@ framework and exports only the network to ONNX; training.py exports the
 preprocessing with skl2onnx and joins the two into one graph that takes one
 tensor per feature, like every other model.
 
+A network trains in float32 on at most `params.threads` CPU threads. Its
+joined graph is optimised offline by ONNX Runtime and, unless float32 is
+asked for, quantised to int8 weights (dynamic quantisation of its MatMuls),
+which it keeps when it scores within a tolerance of float32 on the rows held
+back from training (settle_precision).
+
 torch and tensorflow are optional: only the "-dl" image installs them
 (requirements-dl.txt). They are imported when a training needs them, never at
 start-up, so the slim image runs this module without them.
@@ -17,11 +23,16 @@ from __future__ import annotations
 import importlib.util
 import io
 import math
+import os
+import tempfile
 import warnings
+from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import onnx
+import onnxruntime as ort
 from onnx import TensorProto, helper, numpy_helper
 from sklearn.base import BaseEstimator
 
@@ -43,6 +54,26 @@ DEFAULT_PARAMS: dict[str, Any] = {
     "learning_rate": 0.001,
     "patience": 10,
 }
+
+# How the network is trained and kept, beside its hyperparameters: the
+# precision of its weights (auto, float32, int8) and the CPU threads its
+# training uses (0 for every CPU but one). The version records them under
+# "efficiency", not "params".
+EFFICIENCY_DEFAULTS: dict[str, Any] = {"precision": "auto", "threads": 0}
+PRECISIONS = ("auto", "float32", "int8")
+MAX_THREADS = 256
+
+# How many values of a text column a network one-hot encodes: the most
+# frequent, as the built-in engine does (learn.MaxCategories). Any other
+# value encodes as all zeros, like a value never seen in training. It keeps
+# an ID-like column from making the network's input, and the matrix it
+# trains on, thousands of columns wide.
+MAX_CATEGORIES = 100
+
+# The tolerance int8 weights are kept within, the built-in engine's: an
+# accuracy at most half a point below float32's, or an RMSE at most 1% above.
+ACCURACY_TOLERANCE = 0.005
+RMSE_TOLERANCE = 0.01
 
 # Bounds on what a caller may ask for. A training holds a worker slot until it
 # finishes, so the largest network and the most epochs are capped.
@@ -83,10 +114,11 @@ def parse_params(raw: Any) -> dict[str, Any]:
         raw = {}
     if not isinstance(raw, dict):
         raise bad_request("'params' must be an object.")
-    unknown = sorted(set(raw) - set(DEFAULT_PARAMS))
+    allowed = {**DEFAULT_PARAMS, **EFFICIENCY_DEFAULTS}
+    unknown = sorted(set(raw) - set(allowed))
     if unknown:
-        raise bad_request(f"'params' has unknown keys: {', '.join(unknown)}; allowed are {', '.join(DEFAULT_PARAMS)}.")
-    params = {**DEFAULT_PARAMS, **raw}
+        raise bad_request(f"'params' has unknown keys: {', '.join(unknown)}; allowed are {', '.join(allowed)}.")
+    params = {**allowed, **raw}
 
     layers = params["hidden_layers"]
     if (
@@ -100,13 +132,55 @@ def parse_params(raw: Any) -> dict[str, Any]:
     rate = params["learning_rate"]
     if isinstance(rate, bool) or not isinstance(rate, (int, float)) or not 0 < rate <= 1:
         raise bad_request("'params.learning_rate' must be a number above 0 and at most 1.")
+    if params["precision"] not in PRECISIONS:
+        raise bad_request(f"'params.precision' must be one of {', '.join(PRECISIONS)}.")
     return {
         "hidden_layers": list(layers),
         "epochs": _int(params, "epochs", 1, MAX_EPOCHS),
         "batch_size": _int(params, "batch_size", 1, MAX_BATCH),
         "learning_rate": float(rate),
         "patience": _int(params, "patience", 1, MAX_PATIENCE),
+        "precision": params["precision"],
+        "threads": _int(params, "threads", 0, MAX_THREADS),
     }
+
+
+def top_categories(values) -> list[str]:
+    """The MAX_CATEGORIES most frequent values of a text column, sorted.
+    Ties at the cut go to the smaller value, so the same rows always encode
+    the same."""
+    counts: dict[str, int] = {}
+    for v in values:
+        counts[v] = counts.get(v, 0) + 1
+    ranked = sorted(counts, key=lambda c: (-counts[c], c))
+    return sorted(ranked[:MAX_CATEGORIES])
+
+
+def network_params(params: dict[str, Any]) -> dict[str, Any]:
+    """The network's hyperparameters, as a version records them."""
+    return {k: params[k] for k in DEFAULT_PARAMS}
+
+
+def estimator_params(params: dict[str, Any]) -> dict[str, Any]:
+    """What an estimator takes: the hyperparameters and its threads."""
+    return {**network_params(params), "threads": params["threads"]}
+
+
+def cpu_count() -> int:
+    """The CPUs this process may run on (its affinity mask, where the
+    platform has one)."""
+    if hasattr(os, "sched_getaffinity"):
+        return max(1, len(os.sched_getaffinity(0)))
+    return os.cpu_count() or 1
+
+
+def resolve_threads(requested: int, cap: int) -> int:
+    """The threads a training uses: those asked for, or every CPU but one,
+    and at most `cap` (HERMOD_ML_TRAIN_THREADS; 0 for none)."""
+    threads = requested if requested > 0 else cpu_count() - 1
+    if cap > 0:
+        threads = min(threads, cap)
+    return max(1, threads)
 
 
 # --------------------------------------------------------------------------
@@ -123,7 +197,7 @@ def make_estimator(algorithm: str, task: str, params: dict[str, Any], seed: int)
             "Run the hermod-ml '-dl' image to train deep-learning models."
         )
     cls = TorchMLP if algorithm == "pytorch_mlp" else KerasMLP
-    return cls(task=task, seed=seed, **params)
+    return cls(task=task, seed=seed, **estimator_params(params))
 
 
 class _MLP(BaseEstimator):
@@ -135,7 +209,7 @@ class _MLP(BaseEstimator):
     graph scales it back, so ONNX returns values in the target's own units.
     """
 
-    def __init__(self, task: str, seed: int, hidden_layers, epochs, batch_size, learning_rate, patience) -> None:
+    def __init__(self, task: str, seed: int, hidden_layers, epochs, batch_size, learning_rate, patience, threads=1) -> None:
         self.task = task
         self.seed = seed
         self.hidden_layers = hidden_layers
@@ -143,6 +217,7 @@ class _MLP(BaseEstimator):
         self.batch_size = batch_size
         self.learning_rate = learning_rate
         self.patience = patience
+        self.threads = threads
 
     def fit(self, X, y):
         X = np.asarray(X, dtype=np.float32)
@@ -159,6 +234,8 @@ class _MLP(BaseEstimator):
             outputs = 1
 
         train_idx, val_idx = self._split(len(X))
+        # The rows held back, by position in X: the int8 check scores on them.
+        self.validation_rows_ = val_idx
         self.n_inputs_ = X.shape[1]
         self._fit(X[train_idx], target[train_idx], X[val_idx], target[val_idx], outputs)
         return self
@@ -185,6 +262,18 @@ class _MLP(BaseEstimator):
 
 class TorchMLP(_MLP):
     def _fit(self, X, y, X_val, y_val, outputs: int) -> None:
+        import torch
+
+        # torch's thread count is the process's: set it for this training,
+        # then put it back.
+        previous = torch.get_num_threads()
+        torch.set_num_threads(max(1, int(self.threads)))
+        try:
+            self._train(X, y, X_val, y_val, outputs)
+        finally:
+            torch.set_num_threads(previous)
+
+    def _train(self, X, y, X_val, y_val, outputs: int) -> None:
         import torch
         from torch import nn
 
@@ -390,3 +479,123 @@ def compose(prep: onnx.ModelProto, network: onnx.ModelProto, task: str, labels: 
         graph.node.append(helper.make_node("Identity", [result], ["variable"], name="hermod_variable"))
         graph.output.append(helper.make_tensor_value_info("variable", TensorProto.FLOAT, [None, 1]))
     return merged
+
+
+# --------------------------------------------------------------------------
+# Cheaper graphs: offline optimisation and int8 weights
+# --------------------------------------------------------------------------
+
+
+def _session_options(threads: int = 0) -> ort.SessionOptions:
+    options = ort.SessionOptions()
+    if threads > 0:
+        options.intra_op_num_threads = threads
+    return options
+
+
+def optimize(model_bytes: bytes) -> bytes:
+    """The graph after ONNX Runtime's basic optimisations (constant folding,
+    redundant nodes removed), saved: it holds standard operators only, so
+    any runtime still reads it, and it loads without redoing them."""
+    options = _session_options(1)
+    options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "optimized.onnx"
+        options.optimized_model_filepath = str(path)
+        ort.InferenceSession(model_bytes, options, providers=["CPUExecutionProvider"])
+        optimized = onnx.load_from_string(path.read_bytes())
+    # ONNX Runtime saves an import of every domain it knows, some twice;
+    # keep one of each domain the graph uses, as the quantiser requires.
+    versions: dict[str, int] = {}
+    used = {n.domain for n in optimized.graph.node} | {""}
+    for o in optimized.opset_import:
+        if o.domain in used:
+            versions[o.domain] = max(versions.get(o.domain, 0), o.version)
+    del optimized.opset_import[:]
+    optimized.opset_import.extend(helper.make_opsetid(d, v) for d, v in sorted(versions.items()))
+    return optimized.SerializeToString()
+
+
+def gemm_to_matmul(model: onnx.ModelProto) -> None:
+    """Rewrite each Gemm whose weights are a constant (torch exports a
+    linear layer as one) as MatMul then Add, which compute the same: ONNX
+    Runtime's dynamic quantisation quantises MatMul, not Gemm."""
+    inits = {t.name: t for t in model.graph.initializer}
+    nodes = []
+    for node in model.graph.node:
+        attrs = {a.name: helper.get_attribute_value(a) for a in node.attribute}
+        plain = attrs.get("alpha", 1.0) == 1.0 and attrs.get("beta", 1.0) == 1.0 and not attrs.get("transA", 0)
+        if node.op_type != "Gemm" or node.domain not in ("", "ai.onnx") or not plain or node.input[1] not in inits:
+            nodes.append(node)
+            continue
+        weights = numpy_helper.to_array(inits[node.input[1]])
+        if attrs.get("transB", 0):
+            weights = weights.T
+        name = f"{node.input[1]}_matmul"
+        model.graph.initializer.append(numpy_helper.from_array(np.ascontiguousarray(weights), name))
+        has_bias = len(node.input) > 2 and node.input[2] != ""
+        base = node.name or node.output[0]
+        product = f"{node.output[0]}_matmul" if has_bias else node.output[0]
+        nodes.append(helper.make_node("MatMul", [node.input[0], name], [product], name=f"{base}_matmul"))
+        if has_bias:
+            nodes.append(helper.make_node("Add", [product, node.input[2]], [node.output[0]], name=f"{base}_bias"))
+    del model.graph.node[:]
+    model.graph.node.extend(nodes)
+    used = {i for n in model.graph.node for i in n.input}
+    kept = [t for t in model.graph.initializer if t.name in used]
+    del model.graph.initializer[:]
+    model.graph.initializer.extend(kept)
+
+
+def quantize(model_bytes: bytes) -> bytes:
+    """The graph with int8 weights: ONNX Runtime's dynamic quantisation,
+    signed, one scale per weight matrix. Activations stay float32 and are
+    quantised as each MatMul runs."""
+    from onnxruntime.quantization import QuantType, quantize_dynamic
+
+    model = onnx.load_from_string(model_bytes)
+    gemm_to_matmul(model)
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "int8.onnx"
+        # Shape inference stops at the preprocessing's ai.onnx.ml operators;
+        # every tensor a MatMul here takes is float.
+        quantize_dynamic(
+            model, path, op_types_to_quantize=["MatMul"], per_channel=False, weight_type=QuantType.QInt8,
+            extra_options={"DefaultTensorType": TensorProto.FLOAT},
+        )
+        return path.read_bytes()
+
+
+def quant_check(task: str, f32: float, i8: float) -> dict[str, Any]:
+    """What the int8 graph scored against the float32 one, and the tolerance."""
+    if task == "regression":
+        return {"metric": "rmse", "float32": f32, "int8": i8, "tolerance": RMSE_TOLERANCE}
+    return {"metric": "accuracy", "float32": f32, "int8": i8, "tolerance": ACCURACY_TOLERANCE}
+
+
+def choose_precision(requested: str, check: dict[str, Any]) -> str:
+    """float32 and int8 as asked; for auto, int8 when it scored within the
+    tolerance."""
+    if requested in ("float32", "int8"):
+        return requested
+    slack = 1e-12
+    if check["metric"] == "rmse":
+        ok = check["int8"] <= check["float32"] * (1 + check["tolerance"]) + slack
+    else:
+        ok = check["int8"] >= check["float32"] - check["tolerance"] - slack
+    return "int8" if ok else "float32"
+
+
+def settle_precision(
+    model_bytes: bytes, requested: str, task: str, threads: int, score: Callable[[bytes], float]
+) -> tuple[bytes, dict[str, Any]]:
+    """The graph to keep and the version's "efficiency": unless float32 was
+    asked for, the int8 graph is scored against the float32 one (`score`
+    measures a graph on the rows held back) and kept per choose_precision."""
+    efficiency: dict[str, Any] = {"requested": requested, "precision": "float32", "threads": threads}
+    if requested == "float32":
+        return model_bytes, efficiency
+    small = quantize(model_bytes)
+    check = quant_check(task, float(score(model_bytes)), float(score(small)))
+    efficiency.update(check, precision=choose_precision(requested, check))
+    return (small if efficiency["precision"] == "int8" else model_bytes), efficiency

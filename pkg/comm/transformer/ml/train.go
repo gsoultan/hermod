@@ -47,7 +47,9 @@ type modelTrainer interface {
 //     It is ignored for any other algorithm.
 //   - hiddenLayers ("64, 32"), epochs, batchSize, learningRate, patience:
 //     optional hyperparameters for mlp, pytorch_mlp and keras_mlp; unset ones
-//     use the engine's defaults.
+//     use the engine's defaults. precision (auto, float32 or int8) and
+//     threads (0 to 256) set how the network is kept and how many CPU
+//     threads its training uses.
 //   - device: cpu (the default) or gpu, which trains on the GPU worker pool.
 //   - goLive: never (the default), always, or if; goLiveMetric (default
 //     "score"), goLiveMin and goLiveMax bound "if".
@@ -162,7 +164,7 @@ func trainRequest(config map[string]any) (map[string]any, error) {
 
 // deepParamKeys maps the node's settings to the worker's params keys.
 var deepParamKeys = []struct{ setting, param string }{
-	{"epochs", "epochs"}, {"batchSize", "batch_size"}, {"patience", "patience"},
+	{"epochs", "epochs"}, {"batchSize", "batch_size"}, {"patience", "patience"}, {"threads", "threads"},
 }
 
 // deepParams reads the mlp / pytorch_mlp / keras_mlp settings the node sets.
@@ -196,6 +198,9 @@ func deepParams(config map[string]any) (map[string]any, error) {
 	}
 	if ok {
 		params["learning_rate"] = rate
+	}
+	if p, ok := config["precision"].(string); ok && strings.TrimSpace(p) != "" {
+		params["precision"] = strings.TrimSpace(p)
 	}
 	return params, nil
 }

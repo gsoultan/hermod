@@ -126,9 +126,12 @@ def _not_a_recommender(meta: dict[str, Any], name: str) -> dict[str, Any]:
 class ModelServer:
     """Answers OIP metadata and infer calls for models in a ModelStore."""
 
-    def __init__(self, models: ModelStore, capacity: int) -> None:
+    def __init__(self, models: ModelStore, capacity: int, threads: int = 1) -> None:
         self.models = models
         self.cache = ModelCache(capacity)
+        # Each session's intra-op threads (HERMOD_ML_SERVE_THREADS); 0 for
+        # ONNX Runtime's default of one per core.
+        self.threads = threads
 
     def evict(self, vhost: str, name: str) -> None:
         self.cache.evict_model(vhost, name)
@@ -137,7 +140,10 @@ class ModelServer:
         def load():
             meta = _not_a_recommender(self.models.meta(vhost, name, version), name)
             path = self.models.onnx_path(vhost, name, version)
-            session = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+            options = ort.SessionOptions()
+            if self.threads > 0:
+                options.intra_op_num_threads = self.threads
+            session = ort.InferenceSession(str(path), options, providers=["CPUExecutionProvider"])
             return session, meta
 
         return self.cache.get((vhost, name, version), load)

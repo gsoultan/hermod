@@ -92,13 +92,15 @@ var descriptions = map[string]string{
 		`"features":"a,b,c","task":"auto|classification|regression",` +
 		`"algorithm":"auto|random_forest|gradient_boosting|linear|mlp|xgboost|extra_trees|hist_gradient_boosting|` +
 		`pytorch_mlp|keras_mlp|custom:<script>","preset":"quick|balanced|best",` +
-		`"hiddenLayers":"64,32","epochs","batchSize","learningRate","patience","device":"cpu|gpu",` +
+		`"hiddenLayers":"64,32","epochs","batchSize","learningRate","patience","precision":"auto|float32|int8","threads",` +
+		`"device":"cpu|gpu",` +
 		`"goLive":"never|always|metric","goLiveMetric","goLiveMin","goLiveMax","sourceId","query","maxRows",` +
 		`"outputField":"training"}. auto tries several algorithms on the training rows and keeps the best; ` +
 		`preset (default balanced, auto only) sets how many and how long. A sourceId and read-only query refill ` +
 		`the dataset first. Without a hermod-ml worker the built-in engine trains auto, random_forest, gradient_boosting, ` +
-		`linear and mlp; the rest need the worker, pytorch_mlp and keras_mlp its -dl image. hiddenLayers..patience tune ` +
-		`only mlp, pytorch_mlp and keras_mlp.`,
+		`linear and mlp; the rest need the worker, pytorch_mlp and keras_mlp its -dl image. hiddenLayers..threads tune ` +
+		`only mlp, pytorch_mlp and keras_mlp; precision auto keeps int8 weights when they score within a tolerance ` +
+		`of float32, and threads 0 uses every CPU but one.`,
 	"transformation:scale": `Rescales numeric fields with statistics fitted beforehand (never refitted). config: ` +
 		`{"method":"minmax|zscore","fields":[{"field":"amount","min":0,"max":500,"targetField":"amount_scaled"}],` +
 		`"stats":{"amount":{"mean":120,"std":40}},"clip":false,"onMissing":"fail|skip"}. A row without numbers ` +

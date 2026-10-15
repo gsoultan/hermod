@@ -21,6 +21,19 @@ def _positive_int(env: Mapping[str, str], key: str, default: int) -> int:
     return value
 
 
+def _non_negative_int(env: Mapping[str, str], key: str, default: int) -> int:
+    raw = env.get(key)
+    if raw is None or raw == "":
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        raise ValueError(f"{key} must be an integer, got {raw!r}") from None
+    if value < 0:
+        raise ValueError(f"{key} must be 0 or more, got {value}")
+    return value
+
+
 @dataclass(frozen=True)
 class Settings:
     data_dir: Path = Path("/var/lib/hermod-ml")
@@ -29,6 +42,11 @@ class Settings:
     max_trainings: int = 1
     model_cache: int = 32
     addr: str = "0.0.0.0:8090"
+    # CPU threads: the most a deep-learning training uses (0: every CPU
+    # but one), and each serving session's intra-op threads (0: ONNX
+    # Runtime's default, one per core).
+    train_threads: int = 0
+    serve_threads: int = 1
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Settings":
@@ -41,6 +59,8 @@ class Settings:
             max_trainings=_positive_int(env, "HERMOD_ML_MAX_TRAININGS", 1),
             model_cache=_positive_int(env, "HERMOD_ML_MODEL_CACHE", 32),
             addr=env.get("HERMOD_ML_ADDR") or "0.0.0.0:8090",
+            train_threads=_non_negative_int(env, "HERMOD_ML_TRAIN_THREADS", 0),
+            serve_threads=_non_negative_int(env, "HERMOD_ML_SERVE_THREADS", 1),
         )
         settings.host_port()  # fail fast on a malformed address
         return settings

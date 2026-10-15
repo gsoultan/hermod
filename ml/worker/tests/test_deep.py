@@ -289,9 +289,10 @@ def test_labels_may_differ_only_on_float32_ties():
 
 
 def test_params_resolve_with_defaults():
-    assert deep.parse_params(None) == DEFAULT_PARAMS
-    assert deep.parse_params({"epochs": 3}) == {**DEFAULT_PARAMS, "epochs": 3}
-    assert deep.parse_params({"learning_rate": 1}) == {**DEFAULT_PARAMS, "learning_rate": 1.0}
+    defaults = {**DEFAULT_PARAMS, **deep.EFFICIENCY_DEFAULTS}
+    assert deep.parse_params(None) == defaults
+    assert deep.parse_params({"epochs": 3}) == {**defaults, "epochs": 3}
+    assert deep.parse_params({"learning_rate": 1}) == {**defaults, "learning_rate": 1.0}
 
 
 @pytest.mark.parametrize(

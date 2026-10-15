@@ -127,3 +127,39 @@ func TestFitStumpsFindsTheCuts(t *testing.T) {
 		}
 	}
 }
+
+func TestANetworkVersionRecordsHowItIsKept(t *testing.T) {
+	_, c := newEngine(t)
+	ctx := context.Background()
+	appendRows(t, c, "churn", churnRows(400))
+	v, err := c.Train(ctx, "v", "net", worker.TrainSpec{Dataset: "churn", Target: "churn", Algorithm: "mlp",
+		Params: &worker.TrainParams{Epochs: 20, Threads: 2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ef := v.Efficiency
+	if ef == nil {
+		t.Fatal("the network's version records no efficiency")
+	}
+	if ef.Requested != "auto" || (ef.Precision != "int8" && ef.Precision != "float32") || ef.Threads != 2 || ef.Metric != "accuracy" {
+		t.Errorf("efficiency = %+v; want auto asked for, int8 or float32 kept, 2 threads, checked on accuracy", ef)
+	}
+	if ef.Float32 == nil || ef.Int8 == nil {
+		t.Errorf("efficiency = %+v; want both precisions' scores", ef)
+	}
+	f32, err := c.Train(ctx, "v", "net32", worker.TrainSpec{Dataset: "churn", Target: "churn", Algorithm: "mlp",
+		Params: &worker.TrainParams{Epochs: 20, Precision: "float32"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f32.Efficiency == nil || f32.Efficiency.Precision != "float32" || f32.Efficiency.Requested != "float32" {
+		t.Errorf("float32 asked for: efficiency = %+v", f32.Efficiency)
+	}
+	forest, err := c.Train(ctx, "v", "forest", worker.TrainSpec{Dataset: "churn", Target: "churn", Algorithm: "random_forest"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if forest.Efficiency != nil {
+		t.Errorf("a forest records efficiency %+v; only a network has one", forest.Efficiency)
+	}
+}

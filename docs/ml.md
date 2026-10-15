@@ -196,7 +196,7 @@ It is configured with environment variables; none is needed.
 | `HERMOD_ML_BUILTIN_DIR` | none | Used only when the metadata store cannot keep the engine's data (every supported one can); with more than one replica it must then be shared. |
 | `HERMOD_ML_BUILTIN_MAX_TRAININGS` | `1` | Trainings at once; another one is refused with `429` until one ends. |
 | `HERMOD_ML_BUILTIN_MAX_ROWS` | `1000000` | Rows a training reads; a larger dataset is sampled (with the seed) and the version says so. |
-| `HERMOD_ML_BUILTIN_THREADS` | the CPUs Go may use | Goroutines a training uses. |
+| `HERMOD_ML_BUILTIN_THREADS` | the CPUs Go may use | Goroutines a training uses; it also caps a network's `threads`. |
 | `HERMOD_ML_TRAIN_TIMEOUT` | as for the worker | Bounds each training; it is cancelled when it runs out. |
 
 **How it matches the worker.** It reads CSV, Excel, Parquet and JSON rows with the
@@ -299,6 +299,8 @@ connect this way.
 | `HERMOD_ML_TOKEN` | worker | Required token. Without it the worker is open: never run it so outside a private network. |
 | `HERMOD_ML_DATA_DIR` | worker | Datasets and model versions, default `/var/lib/hermod-ml`. Keep it on a volume. |
 | `HERMOD_ML_MAX_TRAININGS` | worker | Trainings at once, default 1; another gets "busy". |
+| `HERMOD_ML_TRAIN_THREADS` | worker | The most CPU threads a deep-learning training uses, default 0: every CPU but one. |
+| `HERMOD_ML_SERVE_THREADS` | worker | Each loaded model's ONNX Runtime intra-op threads, default 1; 0 for ONNX Runtime's own default (one per core). |
 
 The API behind the guide, for Administrators:
 
@@ -468,6 +470,8 @@ you can change:
 | Batch size | 32 | 1 to 4096 |
 | Learning rate | 0.001 | above 0, at most 1 |
 | Patience | 10 | epochs without a better validation loss before stopping, 1 to 1000 |
+| Weights (`precision`) | `auto` | `auto`, `float32` or `int8`: see [Deep learning on little CPU, memory and disk](#deep-learning-on-little-cpu-memory-and-disk) |
+| Training threads (`threads`) | every CPU but one | 0 to 256; 0 is the default |
 
 The seed is fixed (42 unless the API request sets `seed`), so the same data
 and settings train the same model. Each version records the parameters it used
@@ -545,6 +549,124 @@ Every training makes a new, immutable version. Whether it goes live is your
 rule: **only when I put it live**, **always**, or **if it scores at least** a
 minimum on a metric. A version that is not put live is kept; **Versions and going live** on
 the model lists them all and puts any one live, which is also how you roll back.
+
+### Deep learning on little CPU, memory and disk
+
+Both engines train their networks in float32 and, by default, keep int8
+weights when those score as well, so a network costs little to train, store
+and serve.
+
+**Which engine.** For tabular data of up to a million rows (the built-in
+engine's `HERMOD_ML_BUILTIN_MAX_ROWS`), the built-in `mlp` is the cheapest:
+no worker, no PyTorch (the `-dl` image adds about 2 GB and 650 MiB resident),
+scored in-process in microseconds. Take `pytorch_mlp` or `keras_mlp` on the
+worker for a GPU pool, or when you already run the `-dl` image.
+
+**What happens.**
+
+- **float32.** The built-in network trains and scores in float32, from a
+  float32 copy of the rows (never a float64 one). The worker's networks
+  always trained in float32.
+- **int8 weights.** After training, the weights are quantised to int8, one
+  scale per layer (the built-in engine; the worker uses ONNX Runtime's
+  dynamic quantisation of the graph's matrix multiplications). The int8
+  network is scored against the float32 one on the tenth of the training
+  rows held back to stop early: a classifier may lose at most 0.5 points of
+  accuracy, a regression may add at most 1% to its RMSE. `precision: auto`
+  (the default) keeps int8 within that tolerance and float32 otherwise;
+  `float32` never quantises; `int8` keeps int8 whatever it scores. The
+  version's metrics are those of the network it keeps.
+- **Threads.** A training uses at most `threads` CPU threads (default: every
+  CPU but one), capped by `HERMOD_ML_BUILTIN_THREADS` on the built-in engine
+  and `HERMOD_ML_TRAIN_THREADS` on the worker. The built-in engine splits a
+  batch over goroutines only when it is big enough to be worth it (about a
+  million multiply-adds a goroutine: from about 128 rows on the default
+  network), so a small batch does not spend CPU on coordination; the network
+  trained is the same for any number of threads. The worker sets PyTorch's
+  threads for the training (`torch.set_num_threads`); Keras keeps
+  TensorFlow's own.
+- **Serving threads.** The worker gives each loaded model one ONNX Runtime
+  thread (`HERMOD_ML_SERVE_THREADS`, 0 for ONNX Runtime's default of one per
+  core): tabular graphs are too small to gain from more, and the default
+  spent 2.5 times the CPU per row for the same latency (below).
+- **Text columns.** A network one-hot encodes the 100 most frequent values
+  of a text column; any other value encodes as all zeros, like a value never
+  seen. The built-in engine always did; the worker now does for its
+  networks, where an ID-like column used to make the input thousands of
+  columns wide. The built-in network looks up a category's weights instead
+  of multiplying a one-hot vector, which is what an embedding layer
+  computes; neither engine trains separate, smaller entity embeddings.
+- **The graph.** The worker saves a network's ONNX graph after ONNX
+  Runtime's basic optimisations (standard operators only).
+
+Each network's version records how it is kept, beside `params`:
+
+```json
+"efficiency": {"requested": "auto", "precision": "int8", "threads": 3,
+               "metric": "accuracy", "float32": 0.8315, "int8": 0.8296, "tolerance": 0.005}
+```
+
+`float32` and `int8` are the two scores on the held-back rows; they are
+absent when `float32` was asked for. Versions trained before this have no
+`efficiency`, and score exactly as they did: a built-in network saved before
+keeps its float64 weights and float64 scoring.
+
+**Cheaper still.** A larger `batch_size` (256 or more) takes fewer optimiser
+steps per epoch and lets the built-in engine use its threads; it may need a
+higher `learning_rate` to reach the same score. Lower `patience` stops
+sooner.
+
+**Measured.** `go run ./ml/bench/gomlp` trains the built-in network on a
+generated table of 40 columns (30 numbers with 5% missing, 8 text columns of
+3 to 10 values, 2 ID-like text columns of 500 and 2,000 values) and a yes/no
+target, 80% to train and 20% to test, at most 30 epochs (10 for a million
+rows), default settings otherwise; one run per configuration, the main
+branch's code against this change's, back to back. The machine was a shared
+4-CPU VM (Intel Xeon, 2.1 GHz) with a load average of about 9 from other work,
+so times carry noise of several percent; memory, sizes and quality do not.
+
+| Built-in `mlp` | 200,000 rows, before | after | 1,000,000 rows, before | after |
+|---|---|---|---|---|
+| Training CPU | 38.8 s | 29.7 s | 161.2 s | 113.9 s |
+| Training wall time | 40.3 s | 30.6 s | 168.1 s | 116.3 s |
+| Peak resident memory while training (data alone) | 171 MB (92 MB) | 157 MB (92 MB) | 814 MB (442 MB) | 755 MB (442 MB) |
+| Allocated while training | 114 MB | 70 MB | 527 MB | 304 MB |
+| Saved model | 186,084 B | 21,761 B | 183,459 B | 22,171 B |
+| Scoring one row, p50 / p95 | 8.7 / 16.9 µs | 5.0 / 6.6 µs | 6.9 / 11.9 µs | 4.7 / 8.0 µs |
+| Scoring a batch | 110,866 rows/s | 249,651 rows/s | 157,808 rows/s | 233,455 rows/s |
+| Test accuracy / ROC AUC | 0.8293 / 0.9143 | 0.8294 / 0.9146 | 0.8362 / 0.9202 | 0.8360 / 0.9202 |
+| Precision kept | float64 | int8 | float64 | int8 |
+
+Always answering the most common class scores 0.5555 (0.556 at a million
+rows). Both trainings stopped early after 13 epochs at 200,000 rows. With
+batches of 32 the after column trained on one goroutine (too little work per
+batch to split); with batches of 512 at 200,000 rows and 8 epochs, three
+threads took 9.9 s against 13.4 s on one in one run and 10.7 s against
+12.5 s in another, for the same CPU time and the same model.
+
+`python ml/bench/worker_deep.py serve` measures the worker's side that needs
+no PyTorch: the graph of a network of the default shape (64, 32; random
+weights) on the same table, behind the worker's own preprocessing, scored
+with ONNX Runtime 1.20 on the same machine.
+
+| Worker graph | One-hot of every value (before) | Top 100 values (after) |
+|---|---|---|
+| Network inputs | 2,582 | 282 |
+| Graph, float32 / int8 | 689,498 / 190,215 B | 86,144 / 28,459 B |
+| One row, 1 thread: p50 latency, CPU | 75 µs, 92 µs | 74 µs, 85 µs |
+| One row, ONNX Runtime's default threads: p50 latency, CPU | 71 µs, 232 µs | 61 µs, 105 µs |
+| A batch of 20,000, 1 thread, float32 | 50,595 rows/s | 324,125 rows/s |
+| Largest change in a probability, int8 against float32 | 0.0002 | 0.0007 |
+
+int8 shrinks the worker's graph about threefold but does not make ONNX
+Runtime score these small graphs faster (the int8 batch rate was 38,749 and
+315,578 rows/s); its gain there is storage. The matrix the worker trains on
+is 2,582 against 282 columns wide: at 160,000 training rows, 3.3 GB against
+0.36 GB as scikit-learn's float64 output (computed from the widths, not
+measured). Training `pytorch_mlp` itself was not measured here: this machine
+cannot install PyTorch (its package index is out of reach, and the PyPI
+wheel needs more disk than was free). `python ml/bench/worker_deep.py train`
+measures it on a `-dl` worker.
 
 ### Guided training
 

@@ -147,6 +147,8 @@ func TestTrainSendsDeepLearningParams(t *testing.T) {
 			"hiddenLayers": []any{8.0}, "epochs": 20.0,
 		}, map[string]any{"hidden_layers": []int{8}, "epochs": 20}},
 		{"json list", map[string]any{"hiddenLayers": "[128,64,32]"}, map[string]any{"hidden_layers": []int{128, 64, 32}}},
+		{"efficiency", map[string]any{"precision": "int8", "threads": "2"}, map[string]any{"precision": "int8", "threads": 2}},
+		{"auto precision is the default", map[string]any{"precision": "", "threads": ""}, nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -157,6 +159,12 @@ func TestTrainSendsDeepLearningParams(t *testing.T) {
 			reg := &fakeTrainer{reply: map[string]any{"version": "1"}}
 			if _, err := runTrain(t, reg, "v", cfg); err != nil {
 				t.Fatal(err)
+			}
+			if tc.want == nil {
+				if _, ok := reg.req["params"]; ok {
+					t.Errorf("params = %v, want none", reg.req["params"])
+				}
+				return
 			}
 			if !reflect.DeepEqual(reg.req["params"], tc.want) {
 				t.Errorf("params = %#v, want %#v", reg.req["params"], tc.want)

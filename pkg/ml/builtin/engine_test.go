@@ -283,6 +283,8 @@ func TestTrainRefusals(t *testing.T) {
 		{worker.TrainSpec{Dataset: "lin", Target: "y", Algorithm: "linear", Preset: "best"}, "'preset' applies only when 'algorithm' is auto."},
 		{worker.TrainSpec{Dataset: "lin", Target: "y", Algorithm: "linear", Params: &worker.TrainParams{Epochs: 3}}, "'params' applies only to the algorithms mlp"},
 		{worker.TrainSpec{Dataset: "lin", Target: "y", Algorithm: "mlp", Params: &worker.TrainParams{Epochs: 5000}}, "'params.epochs' must be an integer from 1 to 1000"},
+		{worker.TrainSpec{Dataset: "lin", Target: "y", Algorithm: "mlp", Params: &worker.TrainParams{Precision: "fp16"}}, "'params.precision' must be one of auto, float32, int8"},
+		{worker.TrainSpec{Dataset: "lin", Target: "y", Algorithm: "mlp", Params: &worker.TrainParams{Threads: 1000}}, "'params.threads' must be an integer from 0 to 256"},
 		{worker.TrainSpec{Dataset: "lin", Target: "colour", Task: "regression"}, "Task regression needs a numeric target"},
 		{worker.TrainSpec{Dataset: "lin", Target: "y", Task: "classification"}, "Classification needs a string, bool or integer target"},
 		{worker.TrainSpec{Task: "recommendation", Scenario: "visits", Data: map[string]map[string]string{"visits": {"dataset": "lin"}}}, NeedsWorker},

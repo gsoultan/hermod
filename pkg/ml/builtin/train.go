@@ -266,5 +266,20 @@ func (s *split) version(model *learn.Model, p *prepared, req *trainRequest, now 
 	v.Metrics = scoreModel(p.task, k, model.Predict(s.xTest), model.Proba(s.xTest), s.yTest)
 	v.Baseline = baseline(p.task, k, s.yTrain, s.yTest)
 	v.Importance = importance(model, s.xTest, s.yTest, p.task, k, req.seed)
+	v.Efficiency = efficiency(model.Net)
 	return v
+}
+
+// efficiency is how a network was trained and is kept; nil for any other
+// model.
+func efficiency(n *learn.Net) *worker.Efficiency {
+	if n == nil {
+		return nil
+	}
+	ef := &worker.Efficiency{Requested: n.Params.Precision, Precision: n.Precision, Threads: n.Threads}
+	if q := n.Quantization; q != nil {
+		f32, i8 := q.Float32, q.Int8
+		ef.Metric, ef.Float32, ef.Int8, ef.Tolerance = q.Metric, &f32, &i8, q.Tolerance
+	}
+	return ef
 }

@@ -362,7 +362,19 @@ export interface TrainParams {
   batch_size?: number
   learning_rate?: number
   patience?: number
+  /** How the trained network keeps its weights; auto keeps int8 when it scores within a tolerance of float32. */
+  precision?: TrainPrecision
+  /** CPU threads the training uses, 0 to 256; absent or 0 for every CPU but one. */
+  threads?: number
 }
+
+export type TrainPrecision = 'auto' | 'float32' | 'int8'
+
+export const PRECISION_OPTIONS: { value: TrainPrecision; label: string }[] = [
+  { value: 'auto', label: 'auto' },
+  { value: 'float32', label: 'float32' },
+  { value: 'int8', label: 'int8' },
+]
 
 /** The worker's defaults, shown as placeholders. */
 export const DEFAULT_TRAIN_PARAMS = { hidden_layers: '64, 32', epochs: '200', batch_size: '32', learning_rate: '0.001', patience: '10' }

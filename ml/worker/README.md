@@ -36,6 +36,8 @@ pytest -q
 | `HERMOD_ML_MAX_UPLOAD_MB` | `200` | Largest request body; bigger ones get 413. |
 | `HERMOD_ML_MAX_TRAININGS` | `1` | Concurrent training calls; extra calls get 429. |
 | `HERMOD_ML_MODEL_CACHE` | `32` | Loaded ONNX sessions kept in an LRU cache. |
+| `HERMOD_ML_TRAIN_THREADS` | `0` | The most CPU threads a deep-learning training uses (`torch.set_num_threads`); 0 is every CPU but one. A training's `params.threads` asks for fewer. |
+| `HERMOD_ML_SERVE_THREADS` | `1` | Each loaded session's intra-op threads; 0 for ONNX Runtime's default (one per core). |
 | `HERMOD_ML_ADDR` | `0.0.0.0:8090` | Listen address. |
 | `HERMOD_ML_CUSTOM_SCRIPTS` | `false` | `true` runs custom training scripts (`/train-custom`) in a sandbox. Needs `HERMOD_ML_TOKEN`; only for a dedicated pool. |
 | `HERMOD_ML_SANDBOX_CPU_SECONDS` | `600` | CPU seconds a script may use. |
