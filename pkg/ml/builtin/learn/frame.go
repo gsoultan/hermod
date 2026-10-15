@@ -102,13 +102,17 @@ type Prep struct {
 func FitPrep(f *Frame, scale bool) *Prep {
 	p := &Prep{Features: f.Names, Kinds: f.Kinds, Fill: map[string]float64{}, Scale: scale,
 		Mean: make([]float64, len(f.Names)), Std: make([]float64, len(f.Names)), Categories: make([][]string, len(f.Names))}
+	// One buffer sorts every column for its median.
+	var buf []float64
 	for j, name := range f.Names {
 		p.Std[j] = 1
 		if f.Kinds[j] == KindString {
 			p.Categories[j] = topCategories(f.Str[j])
 			continue
 		}
-		fill := float64(float32(median(f.Num[j])))
+		var m float64
+		m, buf = median(f.Num[j], buf)
+		fill := float64(float32(m))
 		p.Fill[name] = fill
 		if scale {
 			p.Mean[j], p.Std[j] = meanStd(f.Num[j], fill)
@@ -132,23 +136,24 @@ func (p *Prep) buildIndex() {
 	}
 }
 
-// median of the values that are not NaN; 0 when there are none.
-func median(v []float64) float64 {
-	vals := make([]float64, 0, len(v))
+// median of the values that are not NaN; 0 when there are none. It sorts
+// them in buf, and returns buf for the next column.
+func median(v, buf []float64) (float64, []float64) {
+	vals := buf[:0]
 	for _, x := range v {
 		if !math.IsNaN(x) {
 			vals = append(vals, x)
 		}
 	}
 	if len(vals) == 0 {
-		return 0
+		return 0, vals
 	}
 	slices.Sort(vals)
 	n := len(vals)
 	if n%2 == 1 {
-		return vals[n/2]
+		return vals[n/2], vals
 	}
-	return (vals[n/2-1] + vals[n/2]) / 2
+	return (vals[n/2-1] + vals[n/2]) / 2, vals
 }
 
 // meanStd of the values with missing ones filled; a constant column's spread

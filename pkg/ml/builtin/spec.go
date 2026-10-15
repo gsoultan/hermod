@@ -157,7 +157,8 @@ func (s rawSpec) checkAlgorithm(req *trainRequest) error {
 		var p learn.MLPParams
 		if s.Params != nil {
 			p = learn.MLPParams{HiddenLayers: s.Params.HiddenLayers, Epochs: s.Params.Epochs, BatchSize: s.Params.BatchSize,
-				LearningRate: s.Params.LearningRate, Patience: s.Params.Patience}
+				LearningRate: s.Params.LearningRate, Patience: s.Params.Patience, Precision: s.Params.Precision,
+				Threads: s.Params.Threads}
 		}
 		var err error
 		if req.params, err = p.WithDefaults(); err != nil {

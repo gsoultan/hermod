@@ -591,11 +591,14 @@ def build_pipeline(
     settings: dict[str, Any] | None = None,
     deep_params: dict[str, Any] | None = None,
     rows: int | None = None,
+    categories: list[list[str]] | None = None,
 ) -> Pipeline:
     """The unfitted pipeline for `algorithm`: scaled (linear, deep) or raw
     numbers and one-hot strings, then the model. `settings` override the
     estimator's defaults (Auto's search); `deep_params` configure a network.
-    `rows`, the training rows, sizes histogram gradient boosting's leaves."""
+    `rows`, the training rows, sizes histogram gradient boosting's leaves.
+    `categories`, one list per string column, are the values a network
+    one-hot encodes (deep.top_categories); every value seen otherwise."""
     is_deep = algorithm in deep.ALGORITHMS
     if is_deep:
         estimator = deep.make_estimator(algorithm, task, deep_params or deep.parse_params(None), seed)
@@ -614,7 +617,8 @@ def build_pipeline(
         scale = algorithm == "linear" or is_deep
         transformers.append(("num", StandardScaler() if scale else "passthrough", numeric))
     if strings:
-        transformers.append(("str", OneHotEncoder(handle_unknown="ignore"), strings))
+        encoder = OneHotEncoder(handle_unknown="ignore", categories=categories if is_deep and categories else "auto")
+        transformers.append(("str", encoder, strings))
     # sparse_threshold=0 keeps the transformed matrix dense, which is what
     # the ONNX graph produces too.
     return Pipeline([("prep", ColumnTransformer(transformers, sparse_threshold=0)), ("model", estimator)])
@@ -634,11 +638,15 @@ class Trainer:
         models: ModelStore,
         max_concurrent: int,
         on_saved: Callable[[str, str], None] | None = None,
+        train_threads: int = 0,
     ) -> None:
         self._datasets = datasets
         self._models = models
         self._slots = threading.BoundedSemaphore(max_concurrent)
         self._on_saved = on_saved
+        # The most CPU threads a deep-learning training uses; 0 for none
+        # beyond every CPU but one.
+        self._train_threads = train_threads
 
     def train(self, vhost: str, name: str, body: dict[str, Any]) -> dict[str, Any]:
         """Validate the request, take a slot (or 429) and train."""
@@ -760,8 +768,16 @@ class Trainer:
         X_test = X_test.fillna(value=fill)
 
         # -- choose ----------------------------------------------------------
+        # A network's settings, auto's defaults when it picks one, with the
+        # threads its training may use worked out.
+        deep_params = req.params or deep.parse_params(None)
+        deep_params = {**deep_params, "threads": deep.resolve_threads(deep_params["threads"], self._train_threads)}
+
+        # The values a network one-hot encodes: each column's most frequent.
+        categories = [deep.top_categories(X_train[f]) for f in strings]
+
         def build(algorithm: str, settings: dict[str, Any]) -> Pipeline:
-            return build_pipeline(task, algorithm, numeric, strings, req.seed, settings, req.params, len(X_train))
+            return build_pipeline(task, algorithm, numeric, strings, req.seed, settings, deep_params, len(X_train), categories)
 
         chosen = None
         if req.algorithm == "auto":
@@ -787,6 +803,8 @@ class Trainer:
 
         # -- export ----------------------------------------------------------
         model_bytes = export_onnx(pipeline, features, feature_types, task, algorithm).SerializeToString()
+        if is_deep:
+            model_bytes = deep.optimize(model_bytes)
 
         meta: dict[str, Any] = {
             "model": name,
@@ -803,7 +821,7 @@ class Trainer:
             meta["labels"] = [c.item() if hasattr(c, "item") else c for c in pipeline.classes_]
         if is_deep:
             # Auto picks a network with its default settings.
-            meta["params"] = req.params or deep.parse_params(None)
+            meta["params"] = deep.network_params(deep_params)
 
         # -- parity: the ONNX graph must agree with sklearn on the test split --
         session = ort.InferenceSession(model_bytes, providers=["CPUExecutionProvider"])
@@ -825,10 +843,25 @@ class Trainer:
             if len(got) != len(expected) or not np.all(np.abs(got - expected) <= tolerance):
                 raise ApiError(500, "ONNX export check failed: the exported model's values differ from the trained model's by more than 0.1%.")
 
+        # -- precision -------------------------------------------------------
+        # The graph checked above is float32; a network keeps int8 weights
+        # when they score as well on the rows it held back, and is then
+        # measured as it is served.
+        served_proba = None
+        if is_deep:
+            model_bytes, meta["efficiency"] = self._settle_precision(
+                model_bytes, deep_params, pipeline.named_steps["model"], X_train, y_train, task, meta
+            )
+            if meta["efficiency"]["precision"] == "int8":
+                int8_session = ort.InferenceSession(model_bytes, providers=["CPUExecutionProvider"])
+                expected, served_proba = onnx_predict(int8_session, X_test, meta)
+
         # -- metrics ---------------------------------------------------------
         if task == "classification":
             classes = list(pipeline.classes_)
-            proba = pipeline.predict_proba(X_test) if len(classes) == 2 else None
+            proba = None
+            if len(classes) == 2:
+                proba = served_proba if served_proba is not None else pipeline.predict_proba(X_test)
             meta["metrics"] = insights.metrics(task, y_test, expected, proba, classes)
         else:
             meta["metrics"] = insights.metrics(task, y_test, expected, None, [])
@@ -842,6 +875,28 @@ class Trainer:
         meta["warnings"] = data_warnings
 
         return self._models.save(vhost, name, model_bytes, meta)
+
+    @staticmethod
+    def _settle_precision(
+        model_bytes: bytes, params: dict[str, Any], network: Any, X_train: pd.DataFrame, y_train: np.ndarray,
+        task: str, meta: dict[str, Any],
+    ) -> tuple[bytes, dict[str, Any]]:
+        """deep.settle_precision, scoring each graph on the training rows the
+        network held back to stop early (every training row when it held
+        none back): accuracy, or RMSE."""
+        rows = getattr(network, "validation_rows_", None)
+        if rows is None or len(rows) == 0:
+            rows = np.arange(len(X_train))
+        X_check, y_check = X_train.iloc[rows], np.asarray(y_train)[rows]
+
+        def score(graph: bytes) -> float:
+            session = ort.InferenceSession(graph, providers=["CPUExecutionProvider"])
+            got, _ = onnx_predict(session, X_check, meta)
+            if task == "classification":
+                return float(np.mean([a == b for a, b in zip(got.tolist(), y_check.tolist())]))
+            return float(np.sqrt(np.mean((got - y_check.astype(np.float64)) ** 2)))
+
+        return deep.settle_precision(model_bytes, params["precision"], task, params["threads"], score)
 
     @staticmethod
     def _split(X: pd.DataFrame, y: np.ndarray, task: str, req: TrainRequest):

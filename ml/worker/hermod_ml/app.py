@@ -72,8 +72,9 @@ def create_app(settings: Settings, sandbox: SandboxSettings | None = None) -> Fa
     app = FastAPI(title="hermod-ml", docs_url=None, redoc_url=None, openapi_url=None)
     datasets = DatasetStore(settings.data_dir)
     models = ModelStore(settings.data_dir)
-    server = ModelServer(models, capacity=settings.model_cache)
-    trainer = Trainer(datasets, models, max_concurrent=settings.max_trainings, on_saved=server.evict)
+    server = ModelServer(models, capacity=settings.model_cache, threads=settings.serve_threads)
+    trainer = Trainer(datasets, models, max_concurrent=settings.max_trainings, on_saved=server.evict,
+                      train_threads=settings.train_threads)
     custom = CustomTrainer(datasets, models, sandbox, max_concurrent=settings.max_trainings, on_saved=server.evict)
     if sandbox.enabled:
         harden_parent()

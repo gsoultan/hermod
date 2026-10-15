@@ -27,9 +27,14 @@ const (
 // Algorithms are the algorithms Fit trains.
 var Algorithms = []string{AlgorithmLinear, AlgorithmRandomForest, AlgorithmGradientBoosting, AlgorithmMLP}
 
-// FormatVersion is the version of the encoded model (Encode). Decode refuses
-// any other.
-const FormatVersion = 1
+// FormatVersion is the version of an encoded model (Encode), and FormatNet
+// that of one holding a network kept as float32 or int8 weights (Net.Dense),
+// which an engine from before it cannot read. Every other model stays
+// FormatVersion, so that it can. Decode refuses any other format.
+const (
+	FormatVersion = 1
+	FormatNet     = 2
+)
 
 // MaxEncodedBytes bounds an encoded model, compressed, and maxDecodedBytes
 // what it may expand to.
@@ -45,7 +50,8 @@ var ErrInvalidModel = errors.New("not a valid built-in model")
 // Spec says what to fit: the task, the algorithm, the number of classes of a
 // classification (whose targets are class indices 0..Classes-1), the seed,
 // the network's settings, and how many goroutines a forest may use (0 for
-// one per CPU, at most the trees).
+// one per CPU, at most the trees) and a network at most (0 for no cap
+// beyond its own).
 type Spec struct {
 	Task      string
 	Algorithm string
@@ -94,8 +100,16 @@ func Fit(ctx context.Context, spec Spec, x *Frame, y, w []float64) (*Model, erro
 	}
 	scale := spec.Algorithm == AlgorithmLinear || spec.Algorithm == AlgorithmMLP
 	m := &Model{Format: FormatVersion, Task: spec.Task, Algorithm: spec.Algorithm, Classes: spec.Classes, Prep: FitPrep(x, scale)}
-	mx := m.Prep.Transform(x)
 	var err error
+	if spec.Algorithm == AlgorithmMLP {
+		// The network reads a float32 copy of the rows, never a float64 one.
+		m.Format = FormatNet
+		if m.Net, err = fitNet(ctx, m.Prep.transform32(x), y, w, spec); err != nil {
+			return nil, err
+		}
+		return m, nil
+	}
+	mx := m.Prep.Transform(x)
 	switch spec.Algorithm {
 	case AlgorithmLinear:
 		m.Linear, err = fitLinear(ctx, mx, y, w, spec)
@@ -103,8 +117,6 @@ func Fit(ctx context.Context, spec Spec, x *Frame, y, w []float64) (*Model, erro
 		m.Forest, err = fitForest(ctx, mx, y, w, spec)
 	case AlgorithmGradientBoosting:
 		m.Boost, err = fitBoost(ctx, mx, y, w, spec)
-	case AlgorithmMLP:
-		m.Net, err = fitNet(ctx, mx, y, w, spec)
 	default:
 		return nil, fmt.Errorf("unknown algorithm %q", spec.Algorithm)
 	}
@@ -117,6 +129,9 @@ func Fit(ctx context.Context, spec Spec, x *Frame, y, w []float64) (*Model, erro
 // raw is the model's output for each row: one value per class (before
 // normalising, for some algorithms) or the value of a regression.
 func (m *Model) raw(x *Frame) [][]float64 {
+	if m.Net != nil && m.Net.Dense != nil {
+		return m.Net.predict32(m.Prep.transform32(x))
+	}
 	mx := m.Prep.Transform(x)
 	switch {
 	case m.Linear != nil:
@@ -160,7 +175,8 @@ func argmax(v []float64) int {
 	return best
 }
 
-// Encode writes the model as gzip-compressed JSON: {"format": 1, ...}.
+// Encode writes the model as gzip-compressed JSON: {"format": 1, ...}. A
+// network's weights are its packed bytes (Dense), base64 in the JSON.
 func (m *Model) Encode() ([]byte, error) {
 	var buf bytes.Buffer
 	zw, err := gzip.NewWriterLevel(&buf, gzip.BestSpeed)
@@ -205,8 +221,11 @@ func Decode(raw []byte) (*Model, error) {
 // check refuses a decoded model that could index out of range or answer
 // nonsense.
 func (m *Model) check() error {
-	if m.Format != FormatVersion {
-		return fmt.Errorf("format %d is not format %d", m.Format, FormatVersion)
+	switch {
+	case m.Format != FormatVersion && m.Format != FormatNet:
+		return fmt.Errorf("format %d is not format %d or %d", m.Format, FormatVersion, FormatNet)
+	case (m.Format == FormatNet) != (m.Net != nil && m.Net.Dense != nil):
+		return fmt.Errorf("format %d does not hold the model it says", m.Format)
 	}
 	if m.Task != TaskClassification && m.Task != TaskRegression {
 		return fmt.Errorf("task %q", m.Task)

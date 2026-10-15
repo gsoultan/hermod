@@ -185,6 +185,13 @@ type TrainParams struct {
 	// Patience is how many epochs without a better validation loss end
 	// training early.
 	Patience int `json:"patience,omitempty"`
+	// Precision is how the trained network keeps its weights: auto (the
+	// default: int8 when it scores within a tolerance of float32 on rows
+	// held back from training, float32 otherwise), float32, or int8.
+	Precision string `json:"precision,omitempty"`
+	// Threads caps the CPU threads a training uses, 0 to 256; 0 (the
+	// default) is every CPU but one.
+	Threads int `json:"threads,omitempty"`
 }
 
 // RecommendSpec is the columns a recommendation model learns from: who
@@ -310,6 +317,25 @@ type Version struct {
 	Baseline map[string]float64 `json:"baseline,omitempty"`
 	// Warnings are notes on the data, in words.
 	Warnings []string `json:"warnings,omitempty"`
+	// Efficiency is how a neural network was trained and is kept; nil for
+	// any other model, and for one trained before it was recorded.
+	Efficiency *Efficiency `json:"efficiency,omitempty"`
+}
+
+// Efficiency is a neural network's precision and threads: the precision
+// asked for (Requested: auto, float32 or int8) and the one its weights are
+// kept and scored in (Precision: float32 or int8), the threads its training
+// used, and, when int8 was tried, what both precisions scored on rows held
+// back from training. Metric is accuracy (int8 may lose Tolerance points of
+// it) or rmse (int8 may add Tolerance times it).
+type Efficiency struct {
+	Requested string   `json:"requested"`
+	Precision string   `json:"precision"`
+	Threads   int      `json:"threads,omitempty"`
+	Metric    string   `json:"metric,omitempty"`
+	Float32   *float64 `json:"float32,omitempty"`
+	Int8      *float64 `json:"int8,omitempty"`
+	Tolerance float64  `json:"tolerance,omitempty"`
 }
 
 // LeaderboardEntry is one algorithm auto scored by cross-validation on the
