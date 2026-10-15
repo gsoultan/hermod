@@ -28,7 +28,7 @@ func TestDBLookupAfterForeachAndSetReachesTheNextNode(t *testing.T) {
 		`CREATE TABLE orgs (name TEXT, code TEXT)`,
 		`INSERT INTO orgs VALUES ('acme', 'IMPC')`,
 	} {
-		if _, err := db.Exec(stmt); err != nil {
+		if _, err := db.ExecContext(t.Context(), stmt); err != nil {
 			t.Fatal(err)
 		}
 	}
