@@ -55,7 +55,8 @@ Errors are always `{"error": "<sentence>"}` with 400, 401, 404, 413, 429 or 500.
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/v1/datasets/{vhost}/{name}/rows` | Append rows (`{"rows": [...], "replace": false}`) |
-| PUT | `/v1/datasets/{vhost}/{name}/file?format=csv\|xlsx` | Replace the dataset with an uploaded file |
+| PUT | `/v1/datasets/{vhost}/{name}/file?format=csv\|xlsx\|parquet` | Replace the dataset with an uploaded file |
+| GET | `/v1/datasets/{vhost}/{name}/sample?rows=N` | An even sample of the rows, column by column, for analysis |
 | GET | `/v1/datasets/{vhost}` | List datasets |
 | GET | `/v1/datasets/{vhost}/{name}` | Dataset info plus a 20-row sample |
 | DELETE | `/v1/datasets/{vhost}/{name}` | Delete a dataset |

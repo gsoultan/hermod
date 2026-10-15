@@ -60,10 +60,11 @@ func (rt *router) routes() {
 	m := http.NewServeMux()
 	m.HandleFunc("GET /v1/capabilities", rt.e.handle(rt.capabilities))
 
-	m.HandleFunc("POST /v1/datasets/{vhost}/{name}/rows", rt.appendRows)
+	m.HandleFunc("POST /v1/datasets/{vhost}/{name}/rows", rt.onEngineOrWorker)
 	m.HandleFunc("GET /v1/datasets/{vhost}", rt.e.handle(rt.datasets))
 	m.HandleFunc("GET /v1/datasets/{vhost}/{name}", rt.e.handle(rt.dataset))
 	m.HandleFunc("DELETE /v1/datasets/{vhost}/{name}", rt.e.handle(rt.deleteDataset))
+	m.HandleFunc("GET /v1/datasets/{vhost}/{name}/sample", rt.onEngineOrWorker)
 	m.HandleFunc("GET /v1/datasets/{vhost}/{name}/export", rt.exportDataset)
 	m.HandleFunc("PUT /v1/datasets/{vhost}/{name}/import", rt.remote.Forward)
 
@@ -135,9 +136,10 @@ func (rt *router) onlyOnWorker(ctx context.Context, vhost, name string) bool {
 	return err == nil
 }
 
-// appendRows adds rows to the engine's dataset, or to the worker's when only
-// the worker has it.
-func (rt *router) appendRows(w http.ResponseWriter, r *http.Request) {
+// onEngineOrWorker answers a request about a dataset (adding rows to it,
+// or a sample of it) from the engine, or from the worker when only the worker
+// has the dataset.
+func (rt *router) onEngineOrWorker(w http.ResponseWriter, r *http.Request) {
 	if rt.onlyOnWorker(r.Context(), r.PathValue("vhost"), r.PathValue("name")) {
 		rt.remote.Forward(w, r)
 		return

@@ -80,6 +80,7 @@ GET /api/vhosts/{vhost}/lineage
 GET /api/vhosts/{vhost}/lineage/impact
 GET /api/vhosts/{vhost}/ml/datasets
 GET /api/vhosts/{vhost}/ml/datasets/{name}
+GET /api/vhosts/{vhost}/ml/datasets/{name}/profile
 GET /api/vhosts/{vhost}/ml/jobs
 GET /api/vhosts/{vhost}/ml/jobs/{id}
 GET /api/vhosts/{vhost}/ml/jobs/{id}/result

@@ -21,7 +21,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import recommend, transfer
 from .custom import CustomTrainer
-from .datasets import DatasetStore, parse_csv, parse_xlsx, rows_to_table
+from .datasets import DatasetStore, parse_csv, parse_parquet, parse_xlsx, rows_to_table
 from .errors import ApiError, bad_request, not_found
 from .names import validate_name
 from .sandbox import SandboxSettings, harden_parent
@@ -157,9 +157,9 @@ def create_app(settings: Settings, sandbox: SandboxSettings | None = None) -> Fa
     async def upload_file(vhost: str, name: str, request: Request, format: str = "") -> dict[str, Any]:
         validate_name(vhost, "vhost")
         validate_name(name, "dataset")
-        parsers = {"csv": parse_csv, "xlsx": parse_xlsx}
+        parsers = {"csv": parse_csv, "xlsx": parse_xlsx, "parquet": parse_parquet}
         if format not in parsers:
-            raise bad_request("Query parameter 'format' must be 'csv' or 'xlsx'.")
+            raise bad_request("Query parameter 'format' must be 'csv', 'xlsx' or 'parquet'.")
         body = await read_body(request, limit)
         table = await run_in_threadpool(parsers[format], body)
         await run_in_threadpool(datasets.replace, vhost, name, table)
@@ -175,6 +175,15 @@ def create_app(settings: Settings, sandbox: SandboxSettings | None = None) -> Fa
         validate_name(vhost, "vhost")
         validate_name(name, "dataset")
         return await run_in_threadpool(datasets.info_with_sample, vhost, name)
+
+    @api.get("/v1/datasets/{vhost}/{name}/sample")
+    async def sample_dataset(vhost: str, name: str, rows: str = "") -> dict[str, Any]:
+        """Rows spread evenly over the dataset, column by column, for its profile."""
+        validate_name(vhost, "vhost")
+        validate_name(name, "dataset")
+        if not rows.isdigit() or int(rows) <= 0:
+            raise bad_request("Query parameter 'rows' must be a whole number above 0.")
+        return await run_in_threadpool(datasets.sample, vhost, name, int(rows))
 
     @api.delete("/v1/datasets/{vhost}/{name}", status_code=204)
     async def delete_dataset(vhost: str, name: str) -> Response:

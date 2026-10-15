@@ -36,13 +36,22 @@ export function useNodeContext(selectedNode: Node | null, testResults: any[] | n
     const simulatedOutput = (nodeId: string): any | null =>
       (testResults?.find((r: any) => r.node_id === nodeId && r.payload) as any)?.payload ?? null;
 
+    // What a node emitted, newest first. A node's own Run Preview exists only
+    // when it ran after the last workflow run (setTestResults drops older ones)
+    // and since the last edit to that node or anything before it
+    // (updateNodeConfig drops those), so it is the more recent of the two.
+    // Read after the run, a run made before the lookup was set up hid the
+    // object its preview had just shown.
+    const emittedBy = (nodeId: string): any | null =>
+      nodePreviews?.[nodeId] ?? simulatedOutput(nodeId);
+
     // 1. Try to get payload from testResults (if simulation was run)
     if (testResults) {
       const incomingEdges = edges.filter((e: Edge) => e.target === selectedNode?.id);
       if (incomingEdges.length > 0) {
         const mergedPayload: Record<string, any> = {};
         incomingEdges.forEach((edge: Edge) => {
-          const output = simulatedOutput(edge.source);
+          const output = emittedBy(edge.source);
           if (output) {
             deepMergeSim(mergedPayload, output);
           }
@@ -80,14 +89,13 @@ export function useNodeContext(selectedNode: Node | null, testResults: any[] | n
           // the walk continues from the nearest output the preview did produce,
           // instead of dropping back to the source and losing every change the
           // nodes in between made.
-          const simulated = simulatedOutput(nodeId);
-          if (simulated) return { payload: preparePayload(simulated), skipped: depth };
-          // Then what the node's own Run Preview emitted. Without it the walk
-          // went straight past a previewed lookup to the source's sample, so the
+          //
+          // That includes the node's own Run Preview: without it the walk went
+          // straight past a previewed lookup to the source's sample, so the
           // node after it never saw the object the lookup added and could only
           // list its target field as "any (inferred)".
-          const previewed = nodePreviews?.[nodeId];
-          if (previewed) return { payload: preparePayload(previewed), skipped: depth };
+          const emitted = emittedBy(nodeId);
+          if (emitted) return { payload: preparePayload(emitted), skipped: depth };
           const own = ownPayload(node);
           if (own) return { payload: preparePayload(own), skipped: depth };
 
