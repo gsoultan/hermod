@@ -2,6 +2,7 @@ package advanced
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"strings"
 
@@ -101,9 +102,36 @@ func (t *AdvancedTransformer) Transform(ctx context.Context, msg hermod.Message,
 	} else { // "set"
 		for _, col := range columns {
 			result := t.evaluator.EvaluateAdvancedExpression(msg, col.expr)
+			if replaceAfterImage(msg, col.path, result) {
+				continue
+			}
 			msg.SetData(col.path, result)
 		}
 	}
 
 	return msg, nil
+}
+
+// replaceAfterImage makes `column.after = <object>` on a CDC message replace the
+// row, which is what a foreach followed by `column.after = source.after._item`
+// means. Written through SetData it became a literal "after" key beside the old
+// columns, and that key alone serialises as the after-image, so every field a
+// later node wrote -- a db_lookup's targetField -- landed beside it and never
+// reached the next node or the sink. A row with a real "after" column keeps the
+// SetData behaviour, which writes into that column.
+func replaceAfterImage(msg hermod.Message, path string, value any) bool {
+	row, ok := value.(map[string]any)
+	setter, canSet := msg.(interface{ SetAfter([]byte) })
+	if !ok || !canSet || msg.Operation() == "" || !strings.EqualFold(path, "after") {
+		return false
+	}
+	if _, column := msg.Data()["after"]; column {
+		return false
+	}
+	b, err := json.Marshal(row)
+	if err != nil {
+		return false
+	}
+	setter.SetAfter(b)
+	return true
 }
