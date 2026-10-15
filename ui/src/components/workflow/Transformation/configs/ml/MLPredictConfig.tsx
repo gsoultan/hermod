@@ -316,6 +316,24 @@ function ScenarioFields({ scenario, config, set, fieldPaths }: {
           />
         </>
       )}
+      {(scenario === 'products' || scenario === 'similar') && (
+        <>
+          <TextInput
+            label="Brand"
+            description="Optional: only products of this brand (the model's products.brand)."
+            placeholder="any"
+            value={config.brand ?? ''}
+            onChange={(e) => set({ brand: e.currentTarget.value || undefined })}
+          />
+          <TextInput
+            label="Subcategory"
+            description="Optional: only products of this subcategory (the model's products.subcategory)."
+            placeholder="any"
+            value={config.subcategory ?? ''}
+            onChange={(e) => set({ subcategory: e.currentTarget.value || undefined })}
+          />
+        </>
+      )}
       <TextInput
         label="How many"
         description={scenario === 'visits'

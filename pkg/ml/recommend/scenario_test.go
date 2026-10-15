@@ -808,3 +808,150 @@ func TestMalformedNearbySettingsAreRefused(t *testing.T) {
 		t.Error("no peer reasons")
 	}
 }
+
+// reasonOf is the text of a pick's reason of code, "" for none.
+func reasonOf(p Pick, code string) string {
+	for _, r := range p.Reasons {
+		if r.Code == code {
+			return r.Text
+		}
+	}
+	return ""
+}
+
+func TestStockGivenWithTheRequestReplacesTheModels(t *testing.T) {
+	m := scenarioModel(t, "products_shop")
+	// As trained, I4 is out of stock: I5 is offered in its place.
+	trained := answer(t, m, Query{Customer: "K01", K: 20, ExcludeSeen: true})
+	if slices.Contains(ids(trained.Items), "I4") {
+		t.Fatalf("out-of-stock I4 offered: %v", ids(trained.Items))
+	}
+	i5 := slices.IndexFunc(trained.Items, func(p Pick) bool { return p.ID == "I5" })
+	if i5 < 0 || reasonOf(trained.Items[i5], ReasonSubstitute) != "Instead of Indomie 4 (out of stock)" {
+		t.Fatalf("I5 not offered instead of I4: %+v", trained.Items)
+	}
+	// Restocked today, I4 is offered itself and I5 for its own sake.
+	restocked := answer(t, m, Query{Customer: "K01", K: 20, ExcludeSeen: true, Stock: map[string]float64{"I4": 30}})
+	if !slices.Contains(ids(restocked.Items), "I4") {
+		t.Fatalf("restocked I4 not offered: %v", ids(restocked.Items))
+	}
+	for _, p := range restocked.Items {
+		if reasonOf(p, ReasonSubstitute) != "" {
+			t.Fatalf("%s offered as a substitute: %v", p.ID, p.Reasons)
+		}
+	}
+	// With the substitute gone as well, neither is.
+	gone := answer(t, m, Query{Customer: "K01", K: 20, ExcludeSeen: true, Stock: map[string]float64{"I4": 0, "I5": 0}})
+	if slices.Contains(ids(gone.Items), "I4") || slices.Contains(ids(gone.Items), "I5") {
+		t.Fatalf("out-of-stock products offered: %v", ids(gone.Items))
+	}
+
+	// A model trained before products' details takes stock too, and
+	// answers as before without it.
+	old := scenarioModel(t, "products_peers")
+	before := answer(t, old, Query{Customer: "C0001", K: 10, ExcludeSeen: true})
+	first := before.Items[0].ID
+	after := answer(t, old, Query{Customer: "C0001", K: 10, ExcludeSeen: true, Stock: map[string]float64{first: 0}})
+	if slices.Contains(ids(after.Items), first) || !slices.Equal(ids(after.Items)[:len(after.Items)-1], ids(before.Items)[1:len(after.Items)]) {
+		t.Fatalf("stock 0 for %s: %v, before %v", first, ids(after.Items), ids(before.Items))
+	}
+	aud := scenarioModel(t, "audience_shop")
+	if res := answer(t, aud, Query{Product: "I1", K: 5, Stock: map[string]float64{"I1": 0}}); len(res.Items) != 0 {
+		t.Fatalf("an out-of-stock product has an audience: %v", ids(res.Items))
+	}
+	for _, stock := range []map[string]float64{{"I1": math.NaN()}, {"": 3}} {
+		if _, err := m.Answer(Query{Customer: "K01", Today: fixtureToday, Stock: stock}); !errors.Is(err, ErrBadQuery) {
+			t.Fatalf("stock %v: %v", stock, err)
+		}
+	}
+}
+
+func TestProductListsFilterByBrandAndSubcategory(t *testing.T) {
+	m := scenarioModel(t, "products_shop")
+	res := answer(t, m, Query{Customer: "K30", K: 20, ExcludeSeen: true, Brand: " indomie "})
+	if len(res.Items) == 0 {
+		t.Fatal("no Indomie products")
+	}
+	for _, p := range res.Items {
+		if p.Fields["brand"] != "Indomie" {
+			t.Fatalf("listed %s with %v", p.ID, p.Fields)
+		}
+	}
+	sim := answer(t, scenarioModel(t, "similar_shop"), Query{Product: "I1", K: 20, Subcategory: "WATER"})
+	if len(sim.Items) == 0 {
+		t.Fatal("no water like I1")
+	}
+	for _, p := range sim.Items {
+		if p.Fields["subcategory"] != "Water" {
+			t.Fatalf("listed %s with %v", p.ID, p.Fields)
+		}
+	}
+	for _, tc := range []struct {
+		name string
+		m    *Model
+		q    Query
+		want string
+	}{
+		{"customer list", scenarioModel(t, "audience_shop"), Query{Product: "I1", Brand: "Indomie"}, "product lists"},
+		{"no brand", scenarioModel(t, "products_peers"), Query{Customer: "C0001", Brand: "Acme"}, "brand"},
+		{"no subcategory", scenarioModel(t, "similar"), Query{Product: "S001", Subcategory: "x"}, "subcategory"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.q.Today = fixtureToday
+			if _, err := tc.m.Answer(tc.q); !errors.Is(err, ErrBadQuery) || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Answer = %v, want ErrBadQuery mentioning %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestProductsAndReordersSuggestAQuantityInPacks(t *testing.T) {
+	m := scenarioModel(t, "products_shop")
+	res := answer(t, m, Query{Customer: "K02", K: 20})
+	suggested := 0
+	for _, p := range res.Items {
+		if p.Fields["suggested_text"] == "3 cartons (100 pcs)" && p.Fields["suggested_qty"] == 3 {
+			suggested++
+		}
+	}
+	if suggested != 2 {
+		t.Fatalf("%d products with 3 cartons suggested, want K02's two: %+v", suggested, res.Items)
+	}
+	// The same model asked when its customers buy again: each due product
+	// carries what to order, and an out-of-stock one its substitute.
+	raw := withHeader(t, scenarioBytes(t, "products_shop"), func(h map[string]any) { h["scenario"] = ScenarioReorder })
+	r, err := Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	due := answer(t, r, Query{AllCustomers: true, K: MaxPlan, WithinDays: 60})
+	packs, instead := 0, 0
+	for _, p := range due.Items {
+		for _, d := range p.Products {
+			if d.ID == "I4" {
+				t.Fatalf("%s is due for out-of-stock I4", p.ID)
+			}
+			if d.Fields["instead_of"] == "I4" {
+				instead++
+			}
+			if text, _ := d.Fields["suggested_text"].(string); strings.HasSuffix(text, " pcs)") {
+				packs++
+			}
+		}
+	}
+	if packs == 0 || instead == 0 {
+		t.Fatalf("%d due products with a suggestion, %d instead of I4", packs, instead)
+	}
+}
+
+func TestProductDetailsHeaderIsChecked(t *testing.T) {
+	for _, days := range []any{-1, 366} {
+		if _, err := Parse(withHeader(t, scenarioBytes(t, "products_shop"), func(h map[string]any) { h["new_days"] = days })); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("new_days %v: Parse = %v", days, err)
+		}
+	}
+	// Without pair_details the two sections are bytes after the last one.
+	if _, err := Parse(withHeader(t, scenarioBytes(t, "products_shop"), func(h map[string]any) { delete(h, "pair_details") })); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Parse without pair_details = %v", err)
+	}
+}

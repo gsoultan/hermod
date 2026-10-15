@@ -541,3 +541,62 @@ func TestRecommendSaysWhatNearbyCustomersBuy(t *testing.T) {
 		t.Errorf("summary %q", s)
 	}
 }
+
+// for.brand, for.subcategory and stock on the editor route: only that
+// brand's products are listed, each with its product details, and one the
+// call gives as out of stock is not.
+func TestRecommendKeepsABrandAndTakesStock(t *testing.T) {
+	h, store, stub := scenarioAPI(t)
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "pkg", "ml", "recommend", "testdata", "scenario", "products_details.rec"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stub.rec = raw
+	store.models["tenant-a/offer"] = storage.MLModel{VHost: "tenant-a", Name: "offer", Backend: storage.MLBackendWorker,
+		RemoteVersion: "2", Task: storage.MLTaskRecommendation}
+	ask := func(body string) []string {
+		t.Helper()
+		w := call(h.RecommendScenario, editorA, http.MethodPost, "tenant-a", "offer", body)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%d %s", w.Code, w.Body)
+		}
+		var out struct {
+			Results []struct {
+				Items []struct {
+					ID     string         `json:"id"`
+					Fields map[string]any `json:"fields"`
+				} `json:"items"`
+			} `json:"results"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		var ids []string
+		for _, it := range out.Results[0].Items {
+			if it.Fields["brand"] != "Cahaya" || it.Fields["unit"] == nil || it.Fields["pack_size"] == nil {
+				t.Errorf("%s: fields %v", it.ID, it.Fields)
+			}
+			ids = append(ids, it.ID)
+		}
+		return ids
+	}
+	ids := ask(`{"for":{"customer":"C0001","brand":"CAHAYA"},"k":10}`)
+	if len(ids) == 0 {
+		t.Fatal("no Cahaya products")
+	}
+	for _, id := range ask(`{"for":{"customer":"C0001","brand":"Cahaya"},"k":10,"stock":{"` + ids[0] + `":0}}`) {
+		if id == ids[0] {
+			t.Errorf("%s is out of stock and still recommended", id)
+		}
+	}
+	for body, want := range map[string]string{
+		`{"for":{"customer":"C0001","brand":{"x":1}}}`:   "brand",
+		`{"for":{"customer":"C0001","subcategory":[1]}}`: "subcategory",
+		`{"for":{"customer":"C0001"},"stock":{"":1}}`:    "stock",
+	} {
+		w := call(h.RecommendScenario, editorA, http.MethodPost, "tenant-a", "offer", body)
+		if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), want) {
+			t.Errorf("%s: %d %s, want 400 mentioning %q", body, w.Code, w.Body, want)
+		}
+	}
+}

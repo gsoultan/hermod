@@ -526,3 +526,45 @@ func TestMLRecommendBuildCarriesCategoryAndSize(t *testing.T) {
 		}
 	}
 }
+
+// The Predict node's Recommend mode with brand and subcategory: only that
+// brand and subcategory of a customer's products, each carrying both.
+func TestMLRecommendKeepsABrandAndSubcategory(t *testing.T) {
+	reg := scenarioRegistry(t, "products_details")
+	got := transform(t, reg, map[string]any{"shop": "C0001"}, map[string]any{
+		"transType": "ml_predict", "model": "due", "mode": "recommend", "recommendFor": "customer", "idField": "shop",
+		"brand": "cahaya", "subcategory": "dairy basic", "k": "10", "outputField": "cahaya",
+	})
+	items, _ := got["cahaya"].([]map[string]any)
+	if len(items) == 0 {
+		t.Fatalf("cahaya = %#v, want C0001's Cahaya dairy basic products", got["cahaya"])
+	}
+	for _, it := range items {
+		fields, _ := it["fields"].(map[string]any)
+		if fields["brand"] != "Cahaya" || fields["subcategory"] != "dairy basic" {
+			t.Errorf("%v: fields %v", it["id"], fields)
+		}
+	}
+}
+
+// The Build Recommendations node's rows of products carry each product's
+// brand and subcategory, and suggested_qty is there, empty when there is
+// no suggestion.
+func TestMLRecommendBuildCarriesBrandAndSubcategory(t *testing.T) {
+	reg := scenarioRegistry(t, "products_details")
+	rows, _, err := reg.MLRecommendBuild(t.Context(), "default", "due", map[string]any{"for": "all_customers", "k": 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) == 0 {
+		t.Fatal("no rows")
+	}
+	for _, row := range rows {
+		if row["brand"] == "" || row["subcategory"] == "" || row["brand"] == nil || row["subcategory"] == nil {
+			t.Errorf("%v: brand %v, subcategory %v", row["item_id"], row["brand"], row["subcategory"])
+		}
+		if _, ok := row["suggested_qty"]; !ok {
+			t.Errorf("%v: no suggested_qty", row["item_id"])
+		}
+	}
+}

@@ -891,6 +891,14 @@ SELECT customer_id, product_id, order_date, SUM(quantity) AS quantity, SUM(amoun
 | Orders or invoice lines | Quantity | Products bought in larger amounts count as stronger likes. |
 | Orders or invoice lines | Amount | Lets Hermod leave out credit notes (negative amounts). |
 | Products | Products table | Lets rules skip inactive products, prefer margin or mix categories. |
+| Products | Brand | A customer who spends 20% or more on a brand is offered its other products, with the reason "Buys a lot of Sedaap (62% of spend)". Lists can be filtered to one brand. Needs amounts or quantities on the orders, and a brand on most products. |
+| Products | Subcategory | Finer than the category: a new product goes to the customers who buy its subcategory, and lists can be filtered to one. Needs at least two products in a subcategory to tell them apart. |
+| Products | Pack size | Suggests how much to order in whole packs: "3 cartons (40 pcs)" from the customer's usual quantity per order. Needs quantities on the orders; it shows for products the customer has bought before, such as reorders. |
+| Products | Unit | Names the pack in a suggested quantity ("cartons"); "packs" without it. Works with a pack size. |
+| Products | Launch date | A product launched within the last 60 days is offered to the customers who buy its brand or subcategory, with the reason "New, launched 2026-09-15", even before it has sales. Needs the date on the new products; older ones may leave it empty. |
+| Products | End date | A product past its end date is never recommended. Works on any product that has one; leave it empty for products still sold. |
+| Products | Stock | A product with no stock (0 or less) is not recommended: its substitute is offered in its place, "Instead of P-315 (out of stock)". Stock is as of training; a call can give today's stock in "stock". Needs a number for every product it should apply to; empty is in stock. |
+| Products | Substitute | The product offered instead of one that is out of stock or past its end date. Needs the substitute's id, as in the orders, and stock or end dates to act on. |
 | Customers | Customers table | Lets rules stay inside a territory. A category and size offer each customer what others of its kind buy, nearby ones first when it has coordinates. |
 | Customers | Customer category | Customers of the same category and size are each other's peers: Hermod offers what the peers buy, most of all to customers with few orders yet. |
 | Customers | Customer size | Customers of the same category and size are each other's peers: Hermod offers what the peers buy, most of all to customers with few orders yet. A number (headcount, revenue) is cut into small, medium and large. |
@@ -1025,6 +1033,14 @@ SELECT customer_id, product_id, order_date, SUM(quantity) AS quantity, SUM(amoun
 | Customers | Latitude | With a category or size, the peers are the nearby customers of the same kind: the 20 nearest within 5 km (a reason then reads "Bought by 7 of 12 Minimarket customers within 5 km"). |
 | Customers | Longitude | With a category or size, the peers are the nearby customers of the same kind: the 20 nearest within 5 km (a reason then reads "Bought by 7 of 12 Minimarket customers within 5 km"). |
 | Products | Products table | Helps with products that have few sales yet. |
+| Products | Brand | A new product's likely buyers are the customers who spend most on its brand. Needs amounts or quantities on the orders. |
+| Products | Subcategory | A new product's likely buyers are the customers who spend most on its subcategory. Needs at least two products in a subcategory. |
+| Products | Pack size | Carried on each product's fields. Works on any product that has one. |
+| Products | Unit | Carried on each product's fields with its pack size. Works on any product that has one. |
+| Products | Launch date | A product launched within the last 60 days finds its buyers among the customers of its brand or subcategory, even before it has sales. Needs the date on the new products; older ones may leave it empty. |
+| Products | End date | A product past its end date has no audience: nobody is offered it. Works on any product that has one; leave it empty for products still sold. |
+| Products | Stock | A product with no stock (0 or less) has no audience until it is back. Stock is as of training; a call can give today's in "stock". Needs a number for every product it should apply to. |
+| Products | Substitute | Carried on each product's fields. Needs the substitute's id, as in the orders. |
 
 **How much data**
 
@@ -1081,6 +1097,14 @@ SELECT customer_id, product_id, order_date, SUM(quantity) AS quantity, SUM(amoun
 | Orders or invoice lines | Quantity | Products bought in larger amounts count as stronger likes. |
 | Orders or invoice lines | Amount | Lets Hermod leave out credit notes (negative amounts). |
 | Products | Products table | Lets rules skip inactive products or mix categories. |
+| Products | Brand | Products of the same brand rank higher among the look-alikes, with the reason "Same brand (Sedaap)". Lists can be filtered to one brand. Needs a brand on most products. |
+| Products | Subcategory | Products of the same subcategory rank higher among the look-alikes, with the reason "Same subcategory (Instant noodles)", even with few sales. Needs at least two products in a subcategory. |
+| Products | Pack size | Carried on each product's fields. Works on any product that has one. |
+| Products | Unit | Carried on each product's fields with its pack size. Works on any product that has one. |
+| Products | Launch date | Not used to rank look-alikes. A product with few sales still gets look-alikes from its subcategory and brand. Works on any product that has one. |
+| Products | End date | A product past its end date is never recommended. Works on any product that has one; leave it empty for products still sold. |
+| Products | Stock | A product with no stock (0 or less) is not recommended: its substitute is offered in its place, "Instead of P-315 (out of stock)". Stock is as of training; a call can give today's stock in "stock". Needs a number for every product it should apply to; empty is in stock. |
+| Products | Substitute | The product offered instead of one that is out of stock or past its end date. Needs the substitute's id, as in the orders, and stock or end dates to act on. |
 
 **How much data**
 
@@ -1564,7 +1588,9 @@ what. Send `task: "recommendation"` with `scenario` and `data`:
   "data": {
     "transactions": {"dataset": "orders", "customer": "cust_id", "product": "sku", "date": "order_date", "quantity": "qty", "amount": "total"},
     "customers":    {"dataset": "customers", "id": "cust_id", "salesman": "rep", "territory": "region", "segment": "tier", "lat": "lat", "lon": "lon", "blocked": "credit_hold"},
-    "products":     {"dataset": "items", "id": "sku", "category": "cat", "price": "price", "margin": "margin", "active": "active"},
+    "products":     {"dataset": "items", "id": "sku", "category": "cat", "subcategory": "subcat", "brand": "brand", "price": "price", "margin": "margin",
+                     "pack_size": "pack_qty", "unit": "uom", "launch_date": "launched", "end_date": "discontinued", "stock": "on_hand",
+                     "substitute": "replacement_sku", "active": "active"},
     "visits":       {"dataset": "visits", "customer": "cust_id", "date": "visit_date", "salesman": "rep", "outcome": "result"},
     "salesmen":     {"dataset": "reps", "id": "rep", "visits_per_day": "cap", "working_days": "days"}
   },
@@ -1593,6 +1619,8 @@ what. Send `task: "recommendation"` with `scenario` and `data`:
   and `""`); they are ignored, as the roles name the data.
 - `near_km` (0.1 to 500, 5 by default) and `near_peers` (3 to 200, 20 by
   default) set how near a customer's nearby peers are: see below.
+- `new_days` (1 to 365, 60 by default) is how recently a product must have
+  launched to count as new: see Product details below.
 - `features`, `params`, `preset`, `device: "gpu"` and custom scripts are
   refused for a scenario.
 
@@ -1631,6 +1659,56 @@ peer share is part of the scored lists, so the metrics show what it adds.
 Every list of customers (a visit plan, reorders, an audience) carries each
 customer's `segment` and `size` in its `fields`. A model trained before
 categories and sizes, or without them, answers exactly as it did.
+
+**Product details.** The `products` role takes optional details next to
+`category`, `price` and `margin`: `brand`, `subcategory`, `pack_size` (pieces
+in a pack, a number), `unit` (what a pack is called, such as carton),
+`launch_date`, `end_date`, `stock` (pieces on hand, a number) and
+`substitute` (another product's id). The console guesses them from the
+column names; the data guide above says what each one needs.
+
+- **Brand.** A customer's share of spend on each brand (its amounts, or
+  quantities without amounts) is kept with the version. In a customer's
+  products, a brand it spends 20% or more on adds a **brand** signal
+  (weight 0.2) to that brand's products, puts up to 10 of them among the
+  candidates, and gives the reason `brand`: "Buys a lot of Sedaap (62% of
+  spend)".
+- **Subcategory.** A new product's likely buyers are found by subcategory
+  rather than category, and similar products of the same subcategory (and
+  brand) rank higher, with the reason `same_kind`: "Same subcategory
+  (Instant noodles)", "Same brand (Sedaap)" or "Same brand and subcategory
+  (Sedaap, Instant noodles)". Up to 20 products of the same kind are added
+  to a similar list even with few shared buyers.
+- **Lifecycle.** A product past its `end_date` is never recommended. One
+  launched within the last `new_days` days is **new**: a customer's products
+  take up to 10 new products it fits (its share of spend on the product's
+  brand or subcategory, whichever is larger) as candidates, with a **new**
+  signal (weight 0.2) of that fit and the reason `new_product`: "New,
+  launched 2026-09-15". An audience adds the fit to a new product's score
+  (weight 0.3), so a product with no sales yet still finds its buyers.
+- **Stock and substitutes.** A product with `stock` 0 or less is not
+  recommended, and has no audience. In a list of products its `substitute`
+  takes its place and score, with the reason `substitute`: "Instead of
+  Noodles 40 (out of stock)" (or "(discontinued)" past its end date), unless
+  the substitute is itself unavailable, already listed earlier, or one the
+  list leaves out (such as a product already bought, with `exclude_seen`);
+  then it is simply left out. A reorder's products due follow the same rule,
+  the substitute's `fields` naming the product it replaces in `instead_of`. Stock is as of training; since it changes daily, a call can give
+  today's stock in `stock` (below), which replaces the trained value for the
+  products it names. Retraining on a refreshed products dataset updates it
+  for builds and the Predict node, which take no `stock`.
+- **Suggested quantity.** With `pack_size`, a product the customer has
+  bought before (a reorder's products due, or a customer's products with
+  `exclude_seen: false`) carries `suggested_qty` and `suggested_text` in its
+  `fields`: the customer's median quantity per order rounded up to whole
+  packs, "3 cartons (40 pcs)", or in pieces or the unit without a pack size
+  for that product. It needs `transactions.quantity`.
+
+Every product listed carries its `subcategory`, `brand`, `unit` and
+`pack_size` in its `fields` when the model has them. These signals are part
+of the scored lists the evaluation runs, so the metrics show what they add.
+A model trained without product details, or before them, answers exactly as
+it did: its artifact is byte-for-byte what it was.
 
 The version keeps `scenario`, `roles` (as sent), `weights` and
 `applied_weights`, `rules`, `metrics` and `baseline`, `baselines_named`,
@@ -1743,6 +1821,14 @@ curl -X POST https://hermod.example.com/api/ml/serve/default/visit-plan/recommen
   reorders, an audience) to one customer category and size, in any case; a
   numeric size is bucketed as in training. They are refused for products or
   similar products, and for a model trained without that attribute.
+- `brand` and `subcategory` in `for` keep a list of products (a customer's
+  products, similar products) to one brand and subcategory, in any case.
+  They are refused for lists of customers, and for a model trained without
+  that attribute.
+- `stock` maps product ids to the pieces on hand now (up to 10,000
+  products), for a model trained with `products.stock`: it replaces the
+  trained stock of those products, so one at 0 or less is not offered and
+  its substitute is. `{"for": {"customer": "c-7"}, "stock": {"P-315": 0}}`.
 - `"respond": "async"` (or the header `Prefer: respond-async`) runs the call
   as a [job](#asynchronous-jobs), as for predict: the answer is `202` with
   `job_id` and `status_url`, the job's `result` is the answer above, and a
@@ -1762,7 +1848,10 @@ Each item has `id`, `score` (compares within one list only), `rank` from 1,
 The reason codes are `reorder_due`, `churn_risk`, `high_value`, `whitespace`
 (similar customers buy it), `not_visited`, `similar_customers`,
 `bought_together`, `peer_group` (customers of the same category and size,
-or nearby ones, buy it), `popular`, `boosted` and `pinned`; the text is plain
+or nearby ones, buy it), `brand` (the customer buys a lot of its brand),
+`new_product` (launched recently), `substitute` (in place of a product out of
+stock or discontinued), `same_kind` (same subcategory or brand), `popular`,
+`boosted` and `pinned`; the text is plain
 English with the numbers behind it.
 
 Each call is logged like a prediction with its `recommendation_id`, and every
@@ -1776,19 +1865,21 @@ call with `subject` for `for` (`all_customers` a bool), `period_from` and
 result names its subject in `subject`, and each `ScenarioPick` carries
 `due_date`, `overdue` and `products` (`DueProduct`: `id`, `due_date`,
 `overdue`, `fields`). `ScenarioSubject` takes `segment` and `size`, and
-each `ScenarioResult` carries `summary`. `Recommend` answers carry
+`brand` and `subcategory`; `RecommendScenarioRequest.stock` is the `stock`
+map; each `ScenarioResult` carries `summary`. `Recommend` answers carry
 `recommendation_id`.
 
 **MCP:** the `recommend_<model>` tool also takes `for` (with
-`all_customers`, `segment` and `size`), `territory`, `period`,
-`within_days`, `k`, `rules` and `exclude_seen`, and answers `{"model", "vhost", "recommendation_id",
+`all_customers`, `segment`, `size`, `brand` and `subcategory`), `territory`,
+`period`, `within_days`, `k`, `rules`, `exclude_seen` and `stock`, and answers `{"model", "vhost", "recommendation_id",
 "results"}`.
 
 **Workflows:** the **Predict** node's Recommend mode takes `recommendFor`
 `salesman`, `customer` or `product` (and `user` or `item` as before),
 `periodDays` (a visit plan from today), `withinDays` (a reorder window from
 today, 1 to 366), `segment` and `size` (a list of customers of one category
-and size), `rules` (a JSON list), `idField`, `k`, `excludeSeen` and
+and size), `brand` and `subcategory` (a list of products of one brand and
+subcategory), `rules` (a JSON list), `idField`, `k`, `excludeSeen` and
 `outputField`. It writes the first result's items to `outputField`, each with
 `id`, `score`, `rank`, `reasons`, `fields`, the call's `recommendation_id`,
 and `plan_date`, or `due_date` with `overdue` and `products`, where set.
@@ -1910,7 +2001,11 @@ only when it is there, so a table made before it existed keeps working; add
 it with, for example, `ALTER TABLE visit_plan ADD COLUMN due_date DATE`.
 Likewise optional `segment` and `size` text columns get each listed
 customer's category and size (for products, those of the customer the
-products are for). The
+products are for), and optional `brand` and `subcategory` text columns and
+a `suggested_qty` integer column get a listed product's brand, subcategory
+and suggested quantity in whole packs (NULL when there is none: a build of
+products to offer leaves out what the customer already bought, so most rows
+have none). The
 products a customer is due for are in the API answer, not in the table. `replace` deletes
 the model's earlier rows in the same transaction; `append` keeps them. A
 build of more than 1,000,000 rows is refused. `GET .../build` shows it with
@@ -1921,7 +2016,7 @@ The **Build recommendations** workflow node (`ml_recommend_build`) does the
 same from a workflow: `model`, `for`, `periodDays`, `withinDays`, `k`, and
 optionally `targetSourceId`, `targetTable`, `targetMode` and `maxRows`
 (10,000 by default). It emits one message per row, with the row's fields
-(`due_date`, `segment` and `size` among them) on the incoming record, after writing them when a
+(`due_date`, `segment`, `size`, `brand`, `subcategory` and `suggested_qty` among them) on the incoming record, after writing them when a
 target is set; more rows than `maxRows` fails the record before anything is
 written.
 

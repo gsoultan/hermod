@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +15,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/pkg/ml/recommend"
 )
 
 // recStore is memStore with feedback and schedules, in memory.
@@ -480,5 +483,76 @@ func TestABuildWritesCategoryAndSizeWhenTheTableHasThem(t *testing.T) {
 	}
 	if len(rows) == 0 || rows[0].Segment == "" || rows[0].Size == "" {
 		t.Fatalf("products rows %+v", rows[:min(1, len(rows))])
+	}
+}
+
+func TestABuildWritesBrandSubcategoryAndSuggestedQuantityWhenTheTableHasThem(t *testing.T) {
+	svc := scenarioService(t, "similar_shop", storage.MLQuotas{})
+	rows, err := svc.BuildRecommendations(t.Context(), "v", "recs", ModelBuild{For: BuildAllProducts, K: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) == 0 {
+		t.Fatal("no rows")
+	}
+	for _, r := range rows {
+		if r.Brand == "" || r.Subcategory == "" {
+			t.Fatalf("%s: brand %q, subcategory %q", r.ItemID, r.Brand, r.Subcategory)
+		}
+	}
+	// A product row carries the quantity its answer suggests.
+	raw, err := os.ReadFile(filepath.Join(recFixtures, "scenario", "products_shop.rec"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, err := recommend.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	offer := appendBuildRows(nil, BuildRow{}, recommend.Result{For: "K02", Items: []recommend.Pick{
+		{ID: "I1", Rank: 1, Fields: map[string]any{"suggested_qty": 3}}}}, rec)
+	if len(offer) != 1 || offer[0].SuggestedQty != 3 || offer[0].Brand != "Indomie" {
+		t.Fatalf("product row %+v", offer)
+	}
+	rows[0].SuggestedQty = offer[0].SuggestedQty
+	db := newTargetDB(t)
+	for _, col := range []string{"brand TEXT", "SUBCATEGORY TEXT", "suggested_qty INTEGER"} {
+		if _, err := db.ExecContext(t.Context(), `ALTER TABLE recs_out ADD COLUMN `+col); err != nil {
+			t.Fatal(err)
+		}
+	}
+	target := BuildTarget{SourceID: "target", Table: "recs_out"}
+	if err := WriteBuild(t.Context(), db, "sqlite", target, "recs", rows); err != nil {
+		t.Fatal(err)
+	}
+	var n, brands, subs, qtys int
+	if err := db.QueryRowContext(t.Context(), `SELECT COUNT(*), COUNT(brand), COUNT(subcategory), COUNT(suggested_qty) FROM recs_out`).
+		Scan(&n, &brands, &subs, &qtys); err != nil {
+		t.Fatal(err)
+	}
+	if n != len(rows) || brands != n || subs != n || qtys != 1 {
+		t.Fatalf("%d rows, %d with brand, %d with subcategory, %d with suggested_qty", n, brands, subs, qtys)
+	}
+	var qty int
+	if err := db.QueryRowContext(t.Context(), `SELECT suggested_qty FROM recs_out WHERE suggested_qty IS NOT NULL`).Scan(&qty); err != nil || qty != 3 {
+		t.Fatalf("suggested_qty %d, %v", qty, err)
+	}
+	// A table without them, as built before they existed, still takes the build.
+	t.Run("neither", func(t *testing.T) {
+		if err := WriteBuild(t.Context(), newTargetDB(t), "sqlite", target, "recs", rows); err != nil {
+			t.Fatalf("a table without brand, subcategory and suggested_qty: %v", err)
+		}
+	})
+
+	// A customer list's rows have no product, so neither brand nor subcategory.
+	aud := scenarioService(t, "audience_shop", storage.MLQuotas{})
+	rows, err = aud.BuildRecommendations(t.Context(), "v", "recs", ModelBuild{For: BuildAllProducts, K: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if r.Brand != "" || r.Subcategory != "" {
+			t.Fatalf("audience row %+v", r)
+		}
 	}
 }

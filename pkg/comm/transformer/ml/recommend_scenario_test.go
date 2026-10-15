@@ -52,7 +52,18 @@ func TestRecommendModeForAScenarioSubject(t *testing.T) {
 	if want := map[string]any{"for": map[string]any{"salesman": "R1", "segment": "Retail", "size": "large"}, "within_days": 14}; !reflect.DeepEqual(reg.req, want) {
 		t.Errorf("category request = %v, want %v", reg.req, want)
 	}
+	// brand and subcategory keep one brand and subcategory of a list of products.
+	reg = &fakeRecommender{}
+	if _, err := run(t, reg, "", map[string]any{"model": "offer", "mode": "recommend", "recommendFor": "customer", "idField": "id",
+		"brand": " Acme ", "subcategory": "Soap"}, map[string]any{"id": "C1"}); err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]any{"for": map[string]any{"customer": "C1", "brand": "Acme", "subcategory": "Soap"}}; !reflect.DeepEqual(reg.req, want) {
+		t.Errorf("brand request = %v, want %v", reg.req, want)
+	}
 	for _, cfg := range []map[string]any{
+		{"recommendFor": "user", "brand": "Acme"},
+		{"recommendFor": "item", "subcategory": "Soap"},
 		{"recommendFor": "user", "segment": "Retail"},
 		{"recommendFor": "item", "size": "large"},
 		{"recommendFor": "user", "periodDays": 7},

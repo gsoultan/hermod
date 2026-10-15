@@ -7,6 +7,44 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — Product details in recommendations
+
+A recommendation scenario's products table can now name each product's
+**brand**, **subcategory**, **pack size** and **unit**, **launch date** and
+**end date**, **stock** and a **substitute**. All are optional; the console
+guesses them from the column names, and the data guide says what each adds
+and what it needs.
+
+- **Brand affinity.** A customer that spends 20% or more on a brand is
+  offered more of it, with the reason "Buys a lot of Sedaap (62% of spend)".
+- **Subcategory.** New products find their buyers by subcategory, and
+  similar products of the same subcategory or brand rank higher ("Same
+  subcategory (Instant noodles)").
+- **Lifecycle.** Products past their end date are never recommended.
+  Products launched within the last 60 days (`new_days` on the training, 1
+  to 365) are offered to the customers who buy their brand or subcategory,
+  with the reason "New, launched 2026-09-15", and reach an audience before
+  they have sales.
+- **Stock and substitutes.** A product out of stock is not recommended; its
+  substitute is offered in its place ("Instead of Noodles 40 (out of
+  stock)"). Stock is as of training, and a call can give today's stock in
+  `stock` (REST, MCP and gRPC `RecommendScenarioRequest.stock`).
+- **Suggested quantity.** With a pack size, a product the customer has
+  bought before carries `suggested_qty` and `suggested_text` in whole packs,
+  "3 cartons (40 pcs)", from its usual quantity per order.
+- Products carry `brand`, `subcategory`, `unit` and `pack_size` in their
+  `fields` across REST, MCP, gRPC, the Predict node and builds. Lists of
+  products can be kept to one `brand` and `subcategory` (`for.brand` and
+  `for.subcategory`; `ScenarioSubject.brand` and `subcategory` in gRPC,
+  additive fields; **Brand** and **Subcategory** in **Try it** and the
+  Predict node). A build table may add `brand`, `subcategory` and
+  `suggested_qty` columns, and the Build recommendations node emits them.
+
+A model trained without product details answers exactly as before: training
+the same data on this release and the last gives byte-identical artifacts,
+metrics and samples for every scenario. See
+[docs/ml.md, "Product details"](docs/ml.md#training-a-scenario).
+
 ### Added — Customer category, size and nearby customers in recommendations
 
 A recommendation scenario's customers table can now name each customer's

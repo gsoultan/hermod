@@ -91,16 +91,25 @@ export const ROLES: Record<RoleKey, RoleSpec> = {
     columns: [
       { key: 'id', label: 'Product id', hint: 'The same ids as in the orders.', kind: 'id' },
       { key: 'category', label: 'Category', hint: 'Product group or family.', kind: 'text' },
+      { key: 'subcategory', label: 'Subcategory', hint: 'A finer group inside the category, such as Instant noodles.', kind: 'text' },
+      { key: 'brand', label: 'Brand', hint: 'The brand or manufacturer.', kind: 'text' },
       { key: 'price', label: 'Price', hint: 'List price.', kind: 'number' },
       { key: 'margin', label: 'Margin', hint: 'Profit per unit or margin share.', kind: 'number' },
+      { key: 'pack_size', label: 'Pack size', hint: 'Pieces in one pack, case or carton.', kind: 'number' },
+      { key: 'unit', label: 'Unit', hint: 'What one pack is called, such as carton or box.', kind: 'text' },
+      { key: 'launch_date', label: 'Launch date', hint: 'When the product came on sale.', kind: 'date' },
+      { key: 'end_date', label: 'End date', hint: 'When it stops being sold (end of life).', kind: 'date' },
+      { key: 'stock', label: 'Stock', hint: 'Pieces on hand.', kind: 'number' },
+      { key: 'substitute', label: 'Substitute', hint: 'The product id to offer when this one is out of stock.', kind: 'id' },
       { key: 'active', label: 'Active', hint: 'Yes when it can be sold (active, in stock).', kind: 'flag' },
     ],
     example: {
-      header: ['product_id', 'category', 'price', 'margin', 'active'],
+      header: ['product_id', 'category', 'subcategory', 'brand', 'price', 'margin', 'pack_size', 'unit', 'launch_date',
+        'end_date', 'stock', 'substitute', 'active'],
       rows: [
-        ['P-200', 'Beverages', '12.00', '3.10', 'true'],
-        ['P-315', 'Snacks', '19.10', '6.40', 'true'],
-        ['P-322', 'Snacks', '8.50', '1.20', 'false'],
+        ['P-200', 'Beverages', 'Coffee', 'Kapal', '12.00', '3.10', '24', 'carton', '2024-03-01', '', '480', '', 'true'],
+        ['P-315', 'Snacks', 'Instant noodles', 'Sedaap', '19.10', '6.40', '40', 'carton', '2026-09-15', '', '0', 'P-316', 'true'],
+        ['P-322', 'Snacks', 'Crackers', 'Roma', '8.50', '1.20', '12', 'box', '2022-01-10', '2026-06-30', '35', '', 'false'],
       ],
     },
   },
@@ -224,9 +233,19 @@ const NAME_HINTS: Record<RoleKey, Record<string, RegExp>> = {
   },
   products: {
     id: /prod|sku|item|article|material|^id$/i,
-    category: /cat|family|group|class|department/i,
+    // A subcategory's name has "cat" in it too: it is left to subcategory.
+    category: /^(?!.*sub).*(cat|family|group|class|department)/i,
+    subcategory: /sub.?(cat|group|family|class)/i,
+    brand: /brand|make|manufacturer|label/i,
     price: /price|list/i,
     margin: /margin|profit|gm/i,
+    pack_size: /pack|case|carton|per_?box|inner/i,
+    unit: /^unit$|uom|unit_?of|measure/i,
+    launch_date: /launch|intro|release/i,
+    end_date: /^end|discontinu|eol|end_?of|delist|expir/i,
+    // A number of pieces; a yes/no "in stock" column stays active's.
+    stock: /stock|on_?hand|inventory/i,
+    substitute: /substit|replace|alternat|successor/i,
     active: /active|stock|enabled|available|status/i,
   },
   visits: {
@@ -489,7 +508,7 @@ export interface ScenarioItem {
 /** Who or what a recommendation is for; the scenario decides which keys apply. */
 export type RecommendFor =
   | ({ customer: string } | { product: string } | { salesman: string } | { customers: string[] } | { all_customers: true })
-  & { segment?: string; size?: string }
+  & { segment?: string; size?: string; brand?: string; subcategory?: string }
 
 /** The windows a reorder question offers, in days: "who will buy in the next 2 weeks". */
 export const DUE_WINDOWS: Array<{ days: number; label: string }> = [
@@ -508,6 +527,8 @@ export interface RecommendRequest {
   k?: number
   rules?: Rule[]
   exclude_seen?: boolean
+  /** Pieces on hand now, by product id, replacing the stock the model was trained with. */
+  stock?: Record<string, number>
   respond?: 'sync' | 'async'
   callback_url?: string
 }

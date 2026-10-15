@@ -68,6 +68,9 @@ func scenarioSpec(spec worker.TrainSpec) (worker.TrainSpec, error) {
 	if spec.NearPeers != 0 && (spec.NearPeers < recommend.NearPeersMin || spec.NearPeers > recommend.NearPeersMax) {
 		return bad("near_peers must be between %d and %d customers", recommend.NearPeersMin, recommend.NearPeersMax)
 	}
+	if spec.NewDays != 0 && (spec.NewDays < recommend.NewDaysMin || spec.NewDays > recommend.NewDaysMax) {
+		return bad("new_days must be between %d and %d days", recommend.NewDaysMin, recommend.NewDaysMax)
+	}
 	if err := recommend.ValidateRules(scenario, spec.Rules); err != nil {
 		return bad("%v", err)
 	}
@@ -113,6 +116,8 @@ func (s *Service) RecommendCheck(ctx context.Context, vhost string, spec worker.
 // every customer. Segment and Size keep only the customers of that category
 // and size in a list of customers (visits, reorder, audience); a size is a
 // label such as "large", or a number the model buckets as its training did.
+// Brand and Subcategory keep only the products of that brand and
+// subcategory in a list of products (products, similar).
 type ScenarioFor struct {
 	Customer     any   `json:"customer,omitempty"`
 	Customers    []any `json:"customers,omitempty"`
@@ -122,6 +127,8 @@ type ScenarioFor struct {
 	AllCustomers bool  `json:"all_customers,omitempty"`
 	Segment      any   `json:"segment,omitempty"`
 	Size         any   `json:"size,omitempty"`
+	Brand        any   `json:"brand,omitempty"`
+	Subcategory  any   `json:"subcategory,omitempty"`
 }
 
 // ScenarioPeriod is a visit plan's days, both included, as YYYY-MM-DD. To
@@ -135,17 +142,20 @@ type ScenarioPeriod struct {
 // CallbackURL ask for an asynchronous answer, which the REST API gives by
 // queueing the call as a job; RecommendScenario itself answers at once, and
 // refuses them. WithinDays, for a reorder model, keeps the customers due to
-// order within that many days from today, overdue ones included.
+// order within that many days from today, overdue ones included. Stock is
+// today's stock on hand by product id, in place of what the model learned
+// at training: a product with none is not offered, or its substitute is.
 type ScenarioRequest struct {
-	For         ScenarioFor      `json:"for"`
-	Territory   any              `json:"territory,omitempty"`
-	Period      *ScenarioPeriod  `json:"period,omitempty"`
-	WithinDays  int              `json:"within_days,omitempty"`
-	K           int              `json:"k,omitempty"`
-	Rules       []recommend.Rule `json:"rules,omitempty"`
-	ExcludeSeen *bool            `json:"exclude_seen,omitempty"`
-	Respond     string           `json:"respond,omitempty"`
-	CallbackURL string           `json:"callback_url,omitempty"`
+	For         ScenarioFor        `json:"for"`
+	Territory   any                `json:"territory,omitempty"`
+	Period      *ScenarioPeriod    `json:"period,omitempty"`
+	WithinDays  int                `json:"within_days,omitempty"`
+	K           int                `json:"k,omitempty"`
+	Rules       []recommend.Rule   `json:"rules,omitempty"`
+	ExcludeSeen *bool              `json:"exclude_seen,omitempty"`
+	Stock       map[string]float64 `json:"stock,omitempty"`
+	Respond     string             `json:"respond,omitempty"`
+	CallbackURL string             `json:"callback_url,omitempty"`
 }
 
 // ScenarioAnswer is a scenario call's answer: one result per subject, and
@@ -169,7 +179,7 @@ func (r ScenarioRequest) query(scenario string, today time.Time) (recommend.Quer
 	if err := r.checkRespond(); err != nil {
 		return recommend.Query{}, 0, err
 	}
-	q := recommend.Query{Today: today, K: r.K, Rules: r.Rules, ExcludeSeen: r.ExcludeSeen == nil || *r.ExcludeSeen}
+	q := recommend.Query{Today: today, K: r.K, Rules: r.Rules, ExcludeSeen: r.ExcludeSeen == nil || *r.ExcludeSeen, Stock: r.Stock}
 	if err := r.subjects(&q); err != nil {
 		return q, 0, err
 	}
@@ -234,6 +244,9 @@ func (r ScenarioRequest) check() error {
 	if limit := max(recommend.MaxK, recommend.MaxPlan); r.K < 0 || r.K > limit {
 		return badRecommend(`"k" is how many results, 1 to %d`, limit)
 	}
+	if len(r.Stock) > recommend.MaxStock {
+		return badRecommend(`at most %d products' "stock" per call, not %d`, recommend.MaxStock, len(r.Stock))
+	}
 	if err := r.window(recommend.ScenarioReorder, &q); err != nil {
 		return err
 	}
@@ -275,13 +288,14 @@ func (r ScenarioRequest) subjects(q *recommend.Query) error {
 		name, what string
 		v          any
 		to         *string
-	}{{"segment", "category", r.For.Segment, &q.Segment}, {"size", "size", r.For.Size, &q.Size}} {
+	}{{"segment", "customer category", r.For.Segment, &q.Segment}, {"size", "customer size", r.For.Size, &q.Size},
+		{"brand", "product brand", r.For.Brand, &q.Brand}, {"subcategory", "product subcategory", r.For.Subcategory, &q.Subcategory}} {
 		if f.v == nil {
 			continue
 		}
 		s, ok := recommend.ID(f.v)
 		if _, isBool := f.v.(bool); !ok || isBool {
-			return badRecommend(`"for.%s" is a customer %s: a non-empty string or a number`, f.name, f.what)
+			return badRecommend(`"for.%s" is a %s: a non-empty string or a number`, f.name, f.what)
 		}
 		*f.to = s
 	}

@@ -611,3 +611,232 @@ def test_product_samples_say_what_nearby_customers_buy(near):
     summaries = [s.get("summary") for s in meta["samples"]]
     assert any(s and s.startswith("Minimarket customers within 5 km buy: ") for s in summaries), summaries
     assert meta["evaluation"]["nearby_customers"] > 0
+
+
+# --------------------------------------------------------------------------
+# Product details: brand, subcategory, pack size, lifecycle and stock
+# --------------------------------------------------------------------------
+
+# The day the details world's history ends, and its products: two noodle
+# brands of one subcategory, a water brand of another.
+DETAIL_START = "2025-10-01"
+DETAIL_LAST = 364
+
+
+def detail_items() -> list[dict]:
+    """Indomie I1-I6 and Mie Sedaap M1-M6 are instant noodles, Aqua W1-W4
+    water. I4 is out of stock with I5 as its substitute; M6 was
+    discontinued 30 days before the end; I6 was launched 20 days before
+    it. Noodles come in cartons of 40, water in boxes of 12."""
+    import datetime as dt
+
+    start = dt.date.fromisoformat(DETAIL_START)
+    rows = []
+    for brand, prefix, sub, cat, n in (("Indomie", "I", "Instant noodles", "noodles", 6), ("Mie Sedaap", "M", "Instant noodles", "noodles", 6),
+                                        ("Aqua", "W", "Water", "drinks", 4)):
+        for p in range(1, n + 1):
+            sku = f"{prefix}{p}"
+            rows.append({"sku": sku, "name": f"{brand} {p}", "cat": cat, "sub": sub, "brand": brand,
+                         "pack": 12 if prefix == "W" else 40, "unit": "box" if prefix == "W" else "carton",
+                         "launched": (start + dt.timedelta(days=DETAIL_LAST - 20)).isoformat() if sku == "I6" else "2020-01-01",
+                         "ends": (start + dt.timedelta(days=DETAIL_LAST - 30)).isoformat() if sku == "M6" else None,
+                         "stock": 0 if sku == "I4" else 50, "instead": "I5" if sku == "I4" else None})
+    return rows
+
+
+def detail_tables(seed: int = 9) -> dict[str, list[dict]]:
+    """Forty shops: the first twenty spend most on Indomie, the others on Mie
+    Sedaap, and everyone buys some water. Each shop orders every two to
+    three weeks for a year: two of its brand's first three products, a
+    hundred pieces of each, and a box of water. Half of each kind also tried
+    their brand's fourth product, and one Sedaap shop I5 once; a few Indomie
+    shops bought the new I6 in its first days, and a few Sedaap shops M6
+    before it ended."""
+    import datetime as dt
+    import random
+
+    rng = random.Random(seed)
+    start = dt.date.fromisoformat(DETAIL_START)
+    orders = []
+    for c in range(40):
+        cid = f"K{c:02d}"
+        prefix = "I" if c < 20 else "M"
+        likes = rng.sample([f"{prefix}1", f"{prefix}2", f"{prefix}3"], 2)
+        extra = [f"{prefix}4"] if c % 2 == 0 else []
+        day = rng.randrange(15)
+        while day <= DETAIL_LAST:
+            when = (start + dt.timedelta(days=day)).isoformat()
+            for sku in likes:
+                orders.append({"cust": cid, "sku": sku, "day": when, "qty": 100, "total": 300.0})
+            orders.append({"cust": cid, "sku": f"W{rng.randint(1, 4)}", "day": when, "qty": 12, "total": 24.0})
+            if extra and rng.random() < 0.3:
+                orders.append({"cust": cid, "sku": rng.choice(extra), "day": when, "qty": 40, "total": 120.0})
+            day += rng.randint(14, 21)
+        if prefix == "I" and c < 4:
+            orders.append({"cust": cid, "sku": "I6", "day": (start + dt.timedelta(days=DETAIL_LAST - 5)).isoformat(), "qty": 40, "total": 140.0})
+        if c == 39:
+            orders.append({"cust": cid, "sku": "I5", "day": (start + dt.timedelta(days=DETAIL_LAST - 90)).isoformat(), "qty": 40, "total": 120.0})
+        if prefix == "M" and c < 26:
+            orders.append({"cust": cid, "sku": "M6", "day": (start + dt.timedelta(days=DETAIL_LAST - 60)).isoformat(), "qty": 40, "total": 120.0})
+    return {"orders": orders, "items": detail_items()}
+
+
+@pytest.fixture(scope="module")
+def details(tmp_path_factory) -> TestClient:
+    client = TestClient(create_app(Settings(data_dir=tmp_path_factory.mktemp("details") / "data")))
+    tables = detail_tables()
+    load(client, "dorders", tables["orders"], VHOST)
+    load(client, "ditems", tables["items"], VHOST)
+    return client
+
+
+DETAIL_COLUMNS = {"brand": "brand", "subcategory": "sub", "pack_size": "pack", "unit": "unit", "launch_date": "launched",
+                  "end_date": "ends", "stock": "stock", "substitute": "instead"}
+
+
+def detail_body(scenario: str, columns: dict | None = None, **extra) -> dict:
+    products = {"dataset": "ditems", "id": "sku", "category": "cat", "name": "name", **(DETAIL_COLUMNS if columns is None else columns)}
+    data = {"transactions": {"dataset": "dorders", "customer": "cust", "product": "sku", "date": "day", "quantity": "qty", "amount": "total"},
+            "products": products}
+    return {"task": "recommendation", "scenario": scenario, "data": data, "algorithm": "item_similarity", **extra}
+
+
+def detail_model(client: TestClient, name: str, scenario: str, columns: dict | None = None, **extra) -> tuple[recommend.Model, scenarios.Built]:
+    resp = train(client, name, detail_body(scenario, columns, **extra))
+    assert resp.status_code == 200, resp.text
+    model = artifact(client, name, resp.json())
+    return model, scenarios.built_from_artifact(model)
+
+
+def test_product_details_are_roles_columns_and_new_days_is_checked():
+    for key in ("brand", "subcategory", "pack_size", "unit", "launch_date", "end_date", "stock", "substitute"):
+        assert key in scenarios.ROLE_KEYS["products"]
+    assert ("products", "pack_size") in scenarios.NUMBER_KEYS and ("products", "stock") in scenarios.NUMBER_KEYS
+    assert scenarios.parse_request(detail_body("products"), 0.2, 0).new_days == 60
+    assert scenarios.parse_request(detail_body("products", new_days=30), 0.2, 0).new_days == 30
+    for bad in (0, 366, True, "30", 2.5):
+        with pytest.raises(Exception, match="new_days"):
+            scenarios.parse_request(detail_body("products", new_days=bad), 0.2, 0)
+
+
+def test_product_details_go_in_the_artifact(details):
+    model, b = detail_model(details, "det_art", "products")
+    x = model.extra
+    assert x["new_days"] == 60 and x["pair_details"] is True
+    assert x["item_features"][: len(scenarios.ITEM_FEATURES)] == list(scenarios.ITEM_FEATURES)
+    assert set(x["item_features"]) >= {"pack_size", "launch_day", "end_day", "stock"}
+    attrs = x["item_attrs"]
+    i4 = model.items.index("I4")
+    assert attrs["brand"][i4] == "Indomie" and attrs["subcategory"][i4] == "Instant noodles"
+    assert attrs["unit"][i4] == "carton" and attrs["substitute"][i4] == "I5"
+    assert len(model.seen_qty) == model.seen.nnz and len(model.seen_spend) == model.seen.nnz
+    assert recommend.encode(model) == recommend.encode(recommend.decode(recommend.encode(model)))
+
+
+def test_without_product_details_the_artifact_is_as_before(details):
+    model, _ = detail_model(details, "det_none", "products", columns={})
+    x = model.extra
+    assert "new_days" not in x and "pair_details" not in x
+    assert x["item_features"] == list(scenarios.ITEM_FEATURES)
+    assert set(x["item_attrs"]) <= set(scenarios.ITEM_ATTRS) and "brand" not in x["item_attrs"]
+    assert model.seen_qty is None and model.seen_spend is None
+
+
+def ids_and_reasons(b: scenarios.Built, picks) -> tuple[list[str], dict[str, list[dict]]]:
+    return [b.items[i] for i, _, _ in picks], {b.items[i]: rs for i, _, rs in picks}
+
+
+def test_a_customer_is_offered_more_of_the_brand_it_spends_most_on(details):
+    _, b = detail_model(details, "det_brand", "products")
+    # K02 buys Indomie and water; its other Indomie products come first.
+    u = b.users.index("K02")
+    ids, reasons = ids_and_reasons(b, scenarios.product_scores(b, u, 10))
+    noodles = [i for i in ids if i[0] in "IM"]
+    assert noodles and noodles[0].startswith("I"), ids
+    texts = [r["text"] for r in reasons[noodles[0]] if r["code"] == "brand"]
+    assert texts and texts[0].startswith("Buys a lot of Indomie ("), reasons[noodles[0]]
+    share = scenarios.spend_shares(b, u, "brand")
+    assert share["Indomie"] > 0.8 and texts[0] == f"Buys a lot of Indomie ({round(share['Indomie'] * 100)}% of spend)"
+
+
+def test_discontinued_and_out_of_stock_products_are_never_offered(details):
+    _, b = detail_model(details, "det_life", "products")
+    for c in ("K00", "K01", "K21", "K30"):
+        ids, _ = ids_and_reasons(b, scenarios.product_scores(b, b.users.index(c), 20, exclude_seen=False))
+        assert "M6" not in ids and "I4" not in ids, (c, ids)
+    sim_ids = [b.items[j] for j, _, _ in scenarios.similar_scores(b, b.items.index("M3"), 20)]
+    assert "M6" not in sim_ids and "I4" not in sim_ids
+    # Nobody is the audience of a product that is not for sale.
+    assert scenarios.audience_scores(b, b.items.index("M6"), 10) == []
+    assert scenarios.audience_scores(b, b.items.index("I4"), 10) == []
+
+
+def test_an_out_of_stock_product_is_offered_as_its_substitute(details):
+    _, b = detail_model(details, "det_sub", "products")
+    # K01 never bought I4 or I5: I5 takes I4's place.
+    ids, reasons = ids_and_reasons(b, scenarios.product_scores(b, b.users.index("K01"), 20))
+    assert "I4" not in ids and "I5" in ids, ids
+    texts = [r["text"] for rs in reasons.values() for r in rs if r["code"] == "substitute"]
+    assert texts == ["Instead of Indomie 4 (out of stock)"], reasons
+
+
+def test_a_new_product_is_offered_to_its_likely_buyers(details):
+    _, b = detail_model(details, "det_new", "products")
+    # K10 buys Indomie but has not tried the new I6.
+    ids, reasons = ids_and_reasons(b, scenarios.product_scores(b, b.users.index("K10"), 10))
+    assert "I6" in ids, ids
+    assert {"code": "new_product", "text": "New, launched 2026-09-10"} in reasons["I6"]
+    # A shop that buys no instant noodles would have no reason to want it;
+    # a Sedaap shop does buy them.
+    ids, reasons = ids_and_reasons(b, scenarios.product_scores(b, b.users.index("K30"), 10))
+    assert {"code": "new_product", "text": "New, launched 2026-09-10"} in reasons.get("I6", []), reasons
+    # Its audience is led by the Indomie shops, each told it is new.
+    audience = scenarios.audience_scores(b, b.items.index("I6"), 10)
+    assert audience and all(b.users[u] < "K20" for u, _, _ in audience), [b.users[u] for u, _, _ in audience]
+    assert all({"code": "new_product", "text": "New, launched 2026-09-10"} in rs for _, _, rs in audience)
+    # With a shorter window it is no longer new.
+    _, short = detail_model(details, "det_new10", "products", new_days=10)
+    ids, reasons = ids_and_reasons(short, scenarios.product_scores(short, short.users.index("K10"), 10))
+    assert all(r["code"] != "new_product" for rs in reasons.values() for r in rs)
+
+
+def test_similar_products_share_a_subcategory_or_brand(details):
+    _, b = detail_model(details, "det_similar", "similar")
+    picks = scenarios.similar_scores(b, b.items.index("I1"), 20)
+    ids, reasons = ids_and_reasons(b, picks)
+    # Its brand's products bought with it come first, then what is bought
+    # with it, then the noodles nobody buys with it.
+    assert ids[0][0] == "I", ids
+    assert reasons[ids[0]][-1] == {"code": "same_kind", "text": "Same brand and subcategory (Indomie, Instant noodles)"}
+    assert {"code": "same_kind", "text": "Same subcategory (Instant noodles)"} in reasons["M1"], reasons
+    plain = scenarios.similar_scores(detail_model(details, "det_similar0", "similar", columns={})[1], b.items.index("I1"), 20)
+    assert all(r["code"] != "same_kind" for _, _, rs in plain for r in rs)
+
+
+def test_a_suggested_quantity_is_rounded_up_to_whole_packs(details):
+    _, b = detail_model(details, "det_qty", "products")
+    u = b.users.index("K02")
+    i1 = next(i for i in range(len(b.items)) if b.items[i] in ("I1", "I2", "I3") and scenarios.pair_quantity(b, u, i) is not None)
+    # A hundred pieces an order, forty a carton.
+    assert scenarios.pair_quantity(b, u, i1) == 100
+    fields = scenarios._item_fields(b, i1, u)
+    assert fields["suggested_qty"] == 3 and fields["suggested_text"] == "3 cartons (100 pcs)"
+    assert fields["brand"] == "Indomie" and fields["subcategory"] == "Instant noodles"
+    assert fields["unit"] == "carton" and fields["pack_size"] == 40
+    # What the customer never bought has no history to suggest from.
+    never = b.items.index("M1")
+    assert "suggested_qty" not in scenarios._item_fields(b, never, u)
+
+
+def test_products_without_details_score_as_before(details):
+    """The details are optional: without their columns the same history
+    trains the same artifact and answers the same."""
+    plain = train(details, "det_plain", detail_body("products", columns={})).json()
+    again = train(details, "det_plain2", detail_body("products", columns={})).json()
+    a = details.get(f"/v1/models/{VHOST}/det_plain/versions/{plain['version']}/model.rec").content
+    b2 = details.get(f"/v1/models/{VHOST}/det_plain2/versions/{again['version']}/model.rec").content
+    assert a == b2 and plain["metrics"] == again["metrics"]
+    for sample in plain["samples"]:
+        for it in sample["items"]:
+            assert set(it["fields"]) <= {"name", "category"}
+            assert all(r["code"] not in ("brand", "new_product", "substitute", "same_kind") for r in it["reasons"])

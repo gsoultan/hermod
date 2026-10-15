@@ -177,6 +177,14 @@ SELECT customer_id, product_id, order_date, SUM(quantity) AS quantity, SUM(amoun
 | Orders or invoice lines | Quantity | Products bought in larger amounts count as stronger likes. |
 | Orders or invoice lines | Amount | Lets Hermod leave out credit notes (negative amounts). |
 | Products | Products table | Lets rules skip inactive products, prefer margin or mix categories. |
+| Products | Brand | A customer who spends 20% or more on a brand is offered its other products, with the reason "Buys a lot of Sedaap (62% of spend)". Lists can be filtered to one brand. Needs amounts or quantities on the orders, and a brand on most products. |
+| Products | Subcategory | Finer than the category: a new product goes to the customers who buy its subcategory, and lists can be filtered to one. Needs at least two products in a subcategory to tell them apart. |
+| Products | Pack size | Suggests how much to order in whole packs: "3 cartons (40 pcs)" from the customer's usual quantity per order. Needs quantities on the orders; it shows for products the customer has bought before, such as reorders. |
+| Products | Unit | Names the pack in a suggested quantity ("cartons"); "packs" without it. Works with a pack size. |
+| Products | Launch date | A product launched within the last 60 days is offered to the customers who buy its brand or subcategory, with the reason "New, launched 2026-09-15", even before it has sales. Needs the date on the new products; older ones may leave it empty. |
+| Products | End date | A product past its end date is never recommended. Works on any product that has one; leave it empty for products still sold. |
+| Products | Stock | A product with no stock (0 or less) is not recommended: its substitute is offered in its place, "Instead of P-315 (out of stock)". Stock is as of training; a call can give today's stock in "stock". Needs a number for every product it should apply to; empty is in stock. |
+| Products | Substitute | The product offered instead of one that is out of stock or past its end date. Needs the substitute's id, as in the orders, and stock or end dates to act on. |
 | Customers | Customers table | Lets rules stay inside a territory. A category and size offer each customer what others of its kind buy, nearby ones first when it has coordinates. |
 | Customers | Customer category | Customers of the same category and size are each other's peers: Hermod offers what the peers buy, most of all to customers with few orders yet. |
 | Customers | Customer size | Customers of the same category and size are each other's peers: Hermod offers what the peers buy, most of all to customers with few orders yet. A number (headcount, revenue) is cut into small, medium and large. |
@@ -311,6 +319,14 @@ SELECT customer_id, product_id, order_date, SUM(quantity) AS quantity, SUM(amoun
 | Customers | Latitude | With a category or size, the peers are the nearby customers of the same kind: the 20 nearest within 5 km (a reason then reads "Bought by 7 of 12 Minimarket customers within 5 km"). |
 | Customers | Longitude | With a category or size, the peers are the nearby customers of the same kind: the 20 nearest within 5 km (a reason then reads "Bought by 7 of 12 Minimarket customers within 5 km"). |
 | Products | Products table | Helps with products that have few sales yet. |
+| Products | Brand | A new product's likely buyers are the customers who spend most on its brand. Needs amounts or quantities on the orders. |
+| Products | Subcategory | A new product's likely buyers are the customers who spend most on its subcategory. Needs at least two products in a subcategory. |
+| Products | Pack size | Carried on each product's fields. Works on any product that has one. |
+| Products | Unit | Carried on each product's fields with its pack size. Works on any product that has one. |
+| Products | Launch date | A product launched within the last 60 days finds its buyers among the customers of its brand or subcategory, even before it has sales. Needs the date on the new products; older ones may leave it empty. |
+| Products | End date | A product past its end date has no audience: nobody is offered it. Works on any product that has one; leave it empty for products still sold. |
+| Products | Stock | A product with no stock (0 or less) has no audience until it is back. Stock is as of training; a call can give today's in "stock". Needs a number for every product it should apply to. |
+| Products | Substitute | Carried on each product's fields. Needs the substitute's id, as in the orders. |
 
 **How much data**
 
@@ -367,6 +383,14 @@ SELECT customer_id, product_id, order_date, SUM(quantity) AS quantity, SUM(amoun
 | Orders or invoice lines | Quantity | Products bought in larger amounts count as stronger likes. |
 | Orders or invoice lines | Amount | Lets Hermod leave out credit notes (negative amounts). |
 | Products | Products table | Lets rules skip inactive products or mix categories. |
+| Products | Brand | Products of the same brand rank higher among the look-alikes, with the reason "Same brand (Sedaap)". Lists can be filtered to one brand. Needs a brand on most products. |
+| Products | Subcategory | Products of the same subcategory rank higher among the look-alikes, with the reason "Same subcategory (Instant noodles)", even with few sales. Needs at least two products in a subcategory. |
+| Products | Pack size | Carried on each product's fields. Works on any product that has one. |
+| Products | Unit | Carried on each product's fields with its pack size. Works on any product that has one. |
+| Products | Launch date | Not used to rank look-alikes. A product with few sales still gets look-alikes from its subcategory and brand. Works on any product that has one. |
+| Products | End date | A product past its end date is never recommended. Works on any product that has one; leave it empty for products still sold. |
+| Products | Stock | A product with no stock (0 or less) is not recommended: its substitute is offered in its place, "Instead of P-315 (out of stock)". Stock is as of training; a call can give today's stock in "stock". Needs a number for every product it should apply to; empty is in stock. |
+| Products | Substitute | The product offered instead of one that is out of stock or past its end date. Needs the substitute's id, as in the orders, and stock or end dates to act on. |
 
 **How much data**
 

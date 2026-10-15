@@ -454,15 +454,24 @@ func (c *call) pairCadence(u, item int) (float64, float64, bool) {
 	return float64(last), gap, true
 }
 
-// dueProduct is item as a product customer u is due for on dueDay.
-func (c *call) dueProduct(item, dueDay int) DueProduct {
-	return DueProduct{ID: c.m.items[item], DueDate: dayText(dueDay), Overdue: dueDay < c.today, Fields: c.itemFields(item)}
+// dueProduct is item as a product customer u is due for on dueDay, with
+// what to suggest they order of it.
+func (c *call) dueProduct(u, item, dueDay int) DueProduct {
+	fields := c.itemFields(item)
+	if c.m.sc != nil {
+		for k, v := range c.m.suggestion(u, item) {
+			fields[k] = v
+		}
+	}
+	return DueProduct{ID: c.m.items[item], DueDate: dayText(dueDay), Overdue: dueDay < c.today, Fields: fields}
 }
 
 // dueProducts are the products customer u is due to buy again before end,
 // soonest first: those they bought on two days or more and have not
 // stopped buying (likelihood above 0, under three of their usual gaps since
-// they last did).
+// they last did). One that cannot be offered (out of stock, discontinued)
+// gives way to its substitute, its fields saying which it is "instead_of",
+// unless that is listed already; otherwise it is left out.
 func (c *call) dueProducts(u, end int) []DueProduct {
 	type due struct{ item, day int }
 	var list []due
@@ -481,9 +490,26 @@ func (c *call) dueProducts(u, end int) []DueProduct {
 		}
 		return a.item - b.item
 	})
-	out := make([]DueProduct, len(list))
-	for i, d := range list {
-		out[i] = c.dueProduct(d.item, d.day)
+	taken := map[int]bool{}
+	for _, d := range list {
+		if c.unavailable(d.item) == "" {
+			taken[d.item] = true
+		}
+	}
+	out := make([]DueProduct, 0, len(list))
+	for _, d := range list {
+		if c.unavailable(d.item) == "" {
+			out = append(out, c.dueProduct(u, d.item, d.day))
+			continue
+		}
+		j, ok := c.substituteOf(d.item)
+		if !ok || taken[j] {
+			continue
+		}
+		taken[j] = true
+		p := c.dueProduct(u, j, d.day)
+		p.Fields["instead_of"] = c.m.items[d.item]
+		out = append(out, p)
 	}
 	return out
 }
@@ -600,7 +626,7 @@ func (c *call) reorderProduct() (Result, error) {
 		}
 		ratio := (float64(c.today) - last) / gap
 		cands = append(cands, cand{idx: u, score: c.reorderScore(ratio), reasons: productReorderReasons(name, ratio, gap, float64(c.today)-last),
-			due: dayText(dueDay), dueDay: dueDay, products: []DueProduct{c.dueProduct(item, dueDay)}})
+			due: dayText(dueDay), dueDay: dueDay, products: []DueProduct{c.dueProduct(u, item, dueDay)}})
 	}
 	c.sortReorder(cands)
 	final, err := c.finish(cands, c.k(DefaultK, MaxPlan), func(u, days int) bool { return c.boughtWithin(u, item, days) })

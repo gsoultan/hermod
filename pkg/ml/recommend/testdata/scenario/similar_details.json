@@ -1,0 +1,2100 @@
+[
+ {
+  "today": "2026-10-01",
+  "product": "S036",
+  "k": 10,
+  "items": [
+   {
+    "id": "S056",
+    "score": 0.8789808750152588,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S036"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same subcategory (cleaning premium)"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 6",
+     "category": "cleaning",
+     "subcategory": "cleaning premium",
+     "brand": "Garuda",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S016",
+    "score": 0.7515838146209717,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S036"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same subcategory (cleaning premium)"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 2",
+     "category": "cleaning",
+     "subcategory": "cleaning premium",
+     "brand": "Borneo",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   },
+   {
+    "id": "S046",
+    "score": 0.6882472038269043,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S036"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 5",
+     "category": "cleaning",
+     "subcategory": "cleaning basic",
+     "brand": "Delta",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   },
+   {
+    "id": "S006",
+    "score": 0.6676978468894958,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S036"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 1",
+     "category": "cleaning",
+     "subcategory": "cleaning basic",
+     "brand": "Fajar",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S026",
+    "score": 0.5298129320144653,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S036"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 3",
+     "category": "cleaning",
+     "subcategory": "cleaning basic",
+     "brand": "Elang",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S029",
+    "score": 0.29525575041770935,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S036"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same brand (Acme)"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 3",
+     "category": "spices",
+     "subcategory": "spices basic",
+     "brand": "Acme",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S047",
+    "score": 0.27668577432632446,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S036"
+     }
+    ],
+    "fields": {
+     "name": "Paper item 5",
+     "category": "paper",
+     "subcategory": "paper basic",
+     "brand": "Elang",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S009",
+    "score": 0.26490646600723267,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S036"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 1",
+     "category": "spices",
+     "subcategory": "spices basic",
+     "brand": "Borneo",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S027",
+    "score": 0.26490646600723267,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S036"
+     }
+    ],
+    "fields": {
+     "name": "Paper item 3",
+     "category": "paper",
+     "subcategory": "paper basic",
+     "brand": "Fajar",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S022",
+    "score": 0.24867984652519226,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S036"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same brand (Acme)"
+     }
+    ],
+    "fields": {
+     "name": "Snacks item 3",
+     "category": "snacks",
+     "subcategory": "snacks basic",
+     "brand": "Acme",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "product": "S006",
+  "k": 10,
+  "items": [
+   {
+    "id": "S046",
+    "score": 0.8276069164276123,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S006"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same subcategory (cleaning basic)"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 5",
+     "category": "cleaning",
+     "subcategory": "cleaning basic",
+     "brand": "Delta",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   },
+   {
+    "id": "S026",
+    "score": 0.7301260828971863,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S006"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same subcategory (cleaning basic)"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 3",
+     "category": "cleaning",
+     "subcategory": "cleaning basic",
+     "brand": "Elang",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S036",
+    "score": 0.6676978468894958,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S006"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 4",
+     "category": "cleaning",
+     "subcategory": "cleaning premium",
+     "brand": "Acme",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S016",
+    "score": 0.6262242794036865,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S006"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 2",
+     "category": "cleaning",
+     "subcategory": "cleaning premium",
+     "brand": "Borneo",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   },
+   {
+    "id": "S056",
+    "score": 0.5882353186607361,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S006"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 6",
+     "category": "cleaning",
+     "subcategory": "cleaning premium",
+     "brand": "Garuda",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S009",
+    "score": 0.3500700294971466,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S006"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 1",
+     "category": "spices",
+     "subcategory": "spices basic",
+     "brand": "Borneo",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S032",
+    "score": 0.32338082790374756,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S006"
+     }
+    ],
+    "fields": {
+     "name": "Snacks item 4",
+     "category": "snacks",
+     "subcategory": "snacks premium",
+     "brand": "Delta",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S022",
+    "score": 0.28005602955818176,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S006"
+     }
+    ],
+    "fields": {
+     "name": "Snacks item 3",
+     "category": "snacks",
+     "subcategory": "snacks basic",
+     "brand": "Acme",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   },
+   {
+    "id": "S029",
+    "score": 0.2592814862728119,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "substitute",
+      "text": "Instead of Spices item 2 (out of stock)"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 3",
+     "category": "spices",
+     "subcategory": "spices basic",
+     "brand": "Acme",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S042",
+    "score": 0.23008950054645538,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S006"
+     }
+    ],
+    "fields": {
+     "name": "Snacks item 5",
+     "category": "snacks",
+     "subcategory": "snacks basic",
+     "brand": "Garuda",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "product": "S034",
+  "k": 10,
+  "items": [
+   {
+    "id": "S054",
+    "score": 0.9140915870666504,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S034"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same subcategory (frozen premium)"
+     }
+    ],
+    "fields": {
+     "name": "Frozen item 6",
+     "category": "frozen",
+     "subcategory": "frozen premium",
+     "brand": "Elang",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S004",
+    "score": 0.8426648378372192,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S034"
+     }
+    ],
+    "fields": {
+     "name": "Frozen item 1",
+     "category": "frozen",
+     "subcategory": "frozen basic",
+     "brand": "Delta",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   },
+   {
+    "id": "S034",
+    "score": 0.7514691352844238,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "substitute",
+      "text": "Instead of Frozen item 3 (discontinued)"
+     }
+    ],
+    "fields": {
+     "name": "Frozen item 4",
+     "category": "frozen",
+     "subcategory": "frozen premium",
+     "brand": "Fajar",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   },
+   {
+    "id": "S014",
+    "score": 0.6850179433822632,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S034"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same subcategory (frozen premium)"
+     }
+    ],
+    "fields": {
+     "name": "Frozen item 2",
+     "category": "frozen",
+     "subcategory": "frozen premium",
+     "brand": "Garuda",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S044",
+    "score": 0.5601120591163635,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S034"
+     }
+    ],
+    "fields": {
+     "name": "Frozen item 5",
+     "category": "frozen",
+     "subcategory": "frozen basic",
+     "brand": "Borneo",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S033",
+    "score": 0.2592814862728119,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S034"
+     }
+    ],
+    "fields": {
+     "name": "Dairy item 4",
+     "category": "dairy",
+     "subcategory": "dairy premium",
+     "brand": "Elang",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S016",
+    "score": 0.2504897117614746,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S034"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 2",
+     "category": "cleaning",
+     "subcategory": "cleaning premium",
+     "brand": "Borneo",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   },
+   {
+    "id": "S012",
+    "score": 0.24253562092781067,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S034"
+     }
+    ],
+    "fields": {
+     "name": "Snacks item 2",
+     "category": "snacks",
+     "subcategory": "snacks premium",
+     "brand": "Elang",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S006",
+    "score": 0.22647058963775635,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S034"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same brand (Fajar)"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 1",
+     "category": "cleaning",
+     "subcategory": "cleaning basic",
+     "brand": "Fajar",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S049",
+    "score": 0.21938171982765198,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S034"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 5",
+     "category": "spices",
+     "subcategory": "spices basic",
+     "brand": "Garuda",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "product": "S010",
+  "k": 10,
+  "items": [
+   {
+    "id": "S020",
+    "score": 0.703526496887207,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S010"
+     }
+    ],
+    "fields": {
+     "name": "Personal item 2",
+     "category": "personal",
+     "subcategory": "personal premium",
+     "brand": "Fajar",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S040",
+    "score": 0.6853694319725037,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "substitute",
+      "text": "Instead of Personal item 3 (out of stock)"
+     }
+    ],
+    "fields": {
+     "name": "Personal item 4",
+     "category": "personal",
+     "subcategory": "personal premium",
+     "brand": "Elang",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   },
+   {
+    "id": "S050",
+    "score": 0.6017452478408813,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S010"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same subcategory (personal basic)"
+     }
+    ],
+    "fields": {
+     "name": "Personal item 5",
+     "category": "personal",
+     "subcategory": "personal basic",
+     "brand": "Acme",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S060",
+    "score": 0.5449492335319519,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S010"
+     }
+    ],
+    "fields": {
+     "name": "Personal item 6",
+     "category": "personal",
+     "subcategory": "personal premium",
+     "brand": "Delta",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S059",
+    "score": 0.3515113592147827,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S010"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same brand (Cahaya)"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 6",
+     "category": "spices",
+     "subcategory": "spices premium",
+     "brand": "Cahaya",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S039",
+    "score": 0.27272728085517883,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S010"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 4",
+     "category": "spices",
+     "subcategory": "spices premium",
+     "brand": "Delta",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S049",
+    "score": 0.27272728085517883,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S010"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 5",
+     "category": "spices",
+     "subcategory": "spices basic",
+     "brand": "Garuda",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   },
+   {
+    "id": "S029",
+    "score": 0.24174688756465912,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S010"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 3",
+     "category": "spices",
+     "subcategory": "spices basic",
+     "brand": "Acme",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S045",
+    "score": 0.22407765686511993,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S010"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same brand (Cahaya)"
+     }
+    ],
+    "fields": {
+     "name": "Bakery item 5",
+     "category": "bakery",
+     "subcategory": "bakery basic",
+     "brand": "Cahaya",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S003",
+    "score": 0.21724839508533478,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S010"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same brand (Cahaya)"
+     }
+    ],
+    "fields": {
+     "name": "Dairy item 1",
+     "category": "dairy",
+     "subcategory": "dairy basic",
+     "brand": "Cahaya",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "product": "S005",
+  "k": 10,
+  "items": [
+   {
+    "id": "S045",
+    "score": 1.0258201360702515,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S005"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same subcategory (bakery basic)"
+     }
+    ],
+    "fields": {
+     "name": "Bakery item 5",
+     "category": "bakery",
+     "subcategory": "bakery basic",
+     "brand": "Cahaya",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S025",
+    "score": 0.9058229923248291,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S005"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same subcategory (bakery basic)"
+     }
+    ],
+    "fields": {
+     "name": "Bakery item 3",
+     "category": "bakery",
+     "subcategory": "bakery basic",
+     "brand": "Delta",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   },
+   {
+    "id": "S015",
+    "score": 0.8058229684829712,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S005"
+     }
+    ],
+    "fields": {
+     "name": "Bakery item 2",
+     "category": "bakery",
+     "subcategory": "bakery premium",
+     "brand": "Acme",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S035",
+    "score": 0.7252406477928162,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S005"
+     }
+    ],
+    "fields": {
+     "name": "Bakery item 4",
+     "category": "bakery",
+     "subcategory": "bakery premium",
+     "brand": "Garuda",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S055",
+    "score": 0.6943650841712952,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S005"
+     }
+    ],
+    "fields": {
+     "name": "Bakery item 6",
+     "category": "bakery",
+     "subcategory": "bakery premium",
+     "brand": "Fajar",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   },
+   {
+    "id": "S011",
+    "score": 0.33806169033050537,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S005"
+     }
+    ],
+    "fields": {
+     "name": "Beverages item 2",
+     "category": "beverages",
+     "subcategory": "beverages premium",
+     "brand": "Delta",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S031",
+    "score": 0.33806169033050537,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S005"
+     }
+    ],
+    "fields": {
+     "name": "Beverages item 4",
+     "category": "beverages",
+     "subcategory": "beverages premium",
+     "brand": "Cahaya",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   },
+   {
+    "id": "S021",
+    "score": 0.32232919335365295,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S005"
+     }
+    ],
+    "fields": {
+     "name": "Beverages item 3",
+     "category": "beverages",
+     "subcategory": "beverages basic",
+     "brand": "Garuda",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S051",
+    "score": 0.30860671401023865,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S005"
+     }
+    ],
+    "fields": {
+     "name": "Beverages item 6",
+     "category": "beverages",
+     "subcategory": "beverages premium",
+     "brand": "Borneo",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S001",
+    "score": 0.29649972915649414,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S005"
+     }
+    ],
+    "fields": {
+     "name": "Beverages item 1",
+     "category": "beverages",
+     "subcategory": "beverages basic",
+     "brand": "Acme",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "product": "S007",
+  "k": 10,
+  "items": [
+   {
+    "id": "S017",
+    "score": 0.8970852494239807,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S007"
+     }
+    ],
+    "fields": {
+     "name": "Paper item 2",
+     "category": "paper",
+     "subcategory": "paper premium",
+     "brand": "Cahaya",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S057",
+    "score": 0.8563488125801086,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S007"
+     }
+    ],
+    "fields": {
+     "name": "Paper item 6",
+     "category": "paper",
+     "subcategory": "paper premium",
+     "brand": "Acme",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S027",
+    "score": 0.8453559875488281,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S007"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same subcategory (paper basic)"
+     }
+    ],
+    "fields": {
+     "name": "Paper item 3",
+     "category": "paper",
+     "subcategory": "paper basic",
+     "brand": "Fajar",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S047",
+    "score": 0.7227991819381714,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S007"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same subcategory (paper basic)"
+     }
+    ],
+    "fields": {
+     "name": "Paper item 5",
+     "category": "paper",
+     "subcategory": "paper basic",
+     "brand": "Elang",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S037",
+    "score": 0.6885303854942322,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S007"
+     }
+    ],
+    "fields": {
+     "name": "Paper item 4",
+     "category": "paper",
+     "subcategory": "paper premium",
+     "brand": "Borneo",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   },
+   {
+    "id": "S042",
+    "score": 0.2949489653110504,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S007"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same brand (Garuda)"
+     }
+    ],
+    "fields": {
+     "name": "Snacks item 5",
+     "category": "snacks",
+     "subcategory": "snacks basic",
+     "brand": "Garuda",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S021",
+    "score": 0.2835496962070465,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S007"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same brand (Garuda)"
+     }
+    ],
+    "fields": {
+     "name": "Beverages item 3",
+     "category": "beverages",
+     "subcategory": "beverages basic",
+     "brand": "Garuda",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S029",
+    "score": 0.2760262191295624,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "substitute",
+      "text": "Instead of Spices item 2 (out of stock)"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 3",
+     "category": "spices",
+     "subcategory": "spices basic",
+     "brand": "Acme",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S059",
+    "score": 0.25819888710975647,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S007"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 6",
+     "category": "spices",
+     "subcategory": "spices premium",
+     "brand": "Cahaya",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S031",
+    "score": 0.24494896829128265,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S007"
+     }
+    ],
+    "fields": {
+     "name": "Beverages item 4",
+     "category": "beverages",
+     "subcategory": "beverages premium",
+     "brand": "Cahaya",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "product": "S008",
+  "k": 10,
+  "items": [
+   {
+    "id": "S048",
+    "score": 0.7396021485328674,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S008"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same subcategory (canned basic)"
+     }
+    ],
+    "fields": {
+     "name": "Canned item 5",
+     "category": "canned",
+     "subcategory": "canned basic",
+     "brand": "Fajar",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S018",
+    "score": 0.6390096545219421,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S008"
+     }
+    ],
+    "fields": {
+     "name": "Canned item 2",
+     "category": "canned",
+     "subcategory": "canned premium",
+     "brand": "Delta",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S028",
+    "score": 0.547213613986969,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S008"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same subcategory (canned basic)"
+     }
+    ],
+    "fields": {
+     "name": "Canned item 3",
+     "category": "canned",
+     "subcategory": "canned basic",
+     "brand": "Garuda",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   },
+   {
+    "id": "S038",
+    "score": 0.5103103518486023,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S008"
+     }
+    ],
+    "fields": {
+     "name": "Canned item 4",
+     "category": "canned",
+     "subcategory": "canned premium",
+     "brand": "Cahaya",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S015",
+    "score": 0.2632007300853729,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S008"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same brand (Acme)"
+     }
+    ],
+    "fields": {
+     "name": "Bakery item 2",
+     "category": "bakery",
+     "subcategory": "bakery premium",
+     "brand": "Acme",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S043",
+    "score": 0.23257417976856232,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S008"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same brand (Acme)"
+     }
+    ],
+    "fields": {
+     "name": "Dairy item 5",
+     "category": "dairy",
+     "subcategory": "dairy basic",
+     "brand": "Acme",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   },
+   {
+    "id": "S035",
+    "score": 0.21320071816444397,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S008"
+     }
+    ],
+    "fields": {
+     "name": "Bakery item 4",
+     "category": "bakery",
+     "subcategory": "bakery premium",
+     "brand": "Garuda",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S036",
+    "score": 0.2122214138507843,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S008"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same brand (Acme)"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 4",
+     "category": "cleaning",
+     "subcategory": "cleaning premium",
+     "brand": "Acme",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S003",
+    "score": 0.1961161345243454,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S008"
+     }
+    ],
+    "fields": {
+     "name": "Dairy item 1",
+     "category": "dairy",
+     "subcategory": "dairy basic",
+     "brand": "Cahaya",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S005",
+    "score": 0.18898223340511322,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S008"
+     }
+    ],
+    "fields": {
+     "name": "Bakery item 1",
+     "category": "bakery",
+     "subcategory": "bakery basic",
+     "brand": "Elang",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "product": "S018",
+  "k": 10,
+  "items": [
+   {
+    "id": "S038",
+    "score": 0.9198915958404541,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S018"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same subcategory (canned premium)"
+     }
+    ],
+    "fields": {
+     "name": "Canned item 4",
+     "category": "canned",
+     "subcategory": "canned premium",
+     "brand": "Cahaya",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S048",
+    "score": 0.7006490230560303,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S018"
+     }
+    ],
+    "fields": {
+     "name": "Canned item 5",
+     "category": "canned",
+     "subcategory": "canned basic",
+     "brand": "Fajar",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S028",
+    "score": 0.6531972885131836,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S018"
+     }
+    ],
+    "fields": {
+     "name": "Canned item 3",
+     "category": "canned",
+     "subcategory": "canned basic",
+     "brand": "Garuda",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   },
+   {
+    "id": "S018",
+    "score": 0.6390096545219421,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "substitute",
+      "text": "Instead of Canned item 1 (out of stock)"
+     }
+    ],
+    "fields": {
+     "name": "Canned item 2",
+     "category": "canned",
+     "subcategory": "canned premium",
+     "brand": "Delta",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S003",
+    "score": 0.2864459455013275,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S018"
+     }
+    ],
+    "fields": {
+     "name": "Dairy item 1",
+     "category": "dairy",
+     "subcategory": "dairy basic",
+     "brand": "Cahaya",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S043",
+    "score": 0.2666666805744171,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S018"
+     }
+    ],
+    "fields": {
+     "name": "Dairy item 5",
+     "category": "dairy",
+     "subcategory": "dairy basic",
+     "brand": "Acme",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   },
+   {
+    "id": "S060",
+    "score": 0.25,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S018"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same brand (Delta)"
+     }
+    ],
+    "fields": {
+     "name": "Personal item 6",
+     "category": "personal",
+     "subcategory": "personal premium",
+     "brand": "Delta",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S046",
+    "score": 0.2436491698026657,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S018"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same brand (Delta)"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 5",
+     "category": "cleaning",
+     "subcategory": "cleaning basic",
+     "brand": "Delta",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   },
+   {
+    "id": "S027",
+    "score": 0.22360679507255554,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S018"
+     }
+    ],
+    "fields": {
+     "name": "Paper item 3",
+     "category": "paper",
+     "subcategory": "paper basic",
+     "brand": "Fajar",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S040",
+    "score": 0.21483446657657623,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "substitute",
+      "text": "Instead of Personal item 3 (out of stock)"
+     }
+    ],
+    "fields": {
+     "name": "Personal item 4",
+     "category": "personal",
+     "subcategory": "personal premium",
+     "brand": "Elang",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "product": "S019",
+  "k": 10,
+  "items": [
+   {
+    "id": "S059",
+    "score": 0.9017837643623352,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S019"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same subcategory (spices premium)"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 6",
+     "category": "spices",
+     "subcategory": "spices premium",
+     "brand": "Cahaya",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S009",
+    "score": 0.771516740322113,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S019"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 1",
+     "category": "spices",
+     "subcategory": "spices basic",
+     "brand": "Borneo",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S049",
+    "score": 0.7252406477928162,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S019"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 5",
+     "category": "spices",
+     "subcategory": "spices basic",
+     "brand": "Garuda",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   },
+   {
+    "id": "S029",
+    "score": 0.7142857313156128,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S019"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 3",
+     "category": "spices",
+     "subcategory": "spices basic",
+     "brand": "Acme",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S039",
+    "score": 0.6640760898590088,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S019"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same subcategory (spices premium)"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 4",
+     "category": "spices",
+     "subcategory": "spices premium",
+     "brand": "Delta",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S017",
+    "score": 0.2760262191295624,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "substitute",
+      "text": "Instead of Paper item 1 (discontinued)"
+     }
+    ],
+    "fields": {
+     "name": "Paper item 2",
+     "category": "paper",
+     "subcategory": "paper premium",
+     "brand": "Cahaya",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S006",
+    "score": 0.2592814862728119,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S019"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 1",
+     "category": "cleaning",
+     "subcategory": "cleaning basic",
+     "brand": "Fajar",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S011",
+    "score": 0.25354626774787903,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S019"
+     }
+    ],
+    "fields": {
+     "name": "Beverages item 2",
+     "category": "beverages",
+     "subcategory": "beverages premium",
+     "brand": "Delta",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S031",
+    "score": 0.25354626774787903,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S019"
+     }
+    ],
+    "fields": {
+     "name": "Beverages item 4",
+     "category": "beverages",
+     "subcategory": "beverages premium",
+     "brand": "Cahaya",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   },
+   {
+    "id": "S036",
+    "score": 0.2452557384967804,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S019"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 4",
+     "category": "cleaning",
+     "subcategory": "cleaning premium",
+     "brand": "Acme",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "product": "S024",
+  "k": 10,
+  "items": [
+   {
+    "id": "S044",
+    "score": 0.9198915958404541,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S024"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same subcategory (frozen basic)"
+     }
+    ],
+    "fields": {
+     "name": "Frozen item 5",
+     "category": "frozen",
+     "subcategory": "frozen basic",
+     "brand": "Borneo",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S054",
+    "score": 0.8666666746139526,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S024"
+     }
+    ],
+    "fields": {
+     "name": "Frozen item 6",
+     "category": "frozen",
+     "subcategory": "frozen premium",
+     "brand": "Elang",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S034",
+    "score": 0.7514691352844238,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S024"
+     }
+    ],
+    "fields": {
+     "name": "Frozen item 4",
+     "category": "frozen",
+     "subcategory": "frozen premium",
+     "brand": "Fajar",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   },
+   {
+    "id": "S004",
+    "score": 0.6520524621009827,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S024"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same subcategory (frozen basic)"
+     }
+    ],
+    "fields": {
+     "name": "Frozen item 1",
+     "category": "frozen",
+     "subcategory": "frozen basic",
+     "brand": "Delta",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   },
+   {
+    "id": "S014",
+    "score": 0.5449492335319519,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S024"
+     }
+    ],
+    "fields": {
+     "name": "Frozen item 2",
+     "category": "frozen",
+     "subcategory": "frozen premium",
+     "brand": "Garuda",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S040",
+    "score": 0.2864459455013275,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S024"
+     }
+    ],
+    "fields": {
+     "name": "Personal item 4",
+     "category": "personal",
+     "subcategory": "personal premium",
+     "brand": "Elang",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   },
+   {
+    "id": "S060",
+    "score": 0.2666666805744171,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S024"
+     }
+    ],
+    "fields": {
+     "name": "Personal item 6",
+     "category": "personal",
+     "subcategory": "personal premium",
+     "brand": "Delta",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S059",
+    "score": 0.2436491698026657,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S024"
+     },
+     {
+      "code": "same_kind",
+      "text": "Same brand (Cahaya)"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 6",
+     "category": "spices",
+     "subcategory": "spices premium",
+     "brand": "Cahaya",
+     "unit": "carton",
+     "pack_size": 12.0
+    }
+   },
+   {
+    "id": "S036",
+    "score": 0.23693954944610596,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S024"
+     }
+    ],
+    "fields": {
+     "name": "Cleaning item 4",
+     "category": "cleaning",
+     "subcategory": "cleaning premium",
+     "brand": "Acme",
+     "unit": "pack",
+     "pack_size": 24.0
+    }
+   },
+   {
+    "id": "S049",
+    "score": 0.23354968428611755,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Often bought by the same customers as S024"
+     }
+    ],
+    "fields": {
+     "name": "Spices item 5",
+     "category": "spices",
+     "subcategory": "spices basic",
+     "brand": "Garuda",
+     "unit": "box",
+     "pack_size": 6.0
+    }
+   }
+  ]
+ }
+]

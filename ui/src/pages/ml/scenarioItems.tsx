@@ -21,6 +21,22 @@ function CustomerGroupBadges({ it }: { it: ScenarioItem }) {
   )
 }
 
+/** A product's brand and subcategory, when the model has them. */
+function ProductKindBadges({ it }: { it: ScenarioItem }) {
+  const brand = typeof it.fields?.brand === 'string' ? it.fields.brand : ''
+  const sub = typeof it.fields?.subcategory === 'string' ? it.fields.subcategory : ''
+  return (
+    <>
+      {brand && <Badge size="xs" variant="outline" color="gray" tt="none" title="Brand">{brand}</Badge>}
+      {sub && <Badge size="xs" variant="outline" color="gray" tt="none" title="Subcategory">{sub}</Badge>}
+    </>
+  )
+}
+
+/** How much to order, in whole packs when the product has a pack size: "3 cartons (40 pcs)". */
+const suggested = (fields?: Record<string, unknown>) =>
+  (typeof fields?.suggested_text === 'string' ? fields.suggested_text : '')
+
 /** A day of a plan, short: "Tue 2026-10-13". */
 function dayLabel(date: string): string {
   const d = new Date(`${date}T00:00:00`)
@@ -69,7 +85,9 @@ export function ScenarioItemList({ items, feedback, label }: { items: ScenarioIt
             <Text size="sm" fw={500}>{itemName(it)}</Text>
             {itemName(it) !== it.id && <Text size="xs" c="dimmed" ff="var(--mantine-font-family-monospace)">{it.id}</Text>}
             <CustomerGroupBadges it={it} />
+            <ProductKindBadges it={it} />
             {it.due_date && <Badge size="xs" variant="light" tt="none">Due {it.due_date}</Badge>}
+            {suggested(it.fields) && <Badge size="xs" variant="light" color="teal" tt="none">Order {suggested(it.fields)}</Badge>}
             {feedback && <Feedback target={feedback} id={it.id} />}
           </Group>
           {!!it.reasons?.length && (
@@ -107,7 +125,11 @@ export function DueCustomerList({ items, feedback }: { items: ScenarioItem[]; fe
           </Group>
           {!!it.products?.length && (
             <Text size="xs" pl={32}>
-              Due for: {it.products.map((p) => `${productName(p)} (${p.overdue ? `overdue since ${p.due_date}` : p.due_date})`).join(', ')}
+              Due for: {it.products.map((p) => {
+                const when = p.overdue ? `overdue since ${p.due_date}` : p.due_date
+                const qty = suggested(p.fields)
+                return `${productName(p)} (${qty ? `${when}, ${qty}` : when})`
+              }).join(', ')}
             </Text>
           )}
           {!!it.reasons?.length && (

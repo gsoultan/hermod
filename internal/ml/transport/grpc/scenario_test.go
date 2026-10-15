@@ -198,3 +198,36 @@ func TestRecommendScenarioSaysWhatNearbyCustomersBuy(t *testing.T) {
 		t.Errorf("summary %q", s)
 	}
 }
+
+// brand, subcategory and stock reach the model: only that brand's products
+// are listed, each carrying its product details, and one given as out of
+// stock is not.
+func TestRecommendScenarioKeepsABrandAndTakesStock(t *testing.T) {
+	c, key := dial(t, servingFixture(t, filepath.Join("scenario", "products_details.rec")))
+	resp, err := c.RecommendScenario(withKey(key), &proto.RecommendScenarioRequest{Vhost: "a", Model: "double",
+		Subject: &proto.ScenarioSubject{Customer: "C0001", Brand: "cahaya", Subcategory: "Dairy Basic"}, K: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := resp.GetResults()[0].GetItems()
+	if len(items) == 0 {
+		t.Fatal("no Cahaya dairy basic products")
+	}
+	for _, p := range items {
+		if f := p.GetFields().AsMap(); f["brand"] != "Cahaya" || f["subcategory"] != "dairy basic" || f["unit"] == nil || f["pack_size"] == nil {
+			t.Errorf("%s: fields %v", p.GetId(), f)
+		}
+	}
+	gone := items[0].GetId()
+	resp, err = c.RecommendScenario(withKey(key), &proto.RecommendScenarioRequest{Vhost: "a", Model: "double",
+		Subject: &proto.ScenarioSubject{Customer: "C0001", Brand: "cahaya", Subcategory: "Dairy Basic"}, K: 10,
+		Stock: map[string]float64{gone: 0}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range resp.GetResults()[0].GetItems() {
+		if p.GetId() == gone {
+			t.Errorf("%s is out of stock and still recommended", gone)
+		}
+	}
+}

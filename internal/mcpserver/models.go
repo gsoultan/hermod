@@ -30,23 +30,24 @@ type ModelSource interface {
 // RecommendArgs are a recommend tool's arguments: "user" for a person's
 // items or "item" for items like it, "k" and, for a user, "exclude_seen"; or
 // a scenario call's "for", "territory", "period", "within_days", "k",
-// "rules" and "exclude_seen", as POST .../recommend takes them.
+// "rules", "exclude_seen" and "stock", as POST .../recommend takes them.
 type RecommendArgs struct {
-	User        any              `json:"user,omitempty"`
-	Item        any              `json:"item,omitempty"`
-	For         *ScenarioFor     `json:"for,omitempty"`
-	Territory   any              `json:"territory,omitempty"`
-	Period      *ScenarioPeriod  `json:"period,omitempty"`
-	WithinDays  int              `json:"within_days,omitempty"`
-	K           int              `json:"k,omitempty"`
-	Rules       []recommend.Rule `json:"rules,omitempty"`
-	ExcludeSeen *bool            `json:"exclude_seen,omitempty"`
+	User        any                `json:"user,omitempty"`
+	Item        any                `json:"item,omitempty"`
+	For         *ScenarioFor       `json:"for,omitempty"`
+	Territory   any                `json:"territory,omitempty"`
+	Period      *ScenarioPeriod    `json:"period,omitempty"`
+	WithinDays  int                `json:"within_days,omitempty"`
+	K           int                `json:"k,omitempty"`
+	Rules       []recommend.Rule   `json:"rules,omitempty"`
+	ExcludeSeen *bool              `json:"exclude_seen,omitempty"`
+	Stock       map[string]float64 `json:"stock,omitempty"`
 }
 
 // ScenarioFor is who or what a scenario call is for: one of customer,
 // customers, product, salesman or all_customers, the territory a rule binds
-// to, and the customer category (segment) and size a list of customers
-// keeps.
+// to, the customer category (segment) and size a list of customers keeps,
+// and the brand and subcategory a list of products keeps.
 type ScenarioFor struct {
 	Customer     any   `json:"customer,omitempty"`
 	Customers    []any `json:"customers,omitempty"`
@@ -56,6 +57,8 @@ type ScenarioFor struct {
 	AllCustomers bool  `json:"all_customers,omitempty"`
 	Segment      any   `json:"segment,omitempty"`
 	Size         any   `json:"size,omitempty"`
+	Brand        any   `json:"brand,omitempty"`
+	Subcategory  any   `json:"subcategory,omitempty"`
 }
 
 // ScenarioPeriod is a visit plan's days, YYYY-MM-DD, both included.
@@ -210,7 +213,11 @@ func recommendTool(m storage.MLModel) ModelTool {
 		"due to buy within that window, overdue ones marked \"overdue\", each with its due_date and the products it is "+
 		"due for. Any list of customers (a visit plan, reorders, a product's audience) takes \"segment\" and \"size\" in "+
 		"\"for\" to keep only one customer category and size, such as {\"segment\": \"Retail\", \"size\": \"large\"}; "+
-		"each customer listed carries its segment and size in its fields. A customer's products may come with a "+
+		"each customer listed carries its segment and size in its fields. A list of products (a customer's products "+
+		"or reorders, similar products) takes \"brand\" and \"subcategory\" in \"for\" to keep only those products, "+
+		"and \"stock\" (product id to items on hand) for stock newer than training: one out of stock is not offered, "+
+		"its substitute is. Products carry their brand, subcategory, unit and pack_size, and a suggested_qty and "+
+		"suggested_text in whole packs when there is one. A customer's products may come with a "+
 		"\"summary\" saying what nearby customers of its category buy. A model of a person's items takes \"user\" for their top items or \"item\" for the "+
 		"items most like one item; an id it never saw gets the most popular items, marked reason \"popular\".",
 		m.Name, m.VHost)
@@ -236,6 +243,8 @@ func recommendTool(m storage.MLModel) ModelTool {
 					"segment": mergeDesc(id, "A list of customers: only this customer category (the model's customers.segment), in any case."),
 					"size": mergeDesc(id, "A list of customers: only this size, small, medium or large (or the model's own size labels), "+
 						"or a number such as employees, bucketed as training cut the sizes."),
+					"brand":       mergeDesc(id, "A list of products: only this brand (the model's products.brand), in any case."),
+					"subcategory": mergeDesc(id, "A list of products: only this subcategory (the model's products.subcategory), in any case."),
 				}},
 			"territory": mergeDesc(id, "The territory a rule's from_request \"territory\" binds to."),
 			"period": map[string]any{"type": "object", "additionalProperties": false, "required": []any{"from"},
@@ -252,6 +261,9 @@ func recommendTool(m storage.MLModel) ModelTool {
 				"description": "How many results per subject; the model's default when left out."},
 			"exclude_seen": map[string]any{"type": "boolean",
 				"description": "Leave out items the person or customer already had. True by default."},
+			"stock": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "number"},
+				"maxProperties": recommend.MaxStock,
+				"description":   "Items on hand now, by product id, replacing the stock the model was trained with: one at 0 or less is not offered."},
 		},
 		"additionalProperties": false,
 	}
@@ -292,8 +304,8 @@ func (s *Service) RecommendTool(ctx context.Context, c Caller, t ModelTool, args
 		return RecommendResult{}, errors.New(`give "for" for a scenario model, or "user" for a person's items, or "item" for items like it`)
 	}
 	if req.For == nil {
-		if req.Territory != nil || req.Period != nil || req.WithinDays != 0 || len(req.Rules) > 0 {
-			return RecommendResult{}, errors.New(`"territory", "period", "within_days" and "rules" go with "for", a scenario call`)
+		if req.Territory != nil || req.Period != nil || req.WithinDays != 0 || len(req.Rules) > 0 || req.Stock != nil {
+			return RecommendResult{}, errors.New(`"territory", "period", "within_days", "rules" and "stock" go with "for", a scenario call`)
 		}
 		items, id, err := s.Models.Recommend(ctx, t.VHost, t.Model, req)
 		if err != nil {

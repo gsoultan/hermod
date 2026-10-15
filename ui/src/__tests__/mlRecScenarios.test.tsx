@@ -24,6 +24,7 @@ import {
 } from '@/lib/mlRecommend'
 import { RulesStep } from '@/pages/ml/recommendSteps'
 import { scenarioHeadline } from '@/pages/ml/scenarioResult'
+import { DueCustomerList } from '@/pages/ml/scenarioItems'
 
 /**
  * Recommendation scenarios (phase 9): five cards, the data each needs with
@@ -825,6 +826,58 @@ describe('Customer category, size and nearby customers', () => {
   })
 })
 
+describe('Product details', () => {
+  it('maps brand, subcategory, pack size, dates, stock and substitute from their names', () => {
+    expect(guessColumns('products', [col('sku'), col('product_category'), col('product_subcategory'), col('brand_name'),
+      col('pack_qty', 'number'), col('uom'), col('launch_date'), col('discontinued_on'), col('stock_on_hand', 'number'),
+      col('substitute_sku'), col('in_stock', 'bool')] as any))
+      .toEqual({ id: 'sku', category: 'product_category', subcategory: 'product_subcategory', brand: 'brand_name',
+        pack_size: 'pack_qty', unit: 'uom', launch_date: 'launch_date', end_date: 'discontinued_on', stock: 'stock_on_hand',
+        substitute: 'substitute_sku', active: 'in_stock' })
+    // The guesses of a products table without details are as before.
+    expect(guessColumns('products', DATASETS.items.columns as any))
+      .toEqual({ id: 'sku', category: 'cat', price: 'price', margin: 'margin', active: 'active' })
+  })
+
+  it("keeps a customer's products to one brand and subcategory, and shows each product's details", async () => {
+    const calls = api({ version: productsVersion })
+    server.use(http.post('/api/vhosts/:vhost/ml/models/:name/recommend', async ({ request }) => {
+      calls.push({ path: 'recommend', body: await request.json() })
+      return HttpResponse.json({ recommendation_id: 'rec_b', results: [{ for: 'c-1', items: [
+        { id: 'p-1', score: 0.9, rank: 1, fields: { name: 'Noodles', brand: 'Sedaap', subcategory: 'Instant noodles',
+          unit: 'carton', pack_size: 40, suggested_qty: 3, suggested_text: '3 cartons (120 pcs)' },
+          reasons: [{ code: 'brand', text: 'Buys a lot of Sedaap (62% of spend)' }] },
+      ] }] })
+    }))
+    wrap(<ModelTestModal vhost="tenant-a" model={{ ...planModel, name: 'offers' }} onClose={() => {}} />)
+    const user = userEvent.setup()
+    const dialog = await screen.findByRole('dialog')
+    await user.type(await within(dialog).findByRole('textbox', { name: /^customer$/i }), 'c-1')
+    await user.type(within(dialog).getByRole('textbox', { name: /^brand/i }), 'Sedaap')
+    await user.type(within(dialog).getByRole('textbox', { name: /^subcategory/i }), 'Instant noodles')
+    await user.click(within(dialog).getByRole('button', { name: /^recommend$/i }))
+    await waitFor(() => expect(calls.find((c) => c.path === 'recommend')).toBeTruthy())
+    expect(calls.find((c) => c.path === 'recommend')!.body)
+      .toEqual({ for: { customer: 'c-1', brand: 'Sedaap', subcategory: 'Instant noodles' }, k: 10, exclude_seen: true })
+    expect(await within(dialog).findByText('Sedaap')).toBeInTheDocument()
+    expect(within(dialog).getByText('Instant noodles')).toBeInTheDocument()
+    expect(within(dialog).getByText('Order 3 cartons (120 pcs)')).toBeInTheDocument()
+  })
+
+  it('names the quantity to order of each product due', () => {
+    wrap(<DueCustomerList items={[{ id: 'c-1', score: 1, rank: 1, due_date: '2026-10-20', fields: { name: 'Shop c-1' },
+      products: [{ id: 'p-1', due_date: '2026-10-20', fields: { name: 'Noodles', suggested_text: '2 cartons (80 pcs)' } }] }]} />)
+    expect(screen.getByText(/Noodles \(2026-10-20, 2 cartons \(80 pcs\)\)/)).toBeInTheDocument()
+  })
+
+  it('a customer list has no brand filter', async () => {
+    api({ version: { ...visitsVersion, scenario: 'reorder' } })
+    wrap(<ModelTestModal vhost="tenant-a" model={{ ...planModel, name: 'due' }} scenario="reorder" onClose={() => {}} />)
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).queryByRole('textbox', { name: /^brand/i })).not.toBeInTheDocument()
+  })
+})
+
 describe('Customer category and size in the Predict node', () => {
   it('keeps a list of customers to one category and size', async () => {
     api({ version: { ...visitsVersion, scenario: 'reorder' } })
@@ -837,5 +890,19 @@ describe('Customer category and size in the Predict node', () => {
     await user.type(screen.getByRole('textbox', { name: /^customer category/i }), 'Retail')
     await user.type(screen.getByRole('textbox', { name: /^customer size/i }), 'large')
     expect(last).toMatchObject({ segment: 'Retail', size: 'large' })
+  })
+
+  it("keeps a customer's products to one brand and subcategory", async () => {
+    api({ version: productsVersion })
+    server.use(http.get('/api/vhosts/:vhost/ml/models', () => HttpResponse.json({ data: [{ ...planModel, name: 'offers' }], total: 1 })))
+    useWorkflowStore.setState({ vhost: 'tenant-a' } as any)
+    let last: any = {}
+    wrap(<Harness Editor={MLPredictConfig} initial={{ model: 'offers' }} onConfig={(c) => { last = c }} />)
+    const user = userEvent.setup()
+    await waitFor(() => expect(last.recommendFor).toBe('customer'))
+    expect(screen.queryByRole('textbox', { name: /^customer category/i })).not.toBeInTheDocument()
+    await user.type(screen.getByRole('textbox', { name: /^brand/i }), 'Sedaap')
+    await user.type(screen.getByRole('textbox', { name: /^subcategory/i }), 'Instant noodles')
+    expect(last).toMatchObject({ brand: 'Sedaap', subcategory: 'Instant noodles' })
   })
 })

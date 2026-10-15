@@ -305,6 +305,50 @@ const CUSTOMER_COLUMN_WHY: Partial<Record<Scenario, Record<string, string>>> = {
   reorder: { segment: LIST_WHY, size: LIST_WHY },
 }
 
+/** scenarios.py NEW_DAYS: a product launched within this many days counts as new. */
+const NEW_DAYS = 60
+/** scenarios.py BRAND_REASON: the share of a customer's spend that makes a brand a reason. */
+const BRAND_SHARE = 0.2
+
+const NEW_WHY = `A product launched within the last ${NEW_DAYS} days is offered to the customers who buy its brand or subcategory, with the reason "New, launched 2026-09-15", even before it has sales. Needs the date on the new products; older ones may leave it empty.`
+const END_WHY = 'A product past its end date is never recommended. Works on any product that has one; leave it empty for products still sold.'
+const STOCK_WHY = 'A product with no stock (0 or less) is not recommended: its substitute is offered in its place, "Instead of P-315 (out of stock)". Stock is as of training; a call can give today\'s stock in "stock". Needs a number for every product it should apply to; empty is in stock.'
+const SUBSTITUTE_WHY = 'The product offered instead of one that is out of stock or past its end date. Needs the substitute\'s id, as in the orders, and stock or end dates to act on.'
+
+/** Why a scenario wants a product's details. */
+const PRODUCT_COLUMN_WHY: Partial<Record<Scenario, Record<string, string>>> = {
+  products: {
+    brand: `A customer who spends ${Math.round(BRAND_SHARE * 100)}% or more on a brand is offered its other products, with the reason "Buys a lot of Sedaap (62% of spend)". Lists can be filtered to one brand. Needs amounts or quantities on the orders, and a brand on most products.`,
+    subcategory: 'Finer than the category: a new product goes to the customers who buy its subcategory, and lists can be filtered to one. Needs at least two products in a subcategory to tell them apart.',
+    pack_size: 'Suggests how much to order in whole packs: "3 cartons (40 pcs)" from the customer\'s usual quantity per order. Needs quantities on the orders; it shows for products the customer has bought before, such as reorders.',
+    unit: 'Names the pack in a suggested quantity ("cartons"); "packs" without it. Works with a pack size.',
+    launch_date: NEW_WHY,
+    end_date: END_WHY,
+    stock: STOCK_WHY,
+    substitute: SUBSTITUTE_WHY,
+  },
+  audience: {
+    brand: 'A new product\'s likely buyers are the customers who spend most on its brand. Needs amounts or quantities on the orders.',
+    subcategory: 'A new product\'s likely buyers are the customers who spend most on its subcategory. Needs at least two products in a subcategory.',
+    pack_size: 'Carried on each product\'s fields. Works on any product that has one.',
+    unit: 'Carried on each product\'s fields with its pack size. Works on any product that has one.',
+    launch_date: `A product launched within the last ${NEW_DAYS} days finds its buyers among the customers of its brand or subcategory, even before it has sales. Needs the date on the new products; older ones may leave it empty.`,
+    end_date: 'A product past its end date has no audience: nobody is offered it. Works on any product that has one; leave it empty for products still sold.',
+    stock: 'A product with no stock (0 or less) has no audience until it is back. Stock is as of training; a call can give today\'s in "stock". Needs a number for every product it should apply to.',
+    substitute: 'Carried on each product\'s fields. Needs the substitute\'s id, as in the orders.',
+  },
+  similar: {
+    brand: 'Products of the same brand rank higher among the look-alikes, with the reason "Same brand (Sedaap)". Lists can be filtered to one brand. Needs a brand on most products.',
+    subcategory: 'Products of the same subcategory rank higher among the look-alikes, with the reason "Same subcategory (Instant noodles)", even with few sales. Needs at least two products in a subcategory.',
+    pack_size: 'Carried on each product\'s fields. Works on any product that has one.',
+    unit: 'Carried on each product\'s fields with its pack size. Works on any product that has one.',
+    launch_date: 'Not used to rank look-alikes. A product with few sales still gets look-alikes from its subcategory and brand. Works on any product that has one.',
+    end_date: END_WHY,
+    stock: STOCK_WHY,
+    substitute: SUBSTITUTE_WHY,
+  },
+}
+
 const SCENARIO_QUESTION: Record<Scenario, string> = {
   visits: 'Which customers should each salesman visit or call next, most urgent first?',
   products: 'Which products should we offer this customer?',
@@ -372,6 +416,10 @@ function scenarioGuide(s: Scenario): KindGuide {
       // The customers' columns that improve the answers, even when the table is optional.
       if (r.role === 'customers') {
         for (const [key, why] of Object.entries(CUSTOMER_COLUMN_WHY[s] ?? {})) optional.push({ ...roleColumn('customers', key), why })
+      }
+      // The products' details, likewise.
+      if (r.role === 'products') {
+        for (const [key, why] of Object.entries(PRODUCT_COLUMN_WHY[s] ?? {})) optional.push({ ...roleColumn('products', key), why })
       }
       continue
     }

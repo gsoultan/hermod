@@ -265,8 +265,19 @@ func TestARecommenderIsARecommendTool(t *testing.T) {
 	if w := models.recs[3]; w.For == nil || w.For.Segment != "Retail" || w.For.Size != "large" {
 		t.Errorf("category request = %+v", w)
 	}
+	// Of one brand and subcategory, with today's stock.
+	if _, err := svc.RecommendTool(t.Context(), caller, tool, json.RawMessage(
+		`{"for": {"customer": "C1", "brand": "Acme", "subcategory": "Soap"}, "stock": {"S1": 0, "S2": 12}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if w := models.recs[4]; w.For == nil || w.For.Brand != "Acme" || w.For.Subcategory != "Soap" || w.Stock["S1"] != 0 || w.Stock["S2"] != 12 {
+		t.Errorf("brand request = %+v", w)
+	}
+	if _, ok := props["stock"]; !ok {
+		t.Errorf("no stock: %v", props)
+	}
 	forProps, _ := props["for"].(map[string]any)["properties"].(map[string]any)
-	for _, p := range []string{"all_customers", "segment", "size"} {
+	for _, p := range []string{"all_customers", "segment", "size", "brand", "subcategory"} {
 		if _, ok := forProps[p]; !ok {
 			t.Errorf("for has no %s: %v", p, forProps)
 		}

@@ -1,0 +1,565 @@
+[
+ {
+  "today": "2026-09-30",
+  "product": "W1",
+  "k": 10,
+  "exclude_seen": true,
+  "items": []
+ },
+ {
+  "today": "2026-09-30",
+  "product": "W2",
+  "k": 10,
+  "exclude_seen": true,
+  "items": []
+ },
+ {
+  "today": "2026-09-30",
+  "product": "W3",
+  "k": 10,
+  "exclude_seen": true,
+  "items": []
+ },
+ {
+  "today": "2026-09-30",
+  "product": "I6",
+  "k": 15,
+  "exclude_seen": false,
+  "items": [
+   {
+    "id": "K12",
+    "score": 0.7458193898200989,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K08",
+    "score": 0.7457489967346191,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K10",
+    "score": 0.7456839084625244,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K04",
+    "score": 0.7454545497894287,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K16",
+    "score": 0.7450509667396545,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K02",
+    "score": 0.7303417325019836,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K14",
+    "score": 0.7053144574165344,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K00",
+    "score": 0.690090537071228,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K11",
+    "score": 0.6863710284233093,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K15",
+    "score": 0.6863710284233093,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K18",
+    "score": 0.6757537126541138,
+    "rank": 11,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K06",
+    "score": 0.6756430268287659,
+    "rank": 12,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K01",
+    "score": 0.6710848808288574,
+    "rank": 13,
+    "reasons": [
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K03",
+    "score": 0.6710759997367859,
+    "rank": 14,
+    "reasons": [
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K07",
+    "score": 0.6461803317070007,
+    "rank": 15,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   }
+  ]
+ },
+ {
+  "today": "2026-09-30",
+  "product": "I1",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "K00",
+    "score": 0.9200000166893005,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "16 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K14",
+    "score": 0.8719207644462585,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "16 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K07",
+    "score": 0.7908327579498291,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "16 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K19",
+    "score": 0.7908327579498291,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "16 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K20",
+    "score": 0.34435194730758667,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K21",
+    "score": 0.34435194730758667,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K22",
+    "score": 0.34435194730758667,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K23",
+    "score": 0.34435194730758667,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K24",
+    "score": 0.34435194730758667,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K25",
+    "score": 0.34435194730758667,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   }
+  ]
+ },
+ {
+  "today": "2026-09-30",
+  "product": "I4",
+  "k": 10,
+  "exclude_seen": true,
+  "items": []
+ },
+ {
+  "today": "2026-09-30",
+  "product": "I6",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "K12",
+    "score": 0.7458193898200989,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K08",
+    "score": 0.7457489967346191,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K10",
+    "score": 0.7456839084625244,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K04",
+    "score": 0.7454545497894287,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K16",
+    "score": 0.7450509667396545,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K14",
+    "score": 0.7053144574165344,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K11",
+    "score": 0.6863710284233093,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K15",
+    "score": 0.6863710284233093,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K18",
+    "score": 0.6757537126541138,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K06",
+    "score": 0.6756430268287659,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   }
+  ]
+ },
+ {
+  "today": "2026-09-30",
+  "product": "M6",
+  "k": 10,
+  "exclude_seen": true,
+  "items": []
+ }
+]
