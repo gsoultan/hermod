@@ -1,3 +1,13 @@
+// Copyright (c) 2026 Gembit Soultan Shirazi. All rights reserved.
+// SPDX-License-Identifier: LicenseRef-Hermod-Proprietary
+//
+// Hermod: real-time Postgres CDC and data pipelines in one Go binary.
+// Each file is proprietary and confidential; see LICENSE for the terms.
+// Resale, sublicensing or selling it to any third party is prohibited.
+// Making copies, modifying or distributing it needs written permission
+// Of the copyright holder, Gembit Soultan Shirazi.
+// Distributed "AS IS", WITHOUT WARRANTY OF ANY KIND, express or implied.
+
 // Package recommend serves the recommendation models the hermod-ml worker
 // trains (ml/worker/hermod_ml/recommend.py) in-process: it parses a
 // version's artifact once and answers "which items next for this person" and

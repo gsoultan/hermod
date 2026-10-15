@@ -1,3 +1,13 @@
+// Copyright (c) 2026 Gembit Soultan Shirazi. All rights reserved.
+// SPDX-License-Identifier: LicenseRef-Hermod-Proprietary
+//
+// Hermod: real-time Postgres CDC and data pipelines in one Go binary.
+// Each file is proprietary and confidential; see LICENSE for the terms.
+// Resale, sublicensing or selling it to any third party is prohibited.
+// Making copies, modifying or distributing it needs written permission
+// Of the copyright holder, Gembit Soultan Shirazi.
+// Distributed "AS IS", WITHOUT WARRANTY OF ANY KIND, express or implied.
+
 // Package mcpserver exposes Hermod workflows to Model Context Protocol
 // clients: an MCP client (Claude, ChatGPT, an IDE agent) can list the
 // workflows a user may see, read their status, and run the ones their owner

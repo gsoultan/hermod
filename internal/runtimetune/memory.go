@@ -1,3 +1,13 @@
+// Copyright (c) 2026 Gembit Soultan Shirazi. All rights reserved.
+// SPDX-License-Identifier: LicenseRef-Hermod-Proprietary
+//
+// Hermod: real-time Postgres CDC and data pipelines in one Go binary.
+// Each file is proprietary and confidential; see LICENSE for the terms.
+// Resale, sublicensing or selling it to any third party is prohibited.
+// Making copies, modifying or distributing it needs written permission
+// Of the copyright holder, Gembit Soultan Shirazi.
+// Distributed "AS IS", WITHOUT WARRANTY OF ANY KIND, express or implied.
+
 // Package runtimetune applies process-wide runtime tuning (soft memory limit
 // and GC behaviour) so Hermod stays within its lightweight, low-memory target
 // and returns unused memory to the operating system promptly.

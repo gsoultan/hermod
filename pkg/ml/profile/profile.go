@@ -1,3 +1,13 @@
+// Copyright (c) 2026 Gembit Soultan Shirazi. All rights reserved.
+// SPDX-License-Identifier: LicenseRef-Hermod-Proprietary
+//
+// Hermod: real-time Postgres CDC and data pipelines in one Go binary.
+// Each file is proprietary and confidential; see LICENSE for the terms.
+// Resale, sublicensing or selling it to any third party is prohibited.
+// Making copies, modifying or distributing it needs written permission
+// Of the copyright holder, Gembit Soultan Shirazi.
+// Distributed "AS IS", WITHOUT WARRANTY OF ANY KIND, express or implied.
+
 // Package profile describes a dataset for someone deciding what to do with
 // it: per column its kind, how much is missing, how many different values it
 // has, and its numbers, top values or dates with a small chart; the data's

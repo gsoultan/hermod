@@ -66,7 +66,7 @@ nfpms:
     homepage: https://github.com/gsoultan/hermod
     maintainer: Hermod Team <support@hermod.io>
     description: Enterprise-Grade Data Integration & Streaming Platform
-    license: MIT
+    license: LicenseRef-Hermod-Proprietary
     formats:
       - deb
       - rpm

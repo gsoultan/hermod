@@ -1,3 +1,13 @@
+// Copyright (c) 2026 Gembit Soultan Shirazi. All rights reserved.
+// SPDX-License-Identifier: LicenseRef-Hermod-Proprietary
+//
+// Hermod: real-time Postgres CDC and data pipelines in one Go binary.
+// Each file is proprietary and confidential; see LICENSE for the terms.
+// Resale, sublicensing or selling it to any third party is prohibited.
+// Making copies, modifying or distributing it needs written permission
+// Of the copyright holder, Gembit Soultan Shirazi.
+// Distributed "AS IS", WITHOUT WARRANTY OF ANY KIND, express or implied.
+
 // Package worker is Hermod's client for its hermod-ml worker: the Python
 // process that holds datasets, trains models on them, exports each one to
 // ONNX and serves it over the Open Inference Protocol.
