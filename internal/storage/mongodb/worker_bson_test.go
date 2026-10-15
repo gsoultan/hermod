@@ -1,12 +1,12 @@
 // Copyright (c) 2025 Gembit Soultan Shirazi. All rights reserved.
 // SPDX-License-Identifier: LicenseRef-Hermod-Proprietary
 //
-// Granted to no one is any right to use, copy, modify or distribute this
-// Except by written permission of the copyright holder named above.
-// May not be sold, resold, sublicensed or offered as a paid or hosted
-// Business service to any third party. Proprietary and confidential;
-// Its full terms are in LICENSE at the repository root. THE SOFTWARE
-// IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED.
+// Governed by the Hermod Proprietary License; see LICENSE for the terms.
+// Every use, copy, change or distribution needs written permission.
+// May not be sold, resold or sublicensed to any third party.
+// Bundling it into a paid or hosted service for others is prohibited.
+// It is proprietary and confidential to Gembit Soultan Shirazi.
+// There is no warranty of any kind; it is provided "AS IS".
 
 package mongodb
 
