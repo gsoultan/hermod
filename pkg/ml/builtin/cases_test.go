@@ -291,9 +291,6 @@ func TestCaseWeeklyDemandForecastsBetterThanLastWeek(t *testing.T) {
 }
 
 func TestCaseAccountSpendNeuralNetworkBeatsItsBaseline(t *testing.T) {
-	if testing.Short() && fullSize() {
-		t.Skip("a network on the full-size file takes minutes")
-	}
 	_, c := newEngine(t)
 	uploadCase(t, c, "account_spend")
 	checkRoles(t, c, "account_spend", "spend_next_quarter", map[string]string{
