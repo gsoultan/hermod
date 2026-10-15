@@ -69,7 +69,7 @@ A sample of about 1,300 rows of each case but card fraud is kept in
 files, which are not kept in the repository.
 
 To follow a case in the console: **Machine Learning → Data → Upload** the
-CSV file as a dataset, then **Add model → Train a new model from my data**,
+CSV file as a dataset, **Analyze** it, then **Add model → Train a new model from my data**,
 pick the target, untick the columns the case says to drop, and under
 **Advanced** pick the algorithm. The same through the API is shown with each
 case.
@@ -97,6 +97,13 @@ its margin over the baseline.
   always means a column gives the answer away.
 
 ## Columns to drop, in every case
+
+Start with **Analyze** on the uploaded dataset (**Data** tab; see
+[Analyzing a dataset](ml.md#analyzing-a-dataset)). It is a look at the data
+itself: columns that look like IDs, mostly empty columns, many different
+texts, skewed and unusual numbers, a dominant answer, and number columns that
+are near copies of each other, worst first, each with how to fix it. Its
+**Train this model** opens training with the dataset and column filled in.
 
 The **pre-flight check** (the Train dialog's checklist, or
 `POST /api/vhosts/{vhost}/ml/train-check`) gives every column a role. In
