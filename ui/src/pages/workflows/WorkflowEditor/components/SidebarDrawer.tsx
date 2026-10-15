@@ -509,7 +509,7 @@ export function SidebarDrawer({
                         onChange={(val) => setDeadLetterSinkID(val || '')}
                         clearable
                         size="xs"
-                        description="Sink for messages that exhaust retries"
+                        description="Sink for messages that exhaust retries. Each one is also listed on the Dead Letters page; without one, nothing reaches that page."
                         error={deadLetterSinkID && !dlqSupportsRecovery ? "This sink type cannot be read back for recovery" : null}
                       />
                       <NumberInput

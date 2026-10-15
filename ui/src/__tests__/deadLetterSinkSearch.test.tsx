@@ -56,6 +56,13 @@ describe('workflow settings: dead letter sink picker', () => {
     expect(useWorkflowStore.getState().deadLetterSinkID).toBe('s2')
   })
 
+  it('says that what the sink catches is listed on the Dead Letters page', () => {
+    renderDrawer()
+
+    expect(screen.getByText(/also listed on the dead letters page/i)).toBeInTheDocument()
+    expect(screen.getByText(/without one, nothing reaches that page/i)).toBeInTheDocument()
+  })
+
   it('says so when nothing matches', async () => {
     const user = userEvent.setup()
     renderDrawer()

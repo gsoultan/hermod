@@ -49,8 +49,10 @@ function when(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' })
 }
 
-// DeadLettersPage lists every message a workflow parked after its retries ran
-// out, whatever its dead-letter sink, and replays or discards them.
+// DeadLettersPage lists every message a workflow parked in its dead-letter
+// sink after its retries ran out, whatever the sink's type, and replays or
+// discards them. The page keeps its own copy: replaying or discarding one here
+// leaves the sink's copy where it is.
 export function DeadLettersPage() {
   const qc = useQueryClient()
   const confirm = useConfirm()
@@ -176,7 +178,7 @@ export function DeadLettersPage() {
       <Group justify="space-between" align="flex-start">
         <Box>
           <Title order={2}>Dead letters</Title>
-          <Text c="dimmed" size="sm">Messages every workflow parked after its retries ran out. Replay them once the cause is fixed, or discard them.</Text>
+          <Text c="dimmed" size="sm">Messages that workflows with a dead letter sink parked after their retries ran out. Replay them once the cause is fixed, or discard them. Replaying or discarding here does not remove the copy in the workflow's dead letter sink, so draining that queue later sends the message again.</Text>
         </Box>
         <Group gap="xs">
           <Button variant="default" leftSection={<IconDownload size={16} />} onClick={() => exportCSV()}>Export CSV</Button>
