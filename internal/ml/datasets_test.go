@@ -117,3 +117,49 @@ func TestDatasetFromQueryReadsOnly(t *testing.T) {
 		t.Errorf("a WITH query was refused: %v", err)
 	}
 }
+
+func TestPreviewQueryReturnsTheFirstRowsAndSaysThereAreMore(t *testing.T) {
+	db := ordersDB(t, 30)
+	p, err := PreviewQuery(t.Context(), db, "SELECT id, country, note FROM orders ORDER BY id", 5)
+	if err != nil {
+		t.Fatalf("PreviewQuery: %v", err)
+	}
+	if strings.Join(p.Columns, ",") != "id,country,note" {
+		t.Errorf("columns = %v, want the query's own order", p.Columns)
+	}
+	if len(p.Rows) != 5 || !p.More {
+		t.Fatalf("rows = %d, more = %v; want 5 and more", len(p.Rows), p.More)
+	}
+	if p.Rows[4]["id"] != int64(4) || p.Rows[0]["note"] != "b" {
+		t.Errorf("rows = %v, want the values as the dataset would get them", p.Rows)
+	}
+
+	all, err := PreviewQuery(t.Context(), db, "SELECT id FROM orders WHERE id < 3", 5)
+	if err != nil || len(all.Rows) != 3 || all.More {
+		t.Errorf("a short result: rows = %d, more = %v, err = %v", len(all.Rows), all.More, err)
+	}
+	none, err := PreviewQuery(t.Context(), db, "SELECT id FROM orders WHERE id < 0", 5)
+	if err != nil || none.Rows == nil || len(none.Columns) != 1 {
+		t.Errorf("no rows: %+v, %v; want the columns and an empty list", none, err)
+	}
+}
+
+func TestPreviewQueryReadsOnlyAndCapsTheRows(t *testing.T) {
+	db := ordersDB(t, 300)
+	if _, err := PreviewQuery(t.Context(), db, "DELETE FROM orders", 5); err == nil {
+		t.Error("a DELETE was previewed")
+	}
+	var n int
+	_ = db.QueryRowContext(t.Context(), `SELECT count(*) FROM orders`).Scan(&n)
+	if n != 300 {
+		t.Errorf("rows left = %d", n)
+	}
+	p, err := PreviewQuery(t.Context(), db, "SELECT id FROM orders", 0)
+	if err != nil || len(p.Rows) != MaxPreviewRows {
+		t.Errorf("no limit: rows = %d, err = %v; want %d", len(p.Rows), err, MaxPreviewRows)
+	}
+	p, _ = PreviewQuery(t.Context(), db, "SELECT id FROM orders", 10_000)
+	if len(p.Rows) != MaxPreviewRows {
+		t.Errorf("a limit over the cap: rows = %d, want %d", len(p.Rows), MaxPreviewRows)
+	}
+}

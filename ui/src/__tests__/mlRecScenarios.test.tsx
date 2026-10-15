@@ -545,6 +545,7 @@ describe('Refreshing a dataset on a schedule', () => {
     expect(await within(dialog).findByText(/connection refused/i)).toBeInTheDocument()
     expect(within(dialog).getByRole('textbox', { name: /^schedule/i })).toHaveValue('0 5 * * *')
     await pick(user, dialog, /^database source/i, 'warehouse')
+    await user.click(within(dialog).getByRole('radio', { name: /write sql/i }))
     await user.type(within(dialog).getByRole('textbox', { name: /^query/i }), 'SELECT * FROM orders')
     await user.click(within(dialog).getByRole('button', { name: /^save$/i }))
     await waitFor(() => expect(calls.find((c) => c.path === 'refresh orders')).toBeTruthy())

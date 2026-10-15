@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -599,5 +601,97 @@ func TestMLRecommendKeepsAPriceTierChannelAndRegion(t *testing.T) {
 		if row["price_tier"] == "" || row["channel"] == "" || row["region"] == "" || row["region"] == nil {
 			t.Errorf("%v: tier %v, channel %v, region %v", row["item_id"], row["price_tier"], row["channel"], row["region"])
 		}
+	}
+}
+
+// shopSource is a SQLite database source of vhost tenant-a with an orders
+// table, as a dataset query reads it.
+func shopSource(t *testing.T, reg *Registry) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "shop.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	for _, q := range []string{
+		`CREATE TABLE orders (id INTEGER PRIMARY KEY, amount REAL, country TEXT)`,
+		`INSERT INTO orders VALUES (1, 9.5, 'ID'), (2, 12, 'SG'), (3, 4, 'ID')`,
+	} {
+		if _, err := db.ExecContext(t.Context(), q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, src := range []storage.Source{
+		{ID: "shop", Name: "shop", Type: "sqlite", VHost: "tenant-a", Config: map[string]string{"path": path}},
+		{ID: "theirs", Name: "theirs", Type: "sqlite", VHost: "tenant-b", Config: map[string]string{"path": path}},
+	} {
+		if err := reg.store().(interface {
+			CreateSource(context.Context, storage.Source) error
+		}).CreateSource(t.Context(), src); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// The query builder lists a source's tables and a table's columns by the
+// source's id, so the credentials never leave the server.
+func TestMLSourceTablesAndColumnsDescribeTheVHostsSource(t *testing.T) {
+	reg := newSimRegistry(t)
+	shopSource(t, reg)
+
+	tables, err := reg.MLSourceTables(t.Context(), "tenant-a", "shop")
+	if err != nil || !slices.Contains(tables, "orders") {
+		t.Fatalf("tables = %v, %v; want orders", tables, err)
+	}
+	cols, err := reg.MLSourceColumns(t.Context(), "tenant-a", "shop", "orders")
+	if err != nil {
+		t.Fatalf("columns: %v", err)
+	}
+	var names []string
+	for _, c := range cols {
+		names = append(names, c.Name)
+	}
+	if strings.Join(names, ",") != "id,amount,country" {
+		t.Errorf("columns = %v", names)
+	}
+}
+
+func TestMLSourceColumnsNamesOnlyATableTheSourceLists(t *testing.T) {
+	reg := newSimRegistry(t)
+	shopSource(t, reg)
+	for _, table := range []string{"customers", "orders); DROP TABLE orders; --", ""} {
+		if _, err := reg.MLSourceColumns(t.Context(), "tenant-a", "shop", table); !errors.Is(err, ml.ErrSourceTableNotFound) {
+			t.Errorf("table %q: err = %v, want ErrSourceTableNotFound", table, err)
+		}
+	}
+}
+
+func TestMLSourceDiscoveryAndPreviewRefuseAnotherVHostsSource(t *testing.T) {
+	reg := newSimRegistry(t)
+	shopSource(t, reg)
+	if _, err := reg.MLSourceTables(t.Context(), "tenant-a", "theirs"); !errors.Is(err, ml.ErrSourceNotFound) {
+		t.Errorf("tables: err = %v, want ErrSourceNotFound", err)
+	}
+	if _, err := reg.MLSourceColumns(t.Context(), "tenant-a", "theirs", "orders"); !errors.Is(err, ml.ErrSourceNotFound) {
+		t.Errorf("columns: err = %v, want ErrSourceNotFound", err)
+	}
+	if _, err := reg.MLPreviewQuery(t.Context(), "tenant-a", "theirs", "SELECT 1", 5); !errors.Is(err, ml.ErrSourceNotFound) {
+		t.Errorf("preview: err = %v, want ErrSourceNotFound", err)
+	}
+	if _, err := reg.MLSourceTables(t.Context(), "tenant-a", "missing"); !errors.Is(err, ml.ErrSourceNotFound) {
+		t.Errorf("a missing source: err = %v, want ErrSourceNotFound", err)
+	}
+}
+
+func TestMLPreviewQueryShowsTheFirstRowsWithoutTheWorker(t *testing.T) {
+	reg := newSimRegistry(t)
+	shopSource(t, reg)
+	p, err := reg.MLPreviewQuery(t.Context(), "tenant-a", "shop", "SELECT country, amount FROM orders ORDER BY id", 2)
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	if strings.Join(p.Columns, ",") != "country,amount" || len(p.Rows) != 2 || !p.More || p.Rows[0]["country"] != "ID" {
+		t.Errorf("preview = %+v", p)
 	}
 }

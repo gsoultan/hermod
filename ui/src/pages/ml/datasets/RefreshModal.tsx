@@ -1,10 +1,10 @@
 import { useState } from 'react'
-import { Alert, Button, Group, Modal, Stack, Text, TextInput } from '@mantine/core'
+import { Alert, Button, Group, Modal, ScrollArea, Stack, Text, TextInput } from '@mantine/core'
 import { IconAlertCircle } from '@tabler/icons-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { datasetsKey, useDataset, type DatasetInfo } from '@/lib/mlModels'
 import { clearDatasetRefresh, putDatasetRefresh, type DatasetRefresh } from '@/lib/mlRecommend'
-import { EMPTY_SOURCE_QUERY, SourceQueryFields, sourceQueryReady } from './datasetForms'
+import { DatabaseQueryEditor, useDatabaseRead } from './DatabaseQuery'
 
 const when = (t: string | undefined) => (t && !t.startsWith('0001-01-01') ? new Date(t).toLocaleString() : 'never')
 
@@ -18,7 +18,7 @@ export function RefreshModal({ vhost, name, onClose }: { vhost: string; name: st
   const { data: info } = useDataset(vhost, name)
   const current = (info as (DatasetInfo & { refresh?: DatasetRefresh }) | undefined)?.refresh
   const [schedule, setSchedule] = useState<string | null>(null)
-  const [read, setRead] = useState(EMPTY_SOURCE_QUERY)
+  const db = useDatabaseRead(vhost)
   const cron = schedule ?? current?.schedule ?? '0 5 * * *'
   const done = () => {
     queryClient.invalidateQueries({ queryKey: ['ml-dataset', vhost, name] })
@@ -26,19 +26,19 @@ export function RefreshModal({ vhost, name, onClose }: { vhost: string; name: st
   }
   const save = useMutation({
     mutationFn: () => putDatasetRefresh(vhost, name, {
-      schedule: cron.trim(), source_id: read.source as string, query: read.query,
-      max_rows: typeof read.maxRows === 'number' ? read.maxRows : 0,
+      schedule: cron.trim(), source_id: db.read.source as string, query: db.query, max_rows: db.maxRows ?? 0,
     }),
     onSuccess: done,
   })
   const stop = useMutation({ mutationFn: () => clearDatasetRefresh(vhost, name), onSuccess: done })
-  const ready = !!cron.trim() && sourceQueryReady(read)
+  const ready = !!cron.trim() && db.ready
   const submit = (event: React.FormEvent) => {
     event.preventDefault()
     if (ready) save.mutate()
   }
   return (
-    <Modal opened onClose={onClose} title={`Refresh ${name} on a schedule`} centered size="lg">
+    <Modal opened onClose={onClose} title={`Refresh ${name} on a schedule`} centered size="56rem"
+      scrollAreaComponent={ScrollArea.Autosize}>
       <form onSubmit={submit} noValidate>
         <Stack gap="md">
           {current ? (
@@ -52,9 +52,10 @@ export function RefreshModal({ vhost, name, onClose }: { vhost: string; name: st
           ) : (
             <Text size="sm" c="dimmed">Each refresh runs the query and replaces the dataset's rows with what it returns.</Text>
           )}
-          <TextInput label="Schedule" required description='When to refresh, as cron: "0 5 * * *" is every day at 05:00.'
-            value={cron} onChange={(e) => setSchedule(e.currentTarget.value)} styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)' } }} />
-          <SourceQueryFields vhost={vhost} value={read} onChange={setRead} placeholder="SELECT cust_id, sku, order_date, qty, total FROM order_lines" />
+          <DatabaseQueryEditor state={db} sqlPlaceholder="SELECT cust_id, sku, order_date, qty, total FROM order_lines" lead={
+            <TextInput label="Schedule" required description='As cron: "0 5 * * *" is every day at 05:00.'
+              value={cron} onChange={(e) => setSchedule(e.currentTarget.value)} styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)' } }} />
+          } />
           {(save.error || stop.error) && (
             <Alert color="red" icon={<IconAlertCircle size="1rem" />} title="The schedule was not changed">
               {((save.error || stop.error) as Error).message}
