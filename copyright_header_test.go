@@ -14,14 +14,18 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 )
 
-// copyrightHeader is the notice every hand-written Go file opens with. It must
-// be followed by a blank line so it never merges into a package doc comment or
-// sits flush against a //go:build constraint.
+// copyrightHeader is the notice every Go file opens with. It must be followed
+// by a blank line so it never merges into a package doc comment or sits flush
+// against a //go:build constraint.
+//
+// Generated files are included. The .proto sources carry the same header above
+// their syntax statement, and protoc-gen-go and protoc-gen-go-grpc both print a
+// file's leading syntax comments before their "Code generated" line, so
+// regenerating keeps the header in place.
 const copyrightHeader = `// Copyright (c) 2026 Gembit Soultan Shirazi. All rights reserved.
 // SPDX-License-Identifier: LicenseRef-Hermod-Proprietary
 //
@@ -33,11 +37,6 @@ const copyrightHeader = `// Copyright (c) 2026 Gembit Soultan Shirazi. All right
 // Distributed "AS IS", WITHOUT WARRANTY OF ANY KIND, express or implied.
 
 `
-
-// generatedMarker is the line Go tooling recognises as marking a generated
-// file. Those are rewritten wholesale by their generator, so a header added by
-// hand would not survive the next regeneration; they are exempt.
-var generatedMarker = regexp.MustCompile(`(?m)^// Code generated .* DO NOT EDIT\.$`)
 
 func TestEveryGoFileOpensWithTheCopyrightHeader(t *testing.T) {
 	var missing []string
@@ -59,9 +58,6 @@ func TestEveryGoFileOpensWithTheCopyrightHeader(t *testing.T) {
 		src, err := os.ReadFile(path)
 		if err != nil {
 			return err
-		}
-		if generatedMarker.Match(src) {
-			return nil
 		}
 		if !strings.HasPrefix(strings.ReplaceAll(string(src), "\r\n", "\n"), copyrightHeader) {
 			missing = append(missing, path)
