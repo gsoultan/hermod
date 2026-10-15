@@ -27,7 +27,7 @@ after the last order). They are the `results` of the answer of
 `POST /api/vhosts/{vhost}/ml/models/{name}/recommend`; the answer also
 carries its `recommendation_id`. Scores are as the server prints them.
 
-`ml/worker/tests/test_cases.py` trains every scenario of every case and checks
+`ml/worker/tests/test_recommendation_cases.py` trains every scenario of every case and checks
 what this page says each one does; `pkg/ml/recommend/cases_test.go` and the
 `_industrial` and `_pharmacy` parity fixtures check that Hermod serves the
 same answers the worker computed.

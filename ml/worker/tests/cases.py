@@ -1,6 +1,6 @@
 """Three synthetic businesses for the recommendation cases in
 docs/ml-recommendation-cases.md, and the tests that train every scenario on
-them (test_cases.py).
+them (test_recommendation_cases.py).
 
 - "fmcg": a fast-moving consumer goods distributor. About 300 outlets in
   three cities (minimarkets, restaurants and pharmacies, in neighbourhoods

@@ -68,6 +68,30 @@ spread over all of it, and the dialog says so.
   serve `GET /v1/datasets/{vhost}/{name}/sample?rows=N`. A hermod-ml worker
   from before this release answers the analysis with `501`: update it.
 
+### Added — Worked cases for classification, regression, forecasting, fraud and neural networks
+
+[docs/ml-cases.md](docs/ml-cases.md) takes six business problems from data
+to a model in use, on realistic, messy data: late payment risk (yes/no, 15%
+late), ticket routing (six teams), delivery time (a skewed number with
+outliers), a weekly demand forecast per product and warehouse, card fraud
+(1% fraud) and a neural network on 80,000 account-quarters. Each says which
+columns to keep and which to drop and why (IDs, dates as text, and leaks,
+including those the pre-flight check cannot see), which algorithm and
+engine to pick, the metrics and baseline Hermod reported, how to read them,
+and how to call the model over REST, gRPC, MCP and the Predict node, with
+requests and answers from real runs.
+
+- **Generators.** `ml/examples/cases/<case>.py` (numpy and pandas) writes
+  each case's CSV at any size from a fixed seed; a sample of about 1,300 rows
+  of five of them is kept in `ml/examples/cases/samples/`.
+- **Tests.** `pkg/ml/builtin/cases_test.go` trains each case on the
+  built-in engine from its uploaded CSV and asserts the pre-flight check's
+  column roles and a margin over the baseline (on the samples; on full-size
+  files with `HERMOD_ML_CASES_DIR`). `ml/worker/tests/test_cases.py` checks
+  the generators are deterministic and the samples current, and trains card
+  fraud with `xgboost`, late payment with Auto and account spend with
+  `keras_mlp` (skipped without the `-dl` libraries) on the worker.
+
 ### Added — Product details in recommendations
 
 A recommendation scenario's products table can now name each product's
