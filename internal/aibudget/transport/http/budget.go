@@ -1,3 +1,13 @@
+// Copyright (c) 2025 Gembit Soultan Shirazi. All rights reserved.
+// SPDX-License-Identifier: LicenseRef-Hermod-Proprietary
+//
+// Governed by the Hermod Proprietary License; see LICENSE for the terms.
+// Every use, copy, change or distribution needs written permission.
+// May not be sold, resold or sublicensed to any third party.
+// Bundling it into a paid or hosted service for others is prohibited.
+// It is proprietary and confidential to Gembit Soultan Shirazi.
+// There is no warranty of any kind; it is provided "AS IS".
+
 // Package http is the REST surface of the vhost AI budgets: reading a vhost's
 // budget and this month's usage, setting the budget and the per-workflow caps,
 // the kill switch, and the two routes a worker uses to have its model calls
