@@ -1,0 +1,13 @@
+outlet_id,name,salesman_id,city,outlet_type,outlet_size,channel,latitude,longitude,credit_hold
+OUT001,Minimarket Jakarta 1,SM1,Jakarta,Minimarket,medium,General trade,-6.19107,106.81732,false
+OUT002,Pharmacy Jakarta 2,SM2,Jakarta,Pharmacy,large,Pharmacy,-6.15109,106.85569,false
+OUT003,Pharmacy Jakarta 3,SM1,Jakarta,Pharmacy,small,Pharmacy,-6.2437,106.84691,false
+OUT004,Minimarket Jakarta 4,SM2,Jakarta,Minimarket,small,General trade,-6.21426,106.81603,false
+OUT005,Minimarket Jakarta 5,SM1,Jakarta,Minimarket,medium,General trade,-6.14649,106.84275,false
+OUT006,Restaurant Jakarta 6,SM2,Jakarta,Restaurant,small,HoReCa,-6.22756,106.86403,false
+OUT007,Restaurant Jakarta 7,SM1,Jakarta,Restaurant,small,HoReCa,-6.20874,106.81328,false
+OUT008,Pharmacy Jakarta 8,SM2,Jakarta,Pharmacy,medium,Pharmacy,-6.14286,106.84455,false
+OUT009,Restaurant Jakarta 9,SM1,Jakarta,Restaurant,small,HoReCa,-6.23956,106.87589,false
+OUT010,Restaurant Jakarta 10,SM2,Jakarta,Restaurant,medium,HoReCa,-6.18507,106.8147,false
+OUT011,Minimarket Jakarta 11,SM1,Jakarta,Minimarket,small,General trade,-6.14498,106.86392,false
+OUT012,Pharmacy Jakarta 12,SM2,Jakarta,Pharmacy,small,Pharmacy,-6.24431,106.85846,true

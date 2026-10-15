@@ -1,0 +1,13 @@
+outlet_id,sku,return_date,qty,reason
+OUT005,FM069,2026-07-15,46,slow seller
+OUT009,FM004,2026-08-20,2,damaged
+OUT017,FM027,2026-07-15,72,slow seller
+OUT021,FM062,2026-08-20,1,damaged
+OUT029,FM012,2026-07-15,90,slow seller
+OUT033,FM002,2026-08-20,2,damaged
+OUT041,FM144,2026-07-15,43,slow seller
+OUT045,FM062,2026-08-20,2,damaged
+OUT053,FM016,2026-07-15,65,slow seller
+OUT057,FM002,2026-08-20,1,damaged
+OUT065,FM079,2026-07-15,38,slow seller
+OUT069,FM003,2026-08-20,1,damaged

@@ -31,7 +31,12 @@ carry the customers' tier, channel and region. The "_signals" runs add the
 details shops' returns and quotes (the worker's returns and quotes tests):
 products leave out what a customer returned or lost a quote of and offer an
 open quote with its date, and an audience leaves out a lost quote and counts
-a returned product half; their cases also ask with what was bought.
+a returned product half; their cases also ask with what was bought. The
+"_industrial" and "_pharmacy" runs are two of the recommendation cases
+(ml/worker/tests/cases.py, docs/ml-recommendation-cases.md): an industrial
+supplier whose peers share an industry and a price tier, with returns and
+quotes, and a pharmacy chain whose branches have nearby peers and whose
+brands out of stock or discontinued have their generic as the substitute.
 """
 
 from __future__ import annotations
@@ -52,6 +57,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from hermod_ml import recommend, scenarios  # noqa: E402
 from hermod_ml.app import create_app  # noqa: E402
 from hermod_ml.settings import Settings  # noqa: E402
+from tests import cases as recommendation_cases  # noqa: E402
 from tests.b2b import data_roles, generate, with_details  # noqa: E402
 from tests.test_scenarios import (  # noqa: E402
     detail_body, detail_tables, market_body, market_customers, near_body, near_tables, peer_body, peer_tables, signal_body, signal_tables,
@@ -242,6 +248,21 @@ def main(names: list[str]) -> None:
             if names and name not in names:
                 continue
             write(client, out_dir, name, scenario, signal_body(scenario), customers, products, seen)
+
+        # Two of the recommendation cases.
+        for case in ("industrial", "pharmacy"):
+            for dataset, rows in recommendation_cases.generate(case).items():
+                load_rows(client, f"{case}_{dataset}", rows)
+        for name, case, scenario, customers, products, seen in (
+                ("products_industrial", "industrial", "products", ("ACC02", "ACC04", "ACC05", "ACC08"), (), ("ACC05",)),
+                ("audience_industrial", "industrial", "audience", (), ("IN062", "IN005", "IN002"), ("IN005",)),
+                ("reorder_industrial", "industrial", "reorder", (), (), ()),
+                ("products_pharmacy", "pharmacy", "products", ("BR01", "BR03"), (), ("BR03",)),
+                ("similar_pharmacy", "pharmacy", "similar", (), ("PH001", "PH003", "PH005", "PH021"), ())):
+            if names and name not in names:
+                continue
+            data = {role: {**cols, "dataset": f"{case}_{cols['dataset']}"} for role, cols in recommendation_cases.roles(case).items()}
+            write(client, out_dir, name, scenario, {"task": "recommendation", "scenario": scenario, "data": data}, customers, products, seen)
 
 
 def load_rows(client: TestClient, dataset: str, rows: list[dict]) -> None:

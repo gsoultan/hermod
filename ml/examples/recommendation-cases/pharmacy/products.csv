@@ -1,0 +1,13 @@
+product_code,product_name,category,subcategory,brand,price,pack_size,unit,discontinued_on,on_hand,substitute
+PH001,Sehat analgesics 1,Analgesics,Analgesics 1,Sehat,10.8,20,box,,0,PH002
+PH002,Generik analgesics 1,Analgesics,Analgesics 1,Generik,4.2,20,box,,41,
+PH003,Prima analgesics 2,Analgesics,Analgesics 2,Prima,12.6,30,box,,0,PH004
+PH004,Generik analgesics 2,Analgesics,Analgesics 2,Generik,4.9,30,box,,43,
+PH005,Medika analgesics 3,Analgesics,Analgesics 3,Medika,14.4,10,box,,0,PH006
+PH006,Generik analgesics 3,Analgesics,Analgesics 3,Generik,5.6,10,box,,45,
+PH007,Sehat analgesics 4,Analgesics,Analgesics 4,Sehat,16.2,20,box,2026-09-01,46,PH008
+PH008,Generik analgesics 4,Analgesics,Analgesics 4,Generik,6.3,20,box,,47,
+PH009,Prima analgesics 5,Analgesics,Analgesics 5,Prima,18.0,30,box,,48,
+PH010,Generik analgesics 5,Analgesics,Analgesics 5,Generik,7.0,30,box,,49,
+PH011,Medika analgesics 6,Analgesics,Analgesics 6,Medika,19.8,10,box,,50,
+PH012,Generik analgesics 6,Analgesics,Analgesics 6,Generik,7.7,10,box,,51,

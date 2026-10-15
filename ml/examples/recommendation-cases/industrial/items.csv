@@ -1,0 +1,13 @@
+item_code,description,product_group,product_line,brand,list_price,pack_size,unit,launched_on
+IN001,Ironbark bearings 1,Bearings,Bearings premium,Ironbark,180.0,1,piece,2023-06-01
+IN002,Ironbark bearings 2,Bearings,Bearings premium,Ironbark,234.0,10,box,2023-06-01
+IN003,Ironbark bearings 3,Bearings,Bearings premium,Ironbark,288.0,50,case,2023-06-01
+IN004,Ironbark bearings 4,Bearings,Bearings premium,Ironbark,342.0,1,piece,2023-06-01
+IN005,Ironbark bearings 5,Bearings,Bearings premium,Ironbark,396.0,10,box,2023-06-01
+IN006,Volta bearings 6,Bearings,Bearings economy,Volta,95.0,50,case,2023-06-01
+IN007,Volta bearings 7,Bearings,Bearings economy,Volta,123.5,1,piece,2023-06-01
+IN008,Volta bearings 8,Bearings,Bearings economy,Volta,152.0,10,box,2023-06-01
+IN009,Volta bearings 9,Bearings,Bearings economy,Volta,180.5,50,case,2023-06-01
+IN010,Volta bearings 10,Bearings,Bearings economy,Volta,209.0,1,piece,2026-09-05
+IN011,Kestrel lubricants 1,Lubricants,Lubricants premium,Kestrel,180.0,1,piece,2023-06-01
+IN012,Kestrel lubricants 2,Lubricants,Lubricants premium,Kestrel,234.0,10,box,2023-06-01

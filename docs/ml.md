@@ -1663,7 +1663,10 @@ A model trained as in [Recommendations](#recommendations), with `recommend`
 and no `scenario`, is a `products` model and keeps answering as before; it
 can also be called with the scenario body below. A plain-language guide for
 the people who own the data is in
-[ml-recommendations-data-guide.md](ml-recommendations-data-guide.md).
+[ml-recommendations-data-guide.md](ml-recommendations-data-guide.md), and
+three worked cases (a consumer goods distributor, an industrial supplier and
+a pharmacy chain, with every scenario trained, asked and answered) are in
+[ml-recommendation-cases.md](ml-recommendation-cases.md).
 
 ### Training a scenario
 

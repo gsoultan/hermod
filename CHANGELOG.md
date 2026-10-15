@@ -35,6 +35,14 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
   products have launch dates.
 - Models trained without the new columns and roles, or before them, train
   and answer byte-for-byte as before; the proto change is additive.
+- [Recommendation cases](docs/ml-recommendation-cases.md): three worked
+  examples on larger synthetic businesses (a consumer goods distributor with
+  300 outlets in three cities, an industrial supplier on contract price
+  tiers, a pharmacy chain with brands out of stock), each with the tables to
+  map, every scenario trained, example calls and the answers they returned.
+  `ml/worker/tests/cases.py` generates the data (a 12-row sample of each
+  table is in `ml/examples/recommendation-cases/`), and tests train every
+  scenario on each case.
 
 ### Added — Dataset analysis and Parquet upload
 
