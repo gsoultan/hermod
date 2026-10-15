@@ -1,12 +1,12 @@
 // Copyright (c) 2025 Gembit Soultan Shirazi. All rights reserved.
 // SPDX-License-Identifier: LicenseRef-Hermod-Proprietary
 //
-// Hermod: real-time Postgres CDC and data pipelines in one Go binary.
-// Each file is proprietary and confidential; see LICENSE for the terms.
-// Resale, sublicensing or selling it to any third party is prohibited.
-// Making copies, modifying or distributing it needs written permission
-// Of the copyright holder, Gembit Soultan Shirazi.
-// Distributed "AS IS", WITHOUT WARRANTY OF ANY KIND, express or implied.
+// Granted to no one is any right to use, copy, modify or distribute this
+// Except by written permission of the copyright holder named above.
+// May not be sold, resold, sublicensed or offered as a paid or hosted
+// Business service to any third party. Proprietary and confidential;
+// Its full terms are in LICENSE at the repository root. THE SOFTWARE
+// IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED.
 
 //go:build tools
 
