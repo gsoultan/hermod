@@ -19,7 +19,12 @@ float32 features as Hermod does. The "_peers" runs map the customers' size
 (their headcount) besides their segment, so products and audience add the
 peer share; "_near" runs place every customer of a category in one of two
 towns, so their peers are the nearby ones (near_km, near_peers), and a
-products case says what they buy in its "summary".
+products case says what they buy in its "summary". The "_details" runs map
+the products' details (b2b.with_details: brand, subcategory, pack size and
+unit, launch and end dates, stock, substitute), and the "_shop" runs the
+worker's product details tests' shops, so products, audience and similar
+weigh brands and new products, leave out what cannot be offered for its
+substitute, and products suggest a quantity (similar_scores).
 """
 
 from __future__ import annotations
@@ -40,8 +45,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 from hermod_ml import recommend, scenarios  # noqa: E402
 from hermod_ml.app import create_app  # noqa: E402
 from hermod_ml.settings import Settings  # noqa: E402
-from tests.b2b import data_roles, generate  # noqa: E402
-from tests.test_scenarios import near_body, near_tables, peer_body, peer_tables  # noqa: E402
+from tests.b2b import data_roles, generate, with_details  # noqa: E402
+from tests.test_scenarios import detail_body, detail_tables, near_body, near_tables, peer_body, peer_tables  # noqa: E402
 
 VHOST = "fixture"
 
@@ -55,8 +60,8 @@ def customer_fields(b, cattrs, u):
     return scenarios._customer_fields(b, cattrs, u)
 
 
-def item_fields(iattrs, i):
-    return scenarios._item_fields(iattrs, i)
+def item_fields(b, i, u=None):
+    return scenarios._item_fields(b, i, u)
 
 
 def ranked_pool(b, cattrs, scenario: str, rep: str) -> list[dict]:
@@ -81,10 +86,9 @@ def ranked_pool(b, cattrs, scenario: str, rep: str) -> list[dict]:
             for r, (s, u, reasons, due) in enumerate(ranked)]
 
 
-def cases(scenario: str, model: recommend.Model, customers: tuple[str, ...] = ()) -> list[dict]:
+def cases(scenario: str, model: recommend.Model, customers: tuple[str, ...] = (), products: tuple[str, ...] = ()) -> list[dict]:
     b = built(model)
     cattrs = {k: v for k, v in model.extra["customer_attrs"].items()}
-    iattrs = {k: v for k, v in model.extra["item_attrs"].items()}
     out = []
     today = scenarios.day_text(b.today)
     if scenario in ("visits", "reorder"):
@@ -102,23 +106,19 @@ def cases(scenario: str, model: recommend.Model, customers: tuple[str, ...] = ()
         for u, k, exclude in [(0, 10, True), (3, 5, True), (11, 10, False), (40, 20, True)] + [(u, 10, True) for u in fewest] + [(12, 100, True), (fewest[0], 100, True), (fewest[-1], 100, True)]:
             u %= len(b.users)  # a small model has fewer customers
             picks = scenarios.product_scores(b, u, k, exclude)
-            items = [scenarios._item(b.items[i], s, r + 1, reasons, item_fields(iattrs, i)) for r, (i, s, reasons) in enumerate(picks)]
+            items = [scenarios._item(b.items[i], s, r + 1, reasons, item_fields(b, i, u)) for r, (i, s, reasons) in enumerate(picks)]
             case = {"today": today, "customer": b.users[u], "k": k, "exclude_seen": exclude, "items": items}
             if summary := scenarios.nearby_summary(b, u, items):
                 case["summary"] = summary
             out.append(case)
     if scenario == "audience":
-        for i, k, exclude in [(int(p), 10, True) for p in model.popular[:3]] + [(5, 15, False)]:
+        for i, k, exclude in [(int(p), 10, True) for p in model.popular[:3]] + [(5, 15, False)] + [(b.items.index(p), 10, True) for p in products]:
             picks = scenarios.audience_scores(b, i, k, exclude)
             out.append({"today": today, "product": b.items[i], "k": k, "exclude_seen": exclude,
                         "items": [scenarios._item(b.users[u], s, r + 1, reasons, customer_fields(b, cattrs, u)) for r, (u, s, reasons) in enumerate(picks)]})
     if scenario == "similar":
-        for i in [int(p) for p in model.popular[:3]] + [9]:
-            items = []
-            for r, (j, s, reason) in enumerate(recommend.similar_items(model, i, 10)):
-                reasons = ([{"code": "popular", "text": "One of the most popular products"}] if reason == "popular"
-                           else [{"code": "bought_together", "text": f"Often bought by the same customers as {b.items[i]}"}])
-                items.append(scenarios._item(b.items[j], s, r + 1, reasons, item_fields(iattrs, j)))
+        for i in [int(p) for p in model.popular[:3]] + [9 % len(b.items)] + [b.items.index(p) for p in products]:
+            items = [scenarios._item(b.items[j], s, r + 1, reasons, item_fields(b, j)) for r, (j, s, reasons) in enumerate(scenarios.similar_scores(b, i, 10))]
             out.append({"today": today, "product": b.items[i], "k": 10, "items": items})
     return out
 
@@ -129,7 +129,9 @@ def main(names: list[str]) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         client = TestClient(create_app(Settings(data_dir=Path(tmp) / "data")))
         tables = generate(seed=11, customers=80, salesmen=4, products=60)
-        for dataset, table in (("orders", "orders"), ("customers", "customers"), ("items", "items"), ("visits", "visits"), ("reps", "reps")):
+        tables["items_details"] = with_details(tables["items"])
+        for dataset, table in (("orders", "orders"), ("customers", "customers"), ("items", "items"), ("visits", "visits"), ("reps", "reps"),
+                               ("items_details", "items_details")):
             resp = client.post(f"/v1/datasets/{VHOST}/{dataset}/rows", json={"rows": tables[table], "replace": True})
             assert resp.status_code == 200, resp.text
         runs = [(s, s, {}) for s in scenarios.SCENARIOS] + [("audience_als", "audience", {"algorithm": "als"}),
@@ -138,6 +140,9 @@ def main(names: list[str]) -> None:
         runs += [("audience_peers_als", "audience", {"algorithm": "als", "data": data_roles(size=True)})]
         # Same-tier customers within 40 km, the 8 nearest.
         runs += [("products_peers_wide", "products", {"data": data_roles(size=True), "near_km": 40, "near_peers": 8})]
+        # Product details, the new products those launched within 50 days.
+        runs += [(f"{s}_details", s, {"data": data_roles(size=True, details=True), "new_days": 50}) for s in ("products", "audience", "similar")]
+        details = [it["sku"] for p, it in enumerate(tables["items_details"]) if p % 13 == 4 or p % 17 == 6 or p % 11 == 7][:6]
         for name, scenario, extra in runs:
             if names and name not in names:
                 continue
@@ -148,7 +153,8 @@ def main(names: list[str]) -> None:
             raw = client.get(f"/v1/models/{VHOST}/{name}/versions/{meta['version']}/model.rec").content
             model = recommend.decode(raw)
             (out_dir / f"{name}.rec").write_bytes(raw)
-            (out_dir / f"{name}.json").write_text(json.dumps(cases(scenario, model), indent=1) + "\n")
+            products = tuple(p for p in details if p in model.items) if name.endswith("_details") else ()
+            (out_dir / f"{name}.json").write_text(json.dumps(cases(scenario, model, products=products), indent=1) + "\n")
             print(name, len(raw), "bytes", model.algorithm, {k: round(v, 3) for k, v in meta["metrics"].items()})
 
         # Customers with one order, whose peers say most: the newcomers of
@@ -185,6 +191,23 @@ def main(names: list[str]) -> None:
             model = recommend.decode(raw)
             (out_dir / f"{name}.rec").write_bytes(raw)
             (out_dir / f"{name}.json").write_text(json.dumps(cases(scenario, model, ("A16", "B17", "Anone")), indent=1) + "\n")
+            print(name, len(raw), "bytes", model.algorithm, {k: round(v, 3) for k, v in meta["metrics"].items()})
+
+        # Shops of two noodle brands: the worker's product details tests.
+        tables = detail_tables()
+        for dataset, table in (("dorders", "orders"), ("ditems", "items")):
+            resp = client.post(f"/v1/datasets/{VHOST}/{dataset}/rows", json={"rows": tables[table], "replace": True})
+            assert resp.status_code == 200, resp.text
+        for name, scenario in (("products_shop", "products"), ("audience_shop", "audience"), ("similar_shop", "similar")):
+            if names and name not in names:
+                continue
+            resp = client.post(f"/v1/models/{VHOST}/{name}/train", json=detail_body(scenario))
+            assert resp.status_code == 200, resp.text
+            meta = resp.json()
+            raw = client.get(f"/v1/models/{VHOST}/{name}/versions/{meta['version']}/model.rec").content
+            model = recommend.decode(raw)
+            (out_dir / f"{name}.rec").write_bytes(raw)
+            (out_dir / f"{name}.json").write_text(json.dumps(cases(scenario, model, ("K01", "K02", "K10", "K30"), ("I1", "I4", "I6", "M6")), indent=1) + "\n")
             print(name, len(raw), "bytes", model.algorithm, {k: round(v, 3) for k, v in meta["metrics"].items()})
 
 

@@ -118,9 +118,40 @@ def generate(seed: int = 7, customers: int = 300, salesmen: int = 12, products: 
     return {"orders": orders, "customers": custs, "items": items, "visits": visits, "reps": reps}
 
 
-def data_roles(size: bool = False) -> dict[str, dict[str, str]]:
+BRANDS = ("Acme", "Borneo", "Cahaya", "Delta", "Elang", "Fajar", "Garuda")
+UNITS = ("box", "carton", "pack")
+
+
+def with_details(items: list[dict]) -> list[dict]:
+    """The items with a product's details, each following from its place in
+    the list (no draw, so the tables stay as they are): a brand, a basic or
+    premium subcategory of its category, a pack size and unit, a launch date
+    (a few launched within the last fifty days), an end date (a few
+    discontinued two weeks before the end), stock on hand (a few out of
+    stock) and, for those out of stock or discontinued, the product ten
+    places on, of the same category, as their substitute."""
+    out = []
+    for p, item in enumerate(items):
+        gone = p % 17 == 6
+        empty = p % 11 == 7
+        out.append({
+            **item,
+            "brand": BRANDS[p % len(BRANDS)],
+            "sub": f"{item['cat']} {('basic', 'premium')[p // len(CATEGORIES) % 2]}",
+            "pack": (6, 12, 24)[p % 3],
+            "unit": UNITS[p % 3],
+            "launched": (END - dt.timedelta(days=p % 50)).isoformat() if p % 13 == 4 else START.isoformat(),
+            "ends": (END - dt.timedelta(days=15)).isoformat() if gone else None,
+            "stock": 0 if empty else 25 + p,
+            "instead": items[p + 10]["sku"] if (gone or empty) and p + 10 < len(items) else None,
+        })
+    return out
+
+
+def data_roles(size: bool = False, details: bool = False) -> dict[str, dict[str, str]]:
     """The training body's "data" for these tables, as the contract shows it;
-    with size, the customers' headcount as their size."""
+    with size, the customers' headcount as their size; with details, the
+    products' details of with_details, from the items_details dataset."""
     roles = {
         "transactions": {"dataset": "orders", "customer": "cust_id", "product": "sku", "date": "order_date", "quantity": "qty", "amount": "total"},
         "customers": {"dataset": "customers", "id": "cust_id", "salesman": "rep", "territory": "region", "segment": "tier",
@@ -131,6 +162,9 @@ def data_roles(size: bool = False) -> dict[str, dict[str, str]]:
     }
     if size:
         roles["customers"]["size"] = "staff"
+    if details:
+        roles["products"].update({"dataset": "items_details", "brand": "brand", "subcategory": "sub", "pack_size": "pack", "unit": "unit",
+                                  "launch_date": "launched", "end_date": "ends", "stock": "stock", "substitute": "instead"})
     return roles
 
 

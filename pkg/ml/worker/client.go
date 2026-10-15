@@ -160,7 +160,9 @@ type TrainSpec struct {
 	// business rules every call obeys, and PeriodDays the planning (visits)
 	// or evaluation period. NearKm and NearPeers make a customer's peers the
 	// NearPeers nearest of its category within NearKm kilometres; 0 for the
-	// worker's default (5 km, 20 customers).
+	// worker's default (5 km, 20 customers). NewDays makes a product launched
+	// within that many days new (products.launch_date); 0 for the worker's
+	// default (60).
 	Scenario   string                       `json:"scenario,omitempty"`
 	Data       map[string]map[string]string `json:"data,omitempty"`
 	Weights    map[string]float64           `json:"weights,omitempty"`
@@ -168,6 +170,7 @@ type TrainSpec struct {
 	PeriodDays int                          `json:"period_days,omitempty"`
 	NearKm     float64                      `json:"near_km,omitempty"`
 	NearPeers  int                          `json:"near_peers,omitempty"`
+	NewDays    int                          `json:"new_days,omitempty"`
 }
 
 // TrainParams are a deep-learning model's hyperparameters. A zero field is

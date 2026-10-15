@@ -25,9 +25,9 @@
 // customer and item features, customer_attrs and item_attrs (one value or
 // null per customer or item), salesmen, weights, rules, global_gap,
 // global_visit_gap, has_visits and has_margin, and, since customer
-// categories and sizes, has_peers and size_edges. Its algorithm may be
-// "none", with neither factors nor neighbors, for a scenario that needs no
-// products.
+// categories and sizes, has_peers and size_edges; since products' details,
+// new_days and pair_details. Its algorithm may be "none", with neither
+// factors nor neighbors, for a scenario that needs no products.
 // After popular scores come:
 //
 //	customer neighbors     uint32  [users x customer_neighbors] when > 0
@@ -36,6 +36,10 @@
 //	seen gap               float32 [seen], median days between orders, or NaN
 //	customer features      float32 [users x customer features], NaN unknown
 //	item features          float32 [items x item features], NaN unknown
+//	seen quantity          float32 [seen], median quantity per order, or NaN
+//	                       (when pair_details)
+//	seen spend             float32 [seen], what was spent on the pair
+//	                       (when pair_details)
 //
 // An artifact comes from the worker's model store, so it is parsed as input
 // that may be wrong: every count is checked against the bytes that back it
@@ -130,6 +134,13 @@ type header struct {
 	SizeEdges []float64 `json:"size_edges"`
 	NearKm    float64   `json:"near_km"`
 	NearPeers int       `json:"near_peers"`
+	// NewDays makes a product launched within that many days new; 0 for a
+	// model without launch dates. PairDetails is set when the seen quantity
+	// and spend sections follow the item features: a model with products'
+	// brands, pack sizes or launch dates. An artifact from before products'
+	// details has neither.
+	NewDays     int  `json:"new_days"`
+	PairDetails bool `json:"pair_details"`
 }
 
 // SalesmanInfo is a salesman's capacity as the salesmen table gave it; a nil
@@ -198,6 +209,11 @@ type scenarioData struct {
 	sizeEdges                 []float64
 	nearKm                    float64
 	nearPeers                 int
+
+	// newDays, seenQty and seenSpend are products' details' (header
+	// NewDays and PairDetails); 0 and nil without them.
+	newDays            int
+	seenQty, seenSpend []float32
 }
 
 // Algorithm is the algorithm that trained the model.

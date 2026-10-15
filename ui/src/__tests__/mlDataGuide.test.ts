@@ -186,6 +186,42 @@ describe('customer category, size and coordinates', () => {
   })
 })
 
+describe('product details', () => {
+  const optional = (s: Scenario) => Object.fromEntries(dataGuide(s).optional.map((c) => [c.key, c]))
+  const details = ['brand', 'subcategory', 'pack_size', 'unit', 'launch_date', 'end_date', 'stock', 'substitute']
+
+  it('are the worker\'s product columns', () => {
+    const src = read('ml/worker/hermod_ml/scenarios.py')
+    const keys = src.match(/"products": \(([^)]*)\)/)?.[1].match(/"(\w+)"/g)?.map((k) => k.slice(1, -1))
+    expect(keys).toBeTruthy()
+    // name is read when a products table has one; the console shows ids and names without a mapping.
+    expect(scenarioRoles('products').find((r) => r.role === 'products')!.columns.map((c) => c.key))
+      .toEqual(keys!.filter((k) => k !== 'name'))
+  })
+
+  it('are optional columns of products, audience and similar, each saying why', () => {
+    for (const s of ['products', 'audience', 'similar'] as const) {
+      const o = optional(s)
+      for (const d of details) {
+        expect(o[`products.${d}`]?.why, `${s} ${d}`).toBeTruthy()
+        expect(dataGuide(s).required.map((c) => c.key), s).not.toContain(`products.${d}`)
+      }
+    }
+    expect(optional('products')['products.brand']?.why).toMatch(/Buys a lot of/)
+    expect(optional('products')['products.stock']?.why).toMatch(/substitute/)
+    expect(optional('products')['products.pack_size']?.why).toMatch(/3 cartons \(40 pcs\)/)
+    expect(optional('reorder')['products.brand']).toBeUndefined()
+  })
+
+  it('say how much data they need, and the new-product window is the worker\'s', () => {
+    const src = read('ml/worker/hermod_ml/scenarios.py')
+    const o = optional('products')
+    expect(o['products.launch_date']?.why).toContain(`${constant(src, 'NEW_DAYS')} days`)
+    expect(o['products.brand']?.why).toContain(`${Math.round(Number(src.match(/^BRAND_REASON = ([\d.]+)/m)?.[1]) * 100)}%`)
+    for (const d of details) expect(o[`products.${d}`]?.why, d).toMatch(/Needs|needs|Works|works/)
+  })
+})
+
 describe('the docs are generated from the guide', () => {
   // UPDATE_DOCS=1 bunx vitest run src/__tests__/mlDataGuide.test.ts rewrites them.
   it.each(Object.keys(DOC_BLOCKS))('%s', (rel) => {

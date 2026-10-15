@@ -38,6 +38,32 @@ function CustomerGroupFields({ value, onChange }: { value: CustomerGroup; onChan
   )
 }
 
+/** A brand and subcategory a list of products is kept to; empty for any. */
+interface ProductKind {
+  brand: string
+  subcategory: string
+}
+
+const ANY_KIND: ProductKind = { brand: '', subcategory: '' }
+
+/** The "for" keys that keep a list of products to one brand and subcategory. */
+const kindFor = (k: ProductKind) => ({
+  ...(k.brand.trim() ? { brand: k.brand.trim() } : {}),
+  ...(k.subcategory.trim() ? { subcategory: k.subcategory.trim() } : {}),
+})
+
+/** Brand and subcategory, to keep a list of products to one of each. */
+function ProductKindFields({ value, onChange }: { value: ProductKind; onChange: (k: ProductKind) => void }) {
+  return (
+    <FormRow cols={2}>
+      <TextInput label="Brand" description="Optional: only products of this brand." placeholder="any"
+        value={value.brand} onChange={(e) => onChange({ ...value, brand: e.currentTarget.value })} />
+      <TextInput label="Subcategory" description="Optional: only products of this subcategory." placeholder="any"
+        value={value.subcategory} onChange={(e) => onChange({ ...value, subcategory: e.currentTarget.value })} />
+    </FormRow>
+  )
+}
+
 /** A starting row: the model's declared features, each set to 0. */
 function sampleRow(model: MLModel): string {
   const row = Object.fromEntries((model.features ?? []).map((f) => [f, 0]))
@@ -280,8 +306,11 @@ function ScenarioIdTest({ vhost, model, scenario }: { vhost: string; model: MLMo
   const [period, setPeriod] = useState(() => nextPeriod(7))
   const [excludeSeen, setExcludeSeen] = useState(true)
   const [group, setGroup] = useState<CustomerGroup>(ANY_GROUP)
-  // A visit plan and a product's audience are lists of customers.
+  const [kind, setKind] = useState<ProductKind>(ANY_KIND)
+  // A visit plan and a product's audience are lists of customers; a
+  // customer's products and a product's look-alikes are lists of products.
   const listsCustomers = scenario === 'visits' || scenario === 'audience'
+  const listsProducts = scenario === 'products' || scenario === 'similar'
   const run = useMutation({
     mutationFn: async (body: RecommendRequest): Promise<ScenarioAnswer> => {
       try {
@@ -299,7 +328,7 @@ function ScenarioIdTest({ vhost, model, scenario }: { vhost: string; model: MLMo
     event.preventDefault()
     if (!id.trim()) return
     run.mutate({
-      for: { [forKey]: id.trim(), ...(listsCustomers ? groupFor(group) : {}) } as RecommendRequest['for'],
+      for: { [forKey]: id.trim(), ...(listsCustomers ? groupFor(group) : {}), ...(listsProducts ? kindFor(kind) : {}) } as RecommendRequest['for'],
       k: TEST_K,
       ...(scenario === 'visits' ? { period } : {}),
       ...(scenario === 'products' ? { exclude_seen: excludeSeen } : {}),
@@ -318,6 +347,7 @@ function ScenarioIdTest({ vhost, model, scenario }: { vhost: string; model: MLMo
           </FormRow>
         )}
         {listsCustomers && <CustomerGroupFields value={group} onChange={setGroup} />}
+        {listsProducts && <ProductKindFields value={kind} onChange={setKind} />}
         {scenario === 'products' && (
           <Checkbox label="Leave out what they already bought" checked={excludeSeen} onChange={(e) => setExcludeSeen(e.currentTarget.checked)} />
         )}

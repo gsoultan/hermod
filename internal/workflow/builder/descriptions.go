@@ -43,8 +43,9 @@ var descriptions = map[string]string{
 		`element's fields onto the record.`,
 	"ml_recommend_build": `Builds a recommendation scenario model's answers for every salesman, customer or product ` +
 		`of the vhost and emits one record per result row (model, version, recommendation_id, for_id, item_id, rank, score, ` +
-		`plan_date, due_date, segment, size, reasons_text, built_at), optionally writing them to a table first (due_date, ` +
-		`segment and size only when the table has those columns). config: {"model",` +
+		`plan_date, due_date, segment, size, brand, subcategory, suggested_qty, reasons_text, built_at), optionally writing ` +
+		`them to a table first (due_date, segment, size, brand, subcategory and suggested_qty only when the table has ` +
+		`those columns). config: {"model",` +
 		`"for":"all_salesmen|all_customers|all_products","periodDays":"7","withinDays":"14","k":"20","targetSourceId","targetTable",` +
 		`"targetMode":"replace|append","maxRows":"10000"}. withinDays (reorder only) keeps the customers due to order ` +
 		`within that many days, overdue ones included.`,
@@ -80,8 +81,10 @@ var descriptions = map[string]string{
 		`For a recommendation scenario model set recommendFor to "salesman" (a visit plan), "customer" or "product", ` +
 		`plus "periodDays" for a visit plan, "withinDays" for a reorder model (only the customers due to order within that ` +
 		`many days, overdue ones included), "segment" and "size" for a list of customers (only that customer category ` +
-		`and size: small, medium, large or a number) and "rules" (a JSON list); it writes {"id","score","rank","reasons",` +
-		`"fields","due_date","overdue","products","plan_date"} best first, a customer's fields with its segment and size.`,
+		`and size: small, medium, large or a number), "brand" and "subcategory" for a list of products (only that brand ` +
+		`and subcategory) and "rules" (a JSON list); it writes {"id","score","rank","reasons",` +
+		`"fields","due_date","overdue","products","plan_date"} best first, a customer's fields with its segment and size, ` +
+		`a product's with its brand, subcategory, unit, pack_size and any suggested_qty and suggested_text.`,
 	"transformation:ml_train": `Trains a new version of a model on a dataset held by the vhost's ML worker and writes ` +
 		`the result (version, metrics, whether it went live) onto the record. config: {"model","dataset","target",` +
 		`"features":"a,b,c","task":"auto|classification|regression",` +

@@ -57,9 +57,11 @@ const AllCustomers = "all_customers"
 
 // The re-ranking weights of the product scenarios, as the worker's
 // PRODUCT_WEIGHTS and AUDIENCE_WEIGHTS. "peers" applies only to a model with
-// customer categories or sizes, and to a customer with a peer group.
+// customer categories or sizes, and to a customer with a peer group;
+// "brand" to a model with brands and a customer who spends on them; "new"
+// to a model with launch dates.
 var (
-	productWeights  = map[string]float64{"cf": 0.6, "whitespace": 0.3, "margin": 0.1, "peers": 0.2}
+	productWeights  = map[string]float64{"cf": 0.6, "whitespace": 0.3, "margin": 0.1, "peers": 0.2, "brand": 0.2, "new": 0.2}
 	audienceWeights = map[string]float64{"cf": 0.6, "whitespace": 0.4, "peers": 0.3}
 )
 
@@ -146,7 +148,11 @@ type Result struct {
 // they are to order; 0 is no window. Segment and Size, for a list of
 // customers (visits, reorder, audience), keep only the customers of that
 // category and size, either matched in any case; a numeric Size is bucketed
-// as the model's training cut its customers' sizes (SizeBucket).
+// as the model's training cut its customers' sizes (SizeBucket). Brand and
+// Subcategory, for a list of products (products, similar), keep only the
+// products of that brand and subcategory, matched in any case. Stock is
+// stock on hand by product id, in place of the model's (as of its
+// training): a product with none is not offered.
 type Query struct {
 	Customer, Product, Salesman, Territory string
 	Customers                              []string
@@ -158,6 +164,8 @@ type Query struct {
 	ExcludeSeen                            bool
 	WithinDays                             int
 	Segment, Size                          string
+	Brand, Subcategory                     string
+	Stock                                  map[string]float64
 }
 
 // Answer answers a call of the model's scenario: one Result per subject.
@@ -191,6 +199,12 @@ func (m *Model) Answer(q Query) ([]Result, error) {
 		return nil, badQuery(`"within_days" applies to a reorder model ("When will they buy again"), not %s`, scenario)
 	}
 	if err := m.checkGroup(scenario, &q); err != nil {
+		return nil, err
+	}
+	if err := m.checkKind(scenario, &q); err != nil {
+		return nil, err
+	}
+	if err := checkStock(q.Stock); err != nil {
 		return nil, err
 	}
 	if q.Today.IsZero() {
@@ -571,9 +585,12 @@ func (c *call) finisher(interacted func(idx, days int) bool) *finisher {
 }
 
 // inGroup reports whether a customer result is of the request's category and
-// size; a product result always is.
+// size, and a product result of its brand and subcategory.
 func (f *finisher) inGroup(idx int) bool {
-	return f.entity != entityCustomers || f.c.inGroup(idx)
+	if f.entity == entityProducts {
+		return f.c.inKind(idx)
+	}
+	return f.c.inGroup(idx)
 }
 
 // keep reports whether the filters and excludes among the first upTo rules
@@ -758,12 +775,17 @@ func (c *call) customerFields(u int) map[string]any {
 	return out
 }
 
+// itemFields are a product's fields, as the worker's _item_fields: its name,
+// category, subcategory, brand, unit and pack size, as the model has them.
 func (c *call) itemFields(i int) map[string]any {
 	out := map[string]any{}
-	for _, key := range []string{"name", "category"} {
+	for _, key := range []string{"name", "category", "subcategory", "brand", "unit"} {
 		if v := c.m.iattr(i, key); v != "" {
 			out[key] = v
 		}
+	}
+	if pack := c.m.itemDetail(i, featPackSize); finite(pack) && pack > 0 {
+		out[featPackSize] = pack
 	}
 	return out
 }
@@ -795,6 +817,7 @@ func (c *call) products(id string) (Result, error) {
 		for n, j := range m.popular {
 			cands = append(cands, cand{idx: int(j), score: float64(m.popularScores[n]), reasons: []Reason{popularReason}})
 		}
+		cands = c.offerable(cands, nil)
 	} else {
 		cands = c.productCandidates(u)
 	}
@@ -809,6 +832,7 @@ func (c *call) products(id string) (Result, error) {
 	res.Items = c.picks(final, false)
 	if known {
 		res.Summary = c.nearbySummary(u, res.Items)
+		c.suggest(u, res.Items)
 	}
 	return res, nil
 }
@@ -829,7 +853,8 @@ const reasonPeers = "peers"
 
 // productCandidates scores a known customer's candidates, as the worker's
 // product_scores: its collaborative-filtering candidates, then its peers'
-// most bought, re-ranked.
+// most bought, its brands' products and new products of its kind,
+// re-ranked; what cannot be offered gives way to its substitute.
 func (c *call) productCandidates(u int) []cand {
 	m := c.m
 	items, _ := m.ForUser(m.users[u], candidates, c.q.ExcludeSeen)
@@ -845,7 +870,30 @@ func (c *call) productCandidates(u int) []cand {
 	if peers != nil {
 		list = append(list, c.peerCandidates(u, peers, list)...)
 	}
-	weights, total := m.productWeights(c.peerWeight(u, productWeights["peers"], peers))
+	brands := c.spendShares(u, "brand")
+	var groups map[string]float64
+	withNew := m.sc != nil && m.sc.newDays > 0 && m.sc.seenSpend != nil
+	if withNew {
+		groups = c.spendShares(u, m.groupKey())
+	}
+	weights, total := m.productWeights(c.peerWeight(u, productWeights["peers"], peers), len(brands) > 0, withNew)
+	var mine []uint32
+	if c.q.ExcludeSeen {
+		mine = m.seenBy(u)
+	}
+	taken := map[int]bool{}
+	for _, it := range list {
+		taken[it.item] = true
+	}
+	for _, i := range mine {
+		taken[int(i)] = true
+	}
+	if weights["brand"] > 0 {
+		list = append(list, c.brandCandidatesOf(brands, taken)...)
+	}
+	if withNew {
+		list = append(list, c.newCandidatesOf(brands, groups, taken)...)
+	}
 	out := make([]cand, 0, len(list))
 	for _, it := range list {
 		i := it.item
@@ -861,23 +909,44 @@ func (c *call) productCandidates(u int) []cand {
 			}
 		}
 		ps, peerHave := peers.share(i)
-		score := (weights["cf"]*cf + weights["whitespace"]*share + weights["margin"]*mp + weights["peers"]*ps) / total
+		brand := m.iattr(i, "brand")
+		bs := 0.0
+		if brand != "" {
+			bs = brands[brand]
+		}
+		fit, launch, isNew := 0.0, 0.0, false
+		if withNew {
+			if launch, isNew = c.launched(i); isNew {
+				fit = c.fit(i, brands, groups)
+			}
+		}
+		score := (weights["cf"]*cf + weights["whitespace"]*share + weights["margin"]*mp + weights["peers"]*ps +
+			weights["brand"]*bs + weights["new"]*fit) / total
 		peerText := ""
 		if peerHave > 0 && (ps >= peerReason || it.reason == reasonPeers) {
 			peerText = peers.reason(peerHave)
 		}
-		reasons := productReasons(it.reason == ReasonPopular, share, have, of, peerText)
+		var details []Reason
+		if bs >= brandReason {
+			details = append(details, brandReasonOf(brand, bs))
+		}
+		if fit > 0 {
+			details = append(details, newReason(launch))
+		}
+		reasons := productReasons(it.reason == ReasonPopular, share, have, of, peerText, details)
 		out = append(out, cand{idx: i, score: float64(float32(score)), reasons: reasons})
 	}
 	// Stable: a tie keeps the candidates' order, so popular fill stays most
 	// popular first.
 	slices.SortStableFunc(out, byScore)
-	return out
+	return c.offerable(out, mine)
 }
 
 // productWeights is the re-ranking weights the model has the data for, with
-// peers' weight when it is above 0, and their sum in the worker's order.
-func (m *Model) productWeights(peers float64) (map[string]float64, float64) {
+// peers' weight when it is above 0, brand's for a customer who spends on
+// brands and new's for a model with launch dates, and their sum in the
+// worker's order.
+func (m *Model) productWeights(peers float64, brands, withNew bool) (map[string]float64, float64) {
 	weights := map[string]float64{"cf": productWeights["cf"]}
 	if m.sc != nil && m.sc.cnb > 0 {
 		weights["whitespace"] = productWeights["whitespace"]
@@ -888,8 +957,14 @@ func (m *Model) productWeights(peers float64) (map[string]float64, float64) {
 	if peers > 0 {
 		weights["peers"] = peers
 	}
+	if brands {
+		weights["brand"] = productWeights["brand"]
+	}
+	if withNew {
+		weights["new"] = productWeights["new"]
+	}
 	total := 0.0
-	for _, k := range []string{"cf", "whitespace", "margin", "peers"} {
+	for _, k := range []string{"cf", "whitespace", "margin", "peers", "brand", "new"} {
 		total += weights[k]
 	}
 	return weights, total
@@ -897,8 +972,9 @@ func (m *Model) productWeights(peers float64) (map[string]float64, float64) {
 
 // productReasons says why a product is offered: how many similar customers
 // buy it when that is a fair share, how many of its peers do (peer, "" for
-// none), then popular fill or the general collaborative reason.
-func productReasons(popular bool, share float64, have, of int, peer string) []Reason {
+// none), its brand and newness (details), then popular fill or the general
+// collaborative reason.
+func productReasons(popular bool, share float64, have, of int, peer string, details []Reason) []Reason {
 	var reasons []Reason
 	if have > 0 && share >= whitespaceReason {
 		reasons = append(reasons, Reason{Code: ReasonSimilarCustomers, Text: fmt.Sprintf("Bought by %d of %d similar customers", have, of)})
@@ -906,6 +982,7 @@ func productReasons(popular bool, share float64, have, of int, peer string) []Re
 	if peer != "" {
 		reasons = append(reasons, Reason{Code: ReasonPeerGroup, Text: peer})
 	}
+	reasons = append(reasons, details...)
 	switch {
 	case popular:
 		reasons = append(reasons, popularReason)
@@ -1343,15 +1420,21 @@ func (c *call) similar() (Result, error) {
 		return res, nil
 	}
 	items, _ := m.Similar(id, MaxK)
-	cands := make([]cand, 0, len(items))
-	for _, it := range items {
-		r := Reason{Code: ReasonBoughtTogether, Text: "Often bought by the same customers as " + id}
-		if it.Reason == ReasonPopular {
-			r = popularReason
+	together := Reason{Code: ReasonBoughtTogether, Text: "Often bought by the same customers as " + id}
+	var cands []cand
+	if m.iattr(i, "subcategory") != "" || m.iattr(i, "brand") != "" {
+		cands = c.similarKinCands(i, items, together)
+	} else {
+		cands = make([]cand, 0, len(items))
+		for _, it := range items {
+			r := together
+			if it.Reason == ReasonPopular {
+				r = popularReason
+			}
+			cands = append(cands, cand{idx: m.itemIndex[it.Item], score: it.Score, reasons: []Reason{r}})
 		}
-		cands = append(cands, cand{idx: m.itemIndex[it.Item], score: it.Score, reasons: []Reason{r}})
 	}
-	final, err := c.finish(cands, c.k(DefaultK, MaxK), nil)
+	final, err := c.finish(c.offerable(cands, nil), c.k(DefaultK, MaxK), nil)
 	if err != nil {
 		return res, err
 	}
@@ -1370,8 +1453,12 @@ func (c *call) audience() (Result, error) {
 	id := c.q.Product
 	res := Result{For: id, Items: []Pick{}}
 	item, known := m.itemIndex[id]
-	if !known || !c.subjectAllowed(entityProducts, item) {
+	if !known || !c.subjectAllowed(entityProducts, item) || c.unavailable(item) != "" {
 		return res, nil
+	}
+	launch, isNew := 0.0, false
+	if m.sc != nil && m.sc.seenSpend != nil {
+		launch, isNew = c.launched(item)
 	}
 	cf := m.audienceCF(item)
 	best := 0.0
@@ -1396,7 +1483,11 @@ func (c *call) audience() (Result, error) {
 		peers := c.audiencePeers(u, item, groups)
 		pw := c.peerWeight(u, audienceWeights["peers"], peers)
 		ps, peerHave := peers.share(item)
-		score := (weights["cf"]*v + weights["whitespace"]*share + pw*ps) / (weights["cf"] + weights["whitespace"] + pw)
+		wn, fit := 0.0, 0.0
+		if isNew {
+			wn, fit = audienceNew, c.fit(item, c.spendShares(u, "brand"), c.spendShares(u, m.groupKey()))
+		}
+		score := (weights["cf"]*v + weights["whitespace"]*share + pw*ps + wn*fit) / (weights["cf"] + weights["whitespace"] + pw + wn)
 		if score <= 0 {
 			continue
 		}
@@ -1406,6 +1497,9 @@ func (c *call) audience() (Result, error) {
 		}
 		if peerHave > 0 && ps >= peerReason {
 			reasons = append(reasons, Reason{Code: ReasonPeerGroup, Text: peers.reason(peerHave)})
+		}
+		if fit > 0 {
+			reasons = append(reasons, newReason(launch))
 		}
 		if len(reasons) == 0 {
 			reasons = []Reason{{Code: ReasonBoughtTogether, Text: "Buys products often bought with it"}}

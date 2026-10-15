@@ -383,3 +383,49 @@ func TestARecommendToolSaysWhatNearbyCustomersBuy(t *testing.T) {
 		t.Fatalf("results %+v", got.Results)
 	}
 }
+
+// A recommend tool's brand, subcategory and stock reach the model: the
+// products it lists are of that brand, and one given as out of stock is not
+// among them.
+func TestARecommendToolsBrandAndStockReachTheModel(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "pkg", "ml", "recommend", "testdata", "scenario", "products_details.rec"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/offer/versions/1/model.rec") {
+			_, _ = w.Write(raw)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	st := &modelStore{store: &store{}, models: map[string]storage.MLModel{
+		"a/offer": {VHost: "a", Name: "offer", Backend: storage.MLBackendWorker, RemoteVersion: "1", Task: storage.MLTaskRecommendation},
+	}}
+	svc := ml.NewService(func() any { return st }, nil, nil).WithWorker(worker.New(srv.URL, "", nil))
+	m := models{svc: svc}
+	ask := func(stock map[string]float64) []string {
+		t.Helper()
+		got, err := m.RecommendScenario(t.Context(), "a", "offer", mcpserver.RecommendArgs{
+			For: &mcpserver.ScenarioFor{Customer: "C0001", Brand: "cahaya", Subcategory: "dairy basic"}, K: 10, Stock: stock})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ids []string
+		for _, p := range got.Results[0].Items {
+			if p.Fields["brand"] != "Cahaya" || p.Fields["subcategory"] != "dairy basic" {
+				t.Errorf("%s: fields %v", p.ID, p.Fields)
+			}
+			ids = append(ids, p.ID)
+		}
+		return ids
+	}
+	ids := ask(nil)
+	if len(ids) == 0 {
+		t.Fatal("no Cahaya dairy basic products")
+	}
+	if slices.Contains(ask(map[string]float64{ids[0]: 0}), ids[0]) {
+		t.Errorf("%s is out of stock and still recommended", ids[0])
+	}
+}

@@ -74,8 +74,10 @@ func scenarioRequest(req *proto.RecommendScenarioRequest) (ml.ScenarioRequest, e
 	}
 	call.For = ml.ScenarioFor{Customer: set(sub.GetCustomer()), Product: set(sub.GetProduct()),
 		Salesman: set(sub.GetSalesman()), Territory: set(sub.GetTerritory()), AllCustomers: sub.GetAllCustomers(),
-		Segment: set(sub.GetSegment()), Size: set(sub.GetSize())}
+		Segment: set(sub.GetSegment()), Size: set(sub.GetSize()),
+		Brand: set(sub.GetBrand()), Subcategory: set(sub.GetSubcategory())}
 	call.WithinDays = int(req.GetWithinDays())
+	call.Stock = req.GetStock()
 	for _, c := range sub.GetCustomers() {
 		call.For.Customers = append(call.For.Customers, c)
 	}

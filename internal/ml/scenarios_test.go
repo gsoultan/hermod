@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -206,6 +208,8 @@ func TestScenarioTrainingSpecs(t *testing.T) {
 		{worker.TrainSpec{Task: worker.TaskRecommendation, Scenario: "products", Data: data, NearKm: 600}, "near_km"},
 		{worker.TrainSpec{Task: worker.TaskRecommendation, Scenario: "products", Data: data, NearKm: 0.01}, "near_km"},
 		{worker.TrainSpec{Task: worker.TaskRecommendation, Scenario: "products", Data: data, NearPeers: 2}, "near_peers"},
+		{worker.TrainSpec{Task: worker.TaskRecommendation, Scenario: "products", Data: data, NewDays: 400}, "new_days"},
+		{worker.TrainSpec{Task: worker.TaskRecommendation, Scenario: "products", Data: data, NewDays: -1}, "new_days"},
 		{worker.TrainSpec{Task: worker.TaskRecommendation, Scenario: "products", Data: data, NearPeers: 500}, "near_peers"},
 		{worker.TrainSpec{Task: worker.TaskRecommendation, Scenario: "visits", Data: data, Device: DeviceGPU}, "CPU"},
 	}
@@ -225,6 +229,15 @@ func TestScenarioTrainingSpecs(t *testing.T) {
 	}
 	body, _ := json.Marshal(near)
 	if !strings.Contains(string(body), `"near_km":2.5`) || !strings.Contains(string(body), `"near_peers":8`) {
+		t.Errorf("body %s", body)
+	}
+	// So do the days a product counts as new.
+	fresh := good
+	fresh.NewDays = 30
+	if _, err := scenarioSpec(fresh); err != nil {
+		t.Fatalf("new_days: %v", err)
+	}
+	if body, _ := json.Marshal(fresh); !strings.Contains(string(body), `"new_days":30`) {
 		t.Errorf("body %s", body)
 	}
 }
@@ -279,6 +292,67 @@ func TestRecommendScenarioKeepsACategoryAndSize(t *testing.T) {
 	}
 	// A bad category is checked before an async job is queued.
 	if err := (ScenarioRequest{For: ScenarioFor{AllCustomers: true, Segment: []any{}}}).check(); !errors.Is(err, ErrBadRecommendRequest) {
+		t.Errorf("check: %v", err)
+	}
+}
+
+func TestRecommendScenarioKeepsABrandAndSubcategoryAndTakesStock(t *testing.T) {
+	svc := scenarioService(t, "products_shop", storage.MLQuotas{})
+	// "Indomie products for this Sedaap shop."
+	out, err := svc.RecommendScenario(t.Context(), "v", "recs", ScenarioRequest{For: ScenarioFor{Customer: "K30", Brand: "indomie"}, K: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Results[0].Items) == 0 {
+		t.Fatal("no Indomie products")
+	}
+	for _, p := range out.Results[0].Items {
+		if p.Fields["brand"] != "Indomie" || p.Fields["subcategory"] != "Instant noodles" {
+			t.Fatalf("%s: fields %v", p.ID, p.Fields)
+		}
+	}
+	// What it has bought comes with a quantity to suggest.
+	all := false
+	out, err = svc.RecommendScenario(t.Context(), "v", "recs", ScenarioRequest{For: ScenarioFor{Customer: "K02", Subcategory: "Instant noodles"},
+		K: 20, ExcludeSeen: &all})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(out.Results[0].Items, func(p recommend.Pick) bool { return p.Fields["suggested_text"] == "3 cartons (100 pcs)" }) {
+		t.Fatalf("no suggestion: %+v", out.Results[0].Items)
+	}
+	// Today's stock replaces the training's: I4 is back.
+	out, err = svc.RecommendScenario(t.Context(), "v", "recs", ScenarioRequest{For: ScenarioFor{Customer: "K01"}, K: 20,
+		Stock: map[string]float64{"I4": 12}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(out.Results[0].Items, func(p recommend.Pick) bool { return p.ID == "I4" }) {
+		t.Fatalf("restocked I4 not offered: %+v", out.Results[0].Items)
+	}
+	cases := []struct {
+		fixture string
+		req     ScenarioRequest
+		want    string
+	}{
+		{"products_shop", ScenarioRequest{For: ScenarioFor{Customer: "K01", Brand: map[string]any{"a": 1}}}, "brand"},
+		{"products_shop", ScenarioRequest{For: ScenarioFor{Customer: "K01", Subcategory: true}}, "subcategory"},
+		{"audience_shop", ScenarioRequest{For: ScenarioFor{Product: "I1", Brand: "Indomie"}}, "product lists"},
+		{"products_peers", ScenarioRequest{For: ScenarioFor{Customer: "C0001", Brand: "Acme"}}, "brand"},
+	}
+	for _, tc := range cases {
+		svc := scenarioService(t, tc.fixture, storage.MLQuotas{})
+		_, err := svc.RecommendScenario(t.Context(), "v", "recs", tc.req)
+		if !errors.Is(err, ErrBadRecommendRequest) || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s %+v: %v, want ErrBadRecommendRequest mentioning %q", tc.fixture, tc.req, err, tc.want)
+		}
+	}
+	// Too much stock is refused before an async job is queued.
+	stock := map[string]float64{}
+	for i := range recommend.MaxStock + 1 {
+		stock[strconv.Itoa(i)] = 1
+	}
+	if err := (ScenarioRequest{For: ScenarioFor{Customer: "K01"}, Stock: stock}).check(); !errors.Is(err, ErrBadRecommendRequest) {
 		t.Errorf("check: %v", err)
 	}
 }

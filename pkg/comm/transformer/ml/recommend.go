@@ -57,6 +57,9 @@ type recommender interface {
 //   - segment, size: for a list of customers (a visit plan, reorders, a
 //     product's audience), only the customers of that category and size;
 //     a size is small, medium or large, or a number the model buckets.
+//   - brand, subcategory: for a list of products (a customer's products or
+//     reorders, products like one), only the products of that brand and
+//     subcategory.
 //   - rules: request rules (docs/ml.md, "Rules"), a list or its JSON text.
 //   - outputField: where the items go, default "recommendations".
 func recommendInto(ctx context.Context, msg hermod.Message, model string, config map[string]any) (hermod.Message, error) {
@@ -75,8 +78,8 @@ func recommendInto(ctx context.Context, msg hermod.Message, model string, config
 	subject, scenario := req["for"].(map[string]any)
 	switch {
 	case scenario:
-		// The subject is the one key without a value; segment and size
-		// have theirs.
+		// The subject is the one key without a value; segment, size, brand
+		// and subcategory have theirs.
 		for k, v := range subject {
 			if v == nil {
 				subject[k] = id
@@ -154,7 +157,7 @@ func recommendRequest(config map[string]any) (map[string]any, string, error) {
 		}
 		req["within_days"] = within
 	}
-	for _, key := range []string{"segment", "size"} {
+	for _, key := range []string{"segment", "size", "brand", "subcategory"} {
 		// The editor may save a numeric size as a number.
 		v, _ := recommend.ID(config[key])
 		if v = strings.TrimSpace(v); v == "" {

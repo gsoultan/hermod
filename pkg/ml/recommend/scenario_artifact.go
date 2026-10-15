@@ -172,6 +172,16 @@ func (m *Model) CustomerAttrs(id string) (segment, size string) {
 	return m.cattr(u, "segment"), m.cattr(u, "size")
 }
 
+// ProductAttrs is a product's brand and subcategory; "" for what the model
+// does not know, or a product it does not.
+func (m *Model) ProductAttrs(id string) (brand, subcategory string) {
+	i, ok := m.itemIndex[id]
+	if !ok {
+		return "", ""
+	}
+	return m.iattr(i, "brand"), m.iattr(i, "subcategory")
+}
+
 // Customer and product ids, for building every result of a model.
 func (m *Model) CustomerIDs() []string { return slices.Clone(m.users) }
 func (m *Model) ProductIDs() []string  { return slices.Clone(m.items) }
@@ -219,6 +229,9 @@ func (h header) checkNumbers() error {
 	}
 	if e := h.SizeEdges; len(e) != 0 && (len(e) != 2 || !finite(e[0]) || !finite(e[1]) || e[0] > e[1]) {
 		return invalid("size_edges %v are not two ascending numbers", e)
+	}
+	if h.NewDays != 0 && (h.NewDays < NewDaysMin || h.NewDays > NewDaysMax) {
+		return invalid("new_days %d is not between %d and %d", h.NewDays, NewDaysMin, NewDaysMax)
 	}
 	if h.NearPeers != 0 || h.NearKm != 0 {
 		if !finite(h.NearKm) || h.NearKm < NearKmMin || h.NearKm > NearKmMax || h.NearPeers < NearPeersMin || h.NearPeers > NearPeersMax {
@@ -278,7 +291,7 @@ func (m *Model) readScenario(r *reader, h header) {
 		cFeatNames: h.CustomerFeatures, iFeatNames: h.ItemFeatures,
 		salesmen: h.Salesmen, weights: h.Weights, rules: h.Rules,
 		globalGap: h.GlobalGap, globalVisitGap: h.GlobalVisitGap, hasVisits: h.HasVisits, hasMargin: h.HasMargin,
-		hasPeers: h.HasPeers, sizeEdges: h.SizeEdges, nearKm: h.NearKm, nearPeers: h.NearPeers,
+		hasPeers: h.HasPeers, sizeEdges: h.SizeEdges, nearKm: h.NearKm, nearPeers: h.NearPeers, newDays: h.NewDays,
 	}
 	asOf, _ := time.Parse(time.DateOnly, h.AsOf)
 	sc.asOf = dayOf(asOf)
@@ -293,6 +306,10 @@ func (m *Model) readScenario(r *reader, h header) {
 	sc.seenGap = r.floatsOrNaN(h.Seen, "seen gaps")
 	sc.cFeat = r.floatsOrNaN(nUsers*int64(len(h.CustomerFeatures)), "customer features")
 	sc.iFeat = r.floatsOrNaN(nItems*int64(len(h.ItemFeatures)), "item features")
+	if h.PairDetails {
+		sc.seenQty = r.floatsOrNaN(h.Seen, "seen quantities")
+		sc.seenSpend = r.floats(h.Seen, "seen spend")
+	}
 	m.sc = sc
 }
 
@@ -332,6 +349,11 @@ func (m *Model) checkScenarioSections() error {
 	for _, g := range sc.seenGap {
 		if g < 0 {
 			return invalid("a seen gap is negative")
+		}
+	}
+	for _, s := range sc.seenSpend {
+		if s < 0 {
+			return invalid("a seen spend is negative")
 		}
 	}
 	return nil

@@ -62,6 +62,14 @@ empty) for a scenario that needs no products. After popular scores come:
                              orders, NaN when it has fewer than two
     customer features        float32 [users x customer_features], NaN unknown
     item features            float32 [items x item_features], NaN unknown
+    seen quantity            float32 [seen], a pair's median quantity per
+                             order, NaN unknown          when pair_details
+    seen spend               float32 [seen], what the person spent on the
+                             pair                        when pair_details
+
+The last two are a model's with product details (a brand, pack size or
+launch date), whose header says "pair_details": true; an artifact without
+them is as it was before them.
 
 Hermod reads both formats; the worker writes format 1 for a model trained with
 the `recommend` shape and format 2 for a scenario.
@@ -334,6 +342,10 @@ class Model:
     seen_gap: np.ndarray | None = None  # float32 [seen]
     customer_features: np.ndarray | None = None  # float32 [users, features]
     item_features: np.ndarray | None = None  # float32 [items, features]
+    # With product details (extra["pair_details"]): each seen pair's median
+    # quantity per order (NaN unknown) and what the person spent on it.
+    seen_qty: np.ndarray | None = None  # float32 [seen]
+    seen_spend: np.ndarray | None = None  # float32 [seen]
 
 
 def _popular(matrix: sp.csr_matrix) -> tuple[np.ndarray, np.ndarray]:
@@ -599,6 +611,8 @@ def encode(model: Model) -> bytes:
             np.ascontiguousarray(model.customer_features, _F32).tobytes(),
             np.ascontiguousarray(model.item_features, _F32).tobytes(),
         ]
+        if model.extra.get("pair_details"):
+            parts += [np.ascontiguousarray(model.seen_qty, _F32).tobytes(), np.ascontiguousarray(model.seen_spend, _F32).tobytes()]
     return b"".join(parts)
 
 
@@ -647,6 +661,9 @@ def decode(raw: bytes) -> Model:
         cf, itf = len(header["customer_features"]), len(header["item_features"])
         model.customer_features = take(_F32, n_users * cf).reshape(n_users, cf)
         model.item_features = take(_F32, n_items * itf).reshape(n_items, itf)
+        if header.get("pair_details"):
+            model.seen_qty = take(_F32, header["seen"])
+            model.seen_spend = take(_F32, header["seen"])
     if offset != len(raw):
         raise ValueError("artifact has bytes after its last section")
     return model

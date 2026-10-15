@@ -46,10 +46,12 @@ func (m models) Recommend(ctx context.Context, vhost, name string, req mcpserver
 
 // RecommendScenario is the service's scenario path, logged as MCP.
 func (m models) RecommendScenario(ctx context.Context, vhost, name string, req mcpserver.RecommendArgs) (mcpserver.ScenarioAnswer, error) {
-	call := ml.ScenarioRequest{Territory: req.Territory, WithinDays: req.WithinDays, K: req.K, Rules: req.Rules, ExcludeSeen: req.ExcludeSeen}
+	call := ml.ScenarioRequest{Territory: req.Territory, WithinDays: req.WithinDays, K: req.K, Rules: req.Rules,
+		ExcludeSeen: req.ExcludeSeen, Stock: req.Stock}
 	if f := req.For; f != nil {
 		call.For = ml.ScenarioFor{Customer: f.Customer, Customers: f.Customers, Product: f.Product, Salesman: f.Salesman,
-			Territory: f.Territory, AllCustomers: f.AllCustomers, Segment: f.Segment, Size: f.Size}
+			Territory: f.Territory, AllCustomers: f.AllCustomers, Segment: f.Segment, Size: f.Size,
+			Brand: f.Brand, Subcategory: f.Subcategory}
 	}
 	if req.Period != nil {
 		call.Period = &ml.ScenarioPeriod{From: req.Period.From, To: req.Period.To}
