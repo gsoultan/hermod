@@ -1,6 +1,6 @@
 import { useId, useState, type ReactNode } from 'react'
 import { Badge, Box, Button, Group, Paper, Stack, Text, ThemeIcon, Title } from '@mantine/core'
-import { IconCheck, IconDatabase, IconPlayerPlay, IconPlugConnected, IconRocket, IconSchool, IconTool } from '@tabler/icons-react'
+import { IconChartBar, IconCheck, IconDatabase, IconPlayerPlay, IconPlugConnected, IconRocket, IconSchool, IconTool } from '@tabler/icons-react'
 import { hasBuiltinEngine, hasDeepLearning, isTrainedModel, workerBesideBuiltin, workerState, type MLModel, type WorkerEngines, type WorkerStatus } from '@/lib/mlModels'
 
 const storageKey = (username: string) => `hermod.ml.guide.hidden.${username}`
@@ -105,21 +105,27 @@ function BuiltinWorkerStep({ worker, done, onSetup }: {
 }
 
 /**
- * Getting started with machine learning, at the top of the page: the four
- * steps from nothing to a model in use, each with where it stands now and the
- * one button that moves it on. With Hermod's built-in engine in force the
+ * Getting started with machine learning, at the top of the page: the steps
+ * from nothing to a model in use (get data, check it, train, use), each with
+ * where it stands now and the one button that moves it on. Checking the data
+ * opens the analysis of the newest dataset, which also suggests what to train. With Hermod's built-in engine in force the
  * first step, connecting the hermod-ml worker, is optional: it adds
  * TensorFlow, PyTorch and the rest, and both engines then train at once. Once every step that is not optional is
  * done the person can hide it; that is remembered for them in this browser.
  */
-export function GettingStarted({ worker, datasets, models, username, onSetup, onDatasets, onTrain, onTry, onMakeLive }: {
+export function GettingStarted({ worker, datasets, latestDataset, analyzed = false, models, username, onSetup, onDatasets, onAnalyze, onTrain, onTry, onMakeLive }: {
   worker: WorkerStatus | undefined
   /** How many datasets the vhost has; undefined while unknown. */
   datasets: number | undefined
+  /** The most recently filled dataset, which Check your data opens. */
+  latestDataset?: string
+  /** Whether a dataset was analyzed here already. */
+  analyzed?: boolean
   models: MLModel[] | undefined
   username: string
   onSetup: () => void
   onDatasets: () => void
+  onAnalyze?: (dataset: string) => void
   onTrain: () => void
   onTry: (model: MLModel) => void
   onMakeLive: (model: MLModel) => void
@@ -135,7 +141,9 @@ export function GettingStarted({ worker, datasets, models, username, onSetup, on
   const live = trained.find((m) => !!m.remote_version)
   const hasData = (datasets ?? 0) > 0
   // On the built-in engine, step 1 (a worker) is optional, and done once a worker answers beside it.
-  const done = [builtin ? !!beside?.ready : ready, hasData, trained.length > 0, !!live]
+  // Checking the data is done once it was analyzed, or a model shows it was used.
+  const checked = hasData && (analyzed || trained.length > 0)
+  const done = [builtin ? !!beside?.ready : ready, hasData, checked, trained.length > 0, !!live]
   const allDone = done.every((d, i) => d || (i === 0 && builtin))
   const connectFirst = 'Connect the worker first (step 1).'
 
@@ -150,7 +158,7 @@ export function GettingStarted({ worker, datasets, models, username, onSetup, on
         <Group justify="space-between" gap="xs">
           <Group gap="xs">
             <Title order={3} size="h5" id={headingId}>Getting started</Title>
-            <Text size="sm" c="dimmed">All four steps are done.</Text>
+            <Text size="sm" c="dimmed">All five steps are done.</Text>
           </Group>
           <Button size="xs" variant="subtle" onClick={() => hide(false)}>Show the guide</Button>
         </Group>
@@ -165,7 +173,7 @@ export function GettingStarted({ worker, datasets, models, username, onSetup, on
           <Box style={{ flex: 1, minWidth: 0 }}>
             <Title order={3} size="h4" id={headingId}>Getting started</Title>
             <Text size="sm" c="dimmed">
-              Four steps from your data to predictions. Each shows where you are, and the button that moves you on.
+              Five steps from your data to predictions. Each shows where you are, and the button that moves you on.
             </Text>
           </Box>
           {allDone && <Button size="xs" variant="subtle" onClick={() => hide(true)}>Hide the guide</Button>}
@@ -203,22 +211,33 @@ export function GettingStarted({ worker, datasets, models, username, onSetup, on
             </Step>
           )}
 
-          <Step n={2} title="Add your data" done={hasData} blocked={connectFirst}
+          <Step n={2} title="Get your data" done={hasData} blocked={connectFirst}
             action={{ label: 'Go to Datasets', icon: <IconDatabase size="1rem" />, onClick: onDatasets, disabled: !ready }}>
             <Text size="sm" c="dimmed">
-              Upload a CSV or Excel file, or read rows from one of this vhost&apos;s databases. One row is one example, such as
-              one customer.
+              Upload a CSV, Excel or Parquet file, or read rows from one of this vhost&apos;s databases. One row is one
+              example, such as one customer.
             </Text>
           </Step>
 
-          <Step n={3} title="Train a model" done={trained.length > 0} blocked={!ready ? connectFirst : 'Add a dataset first (step 2).'}
+          <Step n={3} title="Check your data" done={checked} blocked={!ready ? connectFirst : 'Add a dataset first (step 2).'}
+            action={{
+              label: latestDataset ? `Analyze ${latestDataset}` : 'Analyze a dataset', icon: <IconChartBar size="1rem" />,
+              onClick: () => (latestDataset && onAnalyze ? onAnalyze(latestDataset) : onDatasets()), disabled: !ready || !hasData,
+            }}>
+            <Text size="sm" c="dimmed">
+              See what each column holds, what to fix before training, and which models the data suits, with a button to
+              train one.
+            </Text>
+          </Step>
+
+          <Step n={4} title="Train a model" done={trained.length > 0} blocked={!ready ? connectFirst : 'Add a dataset first (step 2).'}
             action={{ label: 'Start training', icon: <IconSchool size="1rem" />, onClick: onTrain, disabled: !ready || !hasData }}>
             <Text size="sm" c="dimmed">
               Pick a dataset and the column to predict. Hermod tries several methods and keeps the best.
             </Text>
           </Step>
 
-          <Step n={4} title="Use it" done={!!live} blocked="Train a model first (step 3)."
+          <Step n={5} title="Use it" done={!!live} blocked="Train a model first (step 4)."
             action={live
               ? { label: 'Try your model', icon: <IconPlayerPlay size="1rem" />, onClick: () => onTry(live) }
               : trained.length > 0

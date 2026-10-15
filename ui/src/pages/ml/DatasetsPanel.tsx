@@ -1,44 +1,54 @@
 import { useState } from 'react'
-import {
-  ActionIcon, Alert, Button, Group, Loader, Modal, NumberInput, Paper, Select, Stack, Table, Text,
-  TextInput, Textarea, Title, Tooltip,
-} from '@mantine/core'
-import { IconAlertCircle, IconClock, IconDatabase, IconEye, IconPlugConnected, IconTable, IconTrash, IconUpload } from '@tabler/icons-react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ActionIcon, Alert, Button, Group, Loader, Paper, Stack, Table, Text, Title, Tooltip } from '@mantine/core'
+import { IconAlertCircle, IconChartBar, IconClock, IconDatabase, IconEye, IconPlugConnected, IconTable, IconTrash, IconUpload } from '@tabler/icons-react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useConfirm } from '@/components/common/ConfirmProvider'
 import { EmptyState } from '@/components/common/EmptyState'
-import {
-  DATASET_NAME_PATTERN, datasetFromQuery, datasetsKey, deleteDataset, listSQLSources, uploadDataset, useDataset,
-  useVHostDatasets, type DatasetInfo,
-} from '@/lib/mlModels'
-import { clearDatasetRefresh, putDatasetRefresh, type DatasetRefresh } from '@/lib/mlRecommend'
-import { LIMITS } from '@/lib/mlDataGuide'
-import { DatasetPreview } from './datasetPreview'
-import { FileHelp, QueryHelp } from './dataNeeds'
+import { datasetsKey, deleteDataset, useVHostDatasets } from '@/lib/mlModels'
+import type { TrainStart } from '@/lib/mlDataProfile'
+import { AnalysisModal, type AnalysisTab } from './datasets/AnalysisModal'
+import { QueryModal } from './datasets/QueryModal'
+import { RefreshModal } from './datasets/RefreshModal'
+import { UploadModal } from './datasets/UploadModal'
 
-type Dialog = { kind: 'upload' } | { kind: 'query' } | { kind: 'view'; name: string } | { kind: 'refresh'; name: string }
+// UploadModal is where it always was for the training steps that open it.
+export { UploadModal }
 
-const datasetNameRule = 'Letters, digits, "_", "." and "-".'
+type Dialog =
+  | { kind: 'upload' }
+  | { kind: 'query' }
+  | { kind: 'analyze'; name: string; tab?: AnalysisTab }
+  | { kind: 'refresh'; name: string }
 
 /** The Datasets heading's id: Getting started moves focus to it. */
 export const DATASETS_HEADING_ID = 'ml-datasets-heading'
 
 /**
- * The vhost's datasets: tables of rows a model is trained on, kept on the ML
- * worker. One comes from a CSV or Excel file, or from a query on one of the
- * vhost's database sources; filling one again replaces its rows.
+ * The vhost's datasets: tables of rows a model is trained on. One comes from
+ * a CSV, Excel or Parquet file, or from a query on one of the vhost's
+ * database sources; filling one again replaces its rows. Each has one main
+ * action, Analyze, which checks the data and leads to training what it
+ * suits (`onTrain`); its rows, refresh schedule and deletion sit beside it.
+ * A new dataset is analyzed as soon as it is uploaded.
  *
- * Without a worker there is nowhere to keep them: `blockedReason` says why,
+ * Without an engine there is nowhere to keep them: `blockedReason` says why,
  * the panel stays on the page with its buttons off, and `onSetup` opens the
  * worker setup guide.
  */
-export function DatasetsPanel({ vhost, blockedReason, onSetup }: { vhost: string; blockedReason?: string; onSetup?: () => void }) {
+export function DatasetsPanel({ vhost, blockedReason, onSetup, onTrain }: {
+  vhost: string
+  blockedReason?: string
+  onSetup?: () => void
+  onTrain?: (start: TrainStart) => void
+}) {
   const confirm = useConfirm()
   const queryClient = useQueryClient()
   const [dialog, setDialog] = useState<Dialog | undefined>(undefined)
   const blocked = !!blockedReason
   const { data: datasets = [], isLoading } = useVHostDatasets(vhost, !blocked)
   const reasonId = 'ml-datasets-blocked'
+  const close = () => setDialog(undefined)
+  const analyze = (name: string, tab?: AnalysisTab) => setDialog({ kind: 'analyze', name, tab })
 
   const remove = useMutation({
     mutationFn: (name: string) => deleteDataset(vhost, name),
@@ -61,7 +71,9 @@ export function DatasetsPanel({ vhost, blockedReason, onSetup }: { vhost: string
         <Group justify="space-between" align="flex-start">
           <div>
             <Title order={3} size="h4" id={DATASETS_HEADING_ID} tabIndex={-1}>Datasets</Title>
-            <Text size="sm" c="dimmed">The rows models are trained on. Filling a dataset again replaces its rows.</Text>
+            <Text size="sm" c="dimmed">
+              Get data in, then press Analyze to check it: what each column holds, what to fix, and which models it suits.
+            </Text>
           </div>
           <Group gap="xs">
             <Button variant="light" leftSection={<IconUpload size="1rem" />} disabled={blocked}
@@ -78,20 +90,21 @@ export function DatasetsPanel({ vhost, blockedReason, onSetup }: { vhost: string
             description={<span id={reasonId}>{blockedReason} The worker keeps the datasets, so connect it first: step 1 of Getting started.</span>}
             action={onSetup ? { label: 'How to connect the worker', onClick: onSetup } : undefined} />
         ) : isLoading ? (
-          <Group justify="center" p="md"><Loader size="sm" /></Group>
+          <Group justify="center" p="md"><Loader size="sm" /><Text size="sm" c="dimmed">Loading datasets…</Text></Group>
         ) : datasets.length === 0 ? (
           <EmptyState compact icon={<IconTable size="1.3rem" />} title="No datasets yet"
-            description="Upload a CSV or Excel file, or read rows from one of this vhost's databases." />
+            description="Upload a CSV, Excel or Parquet file, or read rows from one of this vhost's databases. One row is one example, such as one customer or one order line."
+            action={{ label: 'Upload a file', onClick: () => setDialog({ kind: 'upload' }) }} />
         ) : (
-          <Table.ScrollContainer minWidth={560}>
-            <Table verticalSpacing="xs">
+          <Table.ScrollContainer minWidth={620}>
+            <Table verticalSpacing="xs" aria-label="Datasets">
               <Table.Thead>
                 <Table.Tr>
                   <Table.Th>Name</Table.Th>
                   <Table.Th>Rows</Table.Th>
                   <Table.Th>Columns</Table.Th>
                   <Table.Th>Updated</Table.Th>
-                  <Table.Th />
+                  <Table.Th><Text span size="sm" fw={700} style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>Actions</Text></Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -99,22 +112,24 @@ export function DatasetsPanel({ vhost, blockedReason, onSetup }: { vhost: string
                   <Table.Tr key={d.name}>
                     <Table.Td><Text fw={500} ff="var(--mantine-font-family-monospace)">{d.name}</Text></Table.Td>
                     <Table.Td>{d.rows.toLocaleString()}</Table.Td>
-                    <Table.Td><Text size="sm" lineClamp={1}>{d.columns.map((c) => c.name).join(', ')}</Text></Table.Td>
+                    <Table.Td><Text size="sm" lineClamp={1} title={d.columns.map((c) => c.name).join(', ')}>{d.columns.length}: {d.columns.map((c) => c.name).join(', ')}</Text></Table.Td>
                     <Table.Td><Text size="sm">{new Date(d.updated_at).toLocaleString()}</Text></Table.Td>
                     <Table.Td>
                       <Group justify="flex-end" gap="xs" wrap="nowrap">
+                        <Button size="xs" variant="light" leftSection={<IconChartBar size="1rem" />} aria-label={`Analyze ${d.name}`}
+                          onClick={() => analyze(d.name)}>Analyze</Button>
                         <Tooltip label="Show rows">
-                          <ActionIcon variant="light" radius="md" aria-label={`Show rows of ${d.name}`} onClick={() => setDialog({ kind: 'view', name: d.name })}>
+                          <ActionIcon variant="subtle" radius="md" aria-label={`Show rows of ${d.name}`} onClick={() => analyze(d.name, 'rows')}>
                             <IconEye size="1.1rem" />
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label="Refresh on a schedule">
-                          <ActionIcon variant="light" radius="md" aria-label={`Refresh ${d.name} on a schedule`} onClick={() => setDialog({ kind: 'refresh', name: d.name })}>
+                          <ActionIcon variant="subtle" radius="md" aria-label={`Refresh ${d.name} on a schedule`} onClick={() => setDialog({ kind: 'refresh', name: d.name })}>
                             <IconClock size="1.1rem" />
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label="Delete">
-                          <ActionIcon variant="light" color="red" radius="md" aria-label={`Delete dataset ${d.name}`} onClick={() => askDelete(d.name)}>
+                          <ActionIcon variant="subtle" color="red" radius="md" aria-label={`Delete dataset ${d.name}`} onClick={() => askDelete(d.name)}>
                             <IconTrash size="1.1rem" />
                           </ActionIcon>
                         </Tooltip>
@@ -127,215 +142,13 @@ export function DatasetsPanel({ vhost, blockedReason, onSetup }: { vhost: string
           </Table.ScrollContainer>
         )}
       </Stack>
-      {dialog?.kind === 'upload' && <UploadModal vhost={vhost} onClose={() => setDialog(undefined)} />}
-      {dialog?.kind === 'query' && <QueryModal vhost={vhost} onClose={() => setDialog(undefined)} />}
-      {dialog?.kind === 'view' && <SampleModal vhost={vhost} name={dialog.name} onClose={() => setDialog(undefined)} />}
-      {dialog?.kind === 'refresh' && <RefreshModal vhost={vhost} name={dialog.name} onClose={() => setDialog(undefined)} />}
-    </Paper>
-  )
-}
-
-function useDatasetName(initial = '') {
-  const [name, setName] = useState(initial)
-  const [error, setError] = useState<string | null>(null)
-  const check = () => {
-    const bad = !DATASET_NAME_PATTERN.test(name.trim())
-    setError(bad ? `"${name.trim()}" is not a valid name.` : null)
-    return !bad
-  }
-  const input = (
-    <TextInput label="Dataset name" description={datasetNameRule} placeholder="customers" required value={name}
-      onChange={(e) => { setName(e.currentTarget.value); setError(null) }} error={error} data-autofocus />
-  )
-  return { name: name.trim(), check, input }
-}
-
-/** Uploads a CSV or Excel file as a dataset; `initialName` fills in its name. */
-export function UploadModal({ vhost, initialName, onClose }: { vhost: string; initialName?: string; onClose: () => void }) {
-  const queryClient = useQueryClient()
-  const ds = useDatasetName(initialName)
-  const [file, setFile] = useState<File | null>(null)
-  const upload = useMutation({
-    mutationFn: () => uploadDataset(vhost, ds.name, file as File),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: datasetsKey(vhost) })
-      onClose()
-    },
-  })
-  const submit = (event: React.FormEvent) => {
-    event.preventDefault()
-    if (ds.check() && file) upload.mutate()
-  }
-  return (
-    <Modal opened onClose={onClose} title="Upload a dataset" centered>
-      <form onSubmit={submit} noValidate>
-        <Stack gap="md">
-          {ds.input}
-          <Stack gap={4}>
-            <Text size="sm" fw={500}>File</Text>
-            <input type="file" aria-label="File" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-              onChange={(e) => setFile(e.currentTarget.files?.[0] ?? null)} />
-            <Text size="xs" c="dimmed">
-              CSV, or Excel .xlsx (the first sheet, with a header row). At most {LIMITS.uploadMaxBytes / 2 ** 20} MB.
-            </Text>
-          </Stack>
-          <FileHelp />
-          {upload.error && (
-            <Alert color="red" icon={<IconAlertCircle size="1rem" />} title="The file was not uploaded">{(upload.error as Error).message}</Alert>
-          )}
-          <Group justify="flex-end">
-            <Button variant="default" onClick={onClose}>Cancel</Button>
-            <Button type="submit" loading={upload.isPending} disabled={!file}>Upload</Button>
-          </Group>
-        </Stack>
-      </form>
-    </Modal>
-  )
-}
-
-function useSQLSources(vhost: string) {
-  return useQuery({
-    queryKey: ['ml-sql-sources', vhost],
-    queryFn: ({ signal }) => listSQLSources(vhost, signal),
-    retry: false,
-  })
-}
-
-function QueryModal({ vhost, onClose }: { vhost: string; onClose: () => void }) {
-  const queryClient = useQueryClient()
-  const ds = useDatasetName()
-  const [source, setSource] = useState<string | null>(null)
-  const [query, setQuery] = useState('')
-  const [maxRows, setMaxRows] = useState<number | string>('')
-  const { data: sources = [], isLoading } = useSQLSources(vhost)
-  const read = useMutation({
-    mutationFn: () => datasetFromQuery(vhost, ds.name, source as string, query, typeof maxRows === 'number' ? maxRows : undefined),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: datasetsKey(vhost) }),
-  })
-  const submit = (event: React.FormEvent) => {
-    event.preventDefault()
-    if (ds.check() && source && query.trim()) read.mutate()
-  }
-  return (
-    <Modal opened onClose={onClose} title="Read a dataset from a database" centered size="lg">
-      <form onSubmit={submit} noValidate>
-        <Stack gap="md">
-          {ds.input}
-          <Select label="Database source" required searchable placeholder={isLoading ? 'Loading…' : sources.length ? 'Choose a source' : 'No database sources in this vhost'}
-            data={sources.map((s) => ({ value: s.id, label: s.name }))} value={source} onChange={setSource} />
-          <Textarea label="Query" required autosize minRows={4} placeholder="SELECT age, plan, churned FROM customers"
-            description="A SELECT, run read-only with the source's own credentials." value={query}
-            onChange={(e) => setQuery(e.currentTarget.value)} styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)' } }} />
-          <QueryHelp onUseQuery={setQuery} />
-          <NumberInput label="At most this many rows" placeholder={String(LIMITS.defaultMaxQueryRows)} min={1} value={maxRows}
-            onChange={setMaxRows} maw={360}
-            description={`Empty reads up to ${LIMITS.defaultMaxQueryRows.toLocaleString('en-US')}. Set more to read more; the vhost's quota still applies.`} />
-          {read.error && (
-            <Alert color="red" icon={<IconAlertCircle size="1rem" />} title="No rows were read">{(read.error as Error).message}</Alert>
-          )}
-          {read.data && (
-            <Alert color="green" title="Dataset filled">Read {read.data.rows.toLocaleString()} rows into {read.data.name}.</Alert>
-          )}
-          <Group justify="flex-end">
-            <Button variant="default" onClick={onClose}>{read.data ? 'Close' : 'Cancel'}</Button>
-            <Button type="submit" loading={read.isPending} disabled={!source || !query.trim()}>Read rows</Button>
-          </Group>
-        </Stack>
-      </form>
-    </Modal>
-  )
-}
-
-function SampleModal({ vhost, name, onClose }: { vhost: string; name: string; onClose: () => void }) {
-  const { data, isLoading, error } = useDataset(vhost, name)
-  const cols = data?.columns ?? []
-  return (
-    <Modal opened onClose={onClose} title={`First rows of ${name}`} centered size="xl">
-      {isLoading ? (
-        <Group justify="center" p="lg"><Loader size="sm" /></Group>
-      ) : error ? (
-        <Alert color="red" icon={<IconAlertCircle size="1rem" />} title="The rows could not be read">{(error as Error).message}</Alert>
-      ) : (
-        <Stack gap="xs">
-          <Text size="sm" c="dimmed">{data?.rows.toLocaleString()} rows; {cols.map((c) => `${c.name} (${c.type})`).join(', ')}</Text>
-          {data && <DatasetPreview info={data} />}
-        </Stack>
+      {dialog?.kind === 'upload' && <UploadModal vhost={vhost} onClose={close} onUploaded={(info) => analyze(info.name)} />}
+      {dialog?.kind === 'query' && <QueryModal vhost={vhost} onClose={close} onAnalyze={(name) => analyze(name)} />}
+      {dialog?.kind === 'analyze' && (
+        <AnalysisModal vhost={vhost} name={dialog.name} initialTab={dialog.tab} onClose={close}
+          onTrain={onTrain ? (start) => { close(); onTrain(start) } : undefined} />
       )}
-    </Modal>
-  )
-}
-
-const when = (t: string | undefined) => (t && !t.startsWith('0001-01-01') ? new Date(t).toLocaleString() : 'never')
-
-/**
- * Refills a dataset from a database query on a cron schedule, replacing its
- * rows each time, so a retraining uses fresh data. Shows how the last refresh
- * went. A server older than refreshes shows no refresh and refuses the save.
- */
-function RefreshModal({ vhost, name, onClose }: { vhost: string; name: string; onClose: () => void }) {
-  const queryClient = useQueryClient()
-  const { data: info } = useDataset(vhost, name)
-  const current = (info as (DatasetInfo & { refresh?: DatasetRefresh }) | undefined)?.refresh
-  const [schedule, setSchedule] = useState<string | null>(null)
-  const [source, setSource] = useState<string | null>(null)
-  const [query, setQuery] = useState('')
-  const [maxRows, setMaxRows] = useState<number | string>('')
-  const { data: sources = [], isLoading } = useSQLSources(vhost)
-  const cron = schedule ?? current?.schedule ?? '0 5 * * *'
-  const done = () => {
-    queryClient.invalidateQueries({ queryKey: ['ml-dataset', vhost, name] })
-    queryClient.invalidateQueries({ queryKey: datasetsKey(vhost) })
-  }
-  const save = useMutation({
-    mutationFn: () => putDatasetRefresh(vhost, name, {
-      schedule: cron.trim(), source_id: source as string, query, max_rows: typeof maxRows === 'number' ? maxRows : 0,
-    }),
-    onSuccess: done,
-  })
-  const stop = useMutation({ mutationFn: () => clearDatasetRefresh(vhost, name), onSuccess: done })
-  const submit = (event: React.FormEvent) => {
-    event.preventDefault()
-    if (cron.trim() && source && query.trim()) save.mutate()
-  }
-  return (
-    <Modal opened onClose={onClose} title={`Refresh ${name} on a schedule`} centered size="lg">
-      <form onSubmit={submit} noValidate>
-        <Stack gap="md">
-          {current ? (
-            <Stack gap={2}>
-              <Text size="sm">Refreshes on <Text span ff="var(--mantine-font-family-monospace)">{current.schedule}</Text>.</Text>
-              <Text size="sm" c="dimmed">Last run: {when(current.last_run)}. Next run: {when(current.next_run)}.</Text>
-              {current.last_error && (
-                <Alert color="red" variant="light" icon={<IconAlertCircle size="1rem" />} title="The last refresh failed">{current.last_error}</Alert>
-              )}
-            </Stack>
-          ) : (
-            <Text size="sm" c="dimmed">Each refresh runs the query and replaces the dataset's rows with what it returns.</Text>
-          )}
-          <TextInput label="Schedule" required description='When to refresh, as cron: "0 5 * * *" is every day at 05:00.'
-            value={cron} onChange={(e) => setSchedule(e.currentTarget.value)} styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)' } }} />
-          <Select label="Database source" required searchable placeholder={isLoading ? 'Loading…' : sources.length ? 'Choose a source' : 'No database sources in this vhost'}
-            data={sources.map((s) => ({ value: s.id, label: s.name }))} value={source} onChange={setSource} />
-          <Textarea label="Query" required autosize minRows={3} placeholder="SELECT cust_id, sku, order_date, qty, total FROM order_lines"
-            description="A SELECT, run read-only with the source's own credentials." value={query}
-            onChange={(e) => setQuery(e.currentTarget.value)} styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)' } }} />
-          <NumberInput label="At most this many rows" placeholder="1000000" min={1} value={maxRows} onChange={setMaxRows} maw={260} />
-          {(save.error || stop.error) && (
-            <Alert color="red" icon={<IconAlertCircle size="1rem" />} title="The schedule was not changed">
-              {((save.error || stop.error) as Error).message}
-            </Alert>
-          )}
-          {save.isSuccess && <Alert color="green" title="Saved">{name} refreshes on {cron.trim()}.</Alert>}
-          {stop.isSuccess && <Alert color="green" title="Stopped">{name} no longer refreshes by itself.</Alert>}
-          <Group justify="flex-end">
-            {current && (
-              <Button variant="subtle" color="red" loading={stop.isPending} onClick={() => stop.mutate()}>Stop refreshing</Button>
-            )}
-            <Button variant="default" onClick={onClose}>{save.isSuccess ? 'Close' : 'Cancel'}</Button>
-            <Button type="submit" loading={save.isPending} disabled={!cron.trim() || !source || !query.trim()}>Save</Button>
-          </Group>
-        </Stack>
-      </form>
-    </Modal>
+      {dialog?.kind === 'refresh' && <RefreshModal vhost={vhost} name={dialog.name} onClose={close} />}
+    </Paper>
   )
 }
