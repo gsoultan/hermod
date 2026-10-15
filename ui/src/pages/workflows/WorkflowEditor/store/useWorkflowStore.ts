@@ -286,7 +286,12 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   setDlqInspectorOpened: (dlqInspectorOpened) => set({ dlqInspectorOpened }),
   setDlqInspectorSink: (dlqInspectorSink) => set({ dlqInspectorSink }),
   setTestInput: (testInput) => set({ testInput }),
-  setTestResults: (testResults) => set({ testResults }),
+  // A workflow run is newer than every node preview made before it, so those
+  // previews go: useNodeContext reads a node's preview ahead of the run, and
+  // keeping them would put an older answer in front of the newer one.
+  setTestResults: (testResults) => set(
+    testResults ? { testResults, nodePreviews: {} } : { testResults }
+  ),
   setNodePreview: (nodeId, payload) => set((state) => {
     if (payload == null) {
       if (!(nodeId in state.nodePreviews)) return state;

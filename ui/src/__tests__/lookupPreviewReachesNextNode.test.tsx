@@ -80,6 +80,37 @@ describe('a node preview feeds the node after it', () => {
     expect(ctx.inputSkipped).toBe(0)
   })
 
+  // The field refresh and Test both run the whole workflow, and every node read
+  // that run's output before anything else. A run made before the lookup was
+  // set up (or before its last edit) has the lookup's old output, so a Run
+  // Preview made since then was ignored and osiris was missing again.
+  it('prefers a preview made after the last workflow run', () => {
+    const staleRun = [
+      { node_id: 'src', payload: sample },
+      { node_id: 'l1', payload: sample },
+    ]
+    useWorkflowStore.setState({ testResults: staleRun })
+    useWorkflowStore.getState().setNodePreview('l1', previewed)
+
+    const state = useWorkflowStore.getState()
+    const { result } = renderHook(() => useNodeContext(l2, state.testResults, sources, []))
+
+    expect(result.current.incomingPayload.after.osiris.OrganizationCode).toBe('IMPC')
+  })
+
+  it('drops previews once a newer workflow run arrives', () => {
+    useWorkflowStore.getState().setNodePreview('l1', previewed)
+    const run = [{ node_id: 'l1', payload: previewed }]
+    useWorkflowStore.getState().setTestResults(run)
+
+    expect(useWorkflowStore.getState().nodePreviews).toEqual({})
+
+    // Clearing a run says nothing newer happened, so previews stay.
+    useWorkflowStore.getState().setNodePreview('l1', previewed)
+    useWorkflowStore.getState().setTestResults(null)
+    expect(useWorkflowStore.getState().nodePreviews.l1).toEqual(previewed)
+  })
+
   it('falls back to the source sample when the lookup was never previewed', () => {
     const { result } = renderHook(() => useNodeContext(l2, null, sources, []))
     expect(result.current.incomingPayload.after.osiris).toBeUndefined()
