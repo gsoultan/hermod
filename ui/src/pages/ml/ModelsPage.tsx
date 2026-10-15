@@ -14,7 +14,9 @@ import {
   deleteModel, isModelVHost, isTrainedModel, listModels, mlModelsKey, setMCPExposure, trainBlockedReason, useVHostDatasets, useWorkerStatus,
   workerState, type MLModel,
 } from '@/lib/mlModels'
+import { useAnalyzed, type TrainStart } from '@/lib/mlDataProfile'
 import { AddModelModal } from './AddModelModal'
+import { AnalysisModal } from './datasets/AnalysisModal'
 import { DATASETS_HEADING_ID, DatasetsPanel } from './DatasetsPanel'
 import { GettingStarted } from './GettingStarted'
 import { JobsPanel } from './JobsPanel'
@@ -62,7 +64,8 @@ type Dialog =
   | { kind: 'form'; model?: MLModel }
   | { kind: 'test'; model: MLModel }
   | { kind: 'key'; model: MLModel }
-  | { kind: 'train'; modelName?: string; task?: string }
+  | { kind: 'train'; modelName?: string; task?: string; start?: TrainStart }
+  | { kind: 'analyze'; dataset: string }
   | { kind: 'versions'; model: MLModel }
   | { kind: 'monitoring'; model: MLModel }
   | { kind: 'retrain'; model: MLModel }
@@ -72,7 +75,7 @@ type Dialog =
 /** The page's tabs, each with the one line that says what it holds. */
 const TABS = [
   { value: 'models', label: 'Models', icon: IconBrain, help: 'The models this vhost can use, and what you can do with each.' },
-  { value: 'data', label: 'Data', icon: IconDatabase, help: 'The rows models learn from: upload a spreadsheet or read them from a database.' },
+  { value: 'data', label: 'Data', icon: IconDatabase, help: 'The rows models learn from: upload a CSV, Excel or Parquet file or read them from a database, then analyze them.' },
   { value: 'jobs', label: 'Training jobs', icon: IconListCheck, help: 'Trainings and other long tasks, running or finished, with their progress.' },
   { value: 'scripts', label: 'Scripts', icon: IconCode, help: 'Your own Python training code, for experts. Most people never need it.' },
   { value: 'limits', label: 'Limits', icon: IconGauge, help: 'How much this vhost may store and run at once.' },
@@ -85,7 +88,7 @@ const tabHelpId = (value: string) => `ml-tab-help-${value}`
  * dataset, or is the address of a model on a model server; workflows call it
  * from a Predict node, and applications through the serving endpoint with the
  * model's own key. Getting started at the top walks a newcomer through the
- * worker, data, training and use. The page has one primary action, Add model,
+ * worker, getting data, checking it, training and use. The page has one primary action, Add model,
  * which asks whether to train or connect; each model's other actions sit in
  * its "…" menu, and datasets, jobs, scripts and limits have their own tabs.
  * An action that cannot run yet stays offered, off, and says why.
@@ -105,6 +108,11 @@ export function ModelsPage() {
   const canTrain = !!worker?.ready
   const blockedReason = trainBlockedReason(worker)
   const { data: datasets } = useVHostDatasets(vhost ?? undefined, canTrain)
+  const latestDataset = datasets?.length
+    ? [...datasets].sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0].name
+    : undefined
+  const analyzed = useAnalyzed(vhost)
+  const trainFrom = (start: TrainStart) => setDialog({ kind: 'train', start })
   // The Scripts tab exists only where the server has custom scripts on.
   const showScripts = canTrain && !!worker?.capabilities?.scripts_enabled
   const tabs = TABS.filter((t) => t.value !== 'scripts' || showScripts)
@@ -257,6 +265,7 @@ export function ModelsPage() {
 
         {vhost && (
           <GettingStarted key={username} worker={worker} datasets={canTrain ? datasets?.length : undefined} models={models}
+            latestDataset={latestDataset} analyzed={analyzed} onAnalyze={(dataset) => setDialog({ kind: 'analyze', dataset })}
             username={username} onSetup={openSetup} onDatasets={goToDatasets} onTrain={() => setDialog({ kind: 'train' })}
             onTry={(model) => setDialog({ kind: 'test', model })} onMakeLive={(model) => setDialog({ kind: 'versions', model })} />
         )}
@@ -289,7 +298,7 @@ export function ModelsPage() {
             ))}
             <Tabs.Panel value="models">{modelsTable}</Tabs.Panel>
             <Tabs.Panel value="data">
-              <DatasetsPanel vhost={vhost} blockedReason={blockedReason} onSetup={openSetup} />
+              <DatasetsPanel vhost={vhost} blockedReason={blockedReason} onSetup={openSetup} onTrain={trainFrom} />
             </Tabs.Panel>
             <Tabs.Panel value="jobs">
               <JobsPanel vhost={vhost} canEdit={canEdit} />
@@ -310,7 +319,13 @@ export function ModelsPage() {
         <AddModelModal trainBlocked={blockedReason} onSetup={setupFromAdd} onTrain={() => setDialog({ kind: 'train' })}
           onConnect={() => setDialog({ kind: 'form' })} onClose={() => setDialog(undefined)} />
       )}
-      {vhost && dialog?.kind === 'train' && <TrainModal vhost={vhost} modelName={dialog.modelName} task={dialog.task} onClose={() => setDialog(undefined)} />}
+      {vhost && dialog?.kind === 'train' && (
+        <TrainModal vhost={vhost} modelName={dialog.modelName} task={dialog.task} start={dialog.start} onClose={() => setDialog(undefined)} />
+      )}
+      {vhost && dialog?.kind === 'analyze' && (
+        <AnalysisModal vhost={vhost} name={dialog.dataset} onTrain={trainFrom} canTrain={canTrain} trainBlocked={blockedReason}
+          onClose={() => setDialog(undefined)} />
+      )}
       {vhost && dialog?.kind === 'retrain' && <RetrainModal vhost={vhost} model={dialog.model} onClose={() => setDialog(undefined)} />}
       {vhost && dialog?.kind === 'scoring' && <ScoringModal vhost={vhost} model={dialog.model} onClose={() => setDialog(undefined)} />}
       {vhost && dialog?.kind === 'versions' && <VersionsModal vhost={vhost} model={dialog.model} onClose={() => setDialog(undefined)} />}

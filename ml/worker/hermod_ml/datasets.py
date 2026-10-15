@@ -42,6 +42,16 @@ from .names import NAME_RE, validate_name
 PART_RE = re.compile(r"part-(\d+)\.parquet\Z")
 SAMPLE_ROWS = 20
 
+# Bounds of the sample a dataset's profile is computed from, the same as
+# Hermod's built-in engine (pkg/ml/worker/client.go SampleMax*): at most
+# SAMPLE_MAX_ROWS rows and SAMPLE_MAX_CELLS values, text cut to
+# SAMPLE_MAX_TEXT characters, and halved until the reply is at most
+# SAMPLE_MAX_BYTES.
+SAMPLE_MAX_ROWS = 50_000
+SAMPLE_MAX_CELLS = 1_000_000
+SAMPLE_MAX_TEXT = 200
+SAMPLE_MAX_BYTES = 8 << 20
+
 # Column types exposed in the API.
 NUMBER, STRING, BOOL = "number", "string", "bool"
 
@@ -196,6 +206,57 @@ def parse_xlsx(body: bytes) -> pa.Table:
     return frame_to_table(df)
 
 
+def _parquet_values(name: str, column: pa.ChunkedArray) -> list[Any]:
+    """One Parquet column as Python values `_column_array` types.
+
+    Booleans, integers and text stay as they are; floats and decimals are
+    numbers; dates, times and timestamps are ISO 8601 text; bytes are read as
+    UTF-8. A list, map or nested group has no one value per row, and is refused.
+    """
+    kind = column.type
+    if pa.types.is_dictionary(kind):
+        column = column.cast(kind.value_type)
+        kind = kind.value_type
+    if pa.types.is_nested(kind):
+        raise bad_request(f"Column {name!r} is a list, map or nested group; flatten it into plain columns first.")
+    values = column.to_pylist()
+    if pa.types.is_decimal(kind):
+        return [None if v is None else float(v) for v in values]
+    if pa.types.is_temporal(kind):
+        return [None if v is None else (v.isoformat() if hasattr(v, "isoformat") else to_text(v)) for v in values]
+    if pa.types.is_binary(kind) or pa.types.is_large_binary(kind) or pa.types.is_fixed_size_binary(kind):
+        return [None if v is None else v.decode("utf-8", errors="replace") for v in values]
+    return values
+
+
+def parse_parquet(body: bytes) -> pa.Table:
+    """Read a Parquet file, its columns typed as Hermod's built-in engine types them."""
+    if not body:
+        raise bad_request("The Parquet file is empty.")
+    try:
+        table = pq.read_table(pa.BufferReader(body))
+    except (pa.ArrowException, OSError, ValueError) as exc:
+        raise bad_request(f"Could not read the Parquet file: {exc}") from None
+    columns = {}
+    for name, column in zip(table.column_names, table.columns):
+        if name in columns:
+            raise bad_request(f"Column {name!r} appears more than once.")
+        columns[name] = _column_array(_parquet_values(name, column))
+    return pa.table(columns) if columns else pa.table({})
+
+
+def sample_size(rows: int, columns: int) -> int:
+    """How many rows a sample takes when asked for `rows`: fewer for a wide dataset."""
+    rows = max(0, min(rows, SAMPLE_MAX_ROWS))
+    if columns > 0:
+        rows = min(rows, SAMPLE_MAX_CELLS // columns)
+    return rows
+
+
+def _cut(value: Any) -> Any:
+    return value[:SAMPLE_MAX_TEXT] if isinstance(value, str) else value
+
+
 # --------------------------------------------------------------------------
 # Storage
 # --------------------------------------------------------------------------
@@ -340,6 +401,49 @@ class DatasetStore:
             frame, types = self._load(path, limit=SAMPLE_ROWS)
         info["sample"] = frame_records(frame, types)
         return info
+
+    def sample(self, vhost: str, name: str, rows: int) -> dict[str, Any]:
+        """At most `rows` rows spread evenly over the dataset, column by column.
+
+        Row i*n//k of the n rows, for i below k; see `sample_size` and the
+        SAMPLE_MAX_* bounds. A dataset's profile in Hermod is computed from it.
+        """
+        with self._lock:
+            path = self._existing_dir(vhost, name)
+            schema = self._schema(path)
+            parts = self._parts(path)
+            total = sum(pq.read_metadata(p).num_rows for _, p in parts)
+            k = min(sample_size(rows, len(schema)), total)
+            wanted = [i * total // k for i in range(k)]
+            values: dict[str, list[Any]] = {c: [] for c, _ in schema}
+            start, at = 0, 0
+            for _, part in parts:
+                n = pq.read_metadata(part).num_rows
+                take = []
+                while at < len(wanted) and wanted[at] < start + n:
+                    take.append(wanted[at] - start)
+                    at += 1
+                start += n
+                if not take:
+                    continue
+                frame = pq.read_table(part).take(pa.array(take, type=pa.int64()))
+                for col, kind in schema:
+                    got = frame.column(col).to_pylist() if col in frame.column_names else [None] * len(take)
+                    if kind == NUMBER:
+                        got = [None if v is None else json_number(float(v)) for v in got]
+                    elif kind == STRING:
+                        got = [None if v is None else _cut(v if isinstance(v, str) else to_text(v)) for v in got]
+                    values[col].extend(got)
+        out = {"name": name, "rows": total, "columns": [{"name": c, "type": t} for c, t in schema],
+               "sample_rows": k, "values": values}
+        # Long texts can make a sample too big to send: halve it until it fits.
+        while k > 1 and len(json.dumps(out, separators=(",", ":"))) > SAMPLE_MAX_BYTES:
+            k //= 2
+            keep = [i * len(wanted) // k for i in range(k)]
+            out["values"] = {c: [v[i] for i in keep] for c, v in out["values"].items()}
+            out["sample_rows"] = k
+            wanted = [wanted[i] for i in keep]
+        return out
 
     def list(self, vhost: str) -> list[dict[str, Any]]:
         with self._lock:
