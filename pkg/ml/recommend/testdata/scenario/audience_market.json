@@ -1,0 +1,1024 @@
+[
+ {
+  "today": "2026-10-01",
+  "product": "S2",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "Hs14",
+    "score": 0.7278998494148254,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 8 of 8 Horeca \u00b7 small \u00b7 Silver \u00b7 Horeca \u00b7 N customers"
+     }
+    ],
+    "fields": {
+     "segment": "Horeca",
+     "size": "small",
+     "price_tier": "Silver",
+     "channel": "Horeca",
+     "region": "N"
+    }
+   },
+   {
+    "id": "Rs12",
+    "score": 0.7248775362968445,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 8 of 8 Retail \u00b7 small \u00b7 Gold \u00b7 Retail \u00b7 N customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small",
+     "price_tier": "Gold",
+     "channel": "Retail",
+     "region": "N"
+    }
+   },
+   {
+    "id": "Om15",
+    "score": 0.7019522190093994,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 8 of 8 Office \u00b7 medium \u00b7 Silver \u00b7 Office \u00b7 S customers"
+     }
+    ],
+    "fields": {
+     "segment": "Office",
+     "size": "medium",
+     "price_tier": "Silver",
+     "channel": "Office",
+     "region": "S"
+    }
+   },
+   {
+    "id": "Rl15",
+    "score": 0.7006038427352905,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 8 Retail \u00b7 large \u00b7 Gold \u00b7 Retail \u00b7 S customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "large",
+     "price_tier": "Gold",
+     "channel": "Retail",
+     "region": "S"
+    }
+   },
+   {
+    "id": "Ol14",
+    "score": 0.6886812448501587,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 8 Office \u00b7 large \u00b7 Silver \u00b7 Office \u00b7 N customers"
+     }
+    ],
+    "fields": {
+     "segment": "Office",
+     "size": "large",
+     "price_tier": "Silver",
+     "channel": "Office",
+     "region": "N"
+    }
+   },
+   {
+    "id": "Ol15",
+    "score": 0.6863950490951538,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 8 of 8 Office \u00b7 large \u00b7 Silver \u00b7 Office \u00b7 S customers"
+     }
+    ],
+    "fields": {
+     "segment": "Office",
+     "size": "large",
+     "price_tier": "Silver",
+     "channel": "Office",
+     "region": "S"
+    }
+   },
+   {
+    "id": "Hl13",
+    "score": 0.6757802367210388,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 8 of 8 Horeca \u00b7 large \u00b7 Silver \u00b7 Horeca \u00b7 S customers"
+     }
+    ],
+    "fields": {
+     "segment": "Horeca",
+     "size": "large",
+     "price_tier": "Silver",
+     "channel": "Horeca",
+     "region": "S"
+    }
+   },
+   {
+    "id": "Rl12",
+    "score": 0.6754069924354553,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 8 of 8 Retail \u00b7 large \u00b7 Gold \u00b7 Retail \u00b7 N customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "large",
+     "price_tier": "Gold",
+     "channel": "Retail",
+     "region": "N"
+    }
+   },
+   {
+    "id": "Rs13",
+    "score": 0.6612325310707092,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 8 Retail \u00b7 small \u00b7 Gold \u00b7 Retail \u00b7 S customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small",
+     "price_tier": "Gold",
+     "channel": "Retail",
+     "region": "S"
+    }
+   },
+   {
+    "id": "Rl13",
+    "score": 0.6588097810745239,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 8 Retail \u00b7 large \u00b7 Gold \u00b7 Retail \u00b7 S customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "large",
+     "price_tier": "Gold",
+     "channel": "Retail",
+     "region": "S"
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "product": "S1",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "Ol12",
+    "score": 0.7544088959693909,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 8 of 8 Office \u00b7 large \u00b7 Silver \u00b7 Office \u00b7 N customers"
+     }
+    ],
+    "fields": {
+     "segment": "Office",
+     "size": "large",
+     "price_tier": "Silver",
+     "channel": "Office",
+     "region": "N"
+    }
+   },
+   {
+    "id": "Rl15",
+    "score": 0.728639543056488,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 8 Retail \u00b7 large \u00b7 Gold \u00b7 Retail \u00b7 S customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "large",
+     "price_tier": "Gold",
+     "channel": "Retail",
+     "region": "S"
+    }
+   },
+   {
+    "id": "Hs14",
+    "score": 0.6994482278823853,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 6 of 8 Horeca \u00b7 small \u00b7 Silver \u00b7 Horeca \u00b7 N customers"
+     }
+    ],
+    "fields": {
+     "segment": "Horeca",
+     "size": "small",
+     "price_tier": "Silver",
+     "channel": "Horeca",
+     "region": "N"
+    }
+   },
+   {
+    "id": "Hs12",
+    "score": 0.690790057182312,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 6 of 8 Horeca \u00b7 small \u00b7 Silver \u00b7 Horeca \u00b7 N customers"
+     }
+    ],
+    "fields": {
+     "segment": "Horeca",
+     "size": "small",
+     "price_tier": "Silver",
+     "channel": "Horeca",
+     "region": "N"
+    }
+   },
+   {
+    "id": "Hl12",
+    "score": 0.686284601688385,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 8 Horeca \u00b7 large \u00b7 Silver \u00b7 Horeca \u00b7 N customers"
+     }
+    ],
+    "fields": {
+     "segment": "Horeca",
+     "size": "large",
+     "price_tier": "Silver",
+     "channel": "Horeca",
+     "region": "N"
+    }
+   },
+   {
+    "id": "Hm15",
+    "score": 0.6789796352386475,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 6 of 8 Horeca \u00b7 medium \u00b7 Silver \u00b7 Horeca \u00b7 S customers"
+     }
+    ],
+    "fields": {
+     "segment": "Horeca",
+     "size": "medium",
+     "price_tier": "Silver",
+     "channel": "Horeca",
+     "region": "S"
+    }
+   },
+   {
+    "id": "Hl14",
+    "score": 0.6597235798835754,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 8 Horeca \u00b7 large \u00b7 Silver \u00b7 Horeca \u00b7 N customers"
+     }
+    ],
+    "fields": {
+     "segment": "Horeca",
+     "size": "large",
+     "price_tier": "Silver",
+     "channel": "Horeca",
+     "region": "N"
+    }
+   },
+   {
+    "id": "Rl14",
+    "score": 0.6483763456344604,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "12 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 8 Retail \u00b7 large \u00b7 Gold \u00b7 Retail \u00b7 N customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "large",
+     "price_tier": "Gold",
+     "channel": "Retail",
+     "region": "N"
+    }
+   },
+   {
+    "id": "Rs15",
+    "score": 0.6431225538253784,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 6 of 8 Retail \u00b7 small \u00b7 Gold \u00b7 Retail \u00b7 S customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small",
+     "price_tier": "Gold",
+     "channel": "Retail",
+     "region": "S"
+    }
+   },
+   {
+    "id": "Ol13",
+    "score": 0.6401891708374023,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "11 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 8 Office \u00b7 large \u00b7 Silver \u00b7 Office \u00b7 S customers"
+     }
+    ],
+    "fields": {
+     "segment": "Office",
+     "size": "large",
+     "price_tier": "Silver",
+     "channel": "Office",
+     "region": "S"
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "product": "S3",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "Rs12",
+    "score": 0.6937298774719238,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 6 of 8 Retail \u00b7 small \u00b7 Gold \u00b7 Retail \u00b7 N customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small",
+     "price_tier": "Gold",
+     "channel": "Retail",
+     "region": "N"
+    }
+   },
+   {
+    "id": "Hs12",
+    "score": 0.6784319281578064,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "12 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 8 Horeca \u00b7 small \u00b7 Silver \u00b7 Horeca \u00b7 N customers"
+     }
+    ],
+    "fields": {
+     "segment": "Horeca",
+     "size": "small",
+     "price_tier": "Silver",
+     "channel": "Horeca",
+     "region": "N"
+    }
+   },
+   {
+    "id": "Rm13",
+    "score": 0.666581928730011,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 8 Retail \u00b7 medium \u00b7 Gold \u00b7 Retail \u00b7 S customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "medium",
+     "price_tier": "Gold",
+     "channel": "Retail",
+     "region": "S"
+    }
+   },
+   {
+    "id": "Rl13",
+    "score": 0.6655480861663818,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 8 Retail \u00b7 large \u00b7 Gold \u00b7 Retail \u00b7 S customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "large",
+     "price_tier": "Gold",
+     "channel": "Retail",
+     "region": "S"
+    }
+   },
+   {
+    "id": "Hs13",
+    "score": 0.6623266339302063,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 8 Horeca \u00b7 small \u00b7 Silver \u00b7 Horeca \u00b7 S customers"
+     }
+    ],
+    "fields": {
+     "segment": "Horeca",
+     "size": "small",
+     "price_tier": "Silver",
+     "channel": "Horeca",
+     "region": "S"
+    }
+   },
+   {
+    "id": "Hs15",
+    "score": 0.6621628403663635,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 8 Horeca \u00b7 small \u00b7 Silver \u00b7 Horeca \u00b7 S customers"
+     }
+    ],
+    "fields": {
+     "segment": "Horeca",
+     "size": "small",
+     "price_tier": "Silver",
+     "channel": "Horeca",
+     "region": "S"
+    }
+   },
+   {
+    "id": "Os15",
+    "score": 0.6580730080604553,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 8 Office \u00b7 small \u00b7 Silver \u00b7 Office \u00b7 S customers"
+     }
+    ],
+    "fields": {
+     "segment": "Office",
+     "size": "small",
+     "price_tier": "Silver",
+     "channel": "Office",
+     "region": "S"
+    }
+   },
+   {
+    "id": "Os13",
+    "score": 0.6548552513122559,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 8 Office \u00b7 small \u00b7 Silver \u00b7 Office \u00b7 S customers"
+     }
+    ],
+    "fields": {
+     "segment": "Office",
+     "size": "small",
+     "price_tier": "Silver",
+     "channel": "Office",
+     "region": "S"
+    }
+   },
+   {
+    "id": "Hl13",
+    "score": 0.6537126302719116,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 6 of 8 Horeca \u00b7 large \u00b7 Silver \u00b7 Horeca \u00b7 S customers"
+     }
+    ],
+    "fields": {
+     "segment": "Horeca",
+     "size": "large",
+     "price_tier": "Silver",
+     "channel": "Horeca",
+     "region": "S"
+    }
+   },
+   {
+    "id": "Hm15",
+    "score": 0.6492666602134705,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "12 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 6 of 8 Horeca \u00b7 medium \u00b7 Silver \u00b7 Horeca \u00b7 S customers"
+     }
+    ],
+    "fields": {
+     "segment": "Horeca",
+     "size": "medium",
+     "price_tier": "Silver",
+     "channel": "Horeca",
+     "region": "S"
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "product": "G0_5",
+  "k": 15,
+  "exclude_seen": false,
+  "items": [
+   {
+    "id": "Rs02",
+    "score": 0.6846153736114502,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "7 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 4 of 8 Retail \u00b7 small \u00b7 Gold \u00b7 Retail \u00b7 N customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small",
+     "price_tier": "Gold",
+     "channel": "Retail",
+     "region": "N"
+    }
+   },
+   {
+    "id": "Rs04",
+    "score": 0.6846153736114502,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "7 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 4 of 8 Retail \u00b7 small \u00b7 Gold \u00b7 Retail \u00b7 N customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small",
+     "price_tier": "Gold",
+     "channel": "Retail",
+     "region": "N"
+    }
+   },
+   {
+    "id": "Rs05",
+    "score": 0.6557692289352417,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "7 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 3 of 8 Retail \u00b7 small \u00b7 Gold \u00b7 Retail \u00b7 S customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small",
+     "price_tier": "Gold",
+     "channel": "Retail",
+     "region": "S"
+    }
+   },
+   {
+    "id": "Rs11",
+    "score": 0.6509508490562439,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "7 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 3 of 8 Retail \u00b7 small \u00b7 Gold \u00b7 Retail \u00b7 S customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small",
+     "price_tier": "Gold",
+     "channel": "Retail",
+     "region": "S"
+    }
+   },
+   {
+    "id": "Rs06",
+    "score": 0.6492077112197876,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "7 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 4 of 8 Retail \u00b7 small \u00b7 Gold \u00b7 Retail \u00b7 N customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small",
+     "price_tier": "Gold",
+     "channel": "Retail",
+     "region": "N"
+    }
+   },
+   {
+    "id": "Rs09",
+    "score": 0.6203615665435791,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "7 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 3 of 8 Retail \u00b7 small \u00b7 Gold \u00b7 Retail \u00b7 S customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small",
+     "price_tier": "Gold",
+     "channel": "Retail",
+     "region": "S"
+    }
+   },
+   {
+    "id": "Rs08",
+    "score": 0.5799790620803833,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "6 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 3 of 8 Retail \u00b7 small \u00b7 Gold \u00b7 Retail \u00b7 N customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small",
+     "price_tier": "Gold",
+     "channel": "Retail",
+     "region": "N"
+    }
+   },
+   {
+    "id": "Rs10",
+    "score": 0.559843897819519,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "6 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 3 of 8 Retail \u00b7 small \u00b7 Gold \u00b7 Retail \u00b7 N customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small",
+     "price_tier": "Gold",
+     "channel": "Retail",
+     "region": "N"
+    }
+   },
+   {
+    "id": "Rs00",
+    "score": 0.55931156873703,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "6 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 3 of 8 Retail \u00b7 small \u00b7 Gold \u00b7 Retail \u00b7 N customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small",
+     "price_tier": "Gold",
+     "channel": "Retail",
+     "region": "N"
+    }
+   },
+   {
+    "id": "Rs01",
+    "score": 0.546314537525177,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "6 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 2 of 8 Retail \u00b7 small \u00b7 Gold \u00b7 Retail \u00b7 S customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small",
+     "price_tier": "Gold",
+     "channel": "Retail",
+     "region": "S"
+    }
+   },
+   {
+    "id": "Rs03",
+    "score": 0.5151486396789551,
+    "rank": 11,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "6 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 2 of 8 Retail \u00b7 small \u00b7 Gold \u00b7 Retail \u00b7 S customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small",
+     "price_tier": "Gold",
+     "channel": "Retail",
+     "region": "S"
+    }
+   },
+   {
+    "id": "Rs12",
+    "score": 0.5087181329727173,
+    "rank": 12,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "6 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 3 of 8 Retail \u00b7 small \u00b7 Gold \u00b7 Retail \u00b7 N customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small",
+     "price_tier": "Gold",
+     "channel": "Retail",
+     "region": "N"
+    }
+   },
+   {
+    "id": "Rs15",
+    "score": 0.49813875555992126,
+    "rank": 13,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "7 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 3 of 8 Retail \u00b7 small \u00b7 Gold \u00b7 Retail \u00b7 S customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small",
+     "price_tier": "Gold",
+     "channel": "Retail",
+     "region": "S"
+    }
+   },
+   {
+    "id": "Rs07",
+    "score": 0.49559006094932556,
+    "rank": 14,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "6 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 2 of 8 Retail \u00b7 small \u00b7 Gold \u00b7 Retail \u00b7 S customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small",
+     "price_tier": "Gold",
+     "channel": "Retail",
+     "region": "S"
+    }
+   },
+   {
+    "id": "Rs13",
+    "score": 0.4822896420955658,
+    "rank": 15,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "7 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 3 of 8 Retail \u00b7 small \u00b7 Gold \u00b7 Retail \u00b7 S customers"
+     }
+    ],
+    "fields": {
+     "segment": "Retail",
+     "size": "small",
+     "price_tier": "Gold",
+     "channel": "Retail",
+     "region": "S"
+    }
+   }
+  ]
+ }
+]

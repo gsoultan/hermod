@@ -955,3 +955,101 @@ func TestProductDetailsHeaderIsChecked(t *testing.T) {
 		t.Fatalf("Parse without pair_details = %v", err)
 	}
 }
+
+func TestCustomerListsFilterByPriceTierChannelAndRegion(t *testing.T) {
+	m := scenarioModel(t, "audience_market")
+	res := answer(t, m, Query{Product: "S1", K: MaxK, PriceTier: " gold ", Channel: "RETAIL", Region: "n"})
+	if len(res.Items) == 0 {
+		t.Fatal("no Gold Retail customers in N")
+	}
+	for _, p := range res.Items {
+		if p.Fields["price_tier"] != "Gold" || p.Fields["channel"] != "Retail" || p.Fields["region"] != "N" {
+			t.Fatalf("listed %s with %v", p.ID, p.Fields)
+		}
+	}
+	// Each customer listed carries all three, and its peers are of all.
+	all := answer(t, m, Query{Product: "S1", K: 5})
+	for _, p := range all.Items {
+		if p.Fields["price_tier"] == nil || p.Fields["channel"] == nil || p.Fields["region"] == nil {
+			t.Fatalf("%s: fields %v", p.ID, p.Fields)
+		}
+	}
+	for _, tc := range []struct {
+		name string
+		m    *Model
+		q    Query
+		want string
+	}{
+		{"product list", scenarioModel(t, "products_market"), Query{Customer: "Rl16", Region: "N"}, "customer lists"},
+		{"no tier", scenarioModel(t, "audience_peers"), Query{Product: "S001", PriceTier: "Gold"}, "price tier"},
+		{"no channel", scenarioModel(t, "reorder_peers"), Query{AllCustomers: true, Channel: "Retail"}, "channel"},
+		{"no region", scenarioModel(t, "audience_cold"), Query{Product: "S1", Region: "N"}, "region"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.q.Today = fixtureToday
+			if _, err := tc.m.Answer(tc.q); !errors.Is(err, ErrBadQuery) || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Answer = %v, want ErrBadQuery mentioning %q", err, tc.want)
+			}
+		})
+	}
+	if seg, size := m.CustomerAttrs("Rl16"); seg != "Retail" || size != "large" {
+		t.Fatalf("CustomerAttrs = %q %q", seg, size)
+	}
+	if tier, channel, region := m.CustomerMarket("Rl16"); tier != "Gold" || channel != "Retail" || region != "N" {
+		t.Fatalf("CustomerMarket = %q %q %q", tier, channel, region)
+	}
+}
+
+func TestReturnsAndQuotesShapeProductLists(t *testing.T) {
+	m := scenarioModel(t, "products_signals")
+	// K10 lost a quote for M1 a month ago: it is not offered.
+	if res := answer(t, m, Query{Customer: "K10", K: 20, ExcludeSeen: true}); slices.Contains(ids(res.Items), "M1") {
+		t.Fatalf("M1 offered after a lost quote: %v", ids(res.Items))
+	}
+	// K05's open quote is offered with its date.
+	res := answer(t, m, Query{Customer: "K05", K: 10, ExcludeSeen: true})
+	i := slices.IndexFunc(res.Items, func(p Pick) bool { return p.ID == "M3" })
+	if i < 0 || reasonOf(res.Items[i], ReasonQuoted) != "Quoted on 2026-09-20, not ordered yet" {
+		t.Fatalf("M3 not offered as quoted: %+v", res.Items)
+	}
+	// Past the quote window it is neither left out nor offered as quoted.
+	later := answer(t, m, Query{Customer: "K05", K: 10, ExcludeSeen: true, Today: fixtureToday.AddDate(0, 0, 90)})
+	for _, p := range later.Items {
+		if reasonOf(p, ReasonQuoted) != "" {
+			t.Fatalf("%s still quoted 90 days on", p.ID)
+		}
+	}
+	aud := scenarioModel(t, "audience_signals")
+	if res := answer(t, aud, Query{Product: "M1", K: 40}); slices.Contains(ids(res.Items), "K10") {
+		t.Fatalf("K10 in M1's audience after a lost quote: %v", ids(res.Items))
+	}
+	// A model without returns or quotes answers as before.
+	if _, err := Parse(scenarioBytes(t, "products_shop")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSignalsHeaderIsChecked(t *testing.T) {
+	raw := scenarioBytes(t, "products_signals")
+	// Without "signals" its four sections are bytes after the last one.
+	if _, err := Parse(withHeader(t, raw, func(h map[string]any) { delete(h, "signals") })); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Parse without signals = %v", err)
+	}
+	if _, err := Parse(withHeader(t, raw, func(h map[string]any) { h["signals"] = -1 })); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Parse with signals -1 = %v", err)
+	}
+	// The last section is the kinds: one that is no kind is refused, and
+	// so is a customer out of range in the first.
+	bad := slices.Clone(raw)
+	binary.LittleEndian.PutUint32(bad[len(bad)-4:], 9)
+	if _, err := Parse(bad); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Parse with kind 9 = %v", err)
+	}
+	m := scenarioModel(t, "products_signals")
+	n := len(m.sc.signals)
+	bad = slices.Clone(raw)
+	binary.LittleEndian.PutUint32(bad[len(bad)-16*n:], uint32(len(m.users)))
+	if _, err := Parse(bad); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Parse with customer %d = %v", len(m.users), err)
+	}
+}

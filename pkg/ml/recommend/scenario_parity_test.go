@@ -72,12 +72,19 @@ func TestScenariosServeWhatTheWorkerScored(t *testing.T) {
 	// from the nearby peers when there are enough; the "_details" and
 	// "_shop" models with products' details, so they weigh brands and new
 	// products, leave out what cannot be offered for its substitute and
-	// suggest quantities; the others were trained before there was either,
-	// and answer as they always did.
+	// suggest quantities; the "_market" models with customers' price tiers,
+	// channels and regions, so peers are of all of them; the "_signals"
+	// models with returns and quotes, so what was returned or lost is left
+	// out and an open quote offered; the "_industrial" and "_pharmacy"
+	// models on two of the recommendation cases (docs/ml-recommendation-cases.md);
+	// the others were trained before there was any of it, and answer as they
+	// always did.
 	for _, name := range []string{"visits", "products", "products_als", "reorder", "audience", "audience_als", "similar",
 		"products_peers", "audience_peers", "audience_peers_als", "reorder_peers", "products_cold", "audience_cold",
 		"products_peers_wide", "products_near", "audience_near", "products_details", "audience_details", "similar_details",
-		"products_shop", "audience_shop", "similar_shop"} {
+		"products_shop", "audience_shop", "similar_shop", "products_market", "audience_market", "products_signals",
+		"audience_signals", "products_industrial", "audience_industrial", "reorder_industrial", "products_pharmacy",
+		"similar_pharmacy"} {
 		t.Run(name, func(t *testing.T) {
 			m, cases := scenarioFixture(t, name)
 			if len(cases) == 0 {

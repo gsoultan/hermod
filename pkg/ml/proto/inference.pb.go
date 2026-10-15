@@ -835,7 +835,16 @@ type ScenarioSubject struct {
 	Brand string `protobuf:"bytes,9,opt,name=brand,proto3" json:"brand,omitempty"`
 	// For a list of products: only the products of this subcategory, as the
 	// model's products.subcategory holds it, in any case.
-	Subcategory   string `protobuf:"bytes,10,opt,name=subcategory,proto3" json:"subcategory,omitempty"`
+	Subcategory string `protobuf:"bytes,10,opt,name=subcategory,proto3" json:"subcategory,omitempty"`
+	// For a list of customers: only the customers of this price tier, as the
+	// model's customers.price_tier holds it, in any case.
+	PriceTier string `protobuf:"bytes,11,opt,name=price_tier,json=priceTier,proto3" json:"price_tier,omitempty"`
+	// For a list of customers: only the customers of this channel, as the
+	// model's customers.channel holds it, in any case.
+	Channel string `protobuf:"bytes,12,opt,name=channel,proto3" json:"channel,omitempty"`
+	// For a list of customers: only the customers of this region, as the
+	// model's customers.region holds it, in any case.
+	Region        string `protobuf:"bytes,13,opt,name=region,proto3" json:"region,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -936,6 +945,27 @@ func (x *ScenarioSubject) GetBrand() string {
 func (x *ScenarioSubject) GetSubcategory() string {
 	if x != nil {
 		return x.Subcategory
+	}
+	return ""
+}
+
+func (x *ScenarioSubject) GetPriceTier() string {
+	if x != nil {
+		return x.PriceTier
+	}
+	return ""
+}
+
+func (x *ScenarioSubject) GetChannel() string {
+	if x != nil {
+		return x.Channel
+	}
+	return ""
+}
+
+func (x *ScenarioSubject) GetRegion() string {
+	if x != nil {
+		return x.Region
 	}
 	return ""
 }
@@ -1799,7 +1829,7 @@ const file_inference_proto_rawDesc = "" +
 	"StockEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x01R\x05value:\x028\x01B\x0f\n" +
-	"\r_exclude_seen\"\xaa\x02\n" +
+	"\r_exclude_seen\"\xfb\x02\n" +
 	"\x0fScenarioSubject\x12\x1a\n" +
 	"\bcustomer\x18\x01 \x01(\tR\bcustomer\x12\x1c\n" +
 	"\tcustomers\x18\x02 \x03(\tR\tcustomers\x12\x18\n" +
@@ -1811,7 +1841,11 @@ const file_inference_proto_rawDesc = "" +
 	"\x04size\x18\b \x01(\tR\x04size\x12\x14\n" +
 	"\x05brand\x18\t \x01(\tR\x05brand\x12 \n" +
 	"\vsubcategory\x18\n" +
-	" \x01(\tR\vsubcategory\"\x96\x01\n" +
+	" \x01(\tR\vsubcategory\x12\x1d\n" +
+	"\n" +
+	"price_tier\x18\v \x01(\tR\tpriceTier\x12\x18\n" +
+	"\achannel\x18\f \x01(\tR\achannel\x12\x16\n" +
+	"\x06region\x18\r \x01(\tR\x06region\"\x96\x01\n" +
 	"\x19RecommendScenarioResponse\x12\x14\n" +
 	"\x05model\x18\x01 \x01(\tR\x05model\x12+\n" +
 	"\x11recommendation_id\x18\x02 \x01(\tR\x10recommendationId\x126\n" +

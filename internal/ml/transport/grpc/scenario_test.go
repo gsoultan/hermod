@@ -231,3 +231,23 @@ func TestRecommendScenarioKeepsABrandAndTakesStock(t *testing.T) {
 		}
 	}
 }
+
+// price_tier, channel and region reach the model: only those customers are
+// listed, each carrying all three in its fields.
+func TestRecommendScenarioKeepsAPriceTierChannelAndRegion(t *testing.T) {
+	c, key := dial(t, servingFixture(t, filepath.Join("scenario", "audience_market.rec")))
+	resp, err := c.RecommendScenario(withKey(key), &proto.RecommendScenarioRequest{Vhost: "a", Model: "double",
+		Subject: &proto.ScenarioSubject{Product: "S1", PriceTier: "gold", Channel: "retail", Region: "N"}, K: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := resp.GetResults()[0].GetItems()
+	if len(items) == 0 {
+		t.Fatal("no Gold Retail customers in N")
+	}
+	for _, p := range items {
+		if f := p.GetFields().AsMap(); f["price_tier"] != "Gold" || f["channel"] != "Retail" || f["region"] != "N" {
+			t.Errorf("%s: fields %v", p.GetId(), f)
+		}
+	}
+}

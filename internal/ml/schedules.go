@@ -93,8 +93,9 @@ type ModelBuild struct {
 
 // BuildColumns are the columns a build writes, in order. A target table
 // must have them all; BuildDueDateColumn, BuildSegmentColumn,
-// BuildSizeColumn, BuildBrandColumn, BuildSubcategoryColumn and
-// BuildSuggestedQtyColumn it may have, after them.
+// BuildSizeColumn, BuildBrandColumn, BuildSubcategoryColumn,
+// BuildSuggestedQtyColumn, BuildPriceTierColumn, BuildChannelColumn and
+// BuildRegionColumn it may have, after them.
 var BuildColumns = []string{"model", "version", "recommendation_id", "for_id", "item_id", "rank", "score", "plan_date",
 	"reasons_text", "built_at"}
 
@@ -120,6 +121,15 @@ const (
 	BuildSuggestedQtyColumn = "suggested_qty"
 )
 
+// BuildPriceTierColumn, BuildChannelColumn and BuildRegionColumn are the
+// optional columns a build writes a row's customer price tier, channel and
+// region to, when the target table has them: as for BuildSegmentColumn.
+const (
+	BuildPriceTierColumn = "price_tier"
+	BuildChannelColumn   = "channel"
+	BuildRegionColumn    = "region"
+)
+
 // buildOptional are the optional columns, in the order a build writes them
 // after BuildColumns, each with its value of a row (nil for NULL).
 var buildOptional = []struct {
@@ -137,13 +147,17 @@ var buildOptional = []struct {
 		}
 		return r.SuggestedQty
 	}},
+	{BuildPriceTierColumn, func(r BuildRow) any { return nullIfEmpty(r.PriceTier) }},
+	{BuildChannelColumn, func(r BuildRow) any { return nullIfEmpty(r.Channel) }},
+	{BuildRegionColumn, func(r BuildRow) any { return nullIfEmpty(r.Region) }},
 }
 
 // BuildRow is one written row: one item of one subject's answer. PlanDate
 // is the day a visit plan puts it on, DueDate the day a reorder customer is
 // due to order; each empty otherwise. Segment and Size are the customer's
 // category and size, when the model knows them: the listed customer's, or
-// for a product list the customer it is for. Brand and Subcategory are a
+// for a product list the customer it is for; PriceTier, Channel and Region
+// its price tier, channel and region likewise. Brand and Subcategory are a
 // product row's, when the model knows them, and SuggestedQty what its
 // answer suggests ordering (0 for none).
 type BuildRow struct {
@@ -161,6 +175,9 @@ type BuildRow struct {
 	Brand            string    `json:"brand,omitempty"`
 	Subcategory      string    `json:"subcategory,omitempty"`
 	SuggestedQty     int       `json:"suggested_qty,omitempty"`
+	PriceTier        string    `json:"price_tier,omitempty"`
+	Channel          string    `json:"channel,omitempty"`
+	Region           string    `json:"region,omitempty"`
 	ReasonsText      string    `json:"reasons_text"`
 	BuiltAt          time.Time `json:"built_at"`
 }
@@ -437,7 +454,8 @@ func (s *Service) BuildRecommendations(ctx context.Context, vhost, name string, 
 
 // appendBuildRows appends one row per item of r to rows, each base with the
 // item's fields: its plan day when r is a visit plan, its due date for
-// reorder, its customer's category and size, a product's brand, subcategory
+// reorder, its customer's category, size, price tier, channel and region, a
+// product's brand, subcategory
 // and suggested quantity, its reasons' texts joined with "; ".
 func appendBuildRows(rows []BuildRow, base BuildRow, r recommend.Result, rec *recommend.Model) []BuildRow {
 	days := map[string]string{}
@@ -454,12 +472,14 @@ func appendBuildRows(rows []BuildRow, base BuildRow, r recommend.Result, rec *re
 		row := base
 		row.ForID, row.ItemID, row.Rank, row.Score = r.For, p.ID, p.Rank, p.Score
 		row.PlanDate, row.DueDate, row.ReasonsText = days[p.ID], p.DueDate, strings.Join(texts, "; ")
-		row.Segment, row.Size = rec.CustomerAttrs(p.ID)
+		customer := p.ID
 		if !customerResults(rec.Scenario()) {
-			row.Segment, row.Size = rec.CustomerAttrs(r.For)
+			customer = r.For
 			row.Brand, row.Subcategory = rec.ProductAttrs(p.ID)
 			row.SuggestedQty, _ = p.Fields["suggested_qty"].(int)
 		}
+		row.Segment, row.Size = rec.CustomerAttrs(customer)
+		row.PriceTier, row.Channel, row.Region = rec.CustomerMarket(customer)
 		rows = append(rows, row)
 	}
 	return rows
@@ -474,8 +494,8 @@ func customerResults(scenario string) bool {
 // mode replace, the model's earlier rows are deleted first. driver is the
 // source's type. The table's columns are BuildColumns, and each of
 // buildOptional's the table has; plan_date is NULL outside a visit plan,
-// due_date outside reorder, segment, size, brand and subcategory where the
-// model does not know them, and suggested_qty where the answer suggests
+// due_date outside reorder, segment, size, price_tier, channel, region,
+// brand and subcategory where the model does not know them, and suggested_qty where the answer suggests
 // none.
 func WriteBuild(ctx context.Context, db *sql.DB, driver string, t BuildTarget, model string, rows []BuildRow) error {
 	canonical, ok := sqlutil.CanonicalDriver(driver)

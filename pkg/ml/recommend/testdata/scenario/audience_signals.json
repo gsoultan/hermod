@@ -1,0 +1,1603 @@
+[
+ {
+  "today": "2026-09-30",
+  "product": "W1",
+  "k": 10,
+  "exclude_seen": true,
+  "items": []
+ },
+ {
+  "today": "2026-09-30",
+  "product": "W2",
+  "k": 10,
+  "exclude_seen": true,
+  "items": []
+ },
+ {
+  "today": "2026-09-30",
+  "product": "W3",
+  "k": 10,
+  "exclude_seen": true,
+  "items": []
+ },
+ {
+  "today": "2026-09-30",
+  "product": "I6",
+  "k": 15,
+  "exclude_seen": false,
+  "items": [
+   {
+    "id": "K12",
+    "score": 0.7458193898200989,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K08",
+    "score": 0.7457489967346191,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K10",
+    "score": 0.7456839084625244,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K04",
+    "score": 0.7454545497894287,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K16",
+    "score": 0.7450509667396545,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K02",
+    "score": 0.7303417325019836,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K14",
+    "score": 0.7053144574165344,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K00",
+    "score": 0.690090537071228,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K11",
+    "score": 0.6863710284233093,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K15",
+    "score": 0.6863710284233093,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K18",
+    "score": 0.6757537126541138,
+    "rank": 11,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K06",
+    "score": 0.6756430268287659,
+    "rank": 12,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K01",
+    "score": 0.6710848808288574,
+    "rank": 13,
+    "reasons": [
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K03",
+    "score": 0.6710759997367859,
+    "rank": 14,
+    "reasons": [
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K07",
+    "score": 0.6461803317070007,
+    "rank": 15,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {}
+   }
+  ]
+ },
+ {
+  "today": "2026-09-30",
+  "product": "M1",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "K26",
+    "score": 0.8992437720298767,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "15 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K28",
+    "score": 0.8992437720298767,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "15 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K23",
+    "score": 0.8812334537506104,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "15 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K29",
+    "score": 0.8059881329536438,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "15 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K37",
+    "score": 0.8059881329536438,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "15 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K00",
+    "score": 0.3697085380554199,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K01",
+    "score": 0.3697085380554199,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K02",
+    "score": 0.3697085380554199,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K03",
+    "score": 0.3697085380554199,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K04",
+    "score": 0.3697085380554199,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   }
+  ]
+ },
+ {
+  "today": "2026-09-30",
+  "product": "M3",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "K20",
+    "score": 0.8600000143051147,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K30",
+    "score": 0.7802290320396423,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K32",
+    "score": 0.7802290320396423,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K36",
+    "score": 0.7802290320396423,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K38",
+    "score": 0.7802290320396423,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K27",
+    "score": 0.7184387445449829,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K33",
+    "score": 0.7184387445449829,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K00",
+    "score": 0.3213096261024475,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K01",
+    "score": 0.3213096261024475,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K02",
+    "score": 0.3213096261024475,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   }
+  ]
+ },
+ {
+  "today": "2026-09-30",
+  "product": "I1",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "K00",
+    "score": 0.9200000166893005,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "16 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K14",
+    "score": 0.8719207644462585,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "16 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K07",
+    "score": 0.7908327579498291,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "16 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K19",
+    "score": 0.7908327579498291,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "16 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K20",
+    "score": 0.34435194730758667,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K21",
+    "score": 0.34435194730758667,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K22",
+    "score": 0.34435194730758667,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K23",
+    "score": 0.34435194730758667,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K24",
+    "score": 0.34435194730758667,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K25",
+    "score": 0.34435194730758667,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   }
+  ]
+ },
+ {
+  "today": "2026-09-30",
+  "product": "I1",
+  "k": 40,
+  "exclude_seen": false,
+  "items": [
+   {
+    "id": "K00",
+    "score": 0.9200000166893005,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "16 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K14",
+    "score": 0.8719207644462585,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "16 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K04",
+    "score": 0.7911047339439392,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "15 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K08",
+    "score": 0.7911047339439392,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "15 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K10",
+    "score": 0.7911047339439392,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "15 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K12",
+    "score": 0.7911047339439392,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "15 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K16",
+    "score": 0.7911047339439392,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "15 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K07",
+    "score": 0.7908327579498291,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "16 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K19",
+    "score": 0.7908327579498291,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "16 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K06",
+    "score": 0.7662559151649475,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "15 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K18",
+    "score": 0.7662559151649475,
+    "rank": 11,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "15 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K01",
+    "score": 0.7580960392951965,
+    "rank": 12,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "15 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K03",
+    "score": 0.7580960392951965,
+    "rank": 13,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "15 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K11",
+    "score": 0.7100167870521545,
+    "rank": 14,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "15 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K15",
+    "score": 0.7100167870521545,
+    "rank": 15,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "15 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K05",
+    "score": 0.6851679086685181,
+    "rank": 16,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "15 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K09",
+    "score": 0.6851679086685181,
+    "rank": 17,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "15 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K13",
+    "score": 0.6851679086685181,
+    "rank": 18,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "15 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K17",
+    "score": 0.6851679086685181,
+    "rank": 19,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "15 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K02",
+    "score": 0.4195919930934906,
+    "rank": 20,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "15 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K20",
+    "score": 0.34435194730758667,
+    "rank": 21,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K21",
+    "score": 0.34435194730758667,
+    "rank": 22,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K22",
+    "score": 0.34435194730758667,
+    "rank": 23,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K23",
+    "score": 0.34435194730758667,
+    "rank": 24,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K24",
+    "score": 0.34435194730758667,
+    "rank": 25,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K25",
+    "score": 0.34435194730758667,
+    "rank": 26,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K26",
+    "score": 0.34435194730758667,
+    "rank": 27,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K27",
+    "score": 0.34435194730758667,
+    "rank": 28,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K28",
+    "score": 0.34435194730758667,
+    "rank": 29,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K29",
+    "score": 0.34435194730758667,
+    "rank": 30,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K30",
+    "score": 0.34435194730758667,
+    "rank": 31,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K31",
+    "score": 0.34435194730758667,
+    "rank": 32,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K32",
+    "score": 0.34435194730758667,
+    "rank": 33,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K33",
+    "score": 0.34435194730758667,
+    "rank": 34,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K34",
+    "score": 0.34435194730758667,
+    "rank": 35,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K35",
+    "score": 0.34435194730758667,
+    "rank": 36,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K36",
+    "score": 0.34435194730758667,
+    "rank": 37,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K37",
+    "score": 0.34435194730758667,
+    "rank": 38,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K38",
+    "score": 0.34435194730758667,
+    "rank": 39,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K39",
+    "score": 0.34435194730758667,
+    "rank": 40,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   }
+  ]
+ },
+ {
+  "today": "2026-09-30",
+  "product": "M1",
+  "k": 40,
+  "exclude_seen": false,
+  "items": [
+   {
+    "id": "K26",
+    "score": 0.8992437720298767,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "15 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K28",
+    "score": 0.8992437720298767,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "15 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K23",
+    "score": 0.8812334537506104,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "15 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K22",
+    "score": 0.8799999952316284,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K24",
+    "score": 0.8799999952316284,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K20",
+    "score": 0.8726984858512878,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K29",
+    "score": 0.8059881329536438,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "15 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K37",
+    "score": 0.8059881329536438,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "15 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K34",
+    "score": 0.8047547340393066,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K30",
+    "score": 0.7974531650543213,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K32",
+    "score": 0.7974531650543213,
+    "rank": 11,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K36",
+    "score": 0.7974531650543213,
+    "rank": 12,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K38",
+    "score": 0.7974531650543213,
+    "rank": 13,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K21",
+    "score": 0.7867444157600403,
+    "rank": 14,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K25",
+    "score": 0.7867444157600403,
+    "rank": 15,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K39",
+    "score": 0.7483615875244141,
+    "rank": 16,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K31",
+    "score": 0.7114990949630737,
+    "rank": 17,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K35",
+    "score": 0.7114990949630737,
+    "rank": 18,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K27",
+    "score": 0.7041975855827332,
+    "rank": 19,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K33",
+    "score": 0.7041975855827332,
+    "rank": 20,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K00",
+    "score": 0.3697085380554199,
+    "rank": 21,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K01",
+    "score": 0.3697085380554199,
+    "rank": 22,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K02",
+    "score": 0.3697085380554199,
+    "rank": 23,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K03",
+    "score": 0.3697085380554199,
+    "rank": 24,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K04",
+    "score": 0.3697085380554199,
+    "rank": 25,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K05",
+    "score": 0.3697085380554199,
+    "rank": 26,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K06",
+    "score": 0.3697085380554199,
+    "rank": 27,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K07",
+    "score": 0.3697085380554199,
+    "rank": 28,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K08",
+    "score": 0.3697085380554199,
+    "rank": 29,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K09",
+    "score": 0.3697085380554199,
+    "rank": 30,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K11",
+    "score": 0.3697085380554199,
+    "rank": 31,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K12",
+    "score": 0.3697085380554199,
+    "rank": 32,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K13",
+    "score": 0.3697085380554199,
+    "rank": 33,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K14",
+    "score": 0.3697085380554199,
+    "rank": 34,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K15",
+    "score": 0.3697085380554199,
+    "rank": 35,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K16",
+    "score": 0.3697085380554199,
+    "rank": 36,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K17",
+    "score": 0.3697085380554199,
+    "rank": 37,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K18",
+    "score": 0.3697085380554199,
+    "rank": 38,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "K19",
+    "score": 0.3697085380554199,
+    "rank": 39,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {}
+   }
+  ]
+ }
+]

@@ -21,7 +21,7 @@ export const SCENARIOS: Array<{ value: Scenario; label: string; example: string 
 export const scenarioLabel = (s: Scenario) => SCENARIOS.find((o) => o.value === s)?.label ?? s
 
 /** The datasets a recommender can read, each with a role. */
-export type RoleKey = 'transactions' | 'customers' | 'products' | 'visits' | 'salesmen'
+export type RoleKey = 'transactions' | 'customers' | 'products' | 'visits' | 'salesmen' | 'returns' | 'quotes'
 
 /** What kind of value a role column holds; it steers the automatic guess. */
 type ColumnKind = 'id' | 'date' | 'number' | 'flag' | 'text'
@@ -72,6 +72,9 @@ export const ROLES: Record<RoleKey, RoleSpec> = {
       { key: 'territory', label: 'Territory', hint: 'Region, area or route.', kind: 'text' },
       { key: 'segment', label: 'Customer category', hint: 'Tier, channel or type, such as Retail or Wholesale.', kind: 'text' },
       { key: 'size', label: 'Customer size', hint: 'Small, medium or large, or a number such as headcount or yearly revenue.', kind: 'text' },
+      { key: 'price_tier', label: 'Price tier', hint: 'The price list or tier the customer buys on, such as Gold or Contract A.', kind: 'text' },
+      { key: 'channel', label: 'Channel', hint: 'How the customer buys or what trade it is in, such as Modern trade or Online.', kind: 'text' },
+      { key: 'region', label: 'Region', hint: 'A wider area than a territory, such as a province or city.', kind: 'text' },
       { key: 'lat', label: 'Latitude', hint: 'Plans nearby customers on the same day, and finds nearby customers of the same category.', kind: 'number' },
       { key: 'lon', label: 'Longitude', hint: 'Plans nearby customers on the same day, and finds nearby customers of the same category.', kind: 'number' },
       { key: 'blocked', label: 'Credit hold', hint: 'Yes when the customer must not be offered anything.', kind: 'flag' },
@@ -147,6 +150,41 @@ export const ROLES: Record<RoleKey, RoleSpec> = {
       ],
     },
   },
+  returns: {
+    label: 'Returns',
+    what: 'One row per product sent back: who returned what, when, and how many.',
+    columns: [
+      { key: 'customer', label: 'Customer', hint: 'The customer who sent it back.', kind: 'id' },
+      { key: 'product', label: 'Product', hint: 'The product returned.', kind: 'id' },
+      { key: 'date', label: 'Date', hint: 'When it came back.', kind: 'date' },
+      { key: 'quantity', label: 'Quantity', hint: 'How many came back; one when empty.', kind: 'number' },
+    ],
+    example: {
+      header: ['customer_id', 'product_id', 'return_date', 'quantity'],
+      rows: [
+        ['C-1001', 'P-315', '2026-09-08', '3'],
+        ['C-1002', 'P-200', '2026-09-10', '24'],
+      ],
+    },
+  },
+  quotes: {
+    label: 'Quotes',
+    what: 'One row per product quoted: to whom, when, and whether the quote was won or lost.',
+    columns: [
+      { key: 'customer', label: 'Customer', hint: 'The customer quoted.', kind: 'id' },
+      { key: 'product', label: 'Product', hint: 'The product quoted.', kind: 'id' },
+      { key: 'date', label: 'Date', hint: 'When it was quoted.', kind: 'date' },
+      { key: 'outcome', label: 'Outcome', hint: 'Such as won, lost or open; lost, rejected or declined keep the product from that customer.', kind: 'text' },
+      { key: 'reason', label: 'Reason', hint: 'Why it was lost, such as price.', kind: 'text' },
+    ],
+    example: {
+      header: ['customer_id', 'product_id', 'quote_date', 'outcome', 'reason'],
+      rows: [
+        ['C-1001', 'P-322', '2026-09-12', 'lost', 'price'],
+        ['C-1002', 'P-315', '2026-09-20', 'open', ''],
+      ],
+    },
+  },
 }
 
 /** A role as one scenario uses it: required or not, and which of its columns are. */
@@ -173,6 +211,8 @@ function requiredColumns(scenario: Scenario, role: RoleKey): string[] {
     case 'products': return ['id']
     case 'visits': return ['customer', 'date']
     case 'salesmen': return ['id']
+    case 'returns':
+    case 'quotes': return ['customer', 'product', 'date']
   }
 }
 
@@ -187,7 +227,9 @@ const SCENARIO_ROLES: Record<Scenario, Array<{ role: RoleKey; required: boolean;
   products: [
     { role: 'transactions', required: true, why: 'Shows who bought what, so Hermod learns what goes together.' },
     { role: 'products', required: false, why: 'Lets rules skip inactive products, prefer margin or mix categories.' },
-    { role: 'customers', required: false, why: 'Lets rules stay inside a territory. A category and size offer each customer what others of its kind buy, nearby ones first when it has coordinates.' },
+    { role: 'customers', required: false, why: 'Lets rules stay inside a territory. A category, size, price tier, channel and region offer each customer what others of its kind buy, nearby ones first when it has coordinates.' },
+    { role: 'returns', required: false, why: 'Stops offering a product a customer sent back half or more of.' },
+    { role: 'quotes', required: false, why: 'Stops offering a product whose quote was lost in the last 90 days, and reminds of one quoted and not ordered yet.' },
   ],
   reorder: [
     { role: 'transactions', required: true, why: 'Shows how often each customer usually orders.' },
@@ -195,8 +237,10 @@ const SCENARIO_ROLES: Record<Scenario, Array<{ role: RoleKey; required: boolean;
   ],
   audience: [
     { role: 'transactions', required: true, why: 'Shows who bought what, so Hermod finds customers like the buyers.' },
-    { role: 'customers', required: false, why: 'Lets rules skip customers on credit hold. A category and size find customers like those who buy it, nearby ones first.' },
+    { role: 'customers', required: false, why: 'Lets rules skip customers on credit hold. A category, size, price tier, channel and region find customers like those who buy it, nearby ones first.' },
     { role: 'products', required: false, why: 'Helps with products that have few sales yet.' },
+    { role: 'returns', required: false, why: 'Counts a customer who sent the product back half or more for less.' },
+    { role: 'quotes', required: false, why: 'Leaves out customers who turned the product down in the last 90 days.' },
   ],
   similar: [
     { role: 'transactions', required: true, why: 'Shows which products are bought by the same customers.' },
@@ -225,8 +269,12 @@ const NAME_HINTS: Record<RoleKey, Record<string, RegExp>> = {
     id: /cust|client|account|shop|outlet|^id$/i,
     salesman: /sales|rep|agent|seller|owner|manager/i,
     territory: /territ|region|area|zone|route|district/i,
-    segment: /segment|tier|channel|class|type|categ/i,
+    // A price tier's name has "tier" in it too: it is left to price_tier.
+    segment: /segment|^(?!.*pric).*tier|class|type|categ/i,
     size: /size|employee|staff|headcount|revenue|turnover/i,
+    price_tier: /pric.*(tier|level|group|list|class)|pricelist/i,
+    channel: /channel/i,
+    region: /region|province|state|city/i,
     lat: /^lat/i,
     lon: /^lon|^lng/i,
     blocked: /block|hold|credit|stop|suspend/i,
@@ -258,6 +306,19 @@ const NAME_HINTS: Record<RoleKey, Record<string, RegExp>> = {
     id: /rep|sales|agent|seller|^id$/i,
     visits_per_day: /per_day|perday|cap|visits/i,
     working_days: /work|days/i,
+  },
+  returns: {
+    customer: /cust|client|account|buyer|shop|outlet/i,
+    product: /prod|sku|item|article|material|part/i,
+    date: /date|time|_at$|day|when/i,
+    quantity: /qty|quant|units|pcs|pieces|count/i,
+  },
+  quotes: {
+    customer: /cust|client|account|buyer|shop|outlet/i,
+    product: /prod|sku|item|article|material|part/i,
+    date: /date|time|_at$|day|when/i,
+    outcome: /outcome|result|status|won|lost/i,
+    reason: /reason|why|note|comment/i,
   },
 }
 
@@ -413,6 +474,8 @@ export interface ScenarioTrainSpec {
   /** Nearby peers: the near_peers nearest customers of the same category within near_km. */
   near_km?: number
   near_peers?: number
+  /** A product launched within new_days days is new. */
+  new_days?: number
   algorithm: string
   go_live: unknown
 }
@@ -421,6 +484,8 @@ export interface ScenarioTrainSpec {
 export const NEAR_KM = { default: 5, min: 0.1, max: 500 }
 /** How many nearby peers at most: the worker's NEAR_PEERS. */
 export const NEAR_PEERS = 20
+/** How many days a product stays new after its launch: the worker's NEW_DAYS and NEW_DAYS_BOUNDS. */
+export const NEW_DAYS = { default: 60, min: 1, max: 365 }
 
 /**
  * Whether a scenario can use nearby customers of the same category as peers:
@@ -428,7 +493,39 @@ export const NEAR_PEERS = 20
  */
 export function nearbyApplies(scenario: Scenario | null, data: RecommendData): boolean {
   const c = data.customers
-  return (scenario === 'products' || scenario === 'audience') && !!c && !!(c.segment || c.size) && !!c.lat && !!c.lon
+  return (scenario === 'products' || scenario === 'audience') && !!c && !!(c.segment || c.size || c.price_tier || c.channel || c.region)
+    && !!c.lat && !!c.lon
+}
+
+/** Whether a scenario asks how many days a product stays new: products, with launch dates mapped. */
+export const newDaysApplies = (scenario: Scenario | null, data: RecommendData): boolean =>
+  scenario === 'products' && !!data.products?.launch_date
+
+/** A scenario training's settings beyond its data and rules, as the wizard asks them. */
+export interface ScenarioSettings {
+  nearKm: number
+  /** Set only when a version had it: the wizard does not ask it. */
+  nearPeers?: number
+  newDays: number
+}
+
+/** The settings a version was trained with, the defaults for one from before they were kept. */
+export function scenarioSettings(v?: ScenarioVersion): ScenarioSettings {
+  return {
+    nearKm: v?.near_km ?? NEAR_KM.default,
+    ...(v?.near_peers ? { nearPeers: v.near_peers } : {}),
+    newDays: v?.new_days ?? NEW_DAYS.default,
+  }
+}
+
+/** The settings a training sends: each only where the scenario and the data use it. */
+export function scenarioSettingsSpec(
+  scenario: Scenario, data: RecommendData, s: ScenarioSettings,
+): Pick<ScenarioTrainSpec, 'near_km' | 'near_peers' | 'new_days'> {
+  return {
+    ...(nearbyApplies(scenario, data) ? { near_km: s.nearKm, ...(s.nearPeers ? { near_peers: s.nearPeers } : {}) } : {}),
+    ...(newDaysApplies(scenario, data) ? { new_days: s.newDays } : {}),
+  }
 }
 
 export type CheckStatus = 'green' | 'amber' | 'red'
@@ -508,7 +605,7 @@ export interface ScenarioItem {
 /** Who or what a recommendation is for; the scenario decides which keys apply. */
 export type RecommendFor =
   | ({ customer: string } | { product: string } | { salesman: string } | { customers: string[] } | { all_customers: true })
-  & { segment?: string; size?: string; brand?: string; subcategory?: string }
+  & { segment?: string; size?: string; price_tier?: string; channel?: string; region?: string; brand?: string; subcategory?: string }
 
 /** The windows a reorder question offers, in days: "who will buy in the next 2 weeks". */
 export const DUE_WINDOWS: Array<{ days: number; label: string }> = [
@@ -636,6 +733,10 @@ export type ScenarioVersion = Omit<ModelVersion, 'samples'> & {
   samples?: unknown[]
   rules?: Rule[]
   weights?: Weights
+  /** The training's nearby radius, nearby peers and new-product days; absent on versions from before they were kept. */
+  near_km?: number
+  near_peers?: number
+  new_days?: number
 }
 
 /** Whether a version was trained for a scenario rather than from one table. */

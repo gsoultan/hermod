@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"slices"
 	"strconv"
@@ -148,7 +149,9 @@ type Result struct {
 // they are to order; 0 is no window. Segment and Size, for a list of
 // customers (visits, reorder, audience), keep only the customers of that
 // category and size, either matched in any case; a numeric Size is bucketed
-// as the model's training cut its customers' sizes (SizeBucket). Brand and
+// as the model's training cut its customers' sizes (SizeBucket). PriceTier,
+// Channel and Region keep them likewise to one price tier, channel and
+// region. Brand and
 // Subcategory, for a list of products (products, similar), keep only the
 // products of that brand and subcategory, matched in any case. Stock is
 // stock on hand by product id, in place of the model's (as of its
@@ -164,6 +167,7 @@ type Query struct {
 	ExcludeSeen                            bool
 	WithinDays                             int
 	Segment, Size                          string
+	PriceTier, Channel, Region             string
 	Brand, Subcategory                     string
 	Stock                                  map[string]float64
 }
@@ -270,18 +274,28 @@ func (c *call) perCustomer() ([]Result, error) {
 	return out, nil
 }
 
-// checkGroup reads a request's category and size: they keep the customers of
-// a customer list, so they are refused for products, and for a model that
-// does not know them.
+// The customer attributes beyond category and size that make a peer group
+// and filter a customer list, as the worker's MARKET_ATTRS.
+const (
+	attrPriceTier = "price_tier"
+	attrChannel   = "channel"
+	attrRegion    = "region"
+)
+
+// checkGroup reads a request's category, size, price tier, channel and
+// region: they keep the customers of a customer list, so they are refused
+// for products, and for a model that does not know them.
 func (m *Model) checkGroup(scenario string, q *Query) error {
 	q.Segment, q.Size = strings.TrimSpace(q.Segment), m.SizeBucket(q.Size)
-	if q.Segment == "" && q.Size == "" {
+	q.PriceTier, q.Channel, q.Region = strings.TrimSpace(q.PriceTier), strings.TrimSpace(q.Channel), strings.TrimSpace(q.Region)
+	if q.Segment == "" && q.Size == "" && q.PriceTier == "" && q.Channel == "" && q.Region == "" {
 		return nil
 	}
 	if itemEntity(scenario) != entityCustomers {
-		return badQuery(`"segment" and "size" keep the customers of customer lists (visits, reorder, audience), not %s results`, scenario)
+		return badQuery(`"segment", "size", "price_tier", "channel" and "region" keep the customers of customer lists (visits, reorder, audience), not %s results`, scenario)
 	}
-	for _, f := range []struct{ attr, value, what string }{{"segment", q.Segment, "customer category"}, {"size", q.Size, "customer size"}} {
+	for _, f := range []struct{ attr, value, what string }{{"segment", q.Segment, "customer category"}, {"size", q.Size, "customer size"},
+		{attrPriceTier, q.PriceTier, "price tier"}, {attrChannel, q.Channel, "channel"}, {attrRegion, q.Region, "region"}} {
 		if f.value == "" {
 			continue
 		}
@@ -292,11 +306,17 @@ func (m *Model) checkGroup(scenario string, q *Query) error {
 	return nil
 }
 
-// inGroup reports whether customer u is of the request's category and size.
+// inGroup reports whether customer u is of the request's category, size,
+// price tier, channel and region.
 func (c *call) inGroup(u int) bool {
 	q := c.q
-	return (q.Segment == "" || strings.EqualFold(c.m.cattr(u, "segment"), q.Segment)) &&
-		(q.Size == "" || strings.EqualFold(c.m.cattr(u, "size"), q.Size))
+	for _, f := range []struct{ attr, value string }{{"segment", q.Segment}, {"size", q.Size}, {attrPriceTier, q.PriceTier},
+		{attrChannel, q.Channel}, {attrRegion, q.Region}} {
+		if f.value != "" && !strings.EqualFold(c.m.cattr(u, f.attr), f.value) {
+			return false
+		}
+	}
+	return true
 }
 
 // allowedFor says which subjects a scenario takes, for an error.
@@ -763,7 +783,7 @@ func (c *call) customerFields(u int) map[string]any {
 	if c.m.sc == nil {
 		return out
 	}
-	for _, key := range []string{"name", "territory", "segment", "size", "salesman"} {
+	for _, key := range []string{"name", "territory", "segment", "size", "salesman", attrPriceTier, attrChannel, attrRegion} {
 		if v := c.m.cattr(u, key); v != "" {
 			out[key] = v
 		}
@@ -853,8 +873,10 @@ const reasonPeers = "peers"
 
 // productCandidates scores a known customer's candidates, as the worker's
 // product_scores: its collaborative-filtering candidates, then its peers'
-// most bought, its brands' products and new products of its kind,
-// re-ranked; what cannot be offered gives way to its substitute.
+// most bought, its brands' products, new products of its kind and its open
+// quotes, re-ranked (an open quote quoteBoost higher); what it returned or
+// lost a quote of is left out, and what cannot be offered gives way to its
+// substitute.
 func (c *call) productCandidates(u int) []cand {
 	m := c.m
 	items, _ := m.ForUser(m.users[u], candidates, c.q.ExcludeSeen)
@@ -894,6 +916,13 @@ func (c *call) productCandidates(u int) []cand {
 	if withNew {
 		list = append(list, c.newCandidatesOf(brands, groups, taken)...)
 	}
+	if len(m.signalsOf(u)) > 0 {
+		quoted := maps.Clone(taken)
+		for _, it := range list {
+			quoted[it.item] = true
+		}
+		list = append(list, c.quoteCandidatesOf(u, quoted)...)
+	}
 	out := make([]cand, 0, len(list))
 	for _, it := range list {
 		i := it.item
@@ -922,6 +951,10 @@ func (c *call) productCandidates(u int) []cand {
 		}
 		score := (weights["cf"]*cf + weights["whitespace"]*share + weights["margin"]*mp + weights["peers"]*ps +
 			weights["brand"]*bs + weights["new"]*fit) / total
+		quoteDay, quoted := c.openQuote(u, i)
+		if quoted {
+			score += quoteBoost
+		}
 		peerText := ""
 		if peerHave > 0 && (ps >= peerReason || it.reason == reasonPeers) {
 			peerText = peers.reason(peerHave)
@@ -933,13 +966,20 @@ func (c *call) productCandidates(u int) []cand {
 		if fit > 0 {
 			details = append(details, newReason(launch))
 		}
+		if quoted {
+			details = append(details, quoteReasonOf(quoteDay))
+		}
 		reasons := productReasons(it.reason == ReasonPopular, share, have, of, peerText, details)
 		out = append(out, cand{idx: i, score: float64(float32(score)), reasons: reasons})
 	}
 	// Stable: a tie keeps the candidates' order, so popular fill stays most
 	// popular first.
 	slices.SortStableFunc(out, byScore)
-	return c.offerable(out, mine)
+	held := c.heldBack(u)
+	if len(held) > 0 {
+		out = slices.DeleteFunc(out, func(cd cand) bool { return held[cd.idx] })
+	}
+	return c.offerable(out, withHeldBack(mine, held))
 }
 
 // productWeights is the re-ranking weights the model has the data for, with
@@ -1034,29 +1074,48 @@ func (c *call) whitespaceShare(u, item int) (float64, int, int) {
 // Peers
 // ---------------------------------------------------------------------------
 
-// peerKey names a peer group: a category, a size or both; "" matches any.
-type peerKey struct{ segment, size string }
+// peerAttrs are the customer attributes that make a peer group, in the
+// order its name says them, as the worker's PEER_ATTRS.
+var peerAttrs = [...]string{"segment", "size", attrPriceTier, attrChannel, attrRegion}
+
+// peerKey names a peer group: a category, size, price tier, channel and
+// region, in peerAttrs' order; "" matches any.
+type peerKey [len(peerAttrs)]string
+
+// keyOf is customer u's values of peerAttrs.
+func (m *Model) keyOf(u int) peerKey {
+	var k peerKey
+	for n, attr := range peerAttrs {
+		k[n] = m.cattr(u, attr)
+	}
+	return k
+}
 
 // peerKeyOf is customer u's peer group; ok is false when the model has no
-// categories or sizes, or u has neither.
+// peer attributes, or u has none.
 func (c *call) peerKeyOf(u int) (peerKey, bool) {
 	m := c.m
 	if m.sc == nil || !m.sc.hasPeers {
 		return peerKey{}, false
 	}
-	k := peerKey{m.cattr(u, "segment"), m.cattr(u, "size")}
+	k := m.keyOf(u)
 	return k, k != peerKey{}
 }
 
 // matches reports whether customer v is of the group.
 func (k peerKey) matches(m *Model, v int) bool {
-	return (k.segment == "" || m.cattr(v, "segment") == k.segment) && (k.size == "" || m.cattr(v, "size") == k.size)
+	for n, attr := range peerAttrs {
+		if k[n] != "" && m.cattr(v, attr) != k[n] {
+			return false
+		}
+	}
+	return true
 }
 
 // label names the group in a reason, such as "Retail · large".
 func (k peerKey) label() string {
-	parts := make([]string, 0, 2)
-	for _, p := range []string{k.segment, k.size} {
+	parts := make([]string, 0, len(k))
+	for _, p := range k {
 		if p != "" {
 			parts = append(parts, p)
 		}
@@ -1181,20 +1240,9 @@ func (c *call) peerItemCounts(item int) map[peerKey]peerCounts {
 			continue
 		}
 		bought := has(seen, uint32(item))
-		// The groups v is of: its category and size, its category of any
-		// size, and its size of any category.
-		seg, size := m.cattr(v, "segment"), m.cattr(v, "size")
-		var keys []peerKey
-		if seg != "" && size != "" {
-			keys = append(keys, peerKey{seg, size})
-		}
-		if seg != "" {
-			keys = append(keys, peerKey{seg, ""})
-		}
-		if size != "" {
-			keys = append(keys, peerKey{"", size})
-		}
-		for _, k := range keys {
+		// The groups v is of: each choice of its attributes, the others
+		// matching any.
+		for _, k := range m.keyOf(v).groups() {
 			pc := out[k]
 			pc.buyers++
 			if bought {
@@ -1202,6 +1250,28 @@ func (c *call) peerItemCounts(item int) map[peerKey]peerCounts {
 			}
 			out[k] = pc
 		}
+	}
+	return out
+}
+
+// groups are the peer groups a customer of key k is of: each non-empty
+// choice of its attributes, the others "" (any).
+func (k peerKey) groups() []peerKey {
+	var have []int
+	for n, v := range k {
+		if v != "" {
+			have = append(have, n)
+		}
+	}
+	out := make([]peerKey, 0, 1<<len(have)-1)
+	for mask := 1; mask < 1<<len(have); mask++ {
+		var g peerKey
+		for b, n := range have {
+			if mask&(1<<b) != 0 {
+				g[n] = k[n]
+			}
+		}
+		out = append(out, g)
 	}
 	return out
 }
@@ -1475,6 +1545,9 @@ func (c *call) audience() (Result, error) {
 		if c.q.ExcludeSeen && has(m.seenBy(u), uint32(item)) {
 			continue
 		}
+		if c.lostQuote(u, item) {
+			continue
+		}
 		share, have, of := c.whitespaceShare(u, item)
 		v := 0.0
 		if best > 0 && cf[u] > 0 {
@@ -1488,6 +1561,9 @@ func (c *call) audience() (Result, error) {
 			wn, fit = audienceNew, c.fit(item, c.spendShares(u, "brand"), c.spendShares(u, m.groupKey()))
 		}
 		score := (weights["cf"]*v + weights["whitespace"]*share + pw*ps + wn*fit) / (weights["cf"] + weights["whitespace"] + pw + wn)
+		if c.returned(u, item) {
+			score *= returnedAudience
+		}
 		if score <= 0 {
 			continue
 		}

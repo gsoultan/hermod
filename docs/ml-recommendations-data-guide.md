@@ -115,6 +115,9 @@ them. *Required* amounts are the ones Hermod refuses to train without;
 | Customers | Territory | Region, area or route. |
 | Customers | Customer category | Every customer on a list carries it, and a list can be filtered to one category or size. |
 | Customers | Customer size | Every customer on a list carries it, and a list can be filtered to one category or size. |
+| Customers | Price tier | Every customer on a list carries it, and a list can be filtered to one value of it. |
+| Customers | Channel | Every customer on a list carries it, and a list can be filtered to one value of it. |
+| Customers | Region | Every customer on a list carries it, and a list can be filtered to one value of it. |
 | Customers | Latitude | Plans nearby customers on the same day, and finds nearby customers of the same category. |
 | Customers | Longitude | Plans nearby customers on the same day, and finds nearby customers of the same category. |
 | Customers | Credit hold | Yes when the customer must not be offered anything. |
@@ -181,15 +184,23 @@ SELECT customer_id, product_id, order_date, SUM(quantity) AS quantity, SUM(amoun
 | Products | Subcategory | Finer than the category: a new product goes to the customers who buy its subcategory, and lists can be filtered to one. Needs at least two products in a subcategory to tell them apart. |
 | Products | Pack size | Suggests how much to order in whole packs: "3 cartons (40 pcs)" from the customer's usual quantity per order. Needs quantities on the orders; it shows for products the customer has bought before, such as reorders. |
 | Products | Unit | Names the pack in a suggested quantity ("cartons"); "packs" without it. Works with a pack size. |
-| Products | Launch date | A product launched within the last 60 days is offered to the customers who buy its brand or subcategory, with the reason "New, launched 2026-09-15", even before it has sales. Needs the date on the new products; older ones may leave it empty. |
+| Products | Launch date | A product launched within the last 60 days (the Rules step can set 1 to 365) is offered to the customers who buy its brand or subcategory, with the reason "New, launched 2026-09-15", even before it has sales. Needs the date on the new products; older ones may leave it empty. |
 | Products | End date | A product past its end date is never recommended. Works on any product that has one; leave it empty for products still sold. |
 | Products | Stock | A product with no stock (0 or less) is not recommended: its substitute is offered in its place, "Instead of P-315 (out of stock)". Stock is as of training; a call can give today's stock in "stock". Needs a number for every product it should apply to; empty is in stock. |
 | Products | Substitute | The product offered instead of one that is out of stock or past its end date. Needs the substitute's id, as in the orders, and stock or end dates to act on. |
-| Customers | Customers table | Lets rules stay inside a territory. A category and size offer each customer what others of its kind buy, nearby ones first when it has coordinates. |
+| Customers | Customers table | Lets rules stay inside a territory. A category, size, price tier, channel and region offer each customer what others of its kind buy, nearby ones first when it has coordinates. |
 | Customers | Customer category | Customers of the same category and size are each other's peers: Hermod offers what the peers buy, most of all to customers with few orders yet. |
 | Customers | Customer size | Customers of the same category and size are each other's peers: Hermod offers what the peers buy, most of all to customers with few orders yet. A number (headcount, revenue) is cut into small, medium and large. |
+| Customers | Price tier | With a category or size, it narrows the peers further: customers of the same price tier, channel or region buy alike, so only they count as each other's peers. Leave it empty where it does not apply; works on any customer that has one. |
+| Customers | Channel | With a category or size, it narrows the peers further: customers of the same price tier, channel or region buy alike, so only they count as each other's peers. Leave it empty where it does not apply; works on any customer that has one. |
+| Customers | Region | With a category or size, it narrows the peers further: customers of the same price tier, channel or region buy alike, so only they count as each other's peers. Leave it empty where it does not apply; works on any customer that has one. |
 | Customers | Latitude | With a category or size, the peers are the nearby customers of the same kind: the 20 nearest within 5 km (a reason then reads "Bought by 7 of 12 Minimarket customers within 5 km"). |
 | Customers | Longitude | With a category or size, the peers are the nearby customers of the same kind: the 20 nearest within 5 km (a reason then reads "Bought by 7 of 12 Minimarket customers within 5 km"). |
+| Returns | Returns table | Stops offering a product a customer sent back half or more of. |
+| Returns | Quantity | A product a customer sent back 50% or more of what it bought is not offered to it again; other customers are unaffected. Needs quantities on the orders too; an empty quantity counts as one. |
+| Quotes | Quotes table | Stops offering a product whose quote was lost in the last 90 days, and reminds of one quoted and not ordered yet. |
+| Quotes | Outcome | A quote lost (lost, rejected or declined) within the last 90 days keeps the product from that customer. Any other outcome counts as open. Needs the outcome on the lost quotes; won ones may say anything. |
+| Quotes | Date | A quote of the last 90 days not lost and not ordered since is offered with the reason "Quoted on 2026-09-20, not ordered yet", a little higher. Works on any quote with a readable date. |
 
 **How much data**
 
@@ -248,6 +259,9 @@ SELECT customer_id, product_id, order_date, SUM(quantity) AS quantity, SUM(amoun
 | Customers | Customers table | Lets rules skip customers on credit hold. |
 | Customers | Customer category | Every customer on a list carries it, and a list can be filtered to one category or size. |
 | Customers | Customer size | Every customer on a list carries it, and a list can be filtered to one category or size. |
+| Customers | Price tier | Every customer on a list carries it, and a list can be filtered to one value of it. |
+| Customers | Channel | Every customer on a list carries it, and a list can be filtered to one value of it. |
+| Customers | Region | Every customer on a list carries it, and a list can be filtered to one value of it. |
 
 **How much data**
 
@@ -313,9 +327,12 @@ SELECT customer_id, product_id, order_date, SUM(quantity) AS quantity, SUM(amoun
 | Orders or invoice lines | Date | Hermod tests on each customer's latest orders and can measure the history. |
 | Orders or invoice lines | Quantity | Products bought in larger amounts count as stronger likes. |
 | Orders or invoice lines | Amount | Lets Hermod leave out credit notes (negative amounts). |
-| Customers | Customers table | Lets rules skip customers on credit hold. A category and size find customers like those who buy it, nearby ones first. |
+| Customers | Customers table | Lets rules skip customers on credit hold. A category, size, price tier, channel and region find customers like those who buy it, nearby ones first. |
 | Customers | Customer category | Customers of the same category and size are each other's peers: a customer whose peers buy a product is likely to want it, most of all one with few orders yet. |
 | Customers | Customer size | Customers of the same category and size are each other's peers: a customer whose peers buy a product is likely to want it, most of all one with few orders yet. A number (headcount, revenue) is cut into small, medium and large. |
+| Customers | Price tier | With a category or size, it narrows the peers further: customers of the same price tier, channel or region buy alike, so only they count as each other's peers. Leave it empty where it does not apply; works on any customer that has one. |
+| Customers | Channel | With a category or size, it narrows the peers further: customers of the same price tier, channel or region buy alike, so only they count as each other's peers. Leave it empty where it does not apply; works on any customer that has one. |
+| Customers | Region | With a category or size, it narrows the peers further: customers of the same price tier, channel or region buy alike, so only they count as each other's peers. Leave it empty where it does not apply; works on any customer that has one. |
 | Customers | Latitude | With a category or size, the peers are the nearby customers of the same kind: the 20 nearest within 5 km (a reason then reads "Bought by 7 of 12 Minimarket customers within 5 km"). |
 | Customers | Longitude | With a category or size, the peers are the nearby customers of the same kind: the 20 nearest within 5 km (a reason then reads "Bought by 7 of 12 Minimarket customers within 5 km"). |
 | Products | Products table | Helps with products that have few sales yet. |
@@ -327,6 +344,10 @@ SELECT customer_id, product_id, order_date, SUM(quantity) AS quantity, SUM(amoun
 | Products | End date | A product past its end date has no audience: nobody is offered it. Works on any product that has one; leave it empty for products still sold. |
 | Products | Stock | A product with no stock (0 or less) has no audience until it is back. Stock is as of training; a call can give today's in "stock". Needs a number for every product it should apply to. |
 | Products | Substitute | Carried on each product's fields. Needs the substitute's id, as in the orders. |
+| Returns | Returns table | Counts a customer who sent the product back half or more for less. |
+| Returns | Quantity | A customer who sent back 50% or more of the product counts half in its audience. Needs quantities on the orders too; an empty quantity counts as one. |
+| Quotes | Quotes table | Leaves out customers who turned the product down in the last 90 days. |
+| Quotes | Outcome | A customer who lost (lost, rejected or declined) a quote for the product within the last 90 days is left out of its audience. Any other outcome counts as open. Needs the outcome on the lost quotes. |
 
 **How much data**
 

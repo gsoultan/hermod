@@ -20,7 +20,8 @@ import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWork
 import { ConfirmProvider } from '@/components/common/ConfirmProvider'
 import type { MLModel } from '@/lib/mlModels'
 import {
-  csvTemplate, guessColumns, rulesFromChoices, defaultRuleChoices, scenarioRoles, type RecommendData, type Scenario,
+  csvTemplate, guessColumns, rulesFromChoices, defaultRuleChoices, scenarioRoles, scenarioSettings, scenarioSettingsSpec,
+  type RecommendData, type Scenario,
 } from '@/lib/mlRecommend'
 import { RulesStep } from '@/pages/ml/recommendSteps'
 import { scenarioHeadline } from '@/pages/ml/scenarioResult'
@@ -904,5 +905,120 @@ describe('Customer category and size in the Predict node', () => {
     await user.type(screen.getByRole('textbox', { name: /^brand/i }), 'Sedaap')
     await user.type(screen.getByRole('textbox', { name: /^subcategory/i }), 'Instant noodles')
     expect(last).toMatchObject({ brand: 'Sedaap', subcategory: 'Instant noodles' })
+  })
+})
+
+describe('Price tier, channel and region', () => {
+  it('maps them from their names, and leaves a category, territory or a tier alone', () => {
+    expect(guessColumns('customers', [col('cust_id'), col('segment'), col('price_tier'), col('trade_channel'), col('territory'),
+      col('region')] as any))
+      .toEqual({ id: 'cust_id', territory: 'territory', segment: 'segment', price_tier: 'price_tier', channel: 'trade_channel',
+        region: 'region' })
+    // The guesses of a customers table without them are as before.
+    expect(guessColumns('customers', DATASETS.customers.columns as any))
+      .toEqual({ id: 'cust_id', salesman: 'rep', territory: 'region', lat: 'lat', lon: 'lon', blocked: 'credit_hold' })
+    const customers = scenarioRoles('audience').find((r) => r.role === 'customers')!
+    expect(customers.columns.map((c) => c.label)).toEqual(expect.arrayContaining(['Price tier', 'Channel', 'Region']))
+  })
+
+  it('keeps a list of customers to one price tier, channel and region', async () => {
+    const calls = api()
+    server.use(http.post('/api/vhosts/:vhost/ml/models/:name/recommend', async ({ request }) => {
+      calls.push({ path: 'recommend', body: await request.json() })
+      return HttpResponse.json({ recommendation_id: 'rec_t', results: [{ for: 'all_customers', items: [
+        item('c-3', 1, 'Usually orders every 14 days', { due_date: '2026-10-20',
+          fields: { name: 'Shop c-3', price_tier: 'Gold', channel: 'Modern trade', region: 'North' } }),
+      ] }] })
+    }))
+    wrap(<ModelTestModal vhost="tenant-a" model={{ ...planModel, name: 'due' }} scenario="reorder" onClose={() => {}} />)
+    const user = userEvent.setup()
+    const dialog = await screen.findByRole('dialog')
+    await user.type(within(dialog).getByRole('textbox', { name: /^price tier/i }), 'Gold')
+    await user.type(within(dialog).getByRole('textbox', { name: /^channel/i }), 'Modern trade')
+    await user.type(within(dialog).getByRole('textbox', { name: /^region/i }), 'North')
+    await user.click(within(dialog).getByRole('button', { name: /find customers/i }))
+    await waitFor(() => expect(calls.find((c) => c.path === 'recommend')).toBeTruthy())
+    expect(calls.find((c) => c.path === 'recommend')!.body)
+      .toEqual({ for: { all_customers: true, price_tier: 'Gold', channel: 'Modern trade', region: 'North' }, within_days: 14, k: 100 })
+    const list = await within(dialog).findByRole('list', { name: /customers likely to buy/i })
+    expect(within(list).getByText('Gold')).toBeInTheDocument()
+    expect(within(list).getByText('Modern trade')).toBeInTheDocument()
+    expect(within(list).getByText('North')).toBeInTheDocument()
+  })
+
+  it('keeps a list of customers to them in the Predict node', async () => {
+    api({ version: { ...visitsVersion, scenario: 'reorder' } })
+    server.use(http.get('/api/vhosts/:vhost/ml/models', () => HttpResponse.json({ data: [{ ...planModel, name: 'due' }], total: 1 })))
+    useWorkflowStore.setState({ vhost: 'tenant-a' } as any)
+    let last: any = {}
+    wrap(<Harness Editor={MLPredictConfig} initial={{ model: 'due' }} onConfig={(c) => { last = c }} />)
+    const user = userEvent.setup()
+    await waitFor(() => expect(last.recommendFor).toBe('customer'))
+    await user.type(screen.getByRole('textbox', { name: /^price tier/i }), 'Gold')
+    await user.type(screen.getByRole('textbox', { name: /^channel/i }), 'Retail')
+    await user.type(screen.getByRole('textbox', { name: /^region/i }), 'North')
+    expect(last).toMatchObject({ priceTier: 'Gold', channel: 'Retail', region: 'North' })
+  })
+})
+
+describe('Returns and quotes', () => {
+  it('are optional tables of the product and audience scenarios, mapped from their names', () => {
+    for (const s of ['products', 'audience'] as Scenario[]) {
+      const roles = scenarioRoles(s)
+      expect(roles.find((r) => r.role === 'returns')).toMatchObject({ required: false })
+      expect(roles.find((r) => r.role === 'quotes')).toMatchObject({ required: false })
+      expect(roles.find((r) => r.role === 'quotes')!.columns.filter((c) => c.required).map((c) => c.key))
+        .toEqual(['customer', 'product', 'date'])
+    }
+    for (const s of ['visits', 'reorder', 'similar'] as Scenario[]) {
+      expect(scenarioRoles(s).map((r) => r.role)).not.toContain('returns')
+      expect(scenarioRoles(s).map((r) => r.role)).not.toContain('quotes')
+    }
+    expect(guessColumns('returns', [col('cust_id'), col('sku'), col('return_date'), col('qty_returned', 'number')] as any))
+      .toEqual({ customer: 'cust_id', product: 'sku', date: 'return_date', quantity: 'qty_returned' })
+    expect(guessColumns('quotes', [col('cust_id'), col('sku'), col('quote_date'), col('status'), col('lost_reason')] as any))
+      .toEqual({ customer: 'cust_id', product: 'sku', date: 'quote_date', outcome: 'status', reason: 'lost_reason' })
+    expect(csvTemplate('quotes').split('\n')[0]).toBe('customer_id,product_id,quote_date,outcome,reason')
+  })
+})
+
+describe('Training settings a version keeps', () => {
+  it('asks how new a new product is when products have a launch date', async () => {
+    function Step({ data }: { data: RecommendData }) {
+      const [d, setD] = useState(60)
+      return (
+        <>
+          <RulesStep scenario="products" data={data} choices={defaultRuleChoices('products')} onChoices={() => {}}
+            weights={{} as any} onWeights={() => {}} newDays={d} onNewDays={setD} />
+          <output data-testid="days">{d}</output>
+        </>
+      )
+    }
+    const view = wrap(<Step data={{ products: { dataset: 'items', id: 'sku', launch_date: 'launched' } }} />)
+    const user = userEvent.setup()
+    const field = screen.getByRole('textbox', { name: /new products: launched within/i })
+    expect(field).toHaveValue('60')
+    await user.clear(field)
+    await user.type(field, '30')
+    expect(screen.getByTestId('days')).toHaveTextContent('30')
+    view.unmount()
+    wrap(<Step data={{ products: { dataset: 'items', id: 'sku' } }} />)
+    expect(screen.queryByRole('textbox', { name: /new products: launched within/i })).not.toBeInTheDocument()
+  })
+
+  it('trains again with the nearby radius, peers and new-product window of the last version', () => {
+    const data: RecommendData = {
+      customers: { dataset: 'customers', id: 'cust_id', segment: 'tier', lat: 'lat', lon: 'lon' },
+      products: { dataset: 'items', id: 'sku', launch_date: 'launched' },
+    }
+    const kept = scenarioSettings({ ...productsVersion, near_km: 12, near_peers: 8, new_days: 30 } as any)
+    expect(kept).toEqual({ nearKm: 12, nearPeers: 8, newDays: 30 })
+    expect(scenarioSettingsSpec('products', data, kept)).toEqual({ near_km: 12, near_peers: 8, new_days: 30 })
+    // A version from before them trains with the defaults, sending nothing new.
+    const fresh = scenarioSettings(productsVersion as any)
+    expect(fresh).toEqual({ nearKm: 5, newDays: 60 })
+    expect(scenarioSettingsSpec('products', data, fresh)).toEqual({ near_km: 5, new_days: 60 })
+    expect(scenarioSettingsSpec('products', { customers: data.customers }, fresh)).toEqual({ near_km: 5 })
+    expect(scenarioSettingsSpec('reorder', data, kept)).toEqual({})
   })
 })

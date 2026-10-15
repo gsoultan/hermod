@@ -1,0 +1,13 @@
+branch_code,branch_name,area_manager,area,branch_type,branch_size,lat,lng
+BR01,Hospital branch 1,AM1,North,Hospital,small,-6.13216,106.86545
+BR02,Mall branch 2,AM2,South,Mall,small,-6.27201,106.77707
+BR03,Neighbourhood branch 3,AM3,North,Neighbourhood,small,-6.13739,106.86543
+BR04,Neighbourhood branch 4,AM4,South,Neighbourhood,small,-6.31055,106.80279
+BR05,Hospital branch 5,AM1,North,Hospital,medium,-6.14928,106.84185
+BR06,Mall branch 6,AM2,South,Mall,medium,-6.29357,106.78294
+BR07,Neighbourhood branch 7,AM3,North,Neighbourhood,medium,-6.12171,106.87006
+BR08,Neighbourhood branch 8,AM4,South,Neighbourhood,medium,-6.27855,106.80339
+BR09,Hospital branch 9,AM1,North,Hospital,large,-6.14389,106.85226
+BR10,Mall branch 10,AM2,South,Mall,large,-6.28521,106.80515
+BR11,Neighbourhood branch 11,AM3,North,Neighbourhood,large,-6.13192,106.83944
+BR12,Neighbourhood branch 12,AM4,South,Neighbourhood,large,-6.28001,106.78704

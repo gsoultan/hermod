@@ -11,7 +11,7 @@ import { FormRow } from '@/components/common/FormRow'
 import { missingMappings } from '@/lib/mlDataGuide'
 import { useDataset, type DatasetInfo } from '@/lib/mlModels'
 import {
-  DEFAULT_WEIGHTS, NEAR_KM, ROLES, SCENARIOS, WEEKDAYS, WEIGHT_QUESTIONS, csvTemplate, guessColumns, nearbyApplies, recommendCheck, ruleOptions,
+  DEFAULT_WEIGHTS, NEAR_KM, NEW_DAYS, ROLES, SCENARIOS, WEEKDAYS, WEIGHT_QUESTIONS, csvTemplate, guessColumns, nearbyApplies, newDaysApplies, recommendCheck, ruleOptions,
   scenarioRoles, type CheckStatus, type RecommendCheck, type RecommendData, type RoleKey, type RoleMapping, type RuleChoices,
   type Scenario, type ScenarioRole, type Weights,
 } from '@/lib/mlRecommend'
@@ -277,7 +277,7 @@ const days = (v: string | number, fallback: number) => (typeof v === 'number' ? 
  * planning adds the visits per day, the working days, and how much each
  * signal counts, in words, with a reset.
  */
-export function RulesStep({ scenario, data, choices, onChoices, weights, onWeights, nearKm, onNearKm }: {
+export function RulesStep({ scenario, data, choices, onChoices, weights, onWeights, nearKm, onNearKm, newDays, onNewDays }: {
   scenario: Scenario
   data: RecommendData
   choices: RuleChoices
@@ -287,6 +287,9 @@ export function RulesStep({ scenario, data, choices, onChoices, weights, onWeigh
   /** How far nearby customers of the same category may be, in km; asked when the data allows it. */
   nearKm?: number
   onNearKm?: (km: number) => void
+  /** How many days a product stays new after its launch; asked when products have launch dates. */
+  newDays?: number
+  onNewDays?: (days: number) => void
 }) {
   const can = ruleOptions(scenario, data)
   const set = (patch: Partial<RuleChoices>) => onChoices({ ...choices, ...patch })
@@ -367,6 +370,15 @@ export function RulesStep({ scenario, data, choices, onChoices, weights, onWeigh
             value={nearKm ?? NEAR_KM.default} onChange={(v) => onNearKm(typeof v === 'number' ? v : NEAR_KM.default)}
             error={nearKm !== undefined && (nearKm < NEAR_KM.min || nearKm > NEAR_KM.max) ? `Between ${NEAR_KM.min} and ${NEAR_KM.max} km.` : undefined} />
           <Text size="sm" pb={8}>km</Text>
+        </Group>
+      )}
+      {onNewDays && newDaysApplies(scenario, data) && (
+        <Group gap="xs" wrap="wrap" align="flex-end">
+          <NumberInput label="New products: launched within" w={220} min={NEW_DAYS.min} max={NEW_DAYS.max} allowDecimal={false}
+            description="Offered to the customers who buy their brand or subcategory."
+            value={newDays ?? NEW_DAYS.default} onChange={(v) => onNewDays(typeof v === 'number' ? v : NEW_DAYS.default)}
+            error={newDays !== undefined && (newDays < NEW_DAYS.min || newDays > NEW_DAYS.max) ? `Between ${NEW_DAYS.min} and ${NEW_DAYS.max} days.` : undefined} />
+          <Text size="sm" pb={8}>days</Text>
         </Group>
       )}
     </Stack>

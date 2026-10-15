@@ -172,6 +172,16 @@ func (m *Model) CustomerAttrs(id string) (segment, size string) {
 	return m.cattr(u, "segment"), m.cattr(u, "size")
 }
 
+// CustomerMarket is a customer's price tier, channel and region; "" for
+// what the model does not know, or a customer it does not.
+func (m *Model) CustomerMarket(id string) (priceTier, channel, region string) {
+	u, ok := m.userIndex[id]
+	if !ok || m.sc == nil {
+		return "", "", ""
+	}
+	return m.cattr(u, attrPriceTier), m.cattr(u, attrChannel), m.cattr(u, attrRegion)
+}
+
 // ProductAttrs is a product's brand and subcategory; "" for what the model
 // does not know, or a product it does not.
 func (m *Model) ProductAttrs(id string) (brand, subcategory string) {
@@ -229,6 +239,9 @@ func (h header) checkNumbers() error {
 	}
 	if e := h.SizeEdges; len(e) != 0 && (len(e) != 2 || !finite(e[0]) || !finite(e[1]) || e[0] > e[1]) {
 		return invalid("size_edges %v are not two ascending numbers", e)
+	}
+	if h.Signals < 0 || h.Signals > MaxArtifactBytes/16 {
+		return invalid("signals %d is out of range", h.Signals)
 	}
 	if h.NewDays != 0 && (h.NewDays < NewDaysMin || h.NewDays > NewDaysMax) {
 		return invalid("new_days %d is not between %d and %d", h.NewDays, NewDaysMin, NewDaysMax)
@@ -310,6 +323,9 @@ func (m *Model) readScenario(r *reader, h header) {
 		sc.seenQty = r.floatsOrNaN(h.Seen, "seen quantities")
 		sc.seenSpend = r.floats(h.Seen, "seen spend")
 	}
+	if h.Signals > 0 {
+		sc.signals = readSignals(r, h.Signals)
+	}
 	m.sc = sc
 }
 
@@ -356,7 +372,7 @@ func (m *Model) checkScenarioSections() error {
 			return invalid("a seen spend is negative")
 		}
 	}
-	return nil
+	return m.checkSignals()
 }
 
 // customerNeighborsOf is a customer's similar-customer slots.

@@ -840,3 +840,242 @@ def test_products_without_details_score_as_before(details):
         for it in sample["items"]:
             assert set(it["fields"]) <= {"name", "category"}
             assert all(r["code"] not in ("brand", "new_product", "substitute", "same_kind") for r in it["reasons"])
+
+
+# --------------------------------------------------------------------------
+# Customer price tier, channel and region
+# --------------------------------------------------------------------------
+
+
+def market_customers() -> list[dict]:
+    """The peer tests' customers with a price tier (Gold for Retail, Silver
+    otherwise), a channel (their kind) and a region (N for an even number, S
+    for an odd one)."""
+    out = []
+    for row in peer_tables()["customers"]:
+        c = int(row["id"][2:])
+        out.append({**row, "chan": row["kind"], "pricing": "Gold" if row["kind"] == "Retail" else "Silver", "area": "N" if c % 2 == 0 else "S"})
+    return out
+
+
+@pytest.fixture(scope="module")
+def market(tmp_path_factory) -> TestClient:
+    client = TestClient(create_app(Settings(data_dir=tmp_path_factory.mktemp("market") / "data")))
+    load(client, "porders", peer_tables()["orders"], VHOST)
+    load(client, "mcustomers", market_customers(), VHOST)
+    return client
+
+
+def market_body(scenario: str, customers: dict) -> dict:
+    out = peer_body(scenario, customers)
+    out["data"]["customers"]["dataset"] = "mcustomers"
+    return out
+
+
+def test_price_tier_channel_and_region_are_customer_columns():
+    for key in ("price_tier", "channel", "region"):
+        assert key in scenarios.ROLE_KEYS["customers"] and key in scenarios.CUSTOMER_ATTRS
+    req = scenarios.parse_request(market_body("products", {"price_tier": "pricing", "channel": "chan", "region": "area"}), 0.2, 0)
+    assert req.roles["customers"]["region"] == "area"
+
+
+def test_a_channel_alone_makes_peer_groups(market):
+    meta = train(market, "chan_products", market_body("products", {"channel": "chan"}))
+    assert meta.status_code == 200, meta.text
+    model = artifact(market, "chan_products", meta.json())
+    x = model.extra
+    assert x["has_peers"] is True and x["customer_attrs"]["channel"][model.users.index("Rl16")] == "Retail"
+    b = scenarios.built_from_artifact(model)
+    peers = scenarios.peer_group(b, model.users.index("Rl16"))
+    # Every other Retail customer, of any size.
+    assert peers is not None and peers.of == 53 and peers.label == "Retail"
+
+
+def test_the_peer_key_joins_category_size_tier_channel_and_region(market):
+    resp = train(market, "key_products", market_body("products", {"segment": "kind", "size": "staff", "price_tier": "pricing", "region": "area"}))
+    assert resp.status_code == 200, resp.text
+    meta = resp.json()
+    model = artifact(market, "key_products", meta)
+    b = scenarios.built_from_artifact(model)
+    u = model.users.index("Rl16")
+    peers = scenarios.peer_group(b, u)
+    # Retail, large, Gold and in region N: the other eight of its group there.
+    assert peers is not None and peers.of == 8 and peers.label == "Retail · large · Gold · N"
+    texts = [r["text"] for _, _, rs in scenarios.product_scores(b, u, 10) for r in rs if r["code"] == "peer_group"]
+    assert texts and all(t.endswith(" of 8 Retail · large · Gold · N customers") for t in texts), texts
+    # Nine categories and sizes, each in two regions.
+    assert meta["evaluation"]["peer_groups"] == 18
+
+
+def test_customer_lists_carry_price_tier_channel_and_region(market):
+    meta = train(market, "market_audience", market_body("audience", {"segment": "kind", "price_tier": "pricing", "channel": "chan",
+                                                                      "region": "area"})).json()
+    fields = [it["fields"] for s in meta["samples"] for it in s["items"]]
+    assert fields and all(f["price_tier"] in ("Gold", "Silver") and f["channel"] == f["segment"] and f["region"] in ("N", "S") for f in fields)
+
+
+def test_unmapped_market_columns_change_nothing(market, peers):
+    """A customers table may hold a tier, channel and region: mapped only by
+    category and size, it trains the artifact a table without them does."""
+    a = train(market, "market_plain", market_body("products", {"segment": "kind", "size": "staff"})).json()
+    b2 = train(peers, "peer_plain", peer_body("products", {"segment": "kind", "size": "staff"})).json()
+    raw_a = market.get(f"/v1/models/{VHOST}/market_plain/versions/{a['version']}/model.rec").content
+    raw_b = peers.get(f"/v1/models/{VHOST}/peer_plain/versions/{b2['version']}/model.rec").content
+    assert raw_a == raw_b and a["metrics"] == b2["metrics"] and a["samples"] == b2["samples"]
+
+
+# --------------------------------------------------------------------------
+# Returns and quotes
+# --------------------------------------------------------------------------
+
+
+def bought(orders: list[dict], cust: str) -> dict[str, float]:
+    out: dict[str, float] = {}
+    for o in orders:
+        if o["cust"] == cust:
+            out[o["sku"]] = out.get(o["sku"], 0.0) + o["qty"]
+    return out
+
+
+def signal_tables() -> dict[str, list[dict]]:
+    """The details shops' returns and quotes. K02 sent back 60% of what it
+    bought of its first noodle and 10% of its second. K10 lost a quote for
+    M1 a month ago and one for M2 seven months ago; K05 was quoted M3 and
+    K06 won a quote for M4, neither ordered yet; K07 was quoted its own
+    noodle in July and has ordered it since."""
+    orders = detail_tables()["orders"]
+    k02 = sorted(s for s in bought(orders, "K02") if s in ("I1", "I2", "I3"))
+    k07 = sorted(s for s in bought(orders, "K07") if s in ("I1", "I2", "I3"))
+    have = bought(orders, "K02")
+    returns = [{"cust": "K02", "sku": k02[0], "day": "2026-06-01", "qty": -round(0.6 * have[k02[0]])},
+               {"cust": "K02", "sku": k02[1], "day": "2026-06-01", "qty": round(0.1 * have[k02[1]])}]
+    quotes = [{"cust": "K10", "sku": "M1", "day": "2026-09-01", "result": "Lost", "why": "price"},
+              {"cust": "K10", "sku": "M2", "day": "2026-03-01", "result": "lost", "why": "price"},
+              {"cust": "K05", "sku": "M3", "day": "2026-09-20", "result": None, "why": None},
+              {"cust": "K06", "sku": "M4", "day": "2026-09-25", "result": "won", "why": None},
+              {"cust": "K07", "sku": k07[0], "day": "2026-07-01", "result": None, "why": None}]
+    return {"returns": returns, "quotes": quotes, "returned": [k02[0]], "kept": [k02[1]], "k07": [k07[0]]}
+
+
+@pytest.fixture(scope="module")
+def signals(details) -> TestClient:
+    tables = signal_tables()
+    load(details, "dreturns", tables["returns"], VHOST)
+    load(details, "dquotes", tables["quotes"], VHOST)
+    return details
+
+
+def signal_body(scenario: str, returns: bool = True, quotes: bool = True, **extra) -> dict:
+    out = detail_body(scenario, **extra)
+    if returns:
+        out["data"]["returns"] = {"dataset": "dreturns", "customer": "cust", "product": "sku", "date": "day", "quantity": "qty"}
+    if quotes:
+        out["data"]["quotes"] = {"dataset": "dquotes", "customer": "cust", "product": "sku", "date": "day", "outcome": "result", "reason": "why"}
+    return out
+
+
+def signal_model(client: TestClient, name: str, scenario: str, **kw) -> tuple[recommend.Model, scenarios.Built, dict]:
+    resp = train(client, name, signal_body(scenario, **kw))
+    assert resp.status_code == 200, resp.text
+    model = artifact(client, name, resp.json())
+    return model, scenarios.built_from_artifact(model), resp.json()
+
+
+def test_returns_and_quotes_are_roles():
+    assert scenarios.ROLE_KEYS["returns"] == ("customer", "product", "date", "quantity")
+    assert scenarios.ROLE_KEYS["quotes"] == ("customer", "product", "date", "outcome", "reason")
+    req = scenarios.parse_request(signal_body("products"), 0.2, 0)
+    assert set(req.roles) >= {"returns", "quotes"}
+    body = signal_body("products")
+    del body["data"]["quotes"]["date"]
+    with pytest.raises(Exception, match="data.quotes.date"):
+        scenarios.parse_request(body, 0.2, 0)
+
+
+def test_returns_and_quotes_go_in_the_artifact(signals):
+    model, b, meta = signal_model(signals, "sig_art", "products")
+    tables = signal_tables()
+    n = model.extra["signals"]
+    assert model.signals.shape == (n, 4)
+    kinds = {(model.users[u], model.items[i]): (scenarios.day_text(d), k) for u, i, d, k in model.signals.tolist()}
+    assert kinds[("K02", tables["returned"][0])] == ("2026-06-01", scenarios.RETURNED)
+    assert ("K02", tables["kept"][0]) not in kinds
+    assert kinds[("K10", "M1")] == ("2026-09-01", scenarios.LOST)
+    assert kinds[("K05", "M3")] == ("2026-09-20", scenarios.QUOTED) and kinds[("K06", "M4")] == ("2026-09-25", scenarios.QUOTED)
+    # Older than 90 days, or ordered since: neither is kept.
+    assert ("K10", "M2") not in kinds and ("K07", tables["k07"][0]) not in kinds
+    assert recommend.encode(model) == recommend.encode(recommend.decode(recommend.encode(model)))
+    assert meta["evaluation"]["returns"] == 1
+
+
+def test_without_returns_or_quotes_the_artifact_is_as_before(signals):
+    model, _, meta = signal_model(signals, "sig_none", "products", returns=False, quotes=False)
+    assert "signals" not in model.extra and model.signals is None
+    assert "returns" not in meta["evaluation"]
+    plain = train(signals, "sig_plain", detail_body("products")).json()
+    a = signals.get(f"/v1/models/{VHOST}/sig_none/versions/{meta['version']}/model.rec").content
+    b2 = signals.get(f"/v1/models/{VHOST}/sig_plain/versions/{plain['version']}/model.rec").content
+    assert a == b2 and meta["metrics"] == plain["metrics"] and meta["samples"] == plain["samples"]
+
+
+def test_a_mostly_returned_product_is_not_offered_again(signals):
+    tables = signal_tables()
+    _, b, _ = signal_model(signals, "sig_ret", "products")
+    _, plain, _ = signal_model(signals, "sig_ret0", "products", returns=False, quotes=False)
+    u = b.users.index("K02")
+    before = {b.items[i]: s for i, s, _ in scenarios.product_scores(plain, u, 16, exclude_seen=False)}
+    after = {b.items[i]: s for i, s, _ in scenarios.product_scores(b, u, 16, exclude_seen=False)}
+    returned, kept = tables["returned"][0], tables["kept"][0]
+    assert returned in before and returned not in after, (before, after)
+    # What it kept is offered as before, and so is everything else.
+    assert after[kept] == before[kept]
+    assert {p: s for p, s in after.items()} == {p: s for p, s in before.items() if p != returned}
+    # In an audience, the customer who returned it counts half.
+    item = b.items.index(returned)
+    was = {v: s for v, s, _ in scenarios.audience_scores(plain, item, 40, exclude_seen=False)}
+    now = {v: s for v, s, _ in scenarios.audience_scores(b, item, 40, exclude_seen=False)}
+    assert now[u] == pytest.approx(was[u] * scenarios.RETURNED_AUDIENCE, rel=1e-6)
+    assert {v: s for v, s in now.items() if v != u} == {v: s for v, s in was.items() if v != u}
+
+
+def test_a_lost_quote_keeps_the_product_from_the_customer(signals):
+    _, b, _ = signal_model(signals, "sig_lost", "products")
+    u = b.users.index("K10")
+    ids = [b.items[i] for i, _, _ in scenarios.product_scores(b, u, 16)]
+    assert "M1" not in ids, ids
+    assert u not in [v for v, _, _ in scenarios.audience_scores(b, b.items.index("M1"), 40)]
+    # A quote lost seven months ago no longer counts.
+    _, plain, _ = signal_model(signals, "sig_lost0", "products", returns=False, quotes=False)
+    plain_ids = [plain.items[i] for i, _, _ in scenarios.product_scores(plain, u, 16)]
+    assert "M1" in plain_ids and ("M2" in ids) == ("M2" in plain_ids), plain_ids
+
+
+def test_an_open_quote_is_offered_with_its_date(signals):
+    tables = signal_tables()
+    _, b, _ = signal_model(signals, "sig_open", "products")
+    for cust, sku, day in (("K05", "M3", "2026-09-20"), ("K06", "M4", "2026-09-25")):
+        picks = scenarios.product_scores(b, b.users.index(cust), 10)
+        reasons = {b.items[i]: rs for i, _, rs in picks}
+        assert {"code": "quoted", "text": f"Quoted on {day}, not ordered yet"} in reasons.get(sku, []), (cust, reasons)
+    # It ranks higher than it would unquoted.
+    _, plain, _ = signal_model(signals, "sig_open0", "products", returns=False, quotes=False)
+    u = b.users.index("K05")
+    rank = [b.items[i] for i, _, _ in scenarios.product_scores(b, u, 16)].index("M3")
+    unquoted = [plain.items[i] for i, _, _ in scenarios.product_scores(plain, u, 16)]
+    assert "M3" not in unquoted or rank < unquoted.index("M3")
+    # A quote ordered since says nothing.
+    picks = scenarios.product_scores(b, b.users.index("K07"), 16, exclude_seen=False)
+    assert all(r["code"] != "quoted" for _, _, rs in picks for r in rs)
+    assert tables["k07"][0] in [b.items[i] for i, _, _ in picks]
+
+
+# --------------------------------------------------------------------------
+# Training settings
+# --------------------------------------------------------------------------
+
+
+def test_a_version_remembers_its_nearby_and_new_product_settings(near, details):
+    meta = train(near, "near_kept", near_body("products", near_km=2.5, near_peers=8)).json()
+    assert (meta["near_km"], meta["near_peers"], meta["new_days"]) == (2.5, 8, 60)
+    meta = train(details, "new_kept", detail_body("products", new_days=30)).json()
+    assert (meta["near_km"], meta["near_peers"], meta["new_days"]) == (5.0, 20, 30)

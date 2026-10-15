@@ -12,7 +12,7 @@ import {
   type RecommendAlgorithm, type TrainAlgorithm, type TrainCheck, type TrainResult, type TrainSpec, type TrainDevice, type TrainPreset, type TrainTask,
 } from '@/lib/mlModels'
 import {
-  DEFAULT_WEIGHTS, NEAR_KM, ROLES, defaultRuleChoices, isScenarioVersion, nearbyApplies, rulesFromChoices, scenarioLabel, scenariosSupported,
+  DEFAULT_WEIGHTS, ROLES, defaultRuleChoices, isScenarioVersion, rulesFromChoices, scenarioSettings, scenarioSettingsSpec, scenarioLabel, scenariosSupported,
   type RecommendData, type RoleKey, type Scenario, type ScenarioTrainSpec, type ScenarioVersion, type Weights,
 } from '@/lib/mlRecommend'
 import {
@@ -108,7 +108,8 @@ export function TrainModal({ vhost, modelName, task: modelTask, start, onClose }
   const [recData, setRecData] = useState<RecommendData>(start ? { transactions: { dataset: start.dataset } } : {})
   const [choices, setChoices] = useState(() => defaultRuleChoices(start?.scenario ?? 'visits'))
   const [weights, setWeights] = useState<Weights>(DEFAULT_WEIGHTS)
-  const [nearKm, setNearKm] = useState<number>(NEAR_KM.default)
+  // The nearby radius and peers and the new-product days; training again keeps the last version's.
+  const [settings, setSettings] = useState(() => scenarioSettings())
   const pickScenario = (s: Scenario) => {
     setScenario(s)
     setChoices(defaultRuleChoices(s))
@@ -159,6 +160,7 @@ export function TrainModal({ vhost, modelName, task: modelTask, start, onClose }
       setChoices(defaultRuleChoices(v.scenario))
       setRecData(v.roles ?? { transactions: { dataset: last.dataset } })
       if (v.weights) setWeights(v.weights)
+      setSettings(scenarioSettings(v))
       setAt('needs')
     } else if (last?.task === RECOMMENDATION && last.recommend) {
       const r = last.recommend
@@ -232,7 +234,7 @@ export function TrainModal({ vhost, modelName, task: modelTask, start, onClose }
         data: recData,
         ...(scenario === 'visits' ? { weights } : {}),
         rules: rulesFromChoices(scenario, choices, recData),
-        ...(nearbyApplies(scenario, recData) ? { near_km: nearKm } : {}),
+        ...scenarioSettingsSpec(scenario, recData, settings),
         algorithm: recAlgorithm,
         go_live: goLive,
       }
@@ -548,7 +550,8 @@ export function TrainModal({ vhost, modelName, task: modelTask, start, onClose }
           {scenarioFlow && scenario && (
             <Stepper.Step label="Rules">
               <RulesStep scenario={scenario} data={recData} choices={choices} onChoices={setChoices} weights={weights} onWeights={setWeights}
-                nearKm={nearKm} onNearKm={setNearKm} />
+                nearKm={settings.nearKm} onNearKm={(nearKm) => setSettings((s) => ({ ...s, nearKm }))}
+                newDays={settings.newDays} onNewDays={(newDays) => setSettings((s) => ({ ...s, newDays }))} />
             </Stepper.Step>
           )}
 

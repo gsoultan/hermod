@@ -1,0 +1,7 @@
+account_no,item_code,return_date,qty,reason
+ACC05,IN005,2026-06-10,13,wrong spec
+ACC15,IN048,2026-06-10,47,wrong spec
+ACC25,IN026,2026-06-10,39,wrong spec
+ACC35,IN007,2026-06-10,52,wrong spec
+ACC45,IN037,2026-06-10,17,wrong spec
+ACC55,IN012,2026-06-10,356,wrong spec

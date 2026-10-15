@@ -180,14 +180,14 @@ type TrainSpec struct {
 
 	// A recommendation scenario's training (ml/worker/hermod_ml/scenarios.py)
 	// names Scenario and maps each data role (transactions, customers,
-	// products, visits, salesmen) to a dataset and its columns in Data,
-	// instead of Recommend. Weights are the visit signals' weights, Rules the
-	// business rules every call obeys, and PeriodDays the planning (visits)
-	// or evaluation period. NearKm and NearPeers make a customer's peers the
-	// NearPeers nearest of its category within NearKm kilometres; 0 for the
-	// worker's default (5 km, 20 customers). NewDays makes a product launched
-	// within that many days new (products.launch_date); 0 for the worker's
-	// default (60).
+	// products, visits, salesmen, returns, quotes) to a dataset and its
+	// columns in Data, instead of Recommend. Weights are the visit signals'
+	// weights, Rules the business rules every call obeys, and PeriodDays the
+	// planning (visits) or evaluation period. NearKm and NearPeers make a
+	// customer's peers the NearPeers nearest of its category within NearKm
+	// kilometres; 0 for the worker's default (5 km, 20 customers). NewDays
+	// makes a product launched within that many days new
+	// (products.launch_date); 0 for the worker's default (60).
 	Scenario   string                       `json:"scenario,omitempty"`
 	Data       map[string]map[string]string `json:"data,omitempty"`
 	Weights    map[string]float64           `json:"weights,omitempty"`
@@ -330,6 +330,12 @@ type Version struct {
 	BaselinesNamed []NamedBaseline              `json:"baselines_named,omitempty"`
 	Evaluation     map[string]any               `json:"evaluation,omitempty"`
 	Health         *RecommendHealth             `json:"health,omitempty"`
+	// NearKm, NearPeers and NewDays are the scenario training's settings
+	// (see TrainSpec), so training it again starts from them; 0 for a
+	// version trained before the worker recorded them.
+	NearKm    float64 `json:"near_km,omitempty"`
+	NearPeers int     `json:"near_peers,omitempty"`
+	NewDays   int     `json:"new_days,omitempty"`
 	// Preset and Leaderboard are an auto training's: how hard it tried, and
 	// every candidate it scored, best first.
 	Preset      string             `json:"preset,omitempty"`

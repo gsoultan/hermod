@@ -119,8 +119,9 @@ func (r *Registry) MLRecommend(ctx context.Context, vhost, model string, req map
 
 // mlRecommendScenario is MLRecommend for a scenario subject: req's "for"
 // (with "segment" and "size" to keep one customer category and size of a
-// list, "brand" and "subcategory" one brand and subcategory of a list of
-// products), with "k", "exclude_seen", "rules", "within_days" (a reorder window) and
+// list, "price_tier", "channel" and "region" one price tier, channel and
+// region of it, "brand" and "subcategory" one brand and subcategory of a list
+// of products), with "k", "exclude_seen", "rules", "within_days" (a reorder window) and
 // "period_days" (a visit plan's days from today). The answer is the first
 // result's items, each with the day a visit plan puts it on as "plan_date",
 // and a reorder's "due_date", "overdue" and "products".
@@ -239,6 +240,7 @@ func (r *Registry) MLRecommendBuild(ctx context.Context, vhost, model string, co
 		out[i] = map[string]any{"model": row.Model, "version": row.Version, "recommendation_id": row.RecommendationID,
 			"for_id": row.ForID, "item_id": row.ItemID, "rank": row.Rank, "score": row.Score, "plan_date": row.PlanDate,
 			"due_date": row.DueDate, "segment": row.Segment, "size": row.Size, "brand": row.Brand, "subcategory": row.Subcategory,
+			"price_tier": row.PriceTier, "channel": row.Channel, "region": row.Region,
 			"suggested_qty": nil, "reasons_text": row.ReasonsText, "built_at": row.BuiltAt}
 		// A row without a suggested quantity carries none rather than 0.
 		if row.SuggestedQty > 0 {

@@ -50,6 +50,43 @@ top-100 cap took the graph from 2,582 inputs and 689,498 B to 282 inputs and
 86,144 B (28,459 B as int8), and batch scoring from 50,595 to 324,125 rows/s.
 PyTorch training on the worker was not measured.
 
+### Added — Price tier, channel, region, returns and quotes in recommendations
+
+- A recommendation scenario's customers table can now name each customer's
+  **Price tier**, **Channel** and **Region** (`customers.price_tier`,
+  `channel`, `region`, all optional). Each one joins the peer key next to the
+  category and size, nearby peers included, so customers are compared only
+  with those on the same price list, in the same channel and region. Every
+  list of customers carries them, `for` takes `price_tier`, `channel` and
+  `region` to keep a list to one of each (REST, MCP, `ScenarioSubject` over
+  gRPC, the Predict node's `priceTier`, `channel` and `region`, and **Try
+  it**), and **Build recommendations** writes them when the target table has
+  the columns.
+- A new optional **Returns** role (customer, product, date, quantity): a
+  product a customer sent back 50% or more of is no longer offered to it,
+  and counts half in that product's audience. The evaluation reports
+  `returns`.
+- A new optional **Quotes** role (customer, product, date, outcome, reason):
+  a quote lost within 90 days keeps the product from that customer in its
+  products and the product's audience; one neither lost nor ordered since is
+  offered a little higher with the reason `quoted`, "Quoted on 2026-09-20,
+  not ordered yet". Won quotes do not count as purchases: peers and the
+  collaborative filter read only orders.
+- A version now keeps `near_km`, `near_peers` and `new_days`, and training
+  it again in the console reuses them. The training wizard asks **New
+  products: launched within N days** (60 by default, 1 to 365) when the
+  products have launch dates.
+- Models trained without the new columns and roles, or before them, train
+  and answer byte-for-byte as before; the proto change is additive.
+- [Recommendation cases](docs/ml-recommendation-cases.md): three worked
+  examples on larger synthetic businesses (a consumer goods distributor with
+  300 outlets in three cities, an industrial supplier on contract price
+  tiers, a pharmacy chain with brands out of stock), each with the tables to
+  map, every scenario trained, example calls and the answers they returned.
+  `ml/worker/tests/cases.py` generates the data (a 12-row sample of each
+  table is in `ml/examples/recommendation-cases/`), and tests train every
+  scenario on each case.
+
 ### Added — Dataset analysis and Parquet upload
 
 Every dataset on the Machine Learning page's **Data** tab has an **Analyze**
@@ -73,6 +110,30 @@ spread over all of it, and the dialog says so.
 - **API.** `GET /api/vhosts/{vhost}/ml/datasets/{name}/profile`; both engines
   serve `GET /v1/datasets/{vhost}/{name}/sample?rows=N`. A hermod-ml worker
   from before this release answers the analysis with `501`: update it.
+
+### Added — Worked cases for classification, regression, forecasting, fraud and neural networks
+
+[docs/ml-cases.md](docs/ml-cases.md) takes six business problems from data
+to a model in use, on realistic, messy data: late payment risk (yes/no, 15%
+late), ticket routing (six teams), delivery time (a skewed number with
+outliers), a weekly demand forecast per product and warehouse, card fraud
+(1% fraud) and a neural network on 80,000 account-quarters. Each says which
+columns to keep and which to drop and why (IDs, dates as text, and leaks,
+including those the pre-flight check cannot see), which algorithm and
+engine to pick, the metrics and baseline Hermod reported, how to read them,
+and how to call the model over REST, gRPC, MCP and the Predict node, with
+requests and answers from real runs.
+
+- **Generators.** `ml/examples/cases/<case>.py` (numpy and pandas) writes
+  each case's CSV at any size from a fixed seed; a sample of about 1,300 rows
+  of five of them is kept in `ml/examples/cases/samples/`.
+- **Tests.** `pkg/ml/builtin/cases_test.go` trains each case on the
+  built-in engine from its uploaded CSV and asserts the pre-flight check's
+  column roles and a margin over the baseline (on the samples; on full-size
+  files with `HERMOD_ML_CASES_DIR`). `ml/worker/tests/test_cases.py` checks
+  the generators are deterministic and the samples current, and trains card
+  fraud with `xgboost`, late payment with Auto and account spend with
+  `keras_mlp` (skipped without the `-dl` libraries) on the worker.
 
 ### Added — Product details in recommendations
 
