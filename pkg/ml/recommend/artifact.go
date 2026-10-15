@@ -26,8 +26,9 @@
 // null per customer or item), salesmen, weights, rules, global_gap,
 // global_visit_gap, has_visits and has_margin, and, since customer
 // categories and sizes, has_peers and size_edges; since products' details,
-// new_days and pair_details. Its algorithm may be "none", with neither
-// factors nor neighbors, for a scenario that needs no products.
+// new_days and pair_details; since returns and quotes, signals. Its
+// algorithm may be "none", with neither factors nor neighbors, for a
+// scenario that needs no products.
 // After popular scores come:
 //
 //	customer neighbors     uint32  [users x customer_neighbors] when > 0
@@ -40,6 +41,11 @@
 //	                       (when pair_details)
 //	seen spend             float32 [seen], what was spent on the pair
 //	                       (when pair_details)
+//	signal customers       uint32  [signals]                (when signals)
+//	signal items           uint32  [signals]                (when signals)
+//	signal days            uint32  [signals], days since 1970-01-01
+//	signal kinds           uint32  [signals], 0 returned, 1 lost quote,
+//	                       2 open quote                     (when signals)
 //
 // An artifact comes from the worker's model store, so it is parsed as input
 // that may be wrong: every count is checked against the bytes that back it
@@ -141,6 +147,10 @@ type header struct {
 	// details has neither.
 	NewDays     int  `json:"new_days"`
 	PairDetails bool `json:"pair_details"`
+	// Signals is how many signals of returns and quotes follow the seen
+	// spend, ascending by customer, item and kind; 0 for a model trained
+	// without returns or quotes, or before them.
+	Signals int64 `json:"signals"`
 }
 
 // SalesmanInfo is a salesman's capacity as the salesmen table gave it; a nil
@@ -214,6 +224,10 @@ type scenarioData struct {
 	// NewDays and PairDetails); 0 and nil without them.
 	newDays            int
 	seenQty, seenSpend []float32
+
+	// signals are what returns and quotes say of a customer and product
+	// (header Signals), ascending; nil without them.
+	signals []pairSignal
 }
 
 // Algorithm is the algorithm that trained the model.

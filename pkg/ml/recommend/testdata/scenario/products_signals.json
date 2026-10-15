@@ -1,0 +1,2871 @@
+[
+ {
+  "today": "2026-09-30",
+  "customer": "K00",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "I1",
+    "score": 0.7945464253425598,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 16 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 1",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M1",
+    "score": 0.25311726331710815,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 1",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M2",
+    "score": 0.22761310636997223,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 2",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M3",
+    "score": 0.2248976230621338,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 3",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I5",
+    "score": 0.2107679545879364,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 5",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M4",
+    "score": 0.19724825024604797,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 4",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-09-30",
+  "customer": "K03",
+  "k": 5,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "I5",
+    "score": 0.7249118089675903,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "substitute",
+      "text": "Instead of Indomie 4 (out of stock)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 5",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I2",
+    "score": 0.6416025757789612,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 10 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 2",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M1",
+    "score": 0.3234264850616455,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 1",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M2",
+    "score": 0.29049959778785706,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 2",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M3",
+    "score": 0.2903519570827484,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 3",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-09-30",
+  "customer": "K11",
+  "k": 10,
+  "exclude_seen": false,
+  "items": [
+   {
+    "id": "W1",
+    "score": 0.6982248425483704,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 20 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Aqua 1",
+     "category": "drinks",
+     "subcategory": "Water",
+     "brand": "Aqua",
+     "unit": "box",
+     "pack_size": 12.0,
+     "suggested_qty": 1,
+     "suggested_text": "1 box (12 pcs)"
+    }
+   },
+   {
+    "id": "W2",
+    "score": 0.6982248425483704,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 20 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Aqua 2",
+     "category": "drinks",
+     "subcategory": "Water",
+     "brand": "Aqua",
+     "unit": "box",
+     "pack_size": 12.0,
+     "suggested_qty": 1,
+     "suggested_text": "1 box (12 pcs)"
+    }
+   },
+   {
+    "id": "W3",
+    "score": 0.6982248425483704,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 20 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Aqua 3",
+     "category": "drinks",
+     "subcategory": "Water",
+     "brand": "Aqua",
+     "unit": "box",
+     "pack_size": 12.0,
+     "suggested_qty": 1,
+     "suggested_text": "1 box (12 pcs)"
+    }
+   },
+   {
+    "id": "W4",
+    "score": 0.6982248425483704,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 20 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Aqua 4",
+     "category": "drinks",
+     "subcategory": "Water",
+     "brand": "Aqua",
+     "unit": "box",
+     "pack_size": 12.0,
+     "suggested_qty": 1,
+     "suggested_text": "1 box (12 pcs)"
+    }
+   },
+   {
+    "id": "I1",
+    "score": 0.6704297661781311,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 15 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 1",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0,
+     "suggested_qty": 3,
+     "suggested_text": "3 cartons (100 pcs)"
+    }
+   },
+   {
+    "id": "I3",
+    "score": 0.629500150680542,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 13 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 3",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0,
+     "suggested_qty": 3,
+     "suggested_text": "3 cartons (100 pcs)"
+    }
+   },
+   {
+    "id": "I5",
+    "score": 0.6248224973678589,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "substitute",
+      "text": "Instead of Indomie 4 (out of stock)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 5",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I6",
+    "score": 0.5795993208885193,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 6",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I2",
+    "score": 0.5706083178520203,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 10 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 2",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M1",
+    "score": 0.27917975187301636,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 1",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-09-30",
+  "customer": "K00",
+  "k": 20,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "I1",
+    "score": 0.7945464253425598,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 16 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 1",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M1",
+    "score": 0.25311726331710815,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 1",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M2",
+    "score": 0.22761310636997223,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 2",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M3",
+    "score": 0.2248976230621338,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 3",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I5",
+    "score": 0.2107679545879364,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 5",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M4",
+    "score": 0.19724825024604797,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 4",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-09-30",
+  "customer": "K05",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "I3",
+    "score": 0.7710059285163879,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 14 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 3",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I5",
+    "score": 0.6782976984977722,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "substitute",
+      "text": "Instead of Indomie 4 (out of stock)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 5",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I6",
+    "score": 0.5880671143531799,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 6",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M3",
+    "score": 0.4120604395866394,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "quoted",
+      "text": "Quoted on 2026-09-20, not ordered yet"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 3",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M1",
+    "score": 0.34674516320228577,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 1",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M2",
+    "score": 0.31135642528533936,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 2",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M4",
+    "score": 0.27369511127471924,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 4",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-09-30",
+  "customer": "K07",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "I1",
+    "score": 0.7940828204154968,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 16 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 1",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I5",
+    "score": 0.6499221920967102,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "substitute",
+      "text": "Instead of Indomie 4 (out of stock)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 5",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I6",
+    "score": 0.5880373120307922,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 6",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M1",
+    "score": 0.3193914592266083,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 1",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M2",
+    "score": 0.28689056634902954,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 2",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M3",
+    "score": 0.28659555315971375,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 3",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M4",
+    "score": 0.2513609230518341,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 4",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-09-30",
+  "customer": "K02",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "I2",
+    "score": 0.7253560423851013,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 10 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 2",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M1",
+    "score": 0.34695693850517273,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 1",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M3",
+    "score": 0.3122576177120209,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 3",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M2",
+    "score": 0.31154587864875793,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 2",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M4",
+    "score": 0.27386802434921265,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 4",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I5",
+    "score": 0.2350376397371292,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 5",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-09-30",
+  "customer": "K05",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "I3",
+    "score": 0.7710059285163879,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 14 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 3",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I5",
+    "score": 0.6782976984977722,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "substitute",
+      "text": "Instead of Indomie 4 (out of stock)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 5",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I6",
+    "score": 0.5880671143531799,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 6",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M3",
+    "score": 0.4120604395866394,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "quoted",
+      "text": "Quoted on 2026-09-20, not ordered yet"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 3",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M1",
+    "score": 0.34674516320228577,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 1",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M2",
+    "score": 0.31135642528533936,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 2",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M4",
+    "score": 0.27369511127471924,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 4",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-09-30",
+  "customer": "K06",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "I3",
+    "score": 0.7712885737419128,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 14 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 3",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I6",
+    "score": 0.5835908651351929,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 6",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M4",
+    "score": 0.32798945903778076,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "quoted",
+      "text": "Quoted on 2026-09-25, not ordered yet"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 4",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M1",
+    "score": 0.2907674014568329,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 1",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M2",
+    "score": 0.26128843426704407,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 2",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M3",
+    "score": 0.2599480152130127,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 3",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I5",
+    "score": 0.22030825912952423,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 5",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-09-30",
+  "customer": "K07",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "I1",
+    "score": 0.7940828204154968,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 16 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 1",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I5",
+    "score": 0.6499221920967102,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "substitute",
+      "text": "Instead of Indomie 4 (out of stock)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 5",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I6",
+    "score": 0.5880373120307922,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 6",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M1",
+    "score": 0.3193914592266083,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 1",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M2",
+    "score": 0.28689056634902954,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 2",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M3",
+    "score": 0.28659555315971375,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 3",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M4",
+    "score": 0.2513609230518341,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 4",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-09-30",
+  "customer": "K10",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "I2",
+    "score": 0.725327730178833,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 10 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 2",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I6",
+    "score": 0.7008061408996582,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 6",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M3",
+    "score": 0.32762688398361206,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 3",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M2",
+    "score": 0.32631218433380127,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 2",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M4",
+    "score": 0.2873477637767792,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 4",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I5",
+    "score": 0.23927199840545654,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 5",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-09-30",
+  "customer": "K12",
+  "k": 100,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "I2",
+    "score": 0.7254180312156677,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 10 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (97% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 2",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I6",
+    "score": 0.7009868025779724,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (97% of spend)"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 6",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M1",
+    "score": 0.36346617341041565,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 1",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M3",
+    "score": 0.32762688398361206,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 3",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M2",
+    "score": 0.32631218433380127,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 2",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M4",
+    "score": 0.2873477637767792,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 4",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I5",
+    "score": 0.23936232924461365,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (97% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 5",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-09-30",
+  "customer": "K05",
+  "k": 100,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "I3",
+    "score": 0.7710059285163879,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 14 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 3",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I5",
+    "score": 0.6782976984977722,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "substitute",
+      "text": "Instead of Indomie 4 (out of stock)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 5",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I6",
+    "score": 0.5880671143531799,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 6",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M3",
+    "score": 0.4120604395866394,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "quoted",
+      "text": "Quoted on 2026-09-20, not ordered yet"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 3",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M1",
+    "score": 0.34674516320228577,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 1",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M2",
+    "score": 0.31135642528533936,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 2",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M4",
+    "score": 0.27369511127471924,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 4",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-09-30",
+  "customer": "K10",
+  "k": 100,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "I2",
+    "score": 0.725327730178833,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 10 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 2",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I6",
+    "score": 0.7008061408996582,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 6",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M3",
+    "score": 0.32762688398361206,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 3",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M2",
+    "score": 0.32631218433380127,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 2",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M4",
+    "score": 0.2873477637767792,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 4",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I5",
+    "score": 0.23927199840545654,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 5",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-09-30",
+  "customer": "K02",
+  "k": 16,
+  "exclude_seen": false,
+  "items": [
+   {
+    "id": "W1",
+    "score": 0.6977208852767944,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 20 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Aqua 1",
+     "category": "drinks",
+     "subcategory": "Water",
+     "brand": "Aqua",
+     "unit": "box",
+     "pack_size": 12.0,
+     "suggested_qty": 1,
+     "suggested_text": "1 box (12 pcs)"
+    }
+   },
+   {
+    "id": "W2",
+    "score": 0.6977208852767944,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 20 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Aqua 2",
+     "category": "drinks",
+     "subcategory": "Water",
+     "brand": "Aqua",
+     "unit": "box",
+     "pack_size": 12.0,
+     "suggested_qty": 1,
+     "suggested_text": "1 box (12 pcs)"
+    }
+   },
+   {
+    "id": "W3",
+    "score": 0.6977208852767944,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 20 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Aqua 3",
+     "category": "drinks",
+     "subcategory": "Water",
+     "brand": "Aqua",
+     "unit": "box",
+     "pack_size": 12.0,
+     "suggested_qty": 1,
+     "suggested_text": "1 box (12 pcs)"
+    }
+   },
+   {
+    "id": "W4",
+    "score": 0.6977208852767944,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 20 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Aqua 4",
+     "category": "drinks",
+     "subcategory": "Water",
+     "brand": "Aqua",
+     "unit": "box",
+     "pack_size": 12.0,
+     "suggested_qty": 1,
+     "suggested_text": "1 box (12 pcs)"
+    }
+   },
+   {
+    "id": "I3",
+    "score": 0.6871678829193115,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 13 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 3",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0,
+     "suggested_qty": 3,
+     "suggested_text": "3 cartons (100 pcs)"
+    }
+   },
+   {
+    "id": "I5",
+    "score": 0.5842019319534302,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "substitute",
+      "text": "Instead of Indomie 4 (out of stock)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 5",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I2",
+    "score": 0.5724551677703857,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 10 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 2",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I6",
+    "score": 0.5595507025718689,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 6",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0,
+     "suggested_qty": 1,
+     "suggested_text": "1 carton (40 pcs)"
+    }
+   },
+   {
+    "id": "M1",
+    "score": 0.23583775758743286,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 1",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M2",
+    "score": 0.21215784549713135,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 2",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M3",
+    "score": 0.20881126821041107,
+    "rank": 11,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 3",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M4",
+    "score": 0.1831395924091339,
+    "rank": 12,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 4",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-09-30",
+  "customer": "K07",
+  "k": 16,
+  "exclude_seen": false,
+  "items": [
+   {
+    "id": "I1",
+    "score": 0.7467862367630005,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 16 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 1",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "W1",
+    "score": 0.6982248425483704,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 20 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Aqua 1",
+     "category": "drinks",
+     "subcategory": "Water",
+     "brand": "Aqua",
+     "unit": "box",
+     "pack_size": 12.0,
+     "suggested_qty": 1,
+     "suggested_text": "1 box (12 pcs)"
+    }
+   },
+   {
+    "id": "W2",
+    "score": 0.6982248425483704,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 20 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Aqua 2",
+     "category": "drinks",
+     "subcategory": "Water",
+     "brand": "Aqua",
+     "unit": "box",
+     "pack_size": 12.0,
+     "suggested_qty": 1,
+     "suggested_text": "1 box (12 pcs)"
+    }
+   },
+   {
+    "id": "W3",
+    "score": 0.6982248425483704,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 20 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Aqua 3",
+     "category": "drinks",
+     "subcategory": "Water",
+     "brand": "Aqua",
+     "unit": "box",
+     "pack_size": 12.0,
+     "suggested_qty": 1,
+     "suggested_text": "1 box (12 pcs)"
+    }
+   },
+   {
+    "id": "W4",
+    "score": 0.6982248425483704,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 20 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Aqua 4",
+     "category": "drinks",
+     "subcategory": "Water",
+     "brand": "Aqua",
+     "unit": "box",
+     "pack_size": 12.0,
+     "suggested_qty": 1,
+     "suggested_text": "1 box (12 pcs)"
+    }
+   },
+   {
+    "id": "I5",
+    "score": 0.6103041768074036,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "substitute",
+      "text": "Instead of Indomie 4 (out of stock)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 5",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I3",
+    "score": 0.602999210357666,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 13 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 3",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0,
+     "suggested_qty": 3,
+     "suggested_text": "3 cartons (100 pcs)"
+    }
+   },
+   {
+    "id": "I6",
+    "score": 0.562825620174408,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 6",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I2",
+    "score": 0.5155113935470581,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 9 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 2",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0,
+     "suggested_qty": 3,
+     "suggested_text": "3 cartons (100 pcs)"
+    }
+   },
+   {
+    "id": "M1",
+    "score": 0.2878439426422119,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 1",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M2",
+    "score": 0.25867360830307007,
+    "rank": 11,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 2",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M3",
+    "score": 0.2572264075279236,
+    "rank": 12,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 3",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M4",
+    "score": 0.22560247778892517,
+    "rank": 13,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 4",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-09-30",
+  "customer": "K10",
+  "k": 16,
+  "exclude_seen": false,
+  "items": [
+   {
+    "id": "W1",
+    "score": 0.6977491974830627,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 20 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Aqua 1",
+     "category": "drinks",
+     "subcategory": "Water",
+     "brand": "Aqua",
+     "unit": "box",
+     "pack_size": 12.0,
+     "suggested_qty": 1,
+     "suggested_text": "1 box (12 pcs)"
+    }
+   },
+   {
+    "id": "W2",
+    "score": 0.6977491974830627,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 20 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Aqua 2",
+     "category": "drinks",
+     "subcategory": "Water",
+     "brand": "Aqua",
+     "unit": "box",
+     "pack_size": 12.0,
+     "suggested_qty": 1,
+     "suggested_text": "1 box (12 pcs)"
+    }
+   },
+   {
+    "id": "W3",
+    "score": 0.6977491974830627,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 20 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Aqua 3",
+     "category": "drinks",
+     "subcategory": "Water",
+     "brand": "Aqua",
+     "unit": "box",
+     "pack_size": 12.0,
+     "suggested_qty": 1,
+     "suggested_text": "1 box (12 pcs)"
+    }
+   },
+   {
+    "id": "W4",
+    "score": 0.6977491974830627,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 20 of 20 similar customers"
+     }
+    ],
+    "fields": {
+     "name": "Aqua 4",
+     "category": "drinks",
+     "subcategory": "Water",
+     "brand": "Aqua",
+     "unit": "box",
+     "pack_size": 12.0,
+     "suggested_qty": 1,
+     "suggested_text": "1 box (12 pcs)"
+    }
+   },
+   {
+    "id": "I1",
+    "score": 0.6957126259803772,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 15 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 1",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0,
+     "suggested_qty": 3,
+     "suggested_text": "3 cartons (100 pcs)"
+    }
+   },
+   {
+    "id": "I3",
+    "score": 0.6609388589859009,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 13 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 3",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0,
+     "suggested_qty": 3,
+     "suggested_text": "3 cartons (100 pcs)"
+    }
+   },
+   {
+    "id": "I6",
+    "score": 0.5862994194030762,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     },
+     {
+      "code": "new_product",
+      "text": "New, launched 2026-09-10"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 6",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I2",
+    "score": 0.5776393413543701,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 10 of 20 similar customers"
+     },
+     {
+      "code": "brand",
+      "text": "Buys a lot of Indomie (96% of spend)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 2",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "I5",
+    "score": 0.5754972100257874,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "substitute",
+      "text": "Instead of Indomie 4 (out of stock)"
+     }
+    ],
+    "fields": {
+     "name": "Indomie 5",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Indomie",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M2",
+    "score": 0.22558726370334625,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 2",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M3",
+    "score": 0.22278906404972076,
+    "rank": 11,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 3",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   },
+   {
+    "id": "M4",
+    "score": 0.19539892673492432,
+    "rank": 12,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {
+     "name": "Mie Sedaap 4",
+     "category": "noodles",
+     "subcategory": "Instant noodles",
+     "brand": "Mie Sedaap",
+     "unit": "carton",
+     "pack_size": 40.0
+    }
+   }
+  ]
+ }
+]

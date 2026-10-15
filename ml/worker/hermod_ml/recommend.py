@@ -66,10 +66,18 @@ empty) for a scenario that needs no products. After popular scores come:
                              order, NaN unknown          when pair_details
     seen spend               float32 [seen], what the person spent on the
                              pair                        when pair_details
+    signal users             uint32  [signals]           when signals
+    signal items             uint32  [signals]           when signals
+    signal days              uint32  [signals], days since 1970-01-01
+                                                         when signals
+    signal kinds             uint32  [signals], 0 returned, 1 lost quote,
+                             2 open quote                when signals
 
-The last two are a model's with product details (a brand, pack size or
-launch date), whose header says "pair_details": true; an artifact without
-them is as it was before them.
+Seen quantity and spend are a model's with product details (a brand, pack
+size or launch date), whose header says "pair_details": true; the signals,
+what returns and quotes say of each person and item (scenarios._signals),
+ascending, are a model's trained with either, whose header says how many in
+"signals". An artifact without them is as it was before them.
 
 Hermod reads both formats; the worker writes format 1 for a model trained with
 the `recommend` shape and format 2 for a scenario.
@@ -346,6 +354,9 @@ class Model:
     # quantity per order (NaN unknown) and what the person spent on it.
     seen_qty: np.ndarray | None = None  # float32 [seen]
     seen_spend: np.ndarray | None = None  # float32 [seen]
+    # With returns or quotes (extra["signals"], their count): each signal's
+    # person, item, day and kind.
+    signals: np.ndarray | None = None  # uint32 [signals, 4]
 
 
 def _popular(matrix: sp.csr_matrix) -> tuple[np.ndarray, np.ndarray]:
@@ -613,6 +624,8 @@ def encode(model: Model) -> bytes:
         ]
         if model.extra.get("pair_details"):
             parts += [np.ascontiguousarray(model.seen_qty, _F32).tobytes(), np.ascontiguousarray(model.seen_spend, _F32).tobytes()]
+        if "signals" in model.extra:
+            parts.append(np.ascontiguousarray(np.asarray(model.signals, _U32).reshape(-1, 4).T).tobytes())
     return b"".join(parts)
 
 
@@ -664,6 +677,9 @@ def decode(raw: bytes) -> Model:
         if header.get("pair_details"):
             model.seen_qty = take(_F32, header["seen"])
             model.seen_spend = take(_F32, header["seen"])
+        if "signals" in header:
+            n = header["signals"]
+            model.signals = take(_U32, 4 * n).reshape(4, n).T
     if offset != len(raw):
         raise ValueError("artifact has bytes after its last section")
     return model

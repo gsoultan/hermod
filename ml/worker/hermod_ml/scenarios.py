@@ -1,16 +1,18 @@
 """Recommendation scenarios: several tables, each with a role, turned into a
 recommender for one business question.
 
-A scenario model reads up to five datasets, joined by the key columns the
+A scenario model reads up to seven datasets, joined by the key columns the
 request names (no cross-database SQL):
 
     transactions   customer*, product, date, quantity, amount   (always)
-    customers      id*, salesman, territory, segment, size, lat, lon, blocked,
-                   name
+    customers      id*, salesman, territory, segment, size, price_tier,
+                   channel, region, lat, lon, blocked, name
     products       id*, category, subcategory, brand, price, margin, pack_size,
                    unit, launch_date, end_date, stock, substitute, active, name
     visits         customer*, date*, salesman, outcome
     salesmen       id*, visits_per_day, working_days
+    returns        customer*, product*, date*, quantity
+    quotes         customer*, product*, date*, outcome, reason
 
 and answers one of five questions (`scenario`):
 
@@ -33,9 +35,11 @@ collaborative-filtering candidates of recommend.py with whitespace and margin.
 A customer's category (customers.segment) and size (customers.size: a label,
 or a number such as employees or yearly revenue, cut into small, medium and
 large at its tertiles) make its peer group: the other customers of the same
-category and size. When the data has either, products and audience add the
-share of a customer's peers who buy an item (peer_share), weighted twice for
-a customer with few orders, whom collaborative filtering knows least.
+category and size, and of the same price tier, channel and region when the
+customers table gives them (PEER_ATTRS). When the data has any, products and
+audience add the share of a customer's peers who buy an item (peer_share),
+weighted twice for a customer with few orders, whom collaborative filtering
+knows least.
 Hermod serves the model in Go (pkg/ml/recommend) with the same formulas, so
 the functions here that score are its reference.
 
@@ -48,6 +52,14 @@ product launched within new_days days is offered to the customers who buy
 its brand or subcategory; similar products share a subcategory or brand;
 and a product a customer has bought comes with a quantity to suggest, in
 whole packs.
+
+Returns and quotes are optional too (_signals). A product a customer sent
+back at least RETURN_SHARE of what it bought is not offered to it again, and
+it counts RETURNED_AUDIENCE in that product's audience. A quote lost within
+QUOTE_DAYS days keeps the product from that customer in both; a quote of
+that age neither lost nor ordered since is offered with its date, a little
+higher (QUOTE_BOOST). Won quotes are not purchases: peers and collaborative
+filtering read only the transactions.
 
 Evaluation splits on time only: the last period of history is held back
 (7 days for a visit plan unless the request says otherwise), the features
@@ -83,11 +95,13 @@ PRODUCT_SCENARIOS = ("products", "audience", "similar")
 # required whenever the role is given.
 ROLE_KEYS: dict[str, tuple[str, ...]] = {
     "transactions": ("customer", "product", "date", "quantity", "amount"),
-    "customers": ("id", "salesman", "territory", "segment", "size", "lat", "lon", "blocked", "name"),
+    "customers": ("id", "salesman", "territory", "segment", "size", "price_tier", "channel", "region", "lat", "lon", "blocked", "name"),
     "products": ("id", "category", "subcategory", "brand", "price", "margin", "pack_size", "unit", "launch_date", "end_date",
                  "stock", "substitute", "active", "name"),
     "visits": ("customer", "date", "salesman", "outcome"),
     "salesmen": ("id", "visits_per_day", "working_days", "name"),
+    "returns": ("customer", "product", "date", "quantity"),
+    "quotes": ("customer", "product", "date", "outcome", "reason"),
 }
 REQUIRED_KEYS: dict[str, tuple[str, ...]] = {
     "transactions": ("customer",),
@@ -95,23 +109,33 @@ REQUIRED_KEYS: dict[str, tuple[str, ...]] = {
     "products": ("id",),
     "visits": ("customer", "date"),
     "salesmen": ("id",),
+    "returns": ("customer", "product", "date"),
+    "quotes": ("customer", "product", "date"),
 }
 NUMBER_KEYS = {("transactions", "quantity"), ("transactions", "amount"), ("customers", "lat"), ("customers", "lon"),
                ("products", "price"), ("products", "margin"), ("products", "pack_size"), ("products", "stock"),
-               ("salesmen", "visits_per_day")}
-DATE_KEYS = {("transactions", "date"), ("visits", "date"), ("products", "launch_date"), ("products", "end_date")}
+               ("salesmen", "visits_per_day"), ("returns", "quantity")}
+DATE_KEYS = {("transactions", "date"), ("visits", "date"), ("products", "launch_date"), ("products", "end_date"), ("returns", "date"),
+             ("quotes", "date")}
 ID_KEYS = {("transactions", "customer"), ("transactions", "product"), ("customers", "id"), ("products", "id"),
-           ("visits", "customer"), ("salesmen", "id")}
+           ("visits", "customer"), ("salesmen", "id"), ("returns", "customer"), ("returns", "product"), ("quotes", "customer"),
+           ("quotes", "product")}
 
 DEFAULT_WEIGHTS = {"reorder_due": 0.35, "churn_risk": 0.2, "value": 0.2, "opportunity": 0.1, "neglect": 0.15}
 REASON_CODES = ("reorder_due", "churn_risk", "high_value", "whitespace", "not_visited", "similar_customers",
-                "peer_group", "bought_together", "popular", "boosted", "pinned", "brand", "new_product", "substitute", "same_kind")
+                "peer_group", "bought_together", "popular", "boosted", "pinned", "brand", "new_product", "substitute", "same_kind",
+                "quoted")
 
 # The features the artifact holds per customer and per item, in this order.
 CUSTOMER_FEATURES = ("first_order", "last_order", "orders", "monetary", "value_pct", "median_gap", "on_time_share",
                      "trend", "last_visit", "visits", "visit_gap", "whitespace", "whitespace_pct", "margin", "lat", "lon")
 ITEM_FEATURES = ("price", "margin", "margin_pct", "buyers", "popularity")
-CUSTOMER_ATTRS = ("salesman", "territory", "segment", "size", "blocked", "name")
+CUSTOMER_ATTRS = ("salesman", "territory", "segment", "size", "blocked", "name", "price_tier", "channel", "region")
+# What makes a customer's peer group, in the order its name says them: its
+# category and size, then its price tier, channel and region (MARKET_ATTRS),
+# each when the customers table gives it.
+MARKET_ATTRS = ("price_tier", "channel", "region")
+PEER_ATTRS = ("segment", "size", *MARKET_ATTRS)
 ITEM_ATTRS = ("category", "active", "name", "subcategory", "brand", "unit", "substitute")
 # A product's details the artifact holds as item features after ITEM_FEATURES,
 # only those the products table gives: its pack size, launch and end days
@@ -187,6 +211,21 @@ SAME_SUBCATEGORY = 0.1
 SAME_BRAND = 0.05
 SIMILAR_KIN = 20
 SIMILAR_LIST = 100
+# Returns and quotes (_signals): what the artifact keeps of each customer and
+# product, by kind. A product a customer returned at least RETURN_SHARE of
+# what it bought is RETURNED: never offered to it again, and its score in the
+# product's audience times RETURNED_AUDIENCE. A pair's latest quote within
+# QUOTE_DAYS days that no order of the pair followed is LOST, when its
+# outcome says so (LOST_OUTCOMES), and kept from the customer; otherwise it
+# is QUOTED: offered to the customer QUOTE_BOOST higher, with its date, the
+# QUOTE_CANDIDATES latest at most.
+RETURNED, LOST, QUOTED = 0, 1, 2
+RETURN_SHARE = 0.5
+RETURNED_AUDIENCE = 0.5
+QUOTE_DAYS = 90
+QUOTE_BOOST = 0.1
+QUOTE_CANDIDATES = 10
+LOST_OUTCOMES = ("lost", "lose", "loss", "rejected", "declined")
 MAX_RULES = 50
 SAMPLES = 3
 SAMPLE_ITEMS = 5
@@ -328,6 +367,8 @@ class Tables:
     products: pd.DataFrame | None = None
     visits: pd.DataFrame | None = None  # customer, day, salesman, outcome
     salesmen: pd.DataFrame | None = None  # id, visits_per_day, working_days
+    returns: pd.DataFrame | None = None  # customer, product, day, quantity
+    quotes: pd.DataFrame | None = None  # customer, product, day, lost
     # The tertiles a numeric customers.size was cut at; None for a label or none.
     size_edges: list[float] | None = None
     has_product: bool = False
@@ -609,6 +650,8 @@ def _clean(frames, req: ScenarioRequest, checks: _Checks, today: int) -> Tables 
     tables.products = _products(frames, req, checks)
     tables.visits = _visits(frames, req, checks, today)
     tables.salesmen = _salesmen(frames, req, checks)
+    tables.returns = _returns(frames, req, checks, today)
+    tables.quotes = _quotes(frames, req, checks, today)
     return tables
 
 
@@ -620,7 +663,7 @@ def _customers(frames, req, checks) -> tuple[pd.DataFrame | None, list[float] | 
     frame, types = loaded
     m = req.roles["customers"]
     out = pd.DataFrame({"id": _text_ids(frame[m["id"]])}, index=frame.index)
-    for key in ("salesman", "territory", "segment", "name"):
+    for key in ("salesman", "territory", "segment", "name", *MARKET_ATTRS):
         col = _column(frame, m, key)
         out[key] = _text_ids(col) if col is not None else None
     col = _column(frame, m, "blocked")
@@ -731,6 +774,57 @@ def _salesmen(frames, req, checks) -> pd.DataFrame | None:
             checks.add("bad_column_type", "amber", f"{unread} salesmen's working days cannot be read; they work Monday to Friday.",
                        'Write working days as "mon,tue,wed" or "mon-fri", or as a number of days from Monday.')
     out = out[out["id"].notna()].drop_duplicates("id", keep="last")
+    return out.reset_index(drop=True)
+
+
+def _optional_days(frames, req, checks, role: str) -> pd.Series | None:
+    """An optional role's dates; None, said amber, when it holds none
+    Hermod can read, so the role is left out rather than stopping training."""
+    loaded = frames.get(role)
+    if loaded is None:
+        return None
+    frame, types = loaded
+    column = req.roles[role]["date"]
+    days = _days(frame[column], types[column])
+    if days is None:
+        checks.add("bad_column_type", "amber", f"The {role} column {column!r} (the date) holds no dates Hermod can read; the {role} are left out.",
+                   "Use ISO 8601 dates such as 2026-03-31, or epoch seconds.")
+    return days
+
+
+def _returns(frames, req, checks, today: int) -> pd.DataFrame | None:
+    """The returns: who sent back how much of which product, when. A negative
+    quantity counts as returned too; a row without one counts one."""
+    day = _optional_days(frames, req, checks, "returns")
+    if day is None:
+        return None
+    frame, _ = frames["returns"]
+    m = req.roles["returns"]
+    out = pd.DataFrame({"customer": _text_ids(frame[m["customer"]]), "product": _text_ids(frame[m["product"]]), "day": day}, index=frame.index)
+    qty = _number(frames, req, checks, "returns", "quantity")
+    out["quantity"] = qty.abs().fillna(1.0) if qty is not None else 1.0
+    out = out[out["customer"].notna() & out["product"].notna() & out["day"].notna() & (out["day"] <= today + 1)]
+    return out.reset_index(drop=True)
+
+
+def lost_outcome(v: Any) -> bool:
+    """Whether a quote's outcome says it was lost (LOST_OUTCOMES, in any
+    case); anything else, or none, is not a loss."""
+    return not is_null(v) and to_text(v).strip().lower() in LOST_OUTCOMES
+
+
+def _quotes(frames, req, checks, today: int) -> pd.DataFrame | None:
+    """The quotes: which product was quoted to whom, when, and whether it was
+    lost. Their reason is read by people, not scored."""
+    day = _optional_days(frames, req, checks, "quotes")
+    if day is None:
+        return None
+    frame, _ = frames["quotes"]
+    m = req.roles["quotes"]
+    out = pd.DataFrame({"customer": _text_ids(frame[m["customer"]]), "product": _text_ids(frame[m["product"]]), "day": day}, index=frame.index)
+    col = _column(frame, m, "outcome")
+    out["lost"] = col.map(lost_outcome).astype(bool) if col is not None else False
+    out = out[out["customer"].notna() & out["product"].notna() & out["day"].notna() & (out["day"] <= today + 1)]
     return out.reset_index(drop=True)
 
 
@@ -893,7 +987,7 @@ class Built:
     near_km: float = 0.0
     near_peers: int = 0
     # Peer groups' item counts, by group (see _peer_counts).
-    groups: dict[tuple[str | None, str | None], tuple[np.ndarray, int]] = field(default_factory=dict, repr=False)
+    groups: dict[tuple[str | None, ...], tuple[np.ndarray, int]] = field(default_factory=dict, repr=False)
     # The located buying customers by latitude (see _located).
     located: tuple[np.ndarray, np.ndarray] | None = field(default=None, repr=False)
     # The item features' names: ITEM_FEATURES, then the ITEM_DETAILS the
@@ -903,9 +997,29 @@ class Built:
     item_feature_names: list[str] = field(default_factory=lambda: list(ITEM_FEATURES))
     iattrs: dict[str, list[str | None]] = field(default_factory=dict)
     new_days: int = 0
+    # Each customer's price tier, channel and region (MARKET_ATTRS), those the
+    # customers table gives; with segments and sizes they make its peer key.
+    markets: dict[str, list[str | None]] = field(default_factory=dict)
+    # Returns and quotes (_signals): uint32 [n, 4] of customer, item, day and
+    # kind, ascending; None for a model without them. signal_index is them by
+    # customer, item and kind, to its day.
+    signals: np.ndarray | None = field(default=None, repr=False)
+    signal_index: dict[int, dict[int, dict[int, int]]] = field(default_factory=dict, repr=False)
 
     def feature(self, u: int) -> dict[str, float]:
         return dict(zip(CUSTOMER_FEATURES, self.customer_features[u].tolist()))
+
+    def peer_key(self, u: int) -> tuple[str | None, ...]:
+        """Customer u's category, size, price tier, channel and region
+        (PEER_ATTRS), None where unknown."""
+        return (self.segments[u], self.sizes[u], *(self.markets[k][u] if k in self.markets else None for k in MARKET_ATTRS))
+
+    def set_signals(self, signals: np.ndarray | None) -> None:
+        self.signals = signals
+        self.signal_index = {}
+        if signals is not None:
+            for u, i, day, kind in signals.tolist():
+                self.signal_index.setdefault(u, {}).setdefault(i, {})[kind] = day
 
 
 def _interactions(tx: pd.DataFrame, users: list[str], items: list[str], user_index, item_index) -> recommend.Interactions:
@@ -1026,14 +1140,56 @@ def build(tables: Tables, users: list[str], items: list[str], today: int, algori
     global_gap = float(np.nanmedian(gaps)) if np.isfinite(gaps).any() else FALLBACK_GAP
     global_visit_gap = float(np.nanmedian(vgaps)) if np.isfinite(vgaps).any() else FALLBACK_GAP
     segments, sizes = _peer_attrs(tables, users)
+    markets = {k: v for k, v in _attrs(tables, users, items)[0].items() if k in MARKET_ATTRS}
     # Stored in float32 and scored from there, as Hermod reads them.
     b = Built(today, users, items, user_index, item_index, feats.astype(np.float32).astype(np.float64),
               item_feats.astype(np.float32).astype(np.float64), model, global_gap, global_visit_gap,
               has_visits, has_opportunity, has_margin, segments, sizes,
-              any(v is not None for v in segments + sizes))
+              any(v is not None for v in segments + sizes + [x for v in markets.values() for x in v]))
     b.item_feature_names = names
     b.iattrs = _attrs(tables, users, items)[1]
+    b.markets = markets
+    if _has_signals(tables, items):
+        b.set_signals(_signals(tables, tx, today, user_index, item_index))
     return b
+
+
+def _has_signals(tables: Tables, items: list[str]) -> bool:
+    """Whether a model keeps returns and quotes: when either table was given,
+    for a model of products."""
+    return bool(items) and (tables.returns is not None or tables.quotes is not None)
+
+
+def _signals(tables: Tables, tx: pd.DataFrame, today: int, user_index, item_index) -> np.ndarray:
+    """What returns and quotes before `today` say of each customer and
+    product the model knows, as uint32 [n, 4] of customer, item, day and
+    kind, ascending: RETURNED (its last return's day) when the customer sent
+    back at least RETURN_SHARE of what it bought of it (tx, the orders
+    before today), and its latest quote within QUOTE_DAYS days that no
+    order of the pair followed, LOST or QUOTED."""
+    out: list[tuple[int, int, int, int]] = []
+    known = lambda f: f[f["customer"].isin(user_index) & f["product"].isin(item_index) & (f["day"] < today)]  # noqa: E731
+    if tables.returns is not None:
+        returned = known(tables.returns).groupby(["customer", "product"], sort=False).agg(quantity=("quantity", "sum"), day=("day", "max"))
+        had = tx.groupby(["customer", "product"], sort=False)["quantity"].sum().to_dict()
+        for (c, p), row in zip(returned.index.tolist(), returned.itertuples(index=False)):
+            if row.quantity > 0 and row.quantity >= RETURN_SHARE * had.get((c, p), 0.0):
+                out.append((user_index[c], item_index[p], int(row.day), RETURNED))
+    if tables.quotes is not None:
+        quotes = known(tables.quotes)
+        quotes = quotes[quotes["day"] >= today - QUOTE_DAYS]
+        # A pair's latest quote; a lost one wins a tie.
+        latest = quotes.sort_values(["day", "lost"], kind="stable").groupby(["customer", "product"], sort=False).tail(1)
+        if tables.has_date:
+            last = tx.groupby(["customer", "product"], sort=False)["day"].max().to_dict()
+        else:
+            last = {k: math.inf for k in zip(tx["customer"], tx["product"])}
+        for c, p, day, lost in zip(latest["customer"], latest["product"], latest["day"], latest["lost"]):
+            if last.get((c, p), -math.inf) >= day:
+                continue
+            out.append((user_index[c], item_index[p], int(day), LOST if lost else QUOTED))
+    out.sort(key=lambda t: (t[0], t[1], t[3]))
+    return np.asarray(out, dtype=np.uint32).reshape(len(out), 4)
 
 
 def _details(tables: Tables) -> list[str]:
@@ -1099,7 +1255,7 @@ def built_from_artifact(model: recommend.Model) -> Built:
     has_opportunity = model.customer_neighbors is not None and model.customer_neighbors.shape[1] > 0
     attrs = extra.get("customer_attrs", {})
     none = [None] * len(model.users)
-    return Built(
+    b = Built(
         today=today, users=list(model.users), items=list(model.items),
         user_index={u: i for i, u in enumerate(model.users)}, item_index={p: i for i, p in enumerate(model.items)},
         customer_features=model.customer_features.astype(np.float64), item_features=model.item_features.astype(np.float64),
@@ -1108,7 +1264,10 @@ def built_from_artifact(model: recommend.Model) -> Built:
         segments=list(attrs.get("segment", none)), sizes=list(attrs.get("size", none)), has_peers=bool(extra.get("has_peers", False)),
         near_km=float(extra.get("near_km") or 0.0), near_peers=int(extra.get("near_peers") or 0),
         item_feature_names=list(extra["item_features"]), iattrs=dict(extra.get("item_attrs", {})), new_days=int(extra.get("new_days") or 0),
+        markets={k: list(attrs[k]) for k in MARKET_ATTRS if k in attrs},
     )
+    b.set_signals(model.signals)
+    return b
 
 
 # --------------------------------------------------------------------------
@@ -1300,7 +1459,12 @@ def _located(b: Built) -> tuple[np.ndarray, np.ndarray]:
     return b.located
 
 
-def _near_peers(b: Built, u: int, key: tuple[str | None, str | None]) -> list[int] | None:
+def _matches(b: Built, v: int, key: tuple[str | None, ...]) -> bool:
+    """Whether customer v is of the peer group key (None matches any)."""
+    return all(k is None or k == x for k, x in zip(key, b.peer_key(v)))
+
+
+def _near_peers(b: Built, u: int, key: tuple[str | None, ...]) -> list[int] | None:
     """Customer u's nearby peers: the near_peers nearest other buying
     customers of its group within near_km (a tie by index), when u has
     coordinates and they are at least PEER_MIN; None otherwise."""
@@ -1315,7 +1479,7 @@ def _near_peers(b: Built, u: int, key: tuple[str | None, str | None]) -> list[in
     lo, hi = np.searchsorted(lats, here[0] - span, "left"), np.searchsorted(lats, here[0] + span, "right")
     near = []
     for v in rows[lo:hi].tolist():
-        if v == u or (key[0] is not None and b.segments[v] != key[0]) or (key[1] is not None and b.sizes[v] != key[1]):
+        if v == u or not _matches(b, v, key):
             continue
         there = _coords(b, v)
         d = haversine(here[0], here[1], there[0], there[1])
@@ -1326,15 +1490,14 @@ def _near_peers(b: Built, u: int, key: tuple[str | None, str | None]) -> list[in
     return picked if len(picked) >= PEER_MIN else None
 
 
-def _peer_counts(b: Built, key: tuple[str | None, str | None]) -> tuple[np.ndarray, int]:
-    """Of the customers matching key (a category, a size or both; None
-    matches any) who have bought anything: how many buy each item, and how
-    many they are."""
+def _peer_counts(b: Built, key: tuple[str | None, ...]) -> tuple[np.ndarray, int]:
+    """Of the customers matching key (a category, size, price tier, channel
+    and region; None matches any) who have bought anything: how many buy
+    each item, and how many they are."""
     got = b.groups.get(key)
     if got is None:
         seen = b.model.seen
-        rows = [v for v in range(len(b.users)) if seen.indptr[v + 1] > seen.indptr[v]
-                and (key[0] is None or b.segments[v] == key[0]) and (key[1] is None or b.sizes[v] == key[1])]
+        rows = [v for v in range(len(b.users)) if seen.indptr[v + 1] > seen.indptr[v] and _matches(b, v, key)]
         indices = np.concatenate([seen.indices[seen.indptr[v] : seen.indptr[v + 1]] for v in rows]) if rows else np.empty(0, np.int64)
         got = (np.bincount(indices, minlength=len(b.items)).astype(np.int64), len(rows))
         b.groups[key] = got
@@ -1342,22 +1505,22 @@ def _peer_counts(b: Built, key: tuple[str | None, str | None]) -> tuple[np.ndarr
 
 
 def peer_group(b: Built, u: int) -> Peers | None:
-    """Customer u's peers: the other customers of its category and size (of
-    either, when it has only one), when the model has categories or sizes
-    and at least PEER_MIN of them have bought anything; None otherwise. When
+    """Customer u's peers: the other customers of its category, size, price
+    tier, channel and region (of those it has), when the model has any and
+    at least PEER_MIN of them have bought anything; None otherwise. When
     enough of them are near u (_near_peers), only those."""
     if not b.has_peers:
         return None
-    seg, size = b.segments[u], b.sizes[u]
-    if seg is None and size is None:
+    key = b.peer_key(u)
+    if all(k is None for k in key):
         return None
-    label = " · ".join(p for p in (seg, size) if p is not None)
-    near = _near_peers(b, u, (seg, size))
+    label = " · ".join(p for p in key if p is not None)
+    near = _near_peers(b, u, key)
     if near is not None:
         seen = b.model.seen
         indices = np.concatenate([seen.indices[seen.indptr[v] : seen.indptr[v + 1]] for v in near])
         return Peers(np.bincount(indices, minlength=len(b.items)).astype(np.int64), len(near), label, b.near_km)
-    counts, buyers = _peer_counts(b, (seg, size))
+    counts, buyers = _peer_counts(b, key)
     seen = b.model.seen
     mine = seen.indices[seen.indptr[u] : seen.indptr[u + 1]]
     of = buyers - (1 if len(mine) else 0)
@@ -1579,6 +1742,45 @@ def suggestion(b: Built, u: int, i: int) -> dict[str, Any]:
     return {"suggested_qty": need, "suggested_text": f"{need} {unit or 'pcs'}"}
 
 
+# --------------------------------------------------------------------------
+# Returns and quotes
+# --------------------------------------------------------------------------
+
+
+def returned(b: Built, u: int, i: int) -> bool:
+    """Whether customer u sent back at least RETURN_SHARE of item i."""
+    return RETURNED in b.signal_index.get(u, {}).get(i, {})
+
+
+def quote(b: Built, u: int, i: int) -> tuple[int, int] | None:
+    """Customer u's quote of item i, (kind, day): LOST or QUOTED within
+    QUOTE_DAYS days before today; None for none."""
+    kinds = b.signal_index.get(u, {}).get(i, {})
+    for kind in (LOST, QUOTED):
+        day = kinds.get(kind)
+        if day is not None and 0 <= b.today - day < QUOTE_DAYS:
+            return kind, day
+    return None
+
+
+def held_back(b: Built, u: int) -> set[int]:
+    """The items never offered to customer u: those it returned, and those
+    of a quote it lost."""
+    return {i for i in b.signal_index.get(u, {}) if returned(b, u, i) or (q := quote(b, u, i)) is not None and q[0] == LOST}
+
+
+def quote_reason(day: int) -> dict[str, str]:
+    return {"code": "quoted", "text": f"Quoted on {day_text(day)}, not ordered yet"}
+
+
+def _quote_candidates(b: Built, u: int, taken: set[int]) -> list[tuple[int, float, str]]:
+    """Customer u's open quotes (QUOTED) not taken, latest first;
+    QUOTE_CANDIDATES at most."""
+    open_ = [(q[1], i) for i in b.signal_index.get(u, {}) if i not in taken and (q := quote(b, u, i)) is not None and q[0] == QUOTED]
+    open_.sort(key=lambda t: (-t[0], t[1]))
+    return [(i, 0.0, "quoted") for _, i in open_[:QUOTE_CANDIDATES]]
+
+
 def product_scores(b: Built, u: int, k: int, exclude_seen: bool = True) -> list[tuple[int, float, list[dict[str, str]]]]:
     """A customer's top k products: CANDIDATES collaborative-filtering
     candidates (topped up with popular ones, then with its peers' most
@@ -1586,7 +1788,9 @@ def product_scores(b: Built, u: int, k: int, exclude_seen: bool = True) -> list[
     by PRODUCT_WEIGHTS of the candidate's score (as a share of the best),
     whitespace share, margin percentile, peer share, the customer's share of
     spend on the product's brand, and for a new product how much of its kind
-    the customer buys. What cannot be offered gives way to its substitute
+    the customer buys. An open quote adds QUOTE_BOOST, and is a candidate
+    too; what the customer returned or lost a quote of is left out (and is
+    no substitute). What cannot be offered gives way to its substitute
     (offerable)."""
     model = b.model
     picks = recommend.recommend_user(model, u, CANDIDATES, exclude_seen)
@@ -1612,6 +1816,8 @@ def product_scores(b: Built, u: int, k: int, exclude_seen: bool = True) -> list[
         picks += _brand_candidates(b, brands, taken)
     if "new" in weights:
         picks += _new_candidates(b, brands, groups, taken)
+    if b.signals is not None:
+        picks += _quote_candidates(b, u, taken | {i for i, _, _ in picks})
     total = sum(weights.values())
     margin_col = ITEM_FEATURES.index("margin_pct")
     scored = []
@@ -1627,6 +1833,9 @@ def product_scores(b: Built, u: int, k: int, exclude_seen: bool = True) -> list[
         fit = _fit(b, i, brands, groups) if launch is not None else 0.0
         score = (weights["cf"] * cf + weights.get("whitespace", 0) * share + weights.get("margin", 0) * mp
                  + weights.get("peers", 0) * ps + weights.get("brand", 0) * bs + weights.get("new", 0) * fit) / total
+        quoted = quote(b, u, i) if b.signals is not None else None
+        if quoted is not None and quoted[0] == QUOTED:
+            score += QUOTE_BOOST
         reasons = []
         if have and share >= 0.2:
             reasons.append({"code": "similar_customers", "text": f"Bought by {have} of {of} similar customers"})
@@ -1636,6 +1845,8 @@ def product_scores(b: Built, u: int, k: int, exclude_seen: bool = True) -> list[
             reasons.append(brand_reason(brand, bs))
         if fit > 0:
             reasons.append(new_reason(launch))
+        if quoted is not None and quoted[0] == QUOTED:
+            reasons.append(quote_reason(quoted[1]))
         if reason == "popular":
             reasons.append({"code": "popular", "text": "One of the most popular products"})
         elif not reasons:
@@ -1643,7 +1854,10 @@ def product_scores(b: Built, u: int, k: int, exclude_seen: bool = True) -> list[
         scored.append((i, float(np.float32(score)), reasons))
     # Stable: a tie keeps the candidates' order, so popular fill stays most popular first.
     scored.sort(key=lambda t: -t[1])
-    return offerable(b, scored, set(mine.tolist()) if exclude_seen else set())[:k]
+    kept = held_back(b, u)
+    if kept:
+        scored = [t for t in scored if t[0] not in kept]
+    return offerable(b, scored, (set(mine.tolist()) if exclude_seen else set()) | kept)[:k]
 
 
 def similar_scores(b: Built, i: int, k: int) -> list[tuple[int, float, list[dict[str, str]]]]:
@@ -1703,7 +1917,8 @@ def audience_scores(b: Built, item: int, k: int, exclude_seen: bool = True) -> l
     the share of its similar customers who have it and the share of its
     peers who do; for a new product (launched), AUDIENCE_NEW of how much of
     its kind the customer buys. A product that cannot be offered has no
-    audience."""
+    audience; a customer who lost a quote of it is not in it, and one who
+    returned it counts RETURNED_AUDIENCE."""
     model = b.model
     n = len(b.users)
     if unavailable(b, item) is not None:
@@ -1729,6 +1944,8 @@ def audience_scores(b: Built, item: int, k: int, exclude_seen: bool = True) -> l
         has = item in seen.indices[seen.indptr[u] : seen.indptr[u + 1]]
         if exclude_seen and has:
             continue
+        if b.signals is not None and (q := quote(b, u, item)) is not None and q[0] == LOST:
+            continue
         share, have, of = whitespace_share(model, u, item)
         c = cf[u] / best if best > 0 and cf[u] > 0 else 0.0
         peers = peer_group(b, u)
@@ -1739,6 +1956,8 @@ def audience_scores(b: Built, item: int, k: int, exclude_seen: bool = True) -> l
             w["new"] = AUDIENCE_NEW
             fit = _fit(b, item, spend_shares(b, u, "brand"), spend_shares(b, u, group_key(b)))
         score = (w["cf"] * c + w.get("whitespace", 0) * share + w.get("peers", 0) * ps + w.get("new", 0) * fit) / sum(w.values())
+        if b.signals is not None and returned(b, u, item):
+            score *= RETURNED_AUDIENCE
         if score <= 0:
             continue
         reasons = []
@@ -1880,8 +2099,10 @@ def evaluate_products(tables: Tables, req: ScenarioRequest, users: list[str], it
     metrics = recommend._metrics(lists, truth_list, len(items))
     base = recommend._metrics(baseline, truth_list, len(items))
     if b.has_peers:
-        evaluation["peer_groups"] = len({k for k in zip(b.segments, b.sizes) if k != (None, None)})
+        evaluation["peer_groups"] = len({k for k in map(b.peer_key, range(len(users))) if any(v is not None for v in k)})
         evaluation["nearby_customers"] = sum(1 for u in users_eval if (p := peer_group(b, u)) is not None and p.within is not None)
+    if tables.returns is not None and b.signals is not None:
+        evaluation["returns"] = int((b.signals[:, 3] == RETURNED).sum())
     result = {"metrics": metrics, "baseline": base, "baselines_named": [{"name": "popular", "metrics": base}], "evaluation": evaluation}
     return result, algorithm, candidates
 
@@ -1930,7 +2151,7 @@ def evaluate_reorder(tables: Tables, req: ScenarioRequest, users: list[str], as_
 
 def _customer_fields(b: Built, attrs: dict[str, list[Any]], u: int) -> dict[str, Any]:
     out: dict[str, Any] = {}
-    for key in ("name", "territory", "segment", "size", "salesman"):
+    for key in ("name", "territory", "segment", "size", "salesman", *MARKET_ATTRS):
         value = attrs.get(key, [None] * len(b.users))[u]
         if value is not None:
             out[key] = value
@@ -2155,6 +2376,10 @@ def train(load, req: ScenarioRequest, name: str) -> tuple[bytes, dict[str, Any]]
         model.extra["new_days"] = final.new_days
     if model.seen_spend is not None:
         model.extra["pair_details"] = True
+    # Likewise returns and quotes.
+    if final.signals is not None:
+        model.signals = final.signals
+        model.extra["signals"] = int(len(final.signals))
     artifact = recommend.encode(model)
     if len(artifact) > recommend.MAX_ARTIFACT_BYTES:
         raise bad_request(
@@ -2186,6 +2411,10 @@ def train(load, req: ScenarioRequest, name: str) -> tuple[bytes, dict[str, Any]]
         "rows": {"train": int(len(tx)), "test": 0},
         "catalog": {"users": len(users), "items": len(items)},
         "samples": samples(req, final, cattrs, iattrs),
+        # The training's settings, so training it again starts from them.
+        "near_km": req.near_km,
+        "near_peers": req.near_peers,
+        "new_days": req.new_days,
     }
     if candidates:
         meta["candidates"] = {k: float(v) for k, v in candidates.items()}

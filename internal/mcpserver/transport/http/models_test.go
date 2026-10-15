@@ -429,3 +429,37 @@ func TestARecommendToolsBrandAndStockReachTheModel(t *testing.T) {
 		t.Errorf("%s is out of stock and still recommended", ids[0])
 	}
 }
+
+// A recommend tool's price tier, channel and region reach the model, and
+// the customers it lists carry them.
+func TestARecommendToolsPriceTierChannelAndRegionReachTheModel(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "pkg", "ml", "recommend", "testdata", "scenario", "audience_market.rec"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/who/versions/1/model.rec") {
+			_, _ = w.Write(raw)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	st := &modelStore{store: &store{}, models: map[string]storage.MLModel{
+		"a/who": {VHost: "a", Name: "who", Backend: storage.MLBackendWorker, RemoteVersion: "1", Task: storage.MLTaskRecommendation},
+	}}
+	svc := ml.NewService(func() any { return st }, nil, nil).WithWorker(worker.New(srv.URL, "", nil))
+	got, err := models{svc: svc}.RecommendScenario(t.Context(), "a", "who", mcpserver.RecommendArgs{
+		For: &mcpserver.ScenarioFor{Product: "S1", PriceTier: "Silver", Channel: "Office", Region: "S"}, K: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Results) != 1 || len(got.Results[0].Items) == 0 {
+		t.Fatalf("results %+v", got.Results)
+	}
+	for _, p := range got.Results[0].Items {
+		if p.Fields["price_tier"] != "Silver" || p.Fields["channel"] != "Office" || p.Fields["region"] != "S" {
+			t.Errorf("%s: fields %v", p.ID, p.Fields)
+		}
+	}
+}

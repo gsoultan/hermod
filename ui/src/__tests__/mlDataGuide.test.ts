@@ -9,7 +9,9 @@ import {
   GUIDE_KINDS, LIMITS, checklistBlocker, dataGuide, guideMarkdown, guideTemplates, missingMappings, predictChecklist,
   recommendChecklist, scenarioChecklist, DOC_BLOCKS, type GuideKind,
 } from '@/lib/mlDataGuide'
-import { NEAR_KM, NEAR_PEERS, SCENARIOS, nearbyApplies, scenarioRoles, type RecommendCheck, type Scenario } from '@/lib/mlRecommend'
+import {
+  NEAR_KM, NEAR_PEERS, NEW_DAYS, ROLES, SCENARIOS, nearbyApplies, newDaysApplies, scenarioRoles, type RecommendCheck, type Scenario,
+} from '@/lib/mlRecommend'
 import type { TrainCheck } from '@/lib/mlModels'
 
 /**
@@ -219,6 +221,66 @@ describe('product details', () => {
     expect(o['products.launch_date']?.why).toContain(`${constant(src, 'NEW_DAYS')} days`)
     expect(o['products.brand']?.why).toContain(`${Math.round(Number(src.match(/^BRAND_REASON = ([\d.]+)/m)?.[1]) * 100)}%`)
     for (const d of details) expect(o[`products.${d}`]?.why, d).toMatch(/Needs|needs|Works|works/)
+  })
+})
+
+describe('price tier, channel and region', () => {
+  const optional = (s: Scenario) => Object.fromEntries(dataGuide(s).optional.map((c) => [c.key, c]))
+  const market = ['price_tier', 'channel', 'region']
+
+  it('are the worker\'s customer columns', () => {
+    const src = read('ml/worker/hermod_ml/scenarios.py')
+    const keys = src.match(/"customers": \(([^)]*)\)/)?.[1].match(/"(\w+)"/g)?.map((k) => k.slice(1, -1))
+    expect(ROLES.customers.columns.map((c) => c.key)).toEqual(keys!.filter((k) => k !== 'name'))
+  })
+
+  it('make peers in products and audience, and filter every list of customers', () => {
+    for (const s of ['products', 'audience'] as const) {
+      for (const m of market) expect(optional(s)[`customers.${m}`]?.why, `${s} ${m}`).toMatch(/peers/)
+    }
+    for (const s of ['visits', 'reorder'] as const) {
+      for (const m of market) expect(optional(s)[`customers.${m}`]?.why, `${s} ${m}`).toMatch(/filter/i)
+    }
+    expect(optional('similar')['customers.price_tier']).toBeUndefined()
+    expect(nearbyApplies('products', { customers: { dataset: 'c', id: 'id', channel: 'ch', lat: 'la', lon: 'lo' } })).toBe(true)
+  })
+})
+
+describe('returns and quotes', () => {
+  const optional = (s: Scenario) => Object.fromEntries(dataGuide(s).optional.map((c) => [c.key, c]))
+  const src = read('ml/worker/hermod_ml/scenarios.py')
+  const keys = (role: string) => src.match(new RegExp(`"${role}": \\(([^)]*)\\)`))?.[1].match(/"(\w+)"/g)?.map((k) => k.slice(1, -1))
+
+  it('are the worker\'s roles and columns, the required ones its required ones', () => {
+    expect(ROLES.returns.columns.map((c) => c.key)).toEqual(keys('returns'))
+    expect(ROLES.quotes.columns.map((c) => c.key)).toEqual(keys('quotes'))
+    const required = src.match(/^REQUIRED_KEYS[^=]*= \{([\s\S]*?)^\}/m)?.[1] ?? ''
+    for (const role of ['returns', 'quotes'] as const) {
+      const want = required.match(new RegExp(`"${role}": \\(([^)]*)\\)`))?.[1].match(/"(\w+)"/g)?.map((k) => k.slice(1, -1))
+      expect(scenarioRoles('products').find((r) => r.role === role)!.columns.filter((c) => c.required).map((c) => c.key)).toEqual(want)
+    }
+  })
+
+  it('are optional tables of products and audience, with the worker\'s share and window', () => {
+    const share = `${Math.round(Number(src.match(/^RETURN_SHARE = ([\d.]+)/m)?.[1]) * 100)}%`
+    const days = `${constant(src, 'QUOTE_DAYS')} days`
+    for (const s of ['products', 'audience'] as const) {
+      const o = optional(s)
+      expect(o.returns?.why, s).toBeTruthy()
+      expect(o.quotes?.why, s).toBeTruthy()
+      expect(o['returns.quantity']?.why, s).toContain(share)
+      expect(o['quotes.outcome']?.why, s).toContain(days)
+      expect(dataGuide(s).required.map((c) => c.key), s).not.toContain('returns.customer')
+    }
+    expect(optional('products')['quotes.date']?.why).toMatch(/Quoted on/)
+    expect(optional('reorder').returns).toBeUndefined()
+  })
+
+  it('the new-product window is asked within the worker\'s bounds', () => {
+    expect(NEW_DAYS.default).toBe(constant(src, 'NEW_DAYS'))
+    expect([NEW_DAYS.min, NEW_DAYS.max]).toEqual(src.match(/^NEW_DAYS_BOUNDS = \((\d+), (\d+)\)/m)?.slice(1).map(Number))
+    expect(newDaysApplies('products', { products: { dataset: 'p', id: 'id', launch_date: 'l' } })).toBe(true)
+    expect(newDaysApplies('similar', { products: { dataset: 'p', id: 'id', launch_date: 'l' } })).toBe(false)
   })
 })
 

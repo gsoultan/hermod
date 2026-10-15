@@ -356,3 +356,42 @@ func TestRecommendScenarioKeepsABrandAndSubcategoryAndTakesStock(t *testing.T) {
 		t.Errorf("check: %v", err)
 	}
 }
+
+func TestRecommendScenarioKeepsAPriceTierChannelAndRegion(t *testing.T) {
+	svc := scenarioService(t, "audience_market", storage.MLQuotas{})
+	out, err := svc.RecommendScenario(t.Context(), "v", "recs", ScenarioRequest{
+		For: ScenarioFor{Product: "S1", PriceTier: "Gold", Channel: "Retail", Region: "N"}, K: recommend.MaxK})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := out.Results[0].Items
+	if len(items) == 0 {
+		t.Fatal("no Gold Retail customers in N")
+	}
+	for _, p := range items {
+		if p.Fields["price_tier"] != "Gold" || p.Fields["channel"] != "Retail" || p.Fields["region"] != "N" {
+			t.Fatalf("%s: fields %v", p.ID, p.Fields)
+		}
+	}
+	for _, tc := range []struct {
+		req  ScenarioRequest
+		want string
+	}{
+		{ScenarioRequest{For: ScenarioFor{Product: "S1", PriceTier: map[string]any{"a": 1}}}, "price_tier"},
+		{ScenarioRequest{For: ScenarioFor{Product: "S1", Channel: true}}, "channel"},
+		{ScenarioRequest{For: ScenarioFor{Product: "S1", Region: []any{}}}, "region"},
+	} {
+		if _, err := svc.RecommendScenario(t.Context(), "v", "recs", tc.req); !errors.Is(err, ErrBadRecommendRequest) || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%+v: %v, want ErrBadRecommendRequest mentioning %q", tc.req, err, tc.want)
+		}
+	}
+}
+
+func TestScenarioTrainingTakesReturnsAndQuotes(t *testing.T) {
+	data := map[string]map[string]string{"transactions": {"dataset": "orders", "customer": "c", "product": "p"},
+		"returns": {"dataset": "returns", "customer": "c", "product": "p", "date": "d"},
+		"quotes":  {"dataset": "quotes", "customer": "c", "product": "p", "date": "d", "outcome": "o"}}
+	if _, err := scenarioSpec(worker.TrainSpec{Task: worker.TaskRecommendation, Scenario: "products", Data: data}); err != nil {
+		t.Fatalf("returns and quotes: %v", err)
+	}
+}

@@ -9,14 +9,21 @@ import { formatMetric } from './metrics'
 /** What a recommended thing is called: its name when the data has one, else its id. */
 const itemName = (it: ScenarioItem) => (typeof it.fields?.name === 'string' && it.fields.name ? it.fields.name : it.id)
 
-/** A customer's category and size, when the model has them. */
+/** A customer's fields shown as badges, each with its title. */
+const CUSTOMER_BADGES = [
+  ['segment', 'Customer category'], ['size', 'Customer size'], ['price_tier', 'Price tier'], ['channel', 'Channel'], ['region', 'Region'],
+] as const
+
+/** A customer's category, size, price tier, channel and region, when the model has them. */
 function CustomerGroupBadges({ it }: { it: ScenarioItem }) {
-  const seg = typeof it.fields?.segment === 'string' ? it.fields.segment : ''
-  const size = typeof it.fields?.size === 'string' ? it.fields.size : ''
   return (
     <>
-      {seg && <Badge size="xs" variant="outline" color="gray" tt="none" title="Customer category">{seg}</Badge>}
-      {size && <Badge size="xs" variant="outline" color="gray" tt="none" title="Customer size">{size}</Badge>}
+      {CUSTOMER_BADGES.map(([key, title]) => {
+        const v = it.fields?.[key]
+        return typeof v === 'string' && v
+          ? <Badge key={key} size="xs" variant="outline" color="gray" tt="none" title={title}>{v}</Badge>
+          : null
+      })}
     </>
   )
 }

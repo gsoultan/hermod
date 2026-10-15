@@ -1,0 +1,13 @@
+outlet_id,visit_date,salesman_id,outcome
+OUT001,2025-10-09,SM1,no order
+OUT001,2025-11-21,SM1,no order
+OUT001,2025-12-04,SM1,no order
+OUT001,2026-01-05,SM1,no order
+OUT001,2026-02-02,SM1,no order
+OUT001,2026-02-19,SM1,no order
+OUT001,2026-03-05,SM1,no order
+OUT001,2026-03-19,SM1,no order
+OUT001,2026-03-31,SM1,no order
+OUT001,2026-04-14,SM1,no order
+OUT001,2026-04-28,SM1,no order
+OUT001,2026-05-13,SM1,no order

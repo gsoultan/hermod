@@ -1,6 +1,6 @@
 import type { TrainCheck } from '@/lib/mlModels'
 import {
-  NEAR_KM, NEAR_PEERS, ROLES, SCENARIOS, csvTemplate, scenarioRoles, type CheckStatus, type RecommendCheck, type RecommendData, type RoleKey,
+  NEAR_KM, NEAR_PEERS, NEW_DAYS as NEW_DAYS_SETTING, ROLES, SCENARIOS, csvTemplate, scenarioRoles, type CheckStatus, type RecommendCheck, type RecommendData, type RoleKey,
   type Scenario,
 } from '@/lib/mlRecommend'
 
@@ -286,31 +286,43 @@ const NEARBY_WHY = `With a category or size, the peers are the nearby customers 
 const AUDIENCE_PEERS_WHY = 'Customers of the same category and size are each other\'s peers: a customer whose peers buy a product is likely to want it, most of all one with few orders yet.'
 const SIZE_NUMBER = 'A number (headcount, revenue) is cut into small, medium and large.'
 const LIST_WHY = 'Every customer on a list carries it, and a list can be filtered to one category or size.'
+const MARKET_PEERS_WHY = 'With a category or size, it narrows the peers further: customers of the same price tier, channel or region buy alike, so only they count as each other\'s peers. Leave it empty where it does not apply; works on any customer that has one.'
+const MARKET_LIST_WHY = 'Every customer on a list carries it, and a list can be filtered to one value of it.'
 
 /** Why a scenario wants a customer's category, size or coordinates. */
 const CUSTOMER_COLUMN_WHY: Partial<Record<Scenario, Record<string, string>>> = {
   products: {
     segment: PEERS_WHY,
     size: `${PEERS_WHY} ${SIZE_NUMBER}`,
+    price_tier: MARKET_PEERS_WHY,
+    channel: MARKET_PEERS_WHY,
+    region: MARKET_PEERS_WHY,
     lat: NEARBY_WHY,
     lon: NEARBY_WHY,
   },
   audience: {
     segment: AUDIENCE_PEERS_WHY,
     size: `${AUDIENCE_PEERS_WHY} ${SIZE_NUMBER}`,
+    price_tier: MARKET_PEERS_WHY,
+    channel: MARKET_PEERS_WHY,
+    region: MARKET_PEERS_WHY,
     lat: NEARBY_WHY,
     lon: NEARBY_WHY,
   },
-  visits: { segment: LIST_WHY, size: LIST_WHY },
-  reorder: { segment: LIST_WHY, size: LIST_WHY },
+  visits: { segment: LIST_WHY, size: LIST_WHY, price_tier: MARKET_LIST_WHY, channel: MARKET_LIST_WHY, region: MARKET_LIST_WHY },
+  reorder: { segment: LIST_WHY, size: LIST_WHY, price_tier: MARKET_LIST_WHY, channel: MARKET_LIST_WHY, region: MARKET_LIST_WHY },
 }
 
 /** scenarios.py NEW_DAYS: a product launched within this many days counts as new. */
-const NEW_DAYS = 60
+const NEW_DAYS = NEW_DAYS_SETTING.default
+/** scenarios.py RETURN_SHARE: the share of what a customer bought that, sent back, stops offering it. */
+const RETURN_SHARE = 0.5
+/** scenarios.py QUOTE_DAYS: how long a lost or open quote counts. */
+const QUOTE_DAYS = 90
 /** scenarios.py BRAND_REASON: the share of a customer's spend that makes a brand a reason. */
 const BRAND_SHARE = 0.2
 
-const NEW_WHY = `A product launched within the last ${NEW_DAYS} days is offered to the customers who buy its brand or subcategory, with the reason "New, launched 2026-09-15", even before it has sales. Needs the date on the new products; older ones may leave it empty.`
+const NEW_WHY = `A product launched within the last ${NEW_DAYS} days (the Rules step can set ${NEW_DAYS_SETTING.min} to ${NEW_DAYS_SETTING.max}) is offered to the customers who buy its brand or subcategory, with the reason "New, launched 2026-09-15", even before it has sales. Needs the date on the new products; older ones may leave it empty.`
 const END_WHY = 'A product past its end date is never recommended. Works on any product that has one; leave it empty for products still sold.'
 const STOCK_WHY = 'A product with no stock (0 or less) is not recommended: its substitute is offered in its place, "Instead of P-315 (out of stock)". Stock is as of training; a call can give today\'s stock in "stock". Needs a number for every product it should apply to; empty is in stock.'
 const SUBSTITUTE_WHY = 'The product offered instead of one that is out of stock or past its end date. Needs the substitute\'s id, as in the orders, and stock or end dates to act on.'
@@ -346,6 +358,27 @@ const PRODUCT_COLUMN_WHY: Partial<Record<Scenario, Record<string, string>>> = {
     end_date: END_WHY,
     stock: STOCK_WHY,
     substitute: SUBSTITUTE_WHY,
+  },
+}
+
+/** Why products and audience want a returns or quotes column. */
+const SIGNAL_COLUMN_WHY: Partial<Record<Scenario, Partial<Record<'returns' | 'quotes', Record<string, string>>>>> = {
+  products: {
+    returns: {
+      quantity: `A product a customer sent back ${Math.round(RETURN_SHARE * 100)}% or more of what it bought is not offered to it again; other customers are unaffected. Needs quantities on the orders too; an empty quantity counts as one.`,
+    },
+    quotes: {
+      outcome: `A quote lost (lost, rejected or declined) within the last ${QUOTE_DAYS} days keeps the product from that customer. Any other outcome counts as open. Needs the outcome on the lost quotes; won ones may say anything.`,
+      date: `A quote of the last ${QUOTE_DAYS} days not lost and not ordered since is offered with the reason "Quoted on 2026-09-20, not ordered yet", a little higher. Works on any quote with a readable date.`,
+    },
+  },
+  audience: {
+    returns: {
+      quantity: `A customer who sent back ${Math.round(RETURN_SHARE * 100)}% or more of the product counts half in its audience. Needs quantities on the orders too; an empty quantity counts as one.`,
+    },
+    quotes: {
+      outcome: `A customer who lost (lost, rejected or declined) a quote for the product within the last ${QUOTE_DAYS} days is left out of its audience. Any other outcome counts as open. Needs the outcome on the lost quotes.`,
+    },
   },
 }
 
@@ -420,6 +453,10 @@ function scenarioGuide(s: Scenario): KindGuide {
       // The products' details, likewise.
       if (r.role === 'products') {
         for (const [key, why] of Object.entries(PRODUCT_COLUMN_WHY[s] ?? {})) optional.push({ ...roleColumn('products', key), why })
+      }
+      // And what returns and quotes change.
+      if (r.role === 'returns' || r.role === 'quotes') {
+        for (const [key, why] of Object.entries(SIGNAL_COLUMN_WHY[s]?.[r.role] ?? {})) optional.push({ ...roleColumn(r.role, key), why })
       }
       continue
     }

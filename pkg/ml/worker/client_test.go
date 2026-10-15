@@ -474,7 +474,7 @@ func TestTrainSendsAScenarioAndReadsItsVersion(t *testing.T) {
 		"evaluation":{"period_days":7,"cutoff":"2026-09-24"},
 		"health":{"ok":true,"checks":[{"code":"few_customers","status":"amber","message":"m","fix":"f"}],"stats":{"customers":300}},
 		"roles":{"transactions":{"dataset":"orders","customer":"cust"}},
-		"rules":[{"kind":"capacity","per_day":6}],
+		"rules":[{"kind":"capacity","per_day":6}],"near_km":2.5,"near_peers":8,"new_days":30,
 		"samples":[{"for":"R01","items":[{"id":"C1","score":0.5,"rank":1,"reasons":[],"fields":{}}]}]}`}
 	c := New(f.server(t).URL, "", nil)
 	v, err := c.Train(t.Context(), "tenant-a", "plan", TrainSpec{
@@ -496,7 +496,8 @@ func TestTrainSendsAScenarioAndReadsItsVersion(t *testing.T) {
 	}
 	if v.Scenario != "visits" || len(v.BaselinesNamed) != 1 || v.BaselinesNamed[0].Name != "most_overdue" ||
 		v.Health == nil || !v.Health.OK || v.Health.Checks[0].Fix != "f" || v.Roles["transactions"]["customer"] != "cust" ||
-		len(v.Rules) != 1 || v.Evaluation["period_days"] != 7.0 || !strings.Contains(string(v.Samples), `"for":"R01"`) {
+		len(v.Rules) != 1 || v.Evaluation["period_days"] != 7.0 || !strings.Contains(string(v.Samples), `"for":"R01"`) ||
+		v.NearKm != 2.5 || v.NearPeers != 8 || v.NewDays != 30 {
 		t.Errorf("version = %+v", v)
 	}
 }

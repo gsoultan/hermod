@@ -7,6 +7,43 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — Price tier, channel, region, returns and quotes in recommendations
+
+- A recommendation scenario's customers table can now name each customer's
+  **Price tier**, **Channel** and **Region** (`customers.price_tier`,
+  `channel`, `region`, all optional). Each one joins the peer key next to the
+  category and size, nearby peers included, so customers are compared only
+  with those on the same price list, in the same channel and region. Every
+  list of customers carries them, `for` takes `price_tier`, `channel` and
+  `region` to keep a list to one of each (REST, MCP, `ScenarioSubject` over
+  gRPC, the Predict node's `priceTier`, `channel` and `region`, and **Try
+  it**), and **Build recommendations** writes them when the target table has
+  the columns.
+- A new optional **Returns** role (customer, product, date, quantity): a
+  product a customer sent back 50% or more of is no longer offered to it,
+  and counts half in that product's audience. The evaluation reports
+  `returns`.
+- A new optional **Quotes** role (customer, product, date, outcome, reason):
+  a quote lost within 90 days keeps the product from that customer in its
+  products and the product's audience; one neither lost nor ordered since is
+  offered a little higher with the reason `quoted`, "Quoted on 2026-09-20,
+  not ordered yet". Won quotes do not count as purchases: peers and the
+  collaborative filter read only orders.
+- A version now keeps `near_km`, `near_peers` and `new_days`, and training
+  it again in the console reuses them. The training wizard asks **New
+  products: launched within N days** (60 by default, 1 to 365) when the
+  products have launch dates.
+- Models trained without the new columns and roles, or before them, train
+  and answer byte-for-byte as before; the proto change is additive.
+- [Recommendation cases](docs/ml-recommendation-cases.md): three worked
+  examples on larger synthetic businesses (a consumer goods distributor with
+  300 outlets in three cities, an industrial supplier on contract price
+  tiers, a pharmacy chain with brands out of stock), each with the tables to
+  map, every scenario trained, example calls and the answers they returned.
+  `ml/worker/tests/cases.py` generates the data (a 12-row sample of each
+  table is in `ml/examples/recommendation-cases/`), and tests train every
+  scenario on each case.
+
 ### Added — Product details in recommendations
 
 A recommendation scenario's products table can now name each product's

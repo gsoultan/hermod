@@ -46,8 +46,9 @@ type RecommendArgs struct {
 
 // ScenarioFor is who or what a scenario call is for: one of customer,
 // customers, product, salesman or all_customers, the territory a rule binds
-// to, the customer category (segment) and size a list of customers keeps,
-// and the brand and subcategory a list of products keeps.
+// to, the customer category (segment), size, price tier, channel and region
+// a list of customers keeps, and the brand and subcategory a list of
+// products keeps.
 type ScenarioFor struct {
 	Customer     any   `json:"customer,omitempty"`
 	Customers    []any `json:"customers,omitempty"`
@@ -57,6 +58,9 @@ type ScenarioFor struct {
 	AllCustomers bool  `json:"all_customers,omitempty"`
 	Segment      any   `json:"segment,omitempty"`
 	Size         any   `json:"size,omitempty"`
+	PriceTier    any   `json:"price_tier,omitempty"`
+	Channel      any   `json:"channel,omitempty"`
+	Region       any   `json:"region,omitempty"`
 	Brand        any   `json:"brand,omitempty"`
 	Subcategory  any   `json:"subcategory,omitempty"`
 }
@@ -213,7 +217,8 @@ func recommendTool(m storage.MLModel) ModelTool {
 		"due to buy within that window, overdue ones marked \"overdue\", each with its due_date and the products it is "+
 		"due for. Any list of customers (a visit plan, reorders, a product's audience) takes \"segment\" and \"size\" in "+
 		"\"for\" to keep only one customer category and size, such as {\"segment\": \"Retail\", \"size\": \"large\"}; "+
-		"each customer listed carries its segment and size in its fields. A list of products (a customer's products "+
+		"each customer listed carries its segment and size in its fields; \"price_tier\", \"channel\" and \"region\" "+
+		"keep them likewise, and are carried likewise. A list of products (a customer's products "+
 		"or reorders, similar products) takes \"brand\" and \"subcategory\" in \"for\" to keep only those products, "+
 		"and \"stock\" (product id to items on hand) for stock newer than training: one out of stock is not offered, "+
 		"its substitute is. Products carry their brand, subcategory, unit and pack_size, and a suggested_qty and "+
@@ -243,6 +248,9 @@ func recommendTool(m storage.MLModel) ModelTool {
 					"segment": mergeDesc(id, "A list of customers: only this customer category (the model's customers.segment), in any case."),
 					"size": mergeDesc(id, "A list of customers: only this size, small, medium or large (or the model's own size labels), "+
 						"or a number such as employees, bucketed as training cut the sizes."),
+					"price_tier":  mergeDesc(id, "A list of customers: only this price tier (the model's customers.price_tier), in any case."),
+					"channel":     mergeDesc(id, "A list of customers: only this channel (the model's customers.channel), in any case."),
+					"region":      mergeDesc(id, "A list of customers: only this region (the model's customers.region), in any case."),
 					"brand":       mergeDesc(id, "A list of products: only this brand (the model's products.brand), in any case."),
 					"subcategory": mergeDesc(id, "A list of products: only this subcategory (the model's products.subcategory), in any case."),
 				}},

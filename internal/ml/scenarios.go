@@ -20,7 +20,7 @@ import (
 // or similar — answered in-process from its artifact (pkg/ml/recommend).
 
 // The data roles a scenario's training maps.
-var scenarioRoles = []string{"transactions", "customers", "products", "visits", "salesmen"}
+var scenarioRoles = []string{"transactions", "customers", "products", "visits", "salesmen", "returns", "quotes"}
 
 // isScenario reports whether a recommendation training names a scenario or
 // data roles rather than #268's one-table recommend columns.
@@ -116,7 +116,8 @@ func (s *Service) RecommendCheck(ctx context.Context, vhost string, spec worker.
 // every customer. Segment and Size keep only the customers of that category
 // and size in a list of customers (visits, reorder, audience); a size is a
 // label such as "large", or a number the model buckets as its training did.
-// Brand and Subcategory keep only the products of that brand and
+// PriceTier, Channel and Region keep them likewise to one price tier,
+// channel and region. Brand and Subcategory keep only the products of that brand and
 // subcategory in a list of products (products, similar).
 type ScenarioFor struct {
 	Customer     any   `json:"customer,omitempty"`
@@ -127,6 +128,9 @@ type ScenarioFor struct {
 	AllCustomers bool  `json:"all_customers,omitempty"`
 	Segment      any   `json:"segment,omitempty"`
 	Size         any   `json:"size,omitempty"`
+	PriceTier    any   `json:"price_tier,omitempty"`
+	Channel      any   `json:"channel,omitempty"`
+	Region       any   `json:"region,omitempty"`
 	Brand        any   `json:"brand,omitempty"`
 	Subcategory  any   `json:"subcategory,omitempty"`
 }
@@ -289,6 +293,8 @@ func (r ScenarioRequest) subjects(q *recommend.Query) error {
 		v          any
 		to         *string
 	}{{"segment", "customer category", r.For.Segment, &q.Segment}, {"size", "customer size", r.For.Size, &q.Size},
+		{"price_tier", "customer price tier", r.For.PriceTier, &q.PriceTier}, {"channel", "customer channel", r.For.Channel, &q.Channel},
+		{"region", "customer region", r.For.Region, &q.Region},
 		{"brand", "product brand", r.For.Brand, &q.Brand}, {"subcategory", "product subcategory", r.For.Subcategory, &q.Subcategory}} {
 		if f.v == nil {
 			continue

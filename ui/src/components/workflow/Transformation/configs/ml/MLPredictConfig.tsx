@@ -314,6 +314,27 @@ function ScenarioFields({ scenario, config, set, fieldPaths }: {
             value={config.size ?? ''}
             onChange={(e) => set({ size: e.currentTarget.value || undefined })}
           />
+          <TextInput
+            label="Price tier"
+            description="Optional: only customers on this price tier (the model's customers.price_tier)."
+            placeholder="any"
+            value={config.priceTier ?? ''}
+            onChange={(e) => set({ priceTier: e.currentTarget.value || undefined })}
+          />
+          <TextInput
+            label="Channel"
+            description="Optional: only customers of this channel (the model's customers.channel)."
+            placeholder="any"
+            value={config.channel ?? ''}
+            onChange={(e) => set({ channel: e.currentTarget.value || undefined })}
+          />
+          <TextInput
+            label="Region"
+            description="Optional: only customers in this region (the model's customers.region)."
+            placeholder="any"
+            value={config.region ?? ''}
+            onChange={(e) => set({ region: e.currentTarget.value || undefined })}
+          />
         </>
       )}
       {(scenario === 'products' || scenario === 'similar') && (
