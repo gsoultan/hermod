@@ -231,6 +231,26 @@ describe('Training on the Models page', () => {
     expect(within(dialog).getByRole('textbox', { name: /^query/i })).toHaveValue(sql)
   })
 
+  it('suggests the columns that fit the kind of model, and says what is missing', async () => {
+    trainingApi()
+    renderPage()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('tab', { name: 'Data' }))
+    await user.click(await screen.findByRole('button', { name: /from a database/i }))
+    const dialog = await screen.findByRole('dialog')
+    await pick(user, dialog, /database source/i, 'CRM database')
+    await pick(user, dialog, /^table/i, 'public.orders')
+    expect(await within(dialog).findByText(/no column here looks like the answer column/i)).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Pick these' }))
+    // The ID is left out: a model does not learn from it.
+    expect(within(dialog).getByLabelText(/the query it runs/i)).toHaveTextContent('SELECT "amount", "country"')
+    expect(within(dialog).getByRole('button', { name: 'Picked' })).toBeDisabled()
+
+    // Training something else suggests for that instead.
+    await pick(user, dialog, /what will you train with it/i, 'Predict a number')
+    expect(within(dialog).getByText(/for predict a number:/i)).toHaveTextContent('the number column amount')
+  })
+
   it('previews the first rows of a query before reading them', async () => {
     const writes = trainingApi()
     renderPage()
@@ -241,10 +261,16 @@ describe('Training on the Models page', () => {
     await pick(user, dialog, /database source/i, 'CRM database')
     await pick(user, dialog, /^table/i, 'public.orders')
     await user.click(within(dialog).getByRole('button', { name: /preview rows/i }))
-    const table = await within(dialog).findByRole('table', { name: /first rows the query returns/i })
-    expect(within(table).getByText('SG')).toBeInTheDocument()
+    // First what the rows say: how they fit the kind of model, and each column.
+    const fit = await within(dialog).findByRole('list', { name: /how the columns fit predict a category/i })
+    expect(within(fit).getByText(/no column looks like it/)).toBeInTheDocument()
+    expect(within(fit).getByText('country, amount')).toBeInTheDocument()
+    expect(within(dialog).getByText(/^Numbers from 12\.5 to 40/)).toBeInTheDocument()
     expect(within(dialog).getByText(/the query returns more/i)).toBeInTheDocument()
-    expect(writes.find((w) => w.method === 'PREVIEW')!.body).toEqual({ query: 'SELECT *\nFROM "public"."orders"', limit: 20 })
+    await user.click(within(dialog).getByRole('radio', { name: 'Rows' }))
+    const table = within(dialog).getByRole('table', { name: /first rows the query returns/i })
+    expect(within(table).getByText('SG')).toBeInTheDocument()
+    expect(writes.find((w) => w.method === 'PREVIEW')!.body).toEqual({ query: 'SELECT *\nFROM "public"."orders"', limit: 100 })
     // Nothing was read into a dataset.
     expect(writes.find((w) => w.method === 'QUERY')).toBeUndefined()
   })
@@ -259,7 +285,9 @@ describe('Training on the Models page', () => {
     const file = new File(['region,amount\nEU,10\nAPAC,7\n'], 'Q3 orders.csv', { type: 'text/csv' })
     await user.upload(within(dialog).getByLabelText(/file/i, { selector: 'input[type=file]' }), file)
     expect(within(dialog).getByRole('textbox', { name: /dataset name/i })).toHaveValue('Q3_orders')
-    const table = await within(dialog).findByRole('table', { name: /first rows of q3 orders\.csv/i })
+    expect(await within(dialog).findByText(/^2 different values, mostly EU \(1\) and APAC \(1\)/)).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('radio', { name: 'First rows' }))
+    const table = within(dialog).getByRole('table', { name: /first rows of q3 orders\.csv/i })
     expect(within(table).getByText('APAC')).toBeInTheDocument()
     await user.click(within(dialog).getByRole('button', { name: /^upload$/i }))
     await waitFor(() => expect(writes.find((w) => w.method === 'UPLOAD')?.path).toBe('tenant-a/Q3_orders?format=csv'))

@@ -7,14 +7,18 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { listSourceColumns, listSourceTables, previewQuery } from '@/lib/mlModels'
 import { LIMITS } from '@/lib/mlDataGuide'
 import { buildSelect, EMPTY_BUILT_QUERY, type BuiltQuery } from '@/lib/mlQueryBuilder'
+import type { GuideKind } from '@/lib/mlDataGuide'
+import { sampleInsights } from '@/lib/mlDataInsights'
+import { DataInsights } from './DataInsights'
 import { useSQLSources } from './datasetForms'
 import { QueryBuilder } from './QueryBuilder'
 import { RowsPreview } from './RowsPreview'
 
-/** How many rows a preview shows. */
-const PREVIEW_ROWS = 20
+/** How many rows a preview reads: the most the server returns, so its read of each column has rows to go on. */
+const PREVIEW_ROWS = 100
 
 export type QueryMode = 'build' | 'sql'
+type PreviewTab = 'insights' | 'rows'
 
 /** A database read as it is being set up: the source, and the query built or written. */
 export interface DatabaseRead {
@@ -71,11 +75,14 @@ export type DatabaseReadState = ReturnType<typeof useDatabaseRead>
  * preview of the first rows it returns and the row cap. `lead` sits beside
  * the source, such as the dataset's name.
  */
-export function DatabaseQueryEditor({ state, lead, sqlPlaceholder }: {
+export function DatabaseQueryEditor({ state, lead, sqlPlaceholder, guideKind }: {
   state: DatabaseReadState
   lead?: React.ReactNode
   sqlPlaceholder: string
+  /** The kind of model the data is for: the builder suggests its columns and the preview checks them. */
+  guideKind?: GuideKind
 }) {
+  const [previewTab, setPreviewTab] = useState<PreviewTab>('insights')
   const { vhost, read, set, sources, engine, tables, columns, query } = state
   const list = sources.data ?? []
   const preview = useMutation({ mutationFn: (q: string) => previewQuery(vhost, read.source as string, q, PREVIEW_ROWS) })
@@ -115,7 +122,7 @@ export function DatabaseQueryEditor({ state, lead, sqlPlaceholder }: {
           {read.mode === 'build' ? (
             <>
               <QueryBuilder sourceChosen={!!read.source} tables={tables} columns={columns} value={read.built}
-                onChange={(built) => set({ built })} onWriteSql={() => switchMode('sql')} />
+                onChange={(built) => set({ built })} onWriteSql={() => switchMode('sql')} guideKind={guideKind} />
               {query && (
                 <Stack gap={6}>
                   <Group justify="space-between" gap="xs">
@@ -153,7 +160,8 @@ export function DatabaseQueryEditor({ state, lead, sqlPlaceholder }: {
         <Paper withBorder radius="md" p="sm">
           <Stack gap="xs">
             <Group justify="space-between" gap="xs">
-              <Text size="sm" fw={600}>First rows</Text>
+              <SegmentedControl size="xs" value={previewTab} onChange={(t) => setPreviewTab(t as PreviewTab)} aria-label="What to show of the preview"
+                data={[{ value: 'insights', label: 'What the data says' }, { value: 'rows', label: 'Rows' }]} />
               <Text size="xs" c="dimmed">
                 {preview.data.rows.length === 0
                   ? 'The query returns no rows.'
@@ -161,7 +169,11 @@ export function DatabaseQueryEditor({ state, lead, sqlPlaceholder }: {
               </Text>
             </Group>
             {stale && <Text size="xs" c="orange">The query changed after this preview. Preview again to see what it returns now.</Text>}
-            <RowsPreview columns={preview.data.columns} rows={preview.data.rows} caption="First rows the query returns" />
+            {previewTab === 'rows' || !guideKind || preview.data.rows.length === 0 ? (
+              <RowsPreview columns={preview.data.columns} rows={preview.data.rows} caption="First rows the query returns" />
+            ) : (
+              <DataInsights insights={sampleInsights(preview.data.columns, preview.data.rows)} kind={guideKind} rows={preview.data.rows.length} />
+            )}
           </Stack>
         </Paper>
       )}

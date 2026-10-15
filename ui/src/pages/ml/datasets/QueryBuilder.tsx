@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import {
-  ActionIcon, Alert, Button, Chip, Group, Loader, NumberInput, ScrollArea, SegmentedControl, Select, SimpleGrid, Stack, Text,
+  ActionIcon, Alert, Button, Chip, Group, Loader, NumberInput, Paper, ScrollArea, SegmentedControl, Select, SimpleGrid, Stack, Text,
   TextInput, Tooltip,
 } from '@mantine/core'
-import { IconAlertCircle, IconFilter, IconKey, IconPlus, IconSearch, IconTable, IconX } from '@tabler/icons-react'
+import { IconAlertCircle, IconFilter, IconKey, IconPlus, IconSearch, IconSparkles, IconTable, IconX } from '@tabler/icons-react'
 import type { UseQueryResult } from '@tanstack/react-query'
 import { FILTER_OPS, filterNeedsValue, type BuiltQuery, type FilterOp, type QueryFilter, type SourceColumn } from '@/lib/mlQueryBuilder'
+import { dataGuide, type GuideKind } from '@/lib/mlDataGuide'
+import { kindFromType, learnFrom, matchGuide } from '@/lib/mlDataInsights'
 
 /** Past this many columns the picker gets a search box. */
 const SEARCH_FROM = 12
@@ -16,6 +18,56 @@ function SectionTitle({ children, hint }: { children: React.ReactNode; hint?: Re
       <Text size="sm" fw={600}>{children}</Text>
       {hint}
     </Group>
+  )
+}
+
+/**
+ * The columns that fit the kind of model, judged from their names and types:
+ * one click picks them. A required column nothing looks like is named, so
+ * it is clear before any row is read.
+ */
+function Suggestion({ kind, columns, value, onPick }: {
+  kind: GuideKind
+  columns: SourceColumn[]
+  value: string[]
+  onPick: (names: string[]) => void
+}) {
+  const guide = dataGuide(kind)
+  const shapes = columns.map((c) => ({ name: c.name, kind: kindFromType(c.name, c.type) }))
+  const matches = matchGuide(guide, shapes)
+  const predicts = guide.required.some((c) => c.key === 'features')
+  const matched = matches.filter((m) => m.match).map((m) => m.match as string)
+  const rest = predicts ? learnFrom(matches, shapes) : []
+  const pick = [...rest, ...matched.filter((m) => !rest.includes(m))]
+  const missing = matches.filter((m) => m.required && !m.match).map((m) => m.column.name.toLowerCase().replace(/^the /, ''))
+  if (pick.length === 0 && missing.length === 0) return null
+  const same = pick.length === value.length && pick.every((p, i) => value[i] === p)
+  return (
+    <Paper withBorder radius="md" p="xs" bg="var(--mantine-primary-color-light)">
+      <Group justify="space-between" gap="xs" wrap="nowrap" align="flex-start">
+        <Group gap="xs" wrap="nowrap" align="flex-start" style={{ minWidth: 0 }}>
+          <IconSparkles size="1rem" color="var(--mantine-primary-color-filled)" style={{ flexShrink: 0, marginTop: 2 }} aria-hidden />
+          <Stack gap={2} style={{ minWidth: 0 }}>
+            <Text size="sm">
+              For {guide.title.toLowerCase()}:{' '}
+              {matches.filter((m) => m.match).map((m, i) => (
+                <span key={m.column.key}>{i ? ', ' : ''}{m.column.name.toLowerCase()} <Text span ff="var(--mantine-font-family-monospace)" fw={600}>{m.match}</Text></span>
+              ))}
+              {predicts && rest.length > 0 && <>{matched.length ? ', ' : ''}learning from {rest.length} more</>}
+              .
+            </Text>
+            {missing.length > 0 && (
+              <Text size="xs" c="red">No column here looks like the {missing.join(' or the ')}. Try another table, or write SQL that joins one in.</Text>
+            )}
+          </Stack>
+        </Group>
+        {pick.length > 0 && (
+          <Button size="compact-xs" variant={same ? 'light' : 'filled'} disabled={same} onClick={() => onPick(pick)} style={{ flexShrink: 0 }}>
+            {same ? 'Picked' : 'Pick these'}
+          </Button>
+        )}
+      </Group>
+    </Paper>
   )
 }
 
@@ -96,8 +148,10 @@ function FilterRow({ index, filter, columns, onChange, onRemove }: {
  * sort and a row limit. The tables and columns are the source's own, read
  * by the server; `onWriteSql` leaves for the SQL editor when they cannot be.
  */
-export function QueryBuilder({ sourceChosen, tables, columns, value, onChange, onWriteSql }: {
+export function QueryBuilder({ sourceChosen, tables, columns, value, onChange, onWriteSql, guideKind }: {
   sourceChosen: boolean
+  /** The kind of model the data is for, to suggest its columns; none, no suggestion. */
+  guideKind?: GuideKind
   tables: UseQueryResult<string[]>
   columns: UseQueryResult<SourceColumn[]>
   value: BuiltQuery
@@ -140,6 +194,7 @@ export function QueryBuilder({ sourceChosen, tables, columns, value, onChange, o
         </Alert>
       ) : (
         <>
+          {guideKind && <Suggestion kind={guideKind} columns={cols} value={value.columns} onPick={(columns) => set({ columns })} />}
           <ColumnPicker columns={cols} value={value.columns} onChange={(columns) => set({ columns })} />
           <Stack gap="xs">
             <SectionTitle>Only rows where</SectionTitle>

@@ -1,18 +1,24 @@
 import { useRef, useState } from 'react'
-import { ActionIcon, Alert, Badge, Box, Button, Grid, Group, Modal, Paper, ScrollArea, Stack, Text, ThemeIcon, Tooltip } from '@mantine/core'
+import { ActionIcon, Alert, Badge, Box, Button, Grid, Group, Modal, Paper, ScrollArea, SegmentedControl, Stack, Text, ThemeIcon, Tooltip } from '@mantine/core'
 import { IconAlertCircle, IconCloudUpload, IconFile, IconFileSpreadsheet, IconFileTypeCsv, IconUpload, IconX } from '@tabler/icons-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { datasetsKey, uploadDataset, type DatasetInfo } from '@/lib/mlModels'
 import { LIMITS } from '@/lib/mlDataGuide'
 import { FILE_ACCEPT, fileFormat, type FileFormat } from '@/lib/mlDataProfile'
 import { datasetNameFromFile, formatBytes, parseCsvPreview, type CsvPreview } from '@/lib/mlFilePreview'
+import type { GuideKind } from '@/lib/mlDataGuide'
+import { sampleInsights } from '@/lib/mlDataInsights'
 import { FileHelp } from '../dataNeeds'
+import { DataInsights } from './DataInsights'
 import { useDatasetName } from './datasetForms'
 import { DIALOG_BREAKPOINTS, GuidePanel } from './QueryModal'
 import { RowsPreview } from './RowsPreview'
 
-/** How much of a CSV is read for its preview: the header and first rows fit with room to spare. */
-const PREVIEW_BYTES = 64 * 1024
+/** How much of a CSV is read for its preview: the header and a couple of hundred rows fit. */
+const PREVIEW_BYTES = 128 * 1024
+/** The rows read to judge each column, and the rows shown. */
+const SAMPLE_ROWS = 200
+const SHOWN_ROWS = 8
 
 const FORMAT: Record<FileFormat, { label: string; icon: React.ReactNode; color: string }> = {
   csv: { label: 'CSV', icon: <IconFileTypeCsv size="1.4rem" />, color: 'teal' },
@@ -40,6 +46,8 @@ export function UploadModal({ vhost, initialName, onClose, onUploaded }: {
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<CsvPreview | null>(null)
   const [dragging, setDragging] = useState(false)
+  const [kind, setKind] = useState<GuideKind>('classification')
+  const [tab, setTab] = useState<'insights' | 'rows'>('insights')
   const inputRef = useRef<HTMLInputElement>(null)
   // The file a preview is being read for, so a slow read of an earlier
   // file does not land on a later one.
@@ -70,7 +78,7 @@ export function UploadModal({ vhost, initialName, onClose, onUploaded }: {
     if (fileFormat(next.name) !== 'csv') return
     try {
       const text = await next.slice(0, PREVIEW_BYTES).text()
-      if (reading.current === next) setPreview(parseCsvPreview(text, { truncated: next.size > PREVIEW_BYTES }))
+      if (reading.current === next) setPreview(parseCsvPreview(text, { maxRows: SAMPLE_ROWS, truncated: next.size > PREVIEW_BYTES }))
     } catch {
       // No preview; the server still reads the file.
     }
@@ -160,15 +168,22 @@ export function UploadModal({ vhost, initialName, onClose, onUploaded }: {
                 )}
                 {ds.input}
                 {preview && preview.columns.length > 0 && (
-                  <Stack gap={6}>
-                    <Group justify="space-between" gap="xs">
-                      <Text size="sm" fw={600}>First rows</Text>
-                      <Text size="xs" c="dimmed">
-                        {preview.columns.length} columns, separated by {DELIMITER_NAME[preview.delimiter] ?? preview.delimiter}
-                      </Text>
-                    </Group>
-                    <RowsPreview columns={preview.columns} rows={preview.rows} caption={`First rows of ${file?.name}`} maxHeight={240} />
-                  </Stack>
+                  <Paper withBorder radius="md" p="sm">
+                    <Stack gap="xs">
+                      <Group justify="space-between" gap="xs">
+                        <SegmentedControl size="xs" value={tab} onChange={(t) => setTab(t as 'insights' | 'rows')} aria-label="What to show of the file"
+                          data={[{ value: 'insights', label: 'What the data says' }, { value: 'rows', label: 'First rows' }]} />
+                        <Text size="xs" c="dimmed">
+                          {preview.columns.length} columns, separated by {DELIMITER_NAME[preview.delimiter] ?? preview.delimiter}
+                        </Text>
+                      </Group>
+                      {tab === 'rows' || preview.rows.length === 0 ? (
+                        <RowsPreview columns={preview.columns} rows={preview.rows.slice(0, SHOWN_ROWS)} caption={`First rows of ${file?.name}`} maxHeight={240} />
+                      ) : (
+                        <DataInsights insights={sampleInsights(preview.columns, preview.rows)} kind={kind} rows={preview.rows.length} />
+                      )}
+                    </Stack>
+                  </Paper>
                 )}
                 {file && format && format !== 'csv' && (
                   <Text size="xs" c="dimmed">
@@ -179,7 +194,7 @@ export function UploadModal({ vhost, initialName, onClose, onUploaded }: {
             </Grid.Col>
             <Grid.Col span={{ base: 12, md: 5 }}>
               <GuidePanel title="What to put in the file">
-                <FileHelp />
+                <FileHelp kind={kind} onKindChange={setKind} />
               </GuidePanel>
             </Grid.Col>
           </Grid>

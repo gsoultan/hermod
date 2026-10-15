@@ -211,9 +211,18 @@ function KindSelect({ value, onChange }: { value: GuideKind; onChange: (k: Guide
 
 const columnList = (cols: GuideColumn[]) => cols.filter((c) => c.header).map((c) => c.header).join(', ')
 
+/**
+ * The kind of model a guide is for: the caller's when it passes one (to
+ * check its data against the same kind), else the guide's own.
+ */
+function useGuideKind(kind?: GuideKind, onKindChange?: (k: GuideKind) => void): [GuideKind, (k: GuideKind) => void] {
+  const [own, setOwn] = useState<GuideKind>('classification')
+  return kind && onKindChange ? [kind, onKindChange] : [own, setOwn]
+}
+
 /** What a file should hold for a kind of model, with its CSV template. */
-export function FileHelp() {
-  const [kind, setKind] = useState<GuideKind>('classification')
+export function FileHelp({ kind: shared, onKindChange }: { kind?: GuideKind; onKindChange?: (k: GuideKind) => void } = {}) {
+  const [kind, setKind] = useGuideKind(shared, onKindChange)
   const g = dataGuide(kind)
   const optional = columnList(g.optional)
   return (
@@ -237,8 +246,12 @@ export function FileHelp() {
  * What a query should return for a kind of model, an example to start from,
  * and what to know about limits and big tables.
  */
-export function QueryHelp({ onUseQuery }: { onUseQuery: (query: string) => void }) {
-  const [kind, setKind] = useState<GuideKind>('classification')
+export function QueryHelp({ onUseQuery, kind: shared, onKindChange }: {
+  onUseQuery: (query: string) => void
+  kind?: GuideKind
+  onKindChange?: (k: GuideKind) => void
+}) {
+  const [kind, setKind] = useGuideKind(shared, onKindChange)
   const g = dataGuide(kind)
   const optional = columnList(g.optional)
   return (

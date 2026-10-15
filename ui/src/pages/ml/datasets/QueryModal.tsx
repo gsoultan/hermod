@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import { Alert, Button, Grid, Group, Modal, Paper, ScrollArea, Stack, Text, ThemeIcon } from '@mantine/core'
 import { IconAlertCircle, IconBulb, IconChartBar, IconCircleCheck, IconDownload } from '@tabler/icons-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { datasetFromQuery, datasetsKey } from '@/lib/mlModels'
+import type { GuideKind } from '@/lib/mlDataGuide'
 import { QueryHelp } from '../dataNeeds'
 import { useDatasetName } from './datasetForms'
 import { DatabaseQueryEditor, useDatabaseRead } from './DatabaseQuery'
@@ -34,6 +36,7 @@ export function QueryModal({ vhost, onClose, onAnalyze }: { vhost: string; onClo
   const queryClient = useQueryClient()
   const ds = useDatasetName()
   const db = useDatabaseRead(vhost)
+  const [kind, setKind] = useState<GuideKind>('classification')
   const fill = useMutation({
     mutationFn: () => datasetFromQuery(vhost, ds.name, db.read.source as string, db.query, db.maxRows),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: datasetsKey(vhost) }),
@@ -49,11 +52,11 @@ export function QueryModal({ vhost, onClose, onAnalyze }: { vhost: string; onClo
         <Stack gap="lg">
           <Grid type="container" breakpoints={DIALOG_BREAKPOINTS} gap="lg">
             <Grid.Col span={{ base: 12, md: 8 }}>
-              <DatabaseQueryEditor state={db} lead={ds.input} sqlPlaceholder="SELECT age, plan, churned FROM customers" />
+              <DatabaseQueryEditor state={db} lead={ds.input} guideKind={kind} sqlPlaceholder="SELECT age, plan, churned FROM customers" />
             </Grid.Col>
             <Grid.Col span={{ base: 12, md: 4 }}>
               <GuidePanel title="What should it return?">
-                <QueryHelp onUseQuery={db.takeSql} />
+                <QueryHelp onUseQuery={db.takeSql} kind={kind} onKindChange={setKind} />
               </GuidePanel>
             </Grid.Col>
           </Grid>
