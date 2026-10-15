@@ -54,6 +54,16 @@ func newFakeWorker(t *testing.T) (*fakeWorker, *worker.Client) {
 		}
 		reply(w, worker.DatasetInfo{Name: r.PathValue("name"), Rows: len(rows)})
 	})
+	m.HandleFunc("GET /v1/datasets/{vhost}/{name}/sample", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		rows, ok := f.datasets[r.PathValue("name")]
+		if !ok {
+			fail(w, notFound("Dataset %q does not exist.", r.PathValue("name")))
+			return
+		}
+		reply(w, worker.DatasetSample{Name: r.PathValue("name"), Rows: len(rows), SampleRows: len(rows), Values: map[string][]any{}})
+	})
 	m.HandleFunc("DELETE /v1/datasets/{vhost}/{name}", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		defer f.mu.Unlock()

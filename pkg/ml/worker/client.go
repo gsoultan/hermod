@@ -19,6 +19,8 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -118,6 +120,29 @@ type DatasetInfo struct {
 	// EngineWorker, for one only a connected hermod-ml worker has.
 	Engine string `json:"engine,omitempty"`
 }
+
+// DatasetSample is rows of a dataset, spread evenly over all of it, column by
+// column: Values holds each column's values, SampleRows of them, nil where a
+// value is missing. Rows is how many rows the dataset holds. A profile of the
+// dataset (pkg/ml/profile) is computed from it.
+type DatasetSample struct {
+	Name       string           `json:"name"`
+	Rows       int              `json:"rows"`
+	Columns    []Column         `json:"columns"`
+	SampleRows int              `json:"sample_rows"`
+	Values     map[string][]any `json:"values"`
+}
+
+// Bounds of a dataset sample. An engine takes at most SampleMaxRows rows and
+// SampleMaxCells values, fewer for a wide dataset; cuts text to
+// SampleMaxText characters; and halves the rows until the reply is at most
+// SampleMaxBytes, well within what a reply may hold.
+const (
+	SampleMaxRows  = 50_000
+	SampleMaxCells = 1_000_000
+	SampleMaxText  = 200
+	SampleMaxBytes = 8 << 20
+)
 
 // TaskRecommendation is the task of a model that recommends items to people
 // (ml/worker/hermod_ml/recommend.py) rather than predicting a column.
@@ -437,10 +462,14 @@ func (c *Client) AppendRows(ctx context.Context, vhost, dataset string, rows []m
 	return out.Rows, nil
 }
 
-// UploadFile replaces a dataset with a CSV or Excel (.xlsx) file.
+// FileFormats are the files a dataset is uploaded from: CSV, Excel (.xlsx)
+// and Parquet.
+var FileFormats = []string{"csv", "xlsx", "parquet"}
+
+// UploadFile replaces a dataset with a CSV, Excel (.xlsx) or Parquet file.
 func (c *Client) UploadFile(ctx context.Context, vhost, dataset, format string, body io.Reader) (DatasetInfo, error) {
-	if format != "csv" && format != "xlsx" {
-		return DatasetInfo{}, fmt.Errorf("a dataset file is csv or xlsx, not %q", format)
+	if !slices.Contains(FileFormats, format) {
+		return DatasetInfo{}, fmt.Errorf("a dataset file is csv, xlsx or parquet, not %q", format)
 	}
 	p, err := datasetPath(vhost, dataset)
 	if err != nil {
@@ -472,6 +501,18 @@ func (c *Client) Dataset(ctx context.Context, vhost, dataset string) (DatasetInf
 	var info DatasetInfo
 	err = c.call(ctx, http.MethodGet, p, "", nil, &info, callTimeout)
 	return info, err
+}
+
+// DatasetSample asks for at most rows rows of a dataset, spread evenly over
+// it. An engine older than this call answers ErrNotFound for every dataset.
+func (c *Client) DatasetSample(ctx context.Context, vhost, dataset string, rows int) (DatasetSample, error) {
+	p, err := datasetPath(vhost, dataset)
+	if err != nil {
+		return DatasetSample{}, err
+	}
+	var out DatasetSample
+	err = c.call(ctx, http.MethodGet, p+"/sample?rows="+strconv.Itoa(rows), "", nil, &out, callTimeout)
+	return out, err
 }
 
 // DeleteDataset removes a dataset.

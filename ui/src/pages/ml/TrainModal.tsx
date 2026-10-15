@@ -18,6 +18,7 @@ import {
 import {
   checklistBlocker, predictChecklist, recommendChecklist, scenarioChecklist, type ChecklistItem, type GuideKind,
 } from '@/lib/mlDataGuide'
+import type { TrainStart } from '@/lib/mlDataProfile'
 import { algorithmDescription, algorithmOptionRenderer } from './algorithmOption'
 import { DataChecklist, DataNeedsLink } from './dataNeeds'
 import { DatasetPreview } from './datasetPreview'
@@ -73,17 +74,18 @@ function targetSentence(check: TrainCheck): string {
  * one-table recommender from who-had-what rows. Training `modelName` again
  * starts from its last version's choices, on the same path: `task` is the
  * model's, so a recommender opens as one before its versions load. The expert
- * controls stay under Advanced.
+ * controls stay under Advanced. A new model can `start` from a dataset's
+ * analysis: its dataset, and what it suggested making of it.
  */
-export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
-  vhost: string; modelName?: string; task?: string; onClose: () => void
+export function TrainModal({ vhost, modelName, task: modelTask, start, onClose }: {
+  vhost: string; modelName?: string; task?: string; start?: TrainStart; onClose: () => void
 }) {
   const queryClient = useQueryClient()
   const [at, setAt] = useState<StepName>('data')
   const [name, setName] = useState(modelName ?? '')
   const [nameError, setNameError] = useState<string | null>(null)
-  const [dataset, setDataset] = useState<string | null>(null)
-  const [target, setTarget] = useState<string | null>(null)
+  const [dataset, setDataset] = useState<string | null>(start?.dataset ?? null)
+  const [target, setTarget] = useState<string | null>(start?.target ?? null)
   // The columns left out; every other column is learned from.
   const [left, setLeft] = useState<string[]>([])
   const [preset, setPreset] = useState<TrainPreset>(DEFAULT_PRESET)
@@ -98,13 +100,13 @@ export function TrainModal({ vhost, modelName, task: modelTask, onClose }: {
   const [seeded, setSeeded] = useState(!modelName)
   const [seedFeatures, setSeedFeatures] = useState<string[] | null>(null)
   // What a model does is fixed once it exists.
-  const [goal, setGoal] = useState<Goal>(modelTask === RECOMMENDATION ? 'recommend' : 'predict')
+  const [goal, setGoal] = useState<Goal>(modelTask === RECOMMENDATION ? 'recommend' : start?.goal ?? 'predict')
   const [cols, setCols] = useState<RecommendCols>(NO_COLS)
   const [recAlgorithm, setRecAlgorithm] = useState<RecommendAlgorithm>('auto')
   const recommending = goal === 'recommend'
-  const [scenario, setScenario] = useState<Scenario | null>(null)
-  const [recData, setRecData] = useState<RecommendData>({})
-  const [choices, setChoices] = useState(() => defaultRuleChoices('visits'))
+  const [scenario, setScenario] = useState<Scenario | null>(start?.scenario ?? null)
+  const [recData, setRecData] = useState<RecommendData>(start ? { transactions: { dataset: start.dataset } } : {})
+  const [choices, setChoices] = useState(() => defaultRuleChoices(start?.scenario ?? 'visits'))
   const [weights, setWeights] = useState<Weights>(DEFAULT_WEIGHTS)
   // The nearby radius and peers and the new-product days; training again keeps the last version's.
   const [settings, setSettings] = useState(() => scenarioSettings())

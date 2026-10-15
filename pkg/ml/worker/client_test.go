@@ -95,7 +95,29 @@ func TestUploadFileStreamsTheBodyWithItsFormat(t *testing.T) {
 		t.Errorf("info = %+v", info)
 	}
 	if _, err := c.UploadFile(t.Context(), "v", "sales", "xls", strings.NewReader("")); err == nil {
-		t.Error("an .xls upload was sent; only csv and xlsx are read")
+		t.Error("an .xls upload was sent; only csv, xlsx and parquet are read")
+	}
+	if _, err := c.UploadFile(t.Context(), "v", "sales", "parquet", strings.NewReader("PAR1")); err != nil || f.query != "format=parquet" {
+		t.Errorf("a parquet upload: %v, sent ?%s", err, f.query)
+	}
+}
+
+func TestDatasetSampleAsksForRowsAndReadsTheColumns(t *testing.T) {
+	f := &fakeWorker{reply: `{"name":"sales","rows":90000,"columns":[{"name":"x","type":"number"}],"sample_rows":2,"values":{"x":[1,null]}}`}
+	c := New(f.server(t).URL, "", nil)
+
+	s, err := c.DatasetSample(t.Context(), "v", "sales", 500)
+	if err != nil {
+		t.Fatalf("DatasetSample: %v", err)
+	}
+	if f.method != http.MethodGet || f.path != "/v1/datasets/v/sales/sample" || f.query != "rows=500" {
+		t.Errorf("called %s %s?%s", f.method, f.path, f.query)
+	}
+	if s.Rows != 90000 || s.SampleRows != 2 || len(s.Values["x"]) != 2 || s.Values["x"][1] != nil {
+		t.Errorf("sample = %+v", s)
+	}
+	if _, err := c.DatasetSample(t.Context(), "v", "../etc", 5); err == nil {
+		t.Error("a dataset name with a path in it was sent")
 	}
 }
 
