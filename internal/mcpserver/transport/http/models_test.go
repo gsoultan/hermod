@@ -321,3 +321,65 @@ func TestARecommendToolsWindowReachesTheModel(t *testing.T) {
 		}
 	}
 }
+
+// A recommend tool's segment and size reach the model, and the customers it
+// lists carry both.
+func TestARecommendToolsCategoryAndSizeReachTheModel(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "pkg", "ml", "recommend", "testdata", "scenario", "reorder_peers.rec"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/due/versions/1/model.rec") {
+			_, _ = w.Write(raw)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	st := &modelStore{store: &store{}, models: map[string]storage.MLModel{
+		"a/due": {VHost: "a", Name: "due", Backend: storage.MLBackendWorker, RemoteVersion: "1", Task: storage.MLTaskRecommendation},
+	}}
+	svc := ml.NewService(func() any { return st }, nil, nil).WithWorker(worker.New(srv.URL, "", nil))
+	m := models{svc: svc}
+	got, err := m.RecommendScenario(t.Context(), "a", "due", mcpserver.RecommendArgs{
+		For: &mcpserver.ScenarioFor{AllCustomers: true, Segment: "B", Size: "small"}, WithinDays: 30, K: 500})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Results) != 1 || len(got.Results[0].Items) == 0 {
+		t.Fatalf("results %+v", got.Results)
+	}
+	for _, p := range got.Results[0].Items {
+		if p.Fields["segment"] != "B" || p.Fields["size"] != "small" {
+			t.Errorf("%s: fields %v", p.ID, p.Fields)
+		}
+	}
+}
+
+func TestARecommendToolSaysWhatNearbyCustomersBuy(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "pkg", "ml", "recommend", "testdata", "scenario", "products_near.rec"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/offer/versions/1/model.rec") {
+			_, _ = w.Write(raw)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	st := &modelStore{store: &store{}, models: map[string]storage.MLModel{
+		"a/offer": {VHost: "a", Name: "offer", Backend: storage.MLBackendWorker, RemoteVersion: "1", Task: storage.MLTaskRecommendation},
+	}}
+	svc := ml.NewService(func() any { return st }, nil, nil).WithWorker(worker.New(srv.URL, "", nil))
+	got, err := models{svc: svc}.RecommendScenario(t.Context(), "a", "offer", mcpserver.RecommendArgs{
+		For: &mcpserver.ScenarioFor{Customer: "A16"}, K: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Results) != 1 || !strings.HasPrefix(got.Results[0].Summary, "Minimarket customers within 5 km buy: ") {
+		t.Fatalf("results %+v", got.Results)
+	}
+}

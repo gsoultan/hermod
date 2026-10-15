@@ -467,3 +467,77 @@ func TestSyncScenarioRecommendOverTheTimeLimitIsToldToUseAsync(t *testing.T) {
 		t.Errorf("a slow sync call = %d %s, want 408 pointing at async", w.Code, w.Body)
 	}
 }
+
+// "Category A, large customers likely to buy in the next 14 days": for.segment
+// and for.size on the editor route keep only those customers, and every
+// customer listed carries its category and size.
+func TestRecommendKeepsACategoryAndSize(t *testing.T) {
+	h, store, stub := scenarioAPI(t)
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "pkg", "ml", "recommend", "testdata", "scenario", "reorder_peers.rec"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stub.rec = raw
+	store.models["tenant-a/plan"] = storage.MLModel{VHost: "tenant-a", Name: "plan", Backend: storage.MLBackendWorker,
+		RemoteVersion: "2", Task: storage.MLTaskRecommendation}
+	w := call(h.RecommendScenario, editorA, http.MethodPost, "tenant-a", "plan",
+		`{"for":{"all_customers":true,"segment":"A","size":"large"},"within_days":14,"k":500}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+	var out struct {
+		Results []struct {
+			Items []struct {
+				ID     string         `json:"id"`
+				Fields map[string]any `json:"fields"`
+			} `json:"items"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	items := out.Results[0].Items
+	if len(items) == 0 {
+		t.Fatalf("nobody: %s", w.Body)
+	}
+	for _, it := range items {
+		if it.Fields["segment"] != "A" || it.Fields["size"] != "large" {
+			t.Errorf("%s: fields %v", it.ID, it.Fields)
+		}
+	}
+	for body, want := range map[string]string{
+		`{"for":{"all_customers":true,"segment":{"x":1}}}`: "segment",
+		`{"for":{"all_customers":true,"size":false}}`:      "size",
+	} {
+		w := call(h.RecommendScenario, editorA, http.MethodPost, "tenant-a", "plan", body)
+		if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), want) {
+			t.Errorf("%s: %d %s, want 400 mentioning %q", body, w.Code, w.Body, want)
+		}
+	}
+}
+
+func TestRecommendSaysWhatNearbyCustomersBuy(t *testing.T) {
+	h, store, stub := scenarioAPI(t)
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "pkg", "ml", "recommend", "testdata", "scenario", "products_near.rec"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stub.rec = raw
+	store.models["tenant-a/offer"] = storage.MLModel{VHost: "tenant-a", Name: "offer", Backend: storage.MLBackendWorker,
+		RemoteVersion: "2", Task: storage.MLTaskRecommendation}
+	w := call(h.RecommendScenario, editorA, http.MethodPost, "tenant-a", "offer", `{"for":{"customer":"A16"},"k":5}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+	var out struct {
+		Results []struct {
+			Summary string `json:"summary"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if s := out.Results[0].Summary; !strings.HasPrefix(s, "Minimarket customers within 5 km buy: ") {
+		t.Errorf("summary %q", s)
+	}
+}

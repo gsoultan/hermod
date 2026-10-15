@@ -62,6 +62,12 @@ func scenarioSpec(spec worker.TrainSpec) (worker.TrainSpec, error) {
 	if spec.PeriodDays < 0 || spec.PeriodDays > 366 {
 		return bad("period_days must be between 1 and 366")
 	}
+	if spec.NearKm != 0 && !(spec.NearKm >= recommend.NearKmMin && spec.NearKm <= recommend.NearKmMax) {
+		return bad("near_km must be between %v and %v kilometres", recommend.NearKmMin, recommend.NearKmMax)
+	}
+	if spec.NearPeers != 0 && (spec.NearPeers < recommend.NearPeersMin || spec.NearPeers > recommend.NearPeersMax) {
+		return bad("near_peers must be between %d and %d customers", recommend.NearPeersMin, recommend.NearPeersMax)
+	}
 	if err := recommend.ValidateRules(scenario, spec.Rules); err != nil {
 		return bad("%v", err)
 	}
@@ -104,7 +110,9 @@ func (s *Service) RecommendCheck(ctx context.Context, vhost string, spec worker.
 // gives them: a string, or a number for an id column that held numbers.
 // Territory, given here or at the top of the request, is what a rule's
 // from_request "territory" binds to. AllCustomers asks a reorder model about
-// every customer.
+// every customer. Segment and Size keep only the customers of that category
+// and size in a list of customers (visits, reorder, audience); a size is a
+// label such as "large", or a number the model buckets as its training did.
 type ScenarioFor struct {
 	Customer     any   `json:"customer,omitempty"`
 	Customers    []any `json:"customers,omitempty"`
@@ -112,6 +120,8 @@ type ScenarioFor struct {
 	Salesman     any   `json:"salesman,omitempty"`
 	Territory    any   `json:"territory,omitempty"`
 	AllCustomers bool  `json:"all_customers,omitempty"`
+	Segment      any   `json:"segment,omitempty"`
+	Size         any   `json:"size,omitempty"`
 }
 
 // ScenarioPeriod is a visit plan's days, both included, as YYYY-MM-DD. To
@@ -261,6 +271,20 @@ func (r ScenarioRequest) subjects(q *recommend.Query) error {
 		*f.to = s
 	}
 	q.AllCustomers = r.For.AllCustomers
+	for _, f := range []struct {
+		name, what string
+		v          any
+		to         *string
+	}{{"segment", "category", r.For.Segment, &q.Segment}, {"size", "size", r.For.Size, &q.Size}} {
+		if f.v == nil {
+			continue
+		}
+		s, ok := recommend.ID(f.v)
+		if _, isBool := f.v.(bool); !ok || isBool {
+			return badRecommend(`"for.%s" is a customer %s: a non-empty string or a number`, f.name, f.what)
+		}
+		*f.to = s
+	}
 	if len(r.For.Customers) > recommend.MaxBatch {
 		return badRecommend("at most %d customers per call, not %d", recommend.MaxBatch, len(r.For.Customers))
 	}

@@ -5,7 +5,8 @@ A scenario model reads up to five datasets, joined by the key columns the
 request names (no cross-database SQL):
 
     transactions   customer*, product, date, quantity, amount   (always)
-    customers      id*, salesman, territory, segment, lat, lon, blocked, name
+    customers      id*, salesman, territory, segment, size, lat, lon, blocked,
+                   name
     products       id*, category, price, margin, active, name
     visits         customer*, date*, salesman, outcome
     salesmen       id*, visits_per_day, working_days
@@ -27,6 +28,13 @@ whitespace: how many products the customer's most similar customers buy that
 it never has. A visit plan scores each customer as a weighted sum of five
 signals, each between 0 and 1 (visit_signals); products re-rank the
 collaborative-filtering candidates of recommend.py with whitespace and margin.
+
+A customer's category (customers.segment) and size (customers.size: a label,
+or a number such as employees or yearly revenue, cut into small, medium and
+large at its tertiles) make its peer group: the other customers of the same
+category and size. When the data has either, products and audience add the
+share of a customer's peers who buy an item (peer_share), weighted twice for
+a customer with few orders, whom collaborative filtering knows least.
 Hermod serves the model in Go (pkg/ml/recommend) with the same formulas, so
 the functions here that score are its reference.
 
@@ -43,7 +51,7 @@ from __future__ import annotations
 
 import datetime as dt
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -64,7 +72,7 @@ PRODUCT_SCENARIOS = ("products", "audience", "similar")
 # required whenever the role is given.
 ROLE_KEYS: dict[str, tuple[str, ...]] = {
     "transactions": ("customer", "product", "date", "quantity", "amount"),
-    "customers": ("id", "salesman", "territory", "segment", "lat", "lon", "blocked", "name"),
+    "customers": ("id", "salesman", "territory", "segment", "size", "lat", "lon", "blocked", "name"),
     "products": ("id", "category", "price", "margin", "active", "name"),
     "visits": ("customer", "date", "salesman", "outcome"),
     "salesmen": ("id", "visits_per_day", "working_days", "name"),
@@ -84,13 +92,13 @@ ID_KEYS = {("transactions", "customer"), ("transactions", "product"), ("customer
 
 DEFAULT_WEIGHTS = {"reorder_due": 0.35, "churn_risk": 0.2, "value": 0.2, "opportunity": 0.1, "neglect": 0.15}
 REASON_CODES = ("reorder_due", "churn_risk", "high_value", "whitespace", "not_visited", "similar_customers",
-                "bought_together", "popular", "boosted", "pinned")
+                "peer_group", "bought_together", "popular", "boosted", "pinned")
 
 # The features the artifact holds per customer and per item, in this order.
 CUSTOMER_FEATURES = ("first_order", "last_order", "orders", "monetary", "value_pct", "median_gap", "on_time_share",
                      "trend", "last_visit", "visits", "visit_gap", "whitespace", "whitespace_pct", "margin", "lat", "lon")
 ITEM_FEATURES = ("price", "margin", "margin_pct", "buyers", "popularity")
-CUSTOMER_ATTRS = ("salesman", "territory", "segment", "blocked", "name")
+CUSTOMER_ATTRS = ("salesman", "territory", "segment", "size", "blocked", "name")
 ITEM_ATTRS = ("category", "active", "name")
 
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
@@ -117,9 +125,31 @@ MAX_NEIGHBOR_CUSTOMERS = 20_000
 WHITESPACE_SHARE = 0.3
 # Products' collaborative-filtering candidates re-ranked per customer.
 CANDIDATES = 50
-# The re-ranking weights of the product scenarios.
-PRODUCT_WEIGHTS = {"cf": 0.6, "whitespace": 0.3, "margin": 0.1}
-AUDIENCE_WEIGHTS = {"cf": 0.6, "whitespace": 0.4}
+# The re-ranking weights of the product scenarios. "peers" applies only to a
+# model with customer categories or sizes, and to a customer with a peer group.
+PRODUCT_WEIGHTS = {"cf": 0.6, "whitespace": 0.3, "margin": 0.1, "peers": 0.2}
+AUDIENCE_WEIGHTS = {"cf": 0.6, "whitespace": 0.4, "peers": 0.3}
+# A customer's size bucket, smallest first; a numeric size is cut at its tertiles.
+SIZE_LABELS = ("small", "medium", "large")
+# A peer group counts when it has at least this many other buying customers.
+PEER_MIN = 3
+# The peer share that makes "bought by N of M <group> customers" a reason, as
+# for similar customers.
+PEER_REASON = 0.2
+# A customer with fewer orders than this leans on its peers twice as much.
+COLD_ORDERS = 3
+# A customer's products also take its peers' most bought, this many at most.
+PEER_CANDIDATES = 20
+# A customer's peers are, when it and enough of them have coordinates, the
+# NEAR_PEERS nearest of them within NEAR_KM kilometres; the request may set
+# both, within these bounds.
+NEAR_KM = 5.0
+NEAR_PEERS = 20
+NEAR_KM_BOUNDS = (0.1, 500.0)
+NEAR_PEERS_BOUNDS = (PEER_MIN, 200)
+# How many of the products nearby peers buy a summary names.
+NEAR_SUMMARY = 3
+EARTH_KM = 6371.0
 MAX_RULES = 50
 SAMPLES = 3
 SAMPLE_ITEMS = 5
@@ -151,6 +181,8 @@ class ScenarioRequest:
     test_size: float
     seed: int
     period_days: int | None
+    near_km: float = NEAR_KM
+    near_peers: int = NEAR_PEERS
 
 
 def is_scenario(body: dict[str, Any]) -> bool:
@@ -222,10 +254,19 @@ def parse_request(body: dict[str, Any], test_size: float, seed: int) -> Scenario
     if period is not None and (isinstance(period, bool) or not isinstance(period, int) or not 1 <= period <= 366):
         raise bad_request("'period_days' must be a whole number of days between 1 and 366.")
 
+    near_km = body.get("near_km", NEAR_KM)
+    lo, hi = NEAR_KM_BOUNDS
+    if isinstance(near_km, bool) or not isinstance(near_km, (int, float)) or not lo <= near_km <= hi:
+        raise bad_request(f"'near_km' must be a number of kilometres between {lo:g} and {hi:g}.")
+    near_peers = body.get("near_peers", NEAR_PEERS)
+    lo, hi = NEAR_PEERS_BOUNDS
+    if isinstance(near_peers, bool) or not isinstance(near_peers, int) or not lo <= near_peers <= hi:
+        raise bad_request(f"'near_peers' must be a whole number of customers between {lo} and {hi}.")
+
     algorithm = body.get("algorithm", "auto")
     if algorithm not in recommend.ALGORITHMS:
         raise bad_request(f"A recommendation model's 'algorithm' must be one of {', '.join(recommend.ALGORITHMS)}.")
-    return ScenarioRequest(scenario, roles, weights, list(rules), algorithm, test_size, seed, period)
+    return ScenarioRequest(scenario, roles, weights, list(rules), algorithm, test_size, seed, period, float(near_km), near_peers)
 
 
 # --------------------------------------------------------------------------
@@ -243,6 +284,8 @@ class Tables:
     products: pd.DataFrame | None = None
     visits: pd.DataFrame | None = None  # customer, day, salesman, outcome
     salesmen: pd.DataFrame | None = None  # id, visits_per_day, working_days
+    # The tertiles a numeric customers.size was cut at; None for a label or none.
+    size_edges: list[float] | None = None
     has_product: bool = False
     has_date: bool = False
     has_amount: bool = False
@@ -516,18 +559,19 @@ def _clean(frames, req: ScenarioRequest, checks: _Checks, today: int) -> Tables 
     tx = tx[keep].reset_index(drop=True)
 
     tables = Tables(tx=tx, has_product=product is not None, has_date=has_date, has_amount=amount is not None)
-    tables.customers = _customers(frames, req, checks)
+    tables.customers, tables.size_edges = _customers(frames, req, checks)
     tables.products = _products(frames, req, checks)
     tables.visits = _visits(frames, req, checks, today)
     tables.salesmen = _salesmen(frames, req, checks)
     return tables
 
 
-def _customers(frames, req, checks) -> pd.DataFrame | None:
+def _customers(frames, req, checks) -> tuple[pd.DataFrame | None, list[float] | None]:
+    """The customers, and the edges a numeric size was cut at."""
     loaded = frames.get("customers")
     if loaded is None:
-        return None
-    frame, _ = loaded
+        return None, None
+    frame, types = loaded
     m = req.roles["customers"]
     out = pd.DataFrame({"id": _text_ids(frame[m["id"]])}, index=frame.index)
     for key in ("salesman", "territory", "segment", "name"):
@@ -538,8 +582,47 @@ def _customers(frames, req, checks) -> pd.DataFrame | None:
     for key in ("lat", "lon"):
         values = _number(frames, req, checks, "customers", key)
         out[key] = values if values is not None else np.nan
-    out = out[out["id"].notna()].drop_duplicates("id", keep="last")
-    return out.reset_index(drop=True)
+    col = _column(frame, m, "size")
+    out["size"] = None
+    if col is not None and types.get(m["size"]) == NUMBER:
+        out["size"] = pd.to_numeric(col, errors="coerce").astype(np.float64)
+    elif col is not None:
+        out["size"] = col.map(size_text)
+    out = out[out["id"].notna()].drop_duplicates("id", keep="last").reset_index(drop=True)
+    edges = None
+    if col is not None and types.get(m["size"]) == NUMBER:
+        edges = size_edges(out["size"].to_numpy(np.float64))
+        out["size"] = [size_label(v, edges) for v in out["size"].tolist()]
+    return out, edges
+
+
+def size_edges(values: np.ndarray) -> list[float] | None:
+    """The tertiles a numeric size is cut at into small, medium and large;
+    None when no value is a number."""
+    finite = values[np.isfinite(values)]
+    if len(finite) == 0:
+        return None
+    return [float(v) for v in np.quantile(finite, [1 / 3, 2 / 3])]
+
+
+def size_label(value: float, edges: list[float]) -> str | None:
+    """A numeric size's bucket: small up to the first edge, medium up to the
+    second, large above; None for no number. Hermod buckets a number the
+    same way (pkg/ml/recommend)."""
+    if value is None or not math.isfinite(value):
+        return None
+    if value <= edges[0]:
+        return SIZE_LABELS[0]
+    return SIZE_LABELS[1] if value <= edges[1] else SIZE_LABELS[2]
+
+
+def size_text(v: Any) -> str | None:
+    """A size given as a label: small, medium and large in lower case, any
+    other label as written; None for none."""
+    if is_null(v) or to_text(v).strip() == "":
+        return None
+    text = to_text(v).strip()
+    return text.lower() if text.lower() in SIZE_LABELS else text
 
 
 def _products(frames, req, checks) -> pd.DataFrame | None:
@@ -747,6 +830,19 @@ class Built:
     has_visits: bool
     has_opportunity: bool
     has_margin: bool
+    # Each customer's category and size, None where unknown; has_peers when
+    # any customer has either.
+    segments: list[str | None] = field(default_factory=list)
+    sizes: list[str | None] = field(default_factory=list)
+    has_peers: bool = False
+    # Nearby peers: within near_km kilometres, the near_peers nearest; 0 for
+    # none (a model without peers, or trained before them).
+    near_km: float = 0.0
+    near_peers: int = 0
+    # Peer groups' item counts, by group (see _peer_counts).
+    groups: dict[tuple[str | None, str | None], tuple[np.ndarray, int]] = field(default_factory=dict, repr=False)
+    # The located buying customers by latitude (see _located).
+    located: tuple[np.ndarray, np.ndarray] | None = field(default=None, repr=False)
 
     def feature(self, u: int) -> dict[str, float]:
         return dict(zip(CUSTOMER_FEATURES, self.customer_features[u].tolist()))
@@ -866,10 +962,43 @@ def build(tables: Tables, users: list[str], items: list[str], today: int, algori
     vgaps = feats[:, col["visit_gap"]]
     global_gap = float(np.nanmedian(gaps)) if np.isfinite(gaps).any() else FALLBACK_GAP
     global_visit_gap = float(np.nanmedian(vgaps)) if np.isfinite(vgaps).any() else FALLBACK_GAP
+    segments, sizes = _peer_attrs(tables, users)
     # Stored in float32 and scored from there, as Hermod reads them.
     return Built(today, users, items, user_index, item_index, feats.astype(np.float32).astype(np.float64),
                  item_feats.astype(np.float32).astype(np.float64), model, global_gap, global_visit_gap,
-                 has_visits, has_opportunity, has_margin)
+                 has_visits, has_opportunity, has_margin, segments, sizes,
+                 any(v is not None for v in segments + sizes))
+
+
+def _peer_attrs(tables: Tables, users: list[str]) -> tuple[list[str | None], list[str | None]]:
+    """Each customer's category and size bucket, None where unknown."""
+    none: list[str | None] = [None] * len(users)
+    if tables.customers is None:
+        return none, list(none)
+    out = []
+    for key in ("segment", "size"):
+        lookup = dict(zip(tables.customers["id"], tables.customers[key]))
+        out.append([v if isinstance(v := lookup.get(u), str) else None for u in users])
+    return out[0], out[1]
+
+
+def built_from_artifact(model: recommend.Model) -> Built:
+    """What scoring reads, from a format 2 artifact alone, on the day after
+    its as_of: as Hermod serves it."""
+    extra = model.extra
+    today = int((np.datetime64(extra["as_of"]) - np.datetime64("1970-01-01")).astype(int)) + 1
+    has_opportunity = model.customer_neighbors is not None and model.customer_neighbors.shape[1] > 0
+    attrs = extra.get("customer_attrs", {})
+    none = [None] * len(model.users)
+    return Built(
+        today=today, users=list(model.users), items=list(model.items),
+        user_index={u: i for i, u in enumerate(model.users)}, item_index={p: i for i, p in enumerate(model.items)},
+        customer_features=model.customer_features.astype(np.float64), item_features=model.item_features.astype(np.float64),
+        model=model, global_gap=extra["global_gap"], global_visit_gap=extra["global_visit_gap"],
+        has_visits=extra["has_visits"], has_opportunity=has_opportunity, has_margin=extra["has_margin"],
+        segments=list(attrs.get("segment", none)), sizes=list(attrs.get("size", none)), has_peers=bool(extra.get("has_peers", False)),
+        near_km=float(extra.get("near_km") or 0.0), near_peers=int(extra.get("near_peers") or 0),
+    )
 
 
 # --------------------------------------------------------------------------
@@ -1007,19 +1136,182 @@ def whitespace_share(model: recommend.Model, u: int, item: int) -> tuple[float, 
     return have / len(nb), have, len(nb)
 
 
+@dataclass
+class Peers:
+    """A customer's peer group: how many of its buying customers, the
+    customer left out, buy each item (`have`), how many they are (`of`), its
+    name, such as "Retail · large", and for nearby peers the radius they are
+    within, in kilometres."""
+
+    have: np.ndarray
+    of: int
+    label: str
+    within: float | None = None
+
+    def share(self, item: int) -> tuple[float, int]:
+        have = int(self.have[item])
+        return have / self.of, have
+
+    def reason(self, have: int) -> str:
+        return f"Bought by {have} of {self.of} {self.label} customers{self.where()}"
+
+    def where(self) -> str:
+        return "" if self.within is None else f" within {km_text(self.within)} km"
+
+
+def km_text(km: float) -> str:
+    """A distance as a person writes it: 5, 2.5."""
+    return str(int(km)) if km == int(km) else repr(km)
+
+
+def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """The great-circle distance in kilometres, as Hermod's plan.go."""
+    rad = math.pi / 180
+    d_lat, d_lon = (lat2 - lat1) * rad, (lon2 - lon1) * rad
+    a = math.sin(d_lat / 2) * math.sin(d_lat / 2) + math.cos(lat1 * rad) * math.cos(lat2 * rad) * math.sin(d_lon / 2) * math.sin(d_lon / 2)
+    return 2 * EARTH_KM * math.asin(math.sqrt(min(1.0, a)))
+
+
+def _coords(b: Built, u: int) -> tuple[float, float] | None:
+    lat = b.customer_features[u, CUSTOMER_FEATURES.index("lat")]
+    lon = b.customer_features[u, CUSTOMER_FEATURES.index("lon")]
+    return (float(lat), float(lon)) if math.isfinite(lat) and math.isfinite(lon) else None
+
+
+def _located(b: Built) -> tuple[np.ndarray, np.ndarray]:
+    """The customers with coordinates who have bought anything, by latitude
+    (a tie by index), and their latitudes."""
+    if b.located is None:
+        seen = b.model.seen
+        rows = [v for v in range(len(b.users)) if seen.indptr[v + 1] > seen.indptr[v] and _coords(b, v) is not None]
+        lats = np.asarray([_coords(b, v)[0] for v in rows], dtype=np.float64)
+        order = np.lexsort((np.asarray(rows, dtype=np.int64), lats)) if rows else np.empty(0, np.int64)
+        b.located = (np.asarray(rows, dtype=np.int64)[order], lats[order])
+    return b.located
+
+
+def _near_peers(b: Built, u: int, key: tuple[str | None, str | None]) -> list[int] | None:
+    """Customer u's nearby peers: the near_peers nearest other buying
+    customers of its group within near_km (a tie by index), when u has
+    coordinates and they are at least PEER_MIN; None otherwise."""
+    here = _coords(b, u)
+    if not b.near_peers or here is None:
+        return None
+    rows, lats = _located(b)
+    # Two points are at least as far apart as their latitudes: only those
+    # within near_km of latitude can be near (the margin keeps every one
+    # the distance itself would take).
+    span = b.near_km / EARTH_KM * 180 / math.pi + 1e-9
+    lo, hi = np.searchsorted(lats, here[0] - span, "left"), np.searchsorted(lats, here[0] + span, "right")
+    near = []
+    for v in rows[lo:hi].tolist():
+        if v == u or (key[0] is not None and b.segments[v] != key[0]) or (key[1] is not None and b.sizes[v] != key[1]):
+            continue
+        there = _coords(b, v)
+        d = haversine(here[0], here[1], there[0], there[1])
+        if d <= b.near_km:
+            near.append((d, v))
+    near.sort()
+    picked = [v for _, v in near[: b.near_peers]]
+    return picked if len(picked) >= PEER_MIN else None
+
+
+def _peer_counts(b: Built, key: tuple[str | None, str | None]) -> tuple[np.ndarray, int]:
+    """Of the customers matching key (a category, a size or both; None
+    matches any) who have bought anything: how many buy each item, and how
+    many they are."""
+    got = b.groups.get(key)
+    if got is None:
+        seen = b.model.seen
+        rows = [v for v in range(len(b.users)) if seen.indptr[v + 1] > seen.indptr[v]
+                and (key[0] is None or b.segments[v] == key[0]) and (key[1] is None or b.sizes[v] == key[1])]
+        indices = np.concatenate([seen.indices[seen.indptr[v] : seen.indptr[v + 1]] for v in rows]) if rows else np.empty(0, np.int64)
+        got = (np.bincount(indices, minlength=len(b.items)).astype(np.int64), len(rows))
+        b.groups[key] = got
+    return got
+
+
+def peer_group(b: Built, u: int) -> Peers | None:
+    """Customer u's peers: the other customers of its category and size (of
+    either, when it has only one), when the model has categories or sizes
+    and at least PEER_MIN of them have bought anything; None otherwise. When
+    enough of them are near u (_near_peers), only those."""
+    if not b.has_peers:
+        return None
+    seg, size = b.segments[u], b.sizes[u]
+    if seg is None and size is None:
+        return None
+    label = " · ".join(p for p in (seg, size) if p is not None)
+    near = _near_peers(b, u, (seg, size))
+    if near is not None:
+        seen = b.model.seen
+        indices = np.concatenate([seen.indices[seen.indptr[v] : seen.indptr[v + 1]] for v in near])
+        return Peers(np.bincount(indices, minlength=len(b.items)).astype(np.int64), len(near), label, b.near_km)
+    counts, buyers = _peer_counts(b, (seg, size))
+    seen = b.model.seen
+    mine = seen.indices[seen.indptr[u] : seen.indptr[u + 1]]
+    of = buyers - (1 if len(mine) else 0)
+    if of < PEER_MIN:
+        return None
+    have = counts.copy()
+    have[mine] -= 1
+    return Peers(have, of, label)
+
+
+def nearby_summary(b: Built, u: int, items: list[dict[str, Any]]) -> str | None:
+    """What customer u's nearby peers buy, in a line: the first NEAR_SUMMARY
+    of its products (as served) that its peers give a reason for, by name;
+    None when its peers are not nearby or give no reason."""
+    peers = peer_group(b, u)
+    if peers is None or peers.within is None:
+        return None
+    names = [it["fields"].get("name") or it["id"] for it in items if any(r["code"] == "peer_group" for r in it["reasons"])]
+    if not names:
+        return None
+    return f"{peers.label} customers{peers.where()} buy: {', '.join(names[:NEAR_SUMMARY])}"
+
+
+def _cold(b: Built, u: int) -> bool:
+    orders = b.feature(u)["orders"]
+    return not (math.isfinite(orders) and orders >= COLD_ORDERS)
+
+
+def _peer_weight(weights: dict[str, float], b: Built, u: int, peers: Peers | None) -> dict[str, float]:
+    """weights with "peers" dropped for a customer without a peer group, and
+    doubled for one with fewer than COLD_ORDERS orders."""
+    out = dict(weights)
+    if peers is None:
+        out.pop("peers")
+    elif _cold(b, u):
+        out["peers"] = 2 * weights["peers"]
+    return out
+
+
+def _peer_candidates(peers: Peers, picks, exclude_seen: bool, mine: np.ndarray) -> list[tuple[int, float, str]]:
+    """The PEER_CANDIDATES items most of a customer's peers buy, not already
+    picked (nor bought, when exclude_seen), most bought first."""
+    taken = {i for i, _, _ in picks} | (set(mine.tolist()) if exclude_seen else set())
+    order = sorted((i for i in np.flatnonzero(peers.have > 0).tolist() if i not in taken), key=lambda i: (-int(peers.have[i]), i))
+    return [(i, 0.0, "peers") for i in order[:PEER_CANDIDATES]]
+
+
 def product_scores(b: Built, u: int, k: int, exclude_seen: bool = True) -> list[tuple[int, float, list[dict[str, str]]]]:
     """A customer's top k products: CANDIDATES collaborative-filtering
-    candidates (topped up with popular ones), re-ranked by
-    PRODUCT_WEIGHTS of the candidate's score (as a share of the best),
-    whitespace share and margin percentile."""
+    candidates (topped up with popular ones, then with its peers' most
+    bought), re-ranked by PRODUCT_WEIGHTS of the candidate's score (as a
+    share of the best), whitespace share, margin percentile and peer share."""
     model = b.model
     picks = recommend.recommend_user(model, u, CANDIDATES, exclude_seen)
     best = max([s for _, s, r in picks if r is None and s > 0], default=0.0)
+    peers = peer_group(b, u)
+    if peers is not None:
+        picks += _peer_candidates(peers, picks, exclude_seen, model.seen.indices[model.seen.indptr[u] : model.seen.indptr[u + 1]])
     weights = dict(PRODUCT_WEIGHTS)
     if not b.has_opportunity:
         weights.pop("whitespace")
     if not b.has_margin:
         weights.pop("margin")
+    weights = _peer_weight(weights, b, u, peers)
     total = sum(weights.values())
     margin_col = ITEM_FEATURES.index("margin_pct")
     scored = []
@@ -1028,10 +1320,14 @@ def product_scores(b: Built, u: int, k: int, exclude_seen: bool = True) -> list[
         share, have, of = whitespace_share(model, u, i)
         mp = b.item_features[i, margin_col]
         mp = mp if math.isfinite(mp) else 0.0
-        score = (weights["cf"] * cf + weights.get("whitespace", 0) * share + weights.get("margin", 0) * mp) / total
+        ps, peer_have = peers.share(i) if peers is not None else (0.0, 0)
+        score = (weights["cf"] * cf + weights.get("whitespace", 0) * share + weights.get("margin", 0) * mp
+                 + weights.get("peers", 0) * ps) / total
         reasons = []
         if have and share >= 0.2:
             reasons.append({"code": "similar_customers", "text": f"Bought by {have} of {of} similar customers"})
+        if peer_have and (ps >= PEER_REASON or reason == "peers"):
+            reasons.append({"code": "peer_group", "text": peers.reason(peer_have)})
         if reason == "popular":
             reasons.append({"code": "popular", "text": "One of the most popular products"})
         elif not reasons:
@@ -1053,8 +1349,9 @@ def reorder_due(b: Built, u: int) -> tuple[float, float] | None:
 
 def audience_scores(b: Built, item: int, k: int, exclude_seen: bool = True) -> list[tuple[int, float, list[dict[str, str]]]]:
     """The k customers most likely to want an item: AUDIENCE_WEIGHTS of the
-    customer's collaborative-filtering score for it (as a share of the best)
-    and the share of its similar customers who have it."""
+    customer's collaborative-filtering score for it (as a share of the best),
+    the share of its similar customers who have it and the share of its
+    peers who do."""
     model = b.model
     n = len(b.users)
     cf = np.zeros(n)
@@ -1071,7 +1368,6 @@ def audience_scores(b: Built, item: int, k: int, exclude_seen: bool = True) -> l
     weights = dict(AUDIENCE_WEIGHTS)
     if not b.has_opportunity:
         weights.pop("whitespace")
-    total = sum(weights.values())
     out = []
     seen = model.seen
     for u in range(n):
@@ -1080,12 +1376,17 @@ def audience_scores(b: Built, item: int, k: int, exclude_seen: bool = True) -> l
             continue
         share, have, of = whitespace_share(model, u, item)
         c = cf[u] / best if best > 0 and cf[u] > 0 else 0.0
-        score = (weights["cf"] * c + weights.get("whitespace", 0) * share) / total
+        peers = peer_group(b, u)
+        w = _peer_weight(weights, b, u, peers)
+        ps, peer_have = peers.share(item) if peers is not None else (0.0, 0)
+        score = (w["cf"] * c + w.get("whitespace", 0) * share + w.get("peers", 0) * ps) / sum(w.values())
         if score <= 0:
             continue
         reasons = []
         if have and share >= 0.2:
             reasons.append({"code": "similar_customers", "text": f"{have} of {of} similar customers buy it"})
+        if peer_have and ps >= PEER_REASON:
+            reasons.append({"code": "peer_group", "text": peers.reason(peer_have)})
         if not reasons:
             reasons.append({"code": "bought_together", "text": "Buys products often bought with it"})
         out.append((u, float(np.float32(score)), reasons))
@@ -1206,6 +1507,7 @@ def evaluate_products(tables: Tables, req: ScenarioRequest, users: list[str], it
         held = recommend.fit(algorithm, data, train_rows, req.seed)
         b = _built_from(held, tables, users, items, as_of + 1)
         evaluation = {"split": "holdout", "customers": len(truths)}
+    b.near_km, b.near_peers = req.near_km, req.near_peers
     users_eval = sorted(truths)
     lists = [[i for i, _, _ in product_scores(b, u, recommend.K)] for u in users_eval]
     baseline = []
@@ -1215,6 +1517,9 @@ def evaluate_products(tables: Tables, req: ScenarioRequest, users: list[str], it
     truth_list = [truths[u] for u in users_eval]
     metrics = recommend._metrics(lists, truth_list, len(items))
     base = recommend._metrics(baseline, truth_list, len(items))
+    if b.has_peers:
+        evaluation["peer_groups"] = len({k for k in zip(b.segments, b.sizes) if k != (None, None)})
+        evaluation["nearby_customers"] = sum(1 for u in users_eval if (p := peer_group(b, u)) is not None and p.within is not None)
     result = {"metrics": metrics, "baseline": base, "baselines_named": [{"name": "popular", "metrics": base}], "evaluation": evaluation}
     return result, algorithm, candidates
 
@@ -1261,7 +1566,7 @@ def evaluate_reorder(tables: Tables, req: ScenarioRequest, users: list[str], as_
 
 def _customer_fields(b: Built, attrs: dict[str, list[Any]], u: int) -> dict[str, Any]:
     out: dict[str, Any] = {}
-    for key in ("name", "territory", "segment", "salesman"):
+    for key in ("name", "territory", "segment", "size", "salesman"):
         value = attrs.get(key, [None] * len(b.users))[u]
         if value is not None:
             out[key] = value
@@ -1323,7 +1628,11 @@ def samples(req: ScenarioRequest, b: Built, cattrs, iattrs) -> list[dict[str, An
         busiest = np.argsort(-np.diff(b.model.seen.indptr), kind="stable")[:SAMPLES]
         for u in sorted(busiest.tolist()):
             picks = product_scores(b, u, SAMPLE_ITEMS)
-            out.append({"for": b.users[u], "items": [_item(b.items[i], s, r + 1, reasons, _item_fields(iattrs, i)) for r, (i, s, reasons) in enumerate(picks)]})
+            items = [_item(b.items[i], s, r + 1, reasons, _item_fields(iattrs, i)) for r, (i, s, reasons) in enumerate(picks)]
+            sample = {"for": b.users[u], "items": items}
+            if summary := nearby_summary(b, u, items):
+                sample["summary"] = summary
+            out.append(sample)
     elif req.scenario == "audience":
         for i in b.model.popular[:SAMPLES].tolist():
             picks = audience_scores(b, i, SAMPLE_ITEMS)
@@ -1443,6 +1752,7 @@ def train(load, req: ScenarioRequest, name: str) -> tuple[bytes, dict[str, Any]]
         result, algorithm, candidates = evaluate_products(tables, req, users, items, as_of)
 
     final = build(tables, users, items, as_of + 1, algorithm, req.seed)
+    final.near_km, final.near_peers = req.near_km, req.near_peers
     cattrs, iattrs = _attrs(tables, users, items)
     model = final.model
     model.algorithm = algorithm if items else "none"
@@ -1465,6 +1775,10 @@ def train(load, req: ScenarioRequest, name: str) -> tuple[bytes, dict[str, Any]]
         "global_visit_gap": final.global_visit_gap,
         "has_visits": final.has_visits,
         "has_margin": final.has_margin,
+        "has_peers": final.has_peers,
+        "size_edges": tables.size_edges,
+        "near_km": req.near_km if final.has_peers else None,
+        "near_peers": req.near_peers if final.has_peers else None,
     }
     artifact = recommend.encode(model)
     if len(artifact) > recommend.MAX_ARTIFACT_BYTES:

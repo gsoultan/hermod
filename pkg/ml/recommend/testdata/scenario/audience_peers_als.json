@@ -1,0 +1,1014 @@
+[
+ {
+  "today": "2026-10-01",
+  "product": "S036",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "C0048",
+    "score": 0.4051128029823303,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "12 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {
+     "name": "Customer 48",
+     "territory": "west",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R04",
+     "lat": 51.055519104003906,
+     "lon": 6.814780235290527
+    }
+   },
+   {
+    "id": "C0016",
+    "score": 0.37522923946380615,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "7 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 3 of 14 C \u00b7 medium customers"
+     }
+    ],
+    "fields": {
+     "name": "Customer 16",
+     "territory": "west",
+     "segment": "C",
+     "size": "medium",
+     "salesman": "R04",
+     "lat": 51.201759338378906,
+     "lon": 7.166989803314209
+    }
+   },
+   {
+    "id": "C0043",
+    "score": 0.3260311782360077,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {
+     "name": "Customer 43",
+     "territory": "east",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R03",
+     "lat": 51.17185974121094,
+     "lon": 13.480939865112305
+    }
+   },
+   {
+    "id": "C0046",
+    "score": 0.23143720626831055,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 4 of 10 B \u00b7 large customers"
+     }
+    ],
+    "fields": {
+     "name": "Customer 46",
+     "territory": "south",
+     "segment": "B",
+     "size": "large",
+     "salesman": "R02",
+     "lat": 48.393829345703125,
+     "lon": 11.557669639587402
+    }
+   },
+   {
+    "id": "C0038",
+    "score": 0.21598100662231445,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 4 of 10 B \u00b7 large customers"
+     }
+    ],
+    "fields": {
+     "name": "Customer 38",
+     "territory": "south",
+     "segment": "B",
+     "size": "large",
+     "salesman": "R02",
+     "lat": 48.28493118286133,
+     "lon": 11.860969543457031
+    }
+   },
+   {
+    "id": "C0077",
+    "score": 0.2136094719171524,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "11 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {
+     "name": "Customer 77",
+     "territory": "north",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R01",
+     "lat": 52.5667610168457,
+     "lon": 13.59749984741211
+    }
+   },
+   {
+    "id": "C0056",
+    "score": 0.20711800456047058,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 4 of 15 A \u00b7 large customers"
+     }
+    ],
+    "fields": {
+     "name": "Customer 56",
+     "territory": "west",
+     "segment": "A",
+     "size": "large",
+     "salesman": "R04",
+     "lat": 51.1214599609375,
+     "lon": 7.208940029144287
+    }
+   },
+   {
+    "id": "C0080",
+    "score": 0.19687403738498688,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "5 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {
+     "name": "Customer 80",
+     "territory": "west",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R04",
+     "lat": 50.730560302734375,
+     "lon": 6.628509998321533
+    }
+   },
+   {
+    "id": "C0064",
+    "score": 0.1846153885126114,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "6 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 4 of 10 B \u00b7 large customers"
+     }
+    ],
+    "fields": {
+     "name": "Customer 64",
+     "territory": "west",
+     "segment": "B",
+     "size": "large",
+     "salesman": "R04",
+     "lat": 50.56106185913086,
+     "lon": 6.545060157775879
+    }
+   },
+   {
+    "id": "C0001",
+    "score": 0.16614069044589996,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "6 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {
+     "name": "Customer 1",
+     "territory": "north",
+     "segment": "A",
+     "size": "medium",
+     "salesman": "R01",
+     "lat": 51.8922004699707,
+     "lon": 13.183819770812988
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "product": "S006",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "C0012",
+    "score": 0.35182538628578186,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {
+     "name": "Customer 12",
+     "territory": "west",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R04",
+     "lat": 50.78710174560547,
+     "lon": 7.642039775848389
+    }
+   },
+   {
+    "id": "C0037",
+    "score": 0.2613084614276886,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "7 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 2 of 10 B \u00b7 large customers"
+     }
+    ],
+    "fields": {
+     "name": "Customer 37",
+     "territory": "north",
+     "segment": "B",
+     "size": "large",
+     "salesman": "R01",
+     "lat": 52.4092903137207,
+     "lon": 13.63247013092041
+    }
+   },
+   {
+    "id": "C0025",
+    "score": 0.25639113783836365,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "8 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {
+     "name": "Customer 25",
+     "territory": "north",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R01",
+     "lat": 52.31235885620117,
+     "lon": 12.992469787597656
+    }
+   },
+   {
+    "id": "C0048",
+    "score": 0.24377015233039856,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "11 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {
+     "name": "Customer 48",
+     "territory": "west",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R04",
+     "lat": 51.055519104003906,
+     "lon": 6.814780235290527
+    }
+   },
+   {
+    "id": "C0078",
+    "score": 0.2090436965227127,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "6 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 2 of 10 B \u00b7 large customers"
+     }
+    ],
+    "fields": {
+     "name": "Customer 78",
+     "territory": "south",
+     "segment": "B",
+     "size": "large",
+     "salesman": "R02",
+     "lat": 48.36531066894531,
+     "lon": 11.707010269165039
+    }
+   },
+   {
+    "id": "C0079",
+    "score": 0.20647978782653809,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {
+     "name": "Customer 79",
+     "territory": "east",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R03",
+     "lat": 50.792659759521484,
+     "lon": 13.54613971710205
+    }
+   },
+   {
+    "id": "C0021",
+    "score": 0.18571560084819794,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "6 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 2 of 8 B \u00b7 medium customers"
+     }
+    ],
+    "fields": {
+     "name": "Customer 21",
+     "territory": "north",
+     "segment": "B",
+     "size": "medium",
+     "salesman": "R01",
+     "lat": 52.05281066894531,
+     "lon": 13.380279541015625
+    }
+   },
+   {
+    "id": "C0013",
+    "score": 0.17330601811408997,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "5 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 6 of 15 A \u00b7 large customers"
+     }
+    ],
+    "fields": {
+     "name": "Customer 13",
+     "territory": "north",
+     "segment": "A",
+     "size": "large",
+     "salesman": "R01",
+     "lat": 52.06053924560547,
+     "lon": 13.194089889526367
+    }
+   },
+   {
+    "id": "C0002",
+    "score": 0.15996316075325012,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "5 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 2 of 8 B \u00b7 medium customers"
+     }
+    ],
+    "fields": {
+     "name": "Customer 2",
+     "territory": "south",
+     "segment": "B",
+     "size": "medium",
+     "salesman": "R02",
+     "lat": 47.99748992919922,
+     "lon": 11.894909858703613
+    }
+   },
+   {
+    "id": "C0027",
+    "score": 0.15887250006198883,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 3 of 14 C \u00b7 medium customers"
+     }
+    ],
+    "fields": {
+     "name": "Customer 27",
+     "territory": "east",
+     "segment": "C",
+     "size": "medium",
+     "salesman": "R03",
+     "lat": 51.150108337402344,
+     "lon": 13.658320426940918
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "product": "S034",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "C0039",
+    "score": 0.3610214591026306,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 9 of 26 C \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "name": "Customer 39",
+     "territory": "east",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R03",
+     "lat": 51.01974868774414,
+     "lon": 13.418829917907715
+    }
+   },
+   {
+    "id": "C0066",
+    "score": 0.3303568363189697,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "10 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 9 of 26 C \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "name": "Customer 66",
+     "territory": "south",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R02",
+     "lat": 47.7140007019043,
+     "lon": 11.173139572143555
+    }
+   },
+   {
+    "id": "C0002",
+    "score": 0.2693529725074768,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "9 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 3 of 8 B \u00b7 medium customers"
+     }
+    ],
+    "fields": {
+     "name": "Customer 2",
+     "territory": "south",
+     "segment": "B",
+     "size": "medium",
+     "salesman": "R02",
+     "lat": 47.99748992919922,
+     "lon": 11.894909858703613
+    }
+   },
+   {
+    "id": "C0073",
+    "score": 0.2031809538602829,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 9 of 26 C \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "name": "Customer 73",
+     "territory": "north",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R01",
+     "lat": 52.33449935913086,
+     "lon": 13.103619575500488
+    }
+   },
+   {
+    "id": "C0053",
+    "score": 0.18935224413871765,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 9 of 26 C \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "name": "Customer 53",
+     "territory": "north",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R01",
+     "lat": 52.62892150878906,
+     "lon": 13.794039726257324
+    }
+   },
+   {
+    "id": "C0018",
+    "score": 0.17376229166984558,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "4 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 3 of 8 B \u00b7 medium customers"
+     }
+    ],
+    "fields": {
+     "name": "Customer 18",
+     "territory": "south",
+     "segment": "B",
+     "size": "medium",
+     "salesman": "R02",
+     "lat": 48.114261627197266,
+     "lon": 11.324780464172363
+    }
+   },
+   {
+    "id": "C0021",
+    "score": 0.17126676440238953,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 3 of 8 B \u00b7 medium customers"
+     }
+    ],
+    "fields": {
+     "name": "Customer 21",
+     "territory": "north",
+     "segment": "B",
+     "size": "medium",
+     "salesman": "R01",
+     "lat": 52.05281066894531,
+     "lon": 13.380279541015625
+    }
+   },
+   {
+    "id": "C0004",
+    "score": 0.16262347996234894,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "5 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {
+     "name": "Customer 4",
+     "territory": "west",
+     "segment": "A",
+     "size": "large",
+     "salesman": "R04",
+     "lat": 50.6644287109375,
+     "lon": 7.175189971923828
+    }
+   },
+   {
+    "id": "C0034",
+    "score": 0.15731312334537506,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 9 of 26 C \u00b7 small customers"
+     }
+    ],
+    "fields": {
+     "name": "Customer 34",
+     "territory": "south",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R02",
+     "lat": 47.76163864135742,
+     "lon": 11.571399688720703
+    }
+   },
+   {
+    "id": "C0037",
+    "score": 0.15251660346984863,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "bought_together",
+      "text": "Buys products often bought with it"
+     }
+    ],
+    "fields": {
+     "name": "Customer 37",
+     "territory": "north",
+     "segment": "B",
+     "size": "large",
+     "salesman": "R01",
+     "lat": 52.4092903137207,
+     "lon": 13.63247013092041
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "product": "S006",
+  "k": 15,
+  "exclude_seen": false,
+  "items": [
+   {
+    "id": "C0050",
+    "score": 0.7630233764648438,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "9 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {
+     "name": "Customer 50",
+     "territory": "south",
+     "segment": "B",
+     "size": "small",
+     "salesman": "R02",
+     "lat": 48.23128890991211,
+     "lon": 11.81509017944336
+    }
+   },
+   {
+    "id": "C0009",
+    "score": 0.6956272125244141,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "14 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {
+     "name": "Customer 9",
+     "territory": "north",
+     "segment": "B",
+     "size": "large",
+     "salesman": "R01",
+     "lat": 52.745731353759766,
+     "lon": 13.362529754638672
+    }
+   },
+   {
+    "id": "C0068",
+    "score": 0.6922712326049805,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "13 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {
+     "name": "Customer 68",
+     "territory": "west",
+     "segment": "C",
+     "size": "medium",
+     "salesman": "R04",
+     "lat": 50.94392013549805,
+     "lon": 6.654950141906738
+    }
+   },
+   {
+    "id": "C0049",
+    "score": 0.6699866652488708,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "9 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 5 of 15 A \u00b7 large customers"
+     }
+    ],
+    "fields": {
+     "name": "Customer 49",
+     "territory": "north",
+     "segment": "A",
+     "size": "large",
+     "salesman": "R01",
+     "lat": 52.16962814331055,
+     "lon": 13.936790466308594
+    }
+   },
+   {
+    "id": "C0004",
+    "score": 0.6615384817123413,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "8 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 5 of 15 A \u00b7 large customers"
+     }
+    ],
+    "fields": {
+     "name": "Customer 4",
+     "territory": "west",
+     "segment": "A",
+     "size": "large",
+     "salesman": "R04",
+     "lat": 50.6644287109375,
+     "lon": 7.175189971923828
+    }
+   },
+   {
+    "id": "C0043",
+    "score": 0.6582557559013367,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "12 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {
+     "name": "Customer 43",
+     "territory": "east",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R03",
+     "lat": 51.17185974121094,
+     "lon": 13.480939865112305
+    }
+   },
+   {
+    "id": "C0045",
+    "score": 0.6556776165962219,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "11 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {
+     "name": "Customer 45",
+     "territory": "north",
+     "segment": "B",
+     "size": "medium",
+     "salesman": "R01",
+     "lat": 52.51866149902344,
+     "lon": 13.514530181884766
+    }
+   },
+   {
+    "id": "C0030",
+    "score": 0.6502055525779724,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "11 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {
+     "name": "Customer 30",
+     "territory": "south",
+     "segment": "B",
+     "size": "large",
+     "salesman": "R02",
+     "lat": 47.45977020263672,
+     "lon": 11.303170204162598
+    }
+   },
+   {
+    "id": "C0077",
+    "score": 0.6453507542610168,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "11 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {
+     "name": "Customer 77",
+     "territory": "north",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R01",
+     "lat": 52.5667610168457,
+     "lon": 13.59749984741211
+    }
+   },
+   {
+    "id": "C0055",
+    "score": 0.6439049243927002,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "7 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 5 of 15 A \u00b7 large customers"
+     }
+    ],
+    "fields": {
+     "name": "Customer 55",
+     "territory": "east",
+     "segment": "A",
+     "size": "large",
+     "salesman": "R03",
+     "lat": 51.18268966674805,
+     "lon": 13.36161994934082
+    }
+   },
+   {
+    "id": "C0067",
+    "score": 0.6428541541099548,
+    "rank": 11,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "7 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 5 of 15 A \u00b7 large customers"
+     }
+    ],
+    "fields": {
+     "name": "Customer 67",
+     "territory": "east",
+     "segment": "A",
+     "size": "large",
+     "salesman": "R03",
+     "lat": 51.28224182128906,
+     "lon": 14.25430965423584
+    }
+   },
+   {
+    "id": "C0015",
+    "score": 0.6419704556465149,
+    "rank": 12,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "7 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 5 of 15 A \u00b7 large customers"
+     }
+    ],
+    "fields": {
+     "name": "Customer 15",
+     "territory": "east",
+     "segment": "A",
+     "size": "large",
+     "salesman": "R03",
+     "lat": 51.581138610839844,
+     "lon": 13.599499702453613
+    }
+   },
+   {
+    "id": "C0006",
+    "score": 0.6272057890892029,
+    "rank": 13,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "6 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 5 of 15 A \u00b7 large customers"
+     }
+    ],
+    "fields": {
+     "name": "Customer 6",
+     "territory": "south",
+     "segment": "A",
+     "size": "large",
+     "salesman": "R02",
+     "lat": 48.20103073120117,
+     "lon": 12.384989738464355
+    }
+   },
+   {
+    "id": "C0018",
+    "score": 0.6267935633659363,
+    "rank": 14,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "9 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {
+     "name": "Customer 18",
+     "territory": "south",
+     "segment": "B",
+     "size": "medium",
+     "salesman": "R02",
+     "lat": 48.114261627197266,
+     "lon": 11.324780464172363
+    }
+   },
+   {
+    "id": "C0061",
+    "score": 0.6154249906539917,
+    "rank": 15,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "9 of 20 similar customers buy it"
+     }
+    ],
+    "fields": {
+     "name": "Customer 61",
+     "territory": "north",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R01",
+     "lat": 52.85184097290039,
+     "lon": 12.870599746704102
+    }
+   }
+  ]
+ }
+]

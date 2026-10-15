@@ -409,8 +409,15 @@ func TestMLRecommendWritesTheModelsItems(t *testing.T) {
 // scenario fixture of pkg/ml/recommend as model "due".
 func reorderRegistry(t *testing.T) *Registry {
 	t.Helper()
+	return scenarioRegistry(t, "reorder")
+}
+
+// scenarioRegistry is a registry whose vhost "default" holds a scenario
+// fixture of pkg/ml/recommend as model "due".
+func scenarioRegistry(t *testing.T, fixture string) *Registry {
+	t.Helper()
 	reg := newSimRegistry(t)
-	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "pkg", "ml", "recommend", "testdata", "scenario", "reorder.rec"))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "pkg", "ml", "recommend", "testdata", "scenario", fixture+".rec"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -478,6 +485,44 @@ func TestMLRecommendBuildWithinDaysCarriesDueDates(t *testing.T) {
 	for _, row := range rows {
 		if due, _ := row["due_date"].(string); due == "" || due >= end {
 			t.Errorf("%v: due_date %v", row["item_id"], row["due_date"])
+		}
+	}
+}
+
+// The Predict node's Recommend mode with segment and size: only that
+// category and size of a salesman's customers, each carrying both.
+func TestMLRecommendKeepsACategoryAndSize(t *testing.T) {
+	reg := scenarioRegistry(t, "reorder_peers")
+	got := transform(t, reg, map[string]any{"rep": "R01"}, map[string]any{
+		"transType": "ml_predict", "model": "due", "mode": "recommend", "recommendFor": "salesman", "idField": "rep",
+		"segment": "C", "size": "small", "k": "500", "outputField": "small_c",
+	})
+	items, _ := got["small_c"].([]map[string]any)
+	if len(items) == 0 {
+		t.Fatalf("small_c = %#v, want R01's small C customers", got["small_c"])
+	}
+	for _, it := range items {
+		fields, _ := it["fields"].(map[string]any)
+		if fields["segment"] != "C" || fields["size"] != "small" || fields["salesman"] != "R01" {
+			t.Errorf("%v: fields %v", it["id"], fields)
+		}
+	}
+}
+
+// The Build Recommendations node's rows carry each customer's category and
+// size.
+func TestMLRecommendBuildCarriesCategoryAndSize(t *testing.T) {
+	reg := scenarioRegistry(t, "reorder_peers")
+	rows, _, err := reg.MLRecommendBuild(t.Context(), "default", "due", map[string]any{"for": "all_customers", "withinDays": 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) == 0 {
+		t.Fatal("no rows")
+	}
+	for _, row := range rows {
+		if row["segment"] == "" || row["size"] == "" || row["segment"] == nil || row["size"] == nil {
+			t.Errorf("%v: segment %v, size %v", row["item_id"], row["segment"], row["size"])
 		}
 	}
 }

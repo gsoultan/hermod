@@ -7,6 +7,39 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — Customer category, size and nearby customers in recommendations
+
+A recommendation scenario's customers table can now name each customer's
+**Customer category** (`customers.segment`, the column it always had) and a
+new optional **Customer size**: a label (small, medium, large or your own) or
+a number such as headcount or revenue, which training cuts into small,
+medium and large at its tertiles and keeps the cut points with the version.
+
+- **Products to offer** and **Who will want this product** add a peer share:
+  what other customers of the same category and size buy. It counts twice
+  as much for a customer with fewer than 3 orders, so a new customer is
+  offered what customers like it buy, and a customer's products also take its
+  peers' most bought. Reasons read "Bought by 12 of 40 Retail · large
+  customers". The share is part of the evaluated lists, and the evaluation
+  reports `peer_groups` and `nearby_customers`.
+- With customer coordinates, the peers are the **nearby** customers of the
+  same category and size: the 20 nearest within 5 km by default (`near_km`,
+  0.1 to 500, and `near_peers`, 3 to 200, on the training; **Nearby
+  customers within** in the console). Reasons read "Bought by 7 of 12
+  Minimarket customers within 5 km", and a customer's products answer carries
+  a `summary` such as "Minimarket customers within 5 km buy: A, B, C" (REST,
+  MCP, and `ScenarioResult.summary` over gRPC), shown in **Try it**. A
+  customer without coordinates, or with too few peers nearby, uses its whole
+  category and size group.
+- Every list of customers carries each customer's `segment` and `size` in
+  its fields, and `for` takes optional `segment` and `size` to keep a visit
+  plan, a reorder list or an audience to one category and size (REST, MCP,
+  `ScenarioSubject.segment`/`size` over gRPC, and the Predict node).
+- **Build recommendations** writes `segment` and `size` columns when the
+  target table has them.
+- Models trained before this, or without a category or size, answer exactly
+  as before. The proto change is additive.
+
 ### Added — Dead-letter alerts by email and Telegram
 
 Dead-letter alerts no longer need Panmail. Settings › Connectivity now has

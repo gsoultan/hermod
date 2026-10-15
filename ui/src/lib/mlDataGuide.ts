@@ -1,6 +1,6 @@
 import type { TrainCheck } from '@/lib/mlModels'
 import {
-  ROLES, SCENARIOS, csvTemplate, scenarioRoles, type CheckStatus, type RecommendCheck, type RecommendData, type RoleKey,
+  NEAR_KM, NEAR_PEERS, ROLES, SCENARIOS, csvTemplate, scenarioRoles, type CheckStatus, type RecommendCheck, type RecommendData, type RoleKey,
   type Scenario,
 } from '@/lib/mlRecommend'
 
@@ -281,6 +281,30 @@ const ORDER_COLUMN_WHY: Record<Scenario, Record<string, string>> = {
   },
 }
 
+const PEERS_WHY = 'Customers of the same category and size are each other\'s peers: Hermod offers what the peers buy, most of all to customers with few orders yet.'
+const NEARBY_WHY = `With a category or size, the peers are the nearby customers of the same kind: the ${NEAR_PEERS} nearest within ${NEAR_KM.default} km (a reason then reads "Bought by 7 of 12 Minimarket customers within ${NEAR_KM.default} km").`
+const AUDIENCE_PEERS_WHY = 'Customers of the same category and size are each other\'s peers: a customer whose peers buy a product is likely to want it, most of all one with few orders yet.'
+const SIZE_NUMBER = 'A number (headcount, revenue) is cut into small, medium and large.'
+const LIST_WHY = 'Every customer on a list carries it, and a list can be filtered to one category or size.'
+
+/** Why a scenario wants a customer's category, size or coordinates. */
+const CUSTOMER_COLUMN_WHY: Partial<Record<Scenario, Record<string, string>>> = {
+  products: {
+    segment: PEERS_WHY,
+    size: `${PEERS_WHY} ${SIZE_NUMBER}`,
+    lat: NEARBY_WHY,
+    lon: NEARBY_WHY,
+  },
+  audience: {
+    segment: AUDIENCE_PEERS_WHY,
+    size: `${AUDIENCE_PEERS_WHY} ${SIZE_NUMBER}`,
+    lat: NEARBY_WHY,
+    lon: NEARBY_WHY,
+  },
+  visits: { segment: LIST_WHY, size: LIST_WHY },
+  reorder: { segment: LIST_WHY, size: LIST_WHY },
+}
+
 const SCENARIO_QUESTION: Record<Scenario, string> = {
   visits: 'Which customers should each salesman visit or call next, most urgent first?',
   products: 'Which products should we offer this customer?',
@@ -345,12 +369,17 @@ function scenarioGuide(s: Scenario): KindGuide {
       const cols = ROLES[r.role].columns.map((c) => c.label.toLowerCase()).join(', ')
       optional.push({ key: r.role, table: ROLES[r.role].label, name: `${ROLES[r.role].label} table`, header: '',
         means: ROLES[r.role].what, example: cols, why: r.why })
+      // The customers' columns that improve the answers, even when the table is optional.
+      if (r.role === 'customers') {
+        for (const [key, why] of Object.entries(CUSTOMER_COLUMN_WHY[s] ?? {})) optional.push({ ...roleColumn('customers', key), why })
+      }
       continue
     }
     for (const c of r.columns) {
       const col = roleColumn(r.role, c.key, ex)
       if (c.required) required.push(col)
       else if (r.role === 'transactions' && ORDER_COLUMN_WHY[s][c.key]) optional.push({ ...col, why: ORDER_COLUMN_WHY[s][c.key] })
+      else if (r.role === 'customers') optional.push({ ...col, why: CUSTOMER_COLUMN_WHY[s]?.[c.key] ?? c.hint })
       else if (r.role !== 'transactions') optional.push({ ...col, why: c.hint })
     }
   }

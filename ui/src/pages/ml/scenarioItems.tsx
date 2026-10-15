@@ -9,6 +9,18 @@ import { formatMetric } from './metrics'
 /** What a recommended thing is called: its name when the data has one, else its id. */
 const itemName = (it: ScenarioItem) => (typeof it.fields?.name === 'string' && it.fields.name ? it.fields.name : it.id)
 
+/** A customer's category and size, when the model has them. */
+function CustomerGroupBadges({ it }: { it: ScenarioItem }) {
+  const seg = typeof it.fields?.segment === 'string' ? it.fields.segment : ''
+  const size = typeof it.fields?.size === 'string' ? it.fields.size : ''
+  return (
+    <>
+      {seg && <Badge size="xs" variant="outline" color="gray" tt="none" title="Customer category">{seg}</Badge>}
+      {size && <Badge size="xs" variant="outline" color="gray" tt="none" title="Customer size">{size}</Badge>}
+    </>
+  )
+}
+
 /** A day of a plan, short: "Tue 2026-10-13". */
 function dayLabel(date: string): string {
   const d = new Date(`${date}T00:00:00`)
@@ -56,6 +68,7 @@ export function ScenarioItemList({ items, feedback, label }: { items: ScenarioIt
             <Text size="sm" c="dimmed" w={24}>{it.rank}.</Text>
             <Text size="sm" fw={500}>{itemName(it)}</Text>
             {itemName(it) !== it.id && <Text size="xs" c="dimmed" ff="var(--mantine-font-family-monospace)">{it.id}</Text>}
+            <CustomerGroupBadges it={it} />
             {it.due_date && <Badge size="xs" variant="light" tt="none">Due {it.due_date}</Badge>}
             {feedback && <Feedback target={feedback} id={it.id} />}
           </Group>
@@ -86,6 +99,7 @@ export function DueCustomerList({ items, feedback }: { items: ScenarioItem[]; fe
             <Text size="sm" c="dimmed" w={24}>{it.rank}.</Text>
             <Text size="sm" fw={500}>{itemName(it)}</Text>
             {itemName(it) !== it.id && <Text size="xs" c="dimmed" ff="var(--mantine-font-family-monospace)">{it.id}</Text>}
+            <CustomerGroupBadges it={it} />
             {it.due_date && (it.overdue
               ? <Badge size="xs" variant="light" color="red" tt="none">Overdue since {it.due_date}</Badge>
               : <Badge size="xs" variant="light" tt="none">Expected {it.due_date}</Badge>)}
@@ -111,7 +125,15 @@ export function RecommendAnswer({ answer, feedback }: { answer: RecommendRespons
   const target = feedback ? { ...feedback, recommendationId: answer.recommendation_id } : undefined
   if (!result) return <Text size="sm" c="dimmed">Nothing to recommend.</Text>
   if (result.plan?.length) return <PlanDays plan={result.plan} feedback={target} />
-  return <ScenarioItemList items={result.items} feedback={target} label="Recommendations" />
+  const list = <ScenarioItemList items={result.items} feedback={target} label="Recommendations" />
+  if (!result.summary) return list
+  // What nearby customers of the same category buy, in a line.
+  return (
+    <Stack gap="xs">
+      <Text size="sm" fw={500}>{result.summary}</Text>
+      {list}
+    </Stack>
+  )
 }
 
 /** A visit plan as a calendar list: each day, its customers and why. */
@@ -135,6 +157,7 @@ function PlanDay({ date, items, feedback }: { date: string; items: ScenarioItem[
               <Group gap="xs" wrap="wrap" align="baseline">
                 <Text size="sm" fw={500}>{itemName(it)}</Text>
                 {itemName(it) !== it.id && <Text size="xs" c="dimmed" ff="var(--mantine-font-family-monospace)">{it.id}</Text>}
+                <CustomerGroupBadges it={it} />
                 {feedback && <Feedback target={feedback} id={it.id} />}
               </Group>
               {!!it.reasons?.length && <Text size="xs" c="dimmed">{it.reasons.map((r) => r.text).join(' · ')}</Text>}

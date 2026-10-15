@@ -158,12 +158,16 @@ type TrainSpec struct {
 	// products, visits, salesmen) to a dataset and its columns in Data,
 	// instead of Recommend. Weights are the visit signals' weights, Rules the
 	// business rules every call obeys, and PeriodDays the planning (visits)
-	// or evaluation period.
+	// or evaluation period. NearKm and NearPeers make a customer's peers the
+	// NearPeers nearest of its category within NearKm kilometres; 0 for the
+	// worker's default (5 km, 20 customers).
 	Scenario   string                       `json:"scenario,omitempty"`
 	Data       map[string]map[string]string `json:"data,omitempty"`
 	Weights    map[string]float64           `json:"weights,omitempty"`
 	Rules      []recommend.Rule             `json:"rules,omitempty"`
 	PeriodDays int                          `json:"period_days,omitempty"`
+	NearKm     float64                      `json:"near_km,omitempty"`
+	NearPeers  int                          `json:"near_peers,omitempty"`
 }
 
 // TrainParams are a deep-learning model's hyperparameters. A zero field is

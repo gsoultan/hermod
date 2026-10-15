@@ -44,8 +44,9 @@ type RecommendArgs struct {
 }
 
 // ScenarioFor is who or what a scenario call is for: one of customer,
-// customers, product, salesman or all_customers, and the territory a rule
-// binds to.
+// customers, product, salesman or all_customers, the territory a rule binds
+// to, and the customer category (segment) and size a list of customers
+// keeps.
 type ScenarioFor struct {
 	Customer     any   `json:"customer,omitempty"`
 	Customers    []any `json:"customers,omitempty"`
@@ -53,6 +54,8 @@ type ScenarioFor struct {
 	Salesman     any   `json:"salesman,omitempty"`
 	Territory    any   `json:"territory,omitempty"`
 	AllCustomers bool  `json:"all_customers,omitempty"`
+	Segment      any   `json:"segment,omitempty"`
+	Size         any   `json:"size,omitempty"`
 }
 
 // ScenarioPeriod is a visit plan's days, YYYY-MM-DD, both included.
@@ -205,7 +208,10 @@ func recommendTool(m storage.MLModel) ModelTool {
 		"carries its reasons. A reorder model (when will they buy again) also takes {\"product\"} or "+
 		"{\"all_customers\": true}, and \"within_days\" (14 for two weeks, 30 for a month) to list only the customers "+
 		"due to buy within that window, overdue ones marked \"overdue\", each with its due_date and the products it is "+
-		"due for. A model of a person's items takes \"user\" for their top items or \"item\" for the "+
+		"due for. Any list of customers (a visit plan, reorders, a product's audience) takes \"segment\" and \"size\" in "+
+		"\"for\" to keep only one customer category and size, such as {\"segment\": \"Retail\", \"size\": \"large\"}; "+
+		"each customer listed carries its segment and size in its fields. A customer's products may come with a "+
+		"\"summary\" saying what nearby customers of its category buy. A model of a person's items takes \"user\" for their top items or \"item\" for the "+
 		"items most like one item; an id it never saw gets the most popular items, marked reason \"popular\".",
 		m.Name, m.VHost)
 	if d := strings.TrimSpace(m.Description); d != "" {
@@ -227,6 +233,9 @@ func recommendTool(m storage.MLModel) ModelTool {
 					"territory": mergeDesc(id, "The territory a rule's from_request \"territory\" binds to."),
 					"all_customers": map[string]any{"type": "boolean",
 						"description": "A reorder model: every customer, by when they will buy again."},
+					"segment": mergeDesc(id, "A list of customers: only this customer category (the model's customers.segment), in any case."),
+					"size": mergeDesc(id, "A list of customers: only this size, small, medium or large (or the model's own size labels), "+
+						"or a number such as employees, bucketed as training cut the sizes."),
 				}},
 			"territory": mergeDesc(id, "The territory a rule's from_request \"territory\" binds to."),
 			"period": map[string]any{"type": "object", "additionalProperties": false, "required": []any{"from"},

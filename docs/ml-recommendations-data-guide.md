@@ -113,9 +113,10 @@ them. *Required* amounts are the ones Hermod refuses to train without;
 | Orders or invoice lines | Quantity | Lets Hermod leave out returns (negative quantities). |
 | Orders or invoice lines | Amount | Big customers are judged by money, not only by how often they order. |
 | Customers | Territory | Region, area or route. |
-| Customers | Segment | Tier, channel or type. |
-| Customers | Latitude | Plans nearby customers on the same day. |
-| Customers | Longitude | Plans nearby customers on the same day. |
+| Customers | Customer category | Every customer on a list carries it, and a list can be filtered to one category or size. |
+| Customers | Customer size | Every customer on a list carries it, and a list can be filtered to one category or size. |
+| Customers | Latitude | Plans nearby customers on the same day, and finds nearby customers of the same category. |
+| Customers | Longitude | Plans nearby customers on the same day, and finds nearby customers of the same category. |
 | Customers | Credit hold | Yes when the customer must not be offered anything. |
 | Visits or calls | Visits or calls table | Finds customers nobody has visited for a while. |
 | Salesmen | Salesmen table | Gives each salesman their own visits per day and working days. |
@@ -176,7 +177,11 @@ SELECT customer_id, product_id, order_date, SUM(quantity) AS quantity, SUM(amoun
 | Orders or invoice lines | Quantity | Products bought in larger amounts count as stronger likes. |
 | Orders or invoice lines | Amount | Lets Hermod leave out credit notes (negative amounts). |
 | Products | Products table | Lets rules skip inactive products, prefer margin or mix categories. |
-| Customers | Customers table | Lets rules stay inside a territory. |
+| Customers | Customers table | Lets rules stay inside a territory. A category and size offer each customer what others of its kind buy, nearby ones first when it has coordinates. |
+| Customers | Customer category | Customers of the same category and size are each other's peers: Hermod offers what the peers buy, most of all to customers with few orders yet. |
+| Customers | Customer size | Customers of the same category and size are each other's peers: Hermod offers what the peers buy, most of all to customers with few orders yet. A number (headcount, revenue) is cut into small, medium and large. |
+| Customers | Latitude | With a category or size, the peers are the nearby customers of the same kind: the 20 nearest within 5 km (a reason then reads "Bought by 7 of 12 Minimarket customers within 5 km"). |
+| Customers | Longitude | With a category or size, the peers are the nearby customers of the same kind: the 20 nearest within 5 km (a reason then reads "Bought by 7 of 12 Minimarket customers within 5 km"). |
 
 **How much data**
 
@@ -233,6 +238,8 @@ SELECT customer_id, product_id, order_date, SUM(quantity) AS quantity, SUM(amoun
 | Orders or invoice lines | Quantity | Lets Hermod leave out returns (negative quantities). |
 | Orders or invoice lines | Amount | Lets Hermod leave out credit notes (negative amounts). |
 | Customers | Customers table | Lets rules skip customers on credit hold. |
+| Customers | Customer category | Every customer on a list carries it, and a list can be filtered to one category or size. |
+| Customers | Customer size | Every customer on a list carries it, and a list can be filtered to one category or size. |
 
 **How much data**
 
@@ -298,7 +305,11 @@ SELECT customer_id, product_id, order_date, SUM(quantity) AS quantity, SUM(amoun
 | Orders or invoice lines | Date | Hermod tests on each customer's latest orders and can measure the history. |
 | Orders or invoice lines | Quantity | Products bought in larger amounts count as stronger likes. |
 | Orders or invoice lines | Amount | Lets Hermod leave out credit notes (negative amounts). |
-| Customers | Customers table | Lets rules skip customers on credit hold. |
+| Customers | Customers table | Lets rules skip customers on credit hold. A category and size find customers like those who buy it, nearby ones first. |
+| Customers | Customer category | Customers of the same category and size are each other's peers: a customer whose peers buy a product is likely to want it, most of all one with few orders yet. |
+| Customers | Customer size | Customers of the same category and size are each other's peers: a customer whose peers buy a product is likely to want it, most of all one with few orders yet. A number (headcount, revenue) is cut into small, medium and large. |
+| Customers | Latitude | With a category or size, the peers are the nearby customers of the same kind: the 20 nearest within 5 km (a reason then reads "Bought by 7 of 12 Minimarket customers within 5 km"). |
+| Customers | Longitude | With a category or size, the peers are the nearby customers of the same kind: the 20 nearest within 5 km (a reason then reads "Bought by 7 of 12 Minimarket customers within 5 km"). |
 | Products | Products table | Helps with products that have few sales yet. |
 
 **How much data**

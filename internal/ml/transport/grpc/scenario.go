@@ -44,7 +44,7 @@ func scenarioResponse(model string, out ml.ScenarioAnswer) (*proto.RecommendScen
 	resp := &proto.RecommendScenarioResponse{Model: model, RecommendationId: out.RecommendationID,
 		Results: make([]*proto.ScenarioResult, len(out.Results))}
 	for i, r := range out.Results {
-		res := &proto.ScenarioResult{Subject: r.For}
+		res := &proto.ScenarioResult{Subject: r.For, Summary: r.Summary}
 		var err error
 		if res.Items, err = picks(r.Items); err != nil {
 			return nil, err
@@ -73,7 +73,8 @@ func scenarioRequest(req *proto.RecommendScenarioRequest) (ml.ScenarioRequest, e
 		return v
 	}
 	call.For = ml.ScenarioFor{Customer: set(sub.GetCustomer()), Product: set(sub.GetProduct()),
-		Salesman: set(sub.GetSalesman()), Territory: set(sub.GetTerritory()), AllCustomers: sub.GetAllCustomers()}
+		Salesman: set(sub.GetSalesman()), Territory: set(sub.GetTerritory()), AllCustomers: sub.GetAllCustomers(),
+		Segment: set(sub.GetSegment()), Size: set(sub.GetSize())}
 	call.WithinDays = int(req.GetWithinDays())
 	for _, c := range sub.GetCustomers() {
 		call.For.Customers = append(call.For.Customers, c)

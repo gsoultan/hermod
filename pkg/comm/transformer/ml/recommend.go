@@ -54,6 +54,9 @@ type recommender interface {
 //   - withinDays: for a reorder model, only the customers due to order
 //     within that many days from today, overdue ones included, most likely
 //     first, each with the products they are due for (1 to 366).
+//   - segment, size: for a list of customers (a visit plan, reorders, a
+//     product's audience), only the customers of that category and size;
+//     a size is small, medium or large, or a number the model buckets.
 //   - rules: request rules (docs/ml.md, "Rules"), a list or its JSON text.
 //   - outputField: where the items go, default "recommendations".
 func recommendInto(ctx context.Context, msg hermod.Message, model string, config map[string]any) (hermod.Message, error) {
@@ -72,8 +75,12 @@ func recommendInto(ctx context.Context, msg hermod.Message, model string, config
 	subject, scenario := req["for"].(map[string]any)
 	switch {
 	case scenario:
-		for k := range subject {
-			subject[k] = id
+		// The subject is the one key without a value; segment and size
+		// have theirs.
+		for k, v := range subject {
+			if v == nil {
+				subject[k] = id
+			}
 		}
 	case hasKey(req, "user"):
 		req["user"] = id
@@ -107,6 +114,7 @@ func recommendRequest(config map[string]any) (map[string]any, string, error) {
 	req := map[string]any{}
 	forUser := true
 	scenario := false
+	var subject map[string]any
 	switch to := core.GetConfigString(config, "recommendFor"); to {
 	case "", "user":
 		req["user"] = nil
@@ -114,7 +122,8 @@ func recommendRequest(config map[string]any) (map[string]any, string, error) {
 		req["item"] = nil
 		forUser = false
 	case "salesman", "customer", "product":
-		req["for"] = map[string]any{to: nil}
+		subject = map[string]any{to: nil}
+		req["for"] = subject
 		forUser, scenario = to == "customer", true
 	default:
 		return nil, "", fmt.Errorf(`ml_predict: recommendFor %q is not "salesman", "customer", "product", "user" or "item"`, to)
@@ -144,6 +153,17 @@ func recommendRequest(config map[string]any) (map[string]any, string, error) {
 			return nil, "", errors.New(`ml_predict: withinDays applies to a reorder model's recommendFor "salesman", "customer" or "product"`)
 		}
 		req["within_days"] = within
+	}
+	for _, key := range []string{"segment", "size"} {
+		// The editor may save a numeric size as a number.
+		v, _ := recommend.ID(config[key])
+		if v = strings.TrimSpace(v); v == "" {
+			continue
+		}
+		if !scenario {
+			return nil, "", fmt.Errorf(`ml_predict: %s applies to a scenario model's recommendFor "salesman", "customer" or "product"`, key)
+		}
+		subject[key] = v
 	}
 	rules, err := configRules(config["rules"])
 	if err != nil {

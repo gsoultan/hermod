@@ -349,3 +349,265 @@ def test_a_v1_artifact_still_decodes_and_v2_round_trips(b2b):
     old = recommend.encode(v1)
     assert old[4:8] == (1).to_bytes(4, "little")
     assert recommend.decode(old).extra is None
+
+
+# --------------------------------------------------------------------------
+# Customer category and size
+# --------------------------------------------------------------------------
+
+
+def test_a_numeric_size_is_cut_into_tertiles_and_a_label_is_kept():
+    edges = scenarios.size_edges(np.array([1.0, 2, 3, 4, 5, 6, 7, 8, 9, math.nan]))
+    assert edges == pytest.approx([float(np.quantile(np.arange(1, 10), 1 / 3)), float(np.quantile(np.arange(1, 10), 2 / 3))])
+    assert [scenarios.size_label(v, edges) for v in (1, 3.6, 3.7, 6.3, 6.4, 9)] == ["small", "small", "medium", "medium", "large", "large"]
+    assert scenarios.size_label(math.nan, edges) is None
+    assert scenarios.size_edges(np.array([math.nan])) is None
+    # A label is a label: the three known ones in lower case, any other as given.
+    assert [scenarios.size_text(v) for v in ("Large", " small ", "Enterprise", "", None)] == ["large", "small", "Enterprise", None, None]
+
+
+GROUPS = [(seg, size) for seg in ("Retail", "Horeca", "Office") for size in ("small", "medium", "large")]
+EMPLOYEES = {"small": (5, 15), "medium": (40, 60), "large": (200, 400)}
+STAPLES = ("S1", "S2", "S3")
+
+
+def peer_tables(seed: int = 3) -> dict[str, list[dict]]:
+    """Customers whose category and size decide what they buy: every group
+    has six products of its own, and everyone buys the staples. The
+    established customers order every few weeks for a year; the newcomers
+    ordered one staple ten days before the last month and then buy their
+    group's products, which only their peers can tell; the two fresh ones
+    per group have ordered one staple, at the very end."""
+    import datetime as dt
+    import random
+
+    rng = random.Random(seed)
+    start = dt.date(2025, 10, 1)
+    last = 364
+    orders, customers = [], []
+    for g, (seg, size) in enumerate(GROUPS):
+        own = [f"G{g}_{p}" for p in range(6)]
+        for c in range(18):
+            cid = f"{seg[0]}{size[0]}{c:02d}"
+            customers.append({"id": cid, "kind": seg, "staff": rng.randint(*EMPLOYEES[size])})
+            if c < 12:
+                likes = rng.sample(own, 4)
+                day = rng.randrange(20)
+                while day <= last:
+                    for sku in [rng.choice(STAPLES)] + rng.sample(likes, 2):
+                        orders.append({"cust": cid, "sku": sku, "day": (start + dt.timedelta(days=day)).isoformat(), "qty": 1})
+                    day += rng.randint(15, 25)
+            elif c < 16:
+                orders.append({"cust": cid, "sku": rng.choice(STAPLES), "day": (start + dt.timedelta(days=last - 40)).isoformat(), "qty": 1})
+                for day in (last - 20, last - 5):
+                    for sku in rng.sample(own, 2):
+                        orders.append({"cust": cid, "sku": sku, "day": (start + dt.timedelta(days=day)).isoformat(), "qty": 1})
+            else:
+                orders.append({"cust": cid, "sku": rng.choice(STAPLES), "day": (start + dt.timedelta(days=last - 3)).isoformat(), "qty": 1})
+    return {"orders": orders, "customers": customers}
+
+
+@pytest.fixture(scope="module")
+def peers(tmp_path_factory) -> TestClient:
+    client = TestClient(create_app(Settings(data_dir=tmp_path_factory.mktemp("peers") / "data")))
+    tables = peer_tables()
+    load(client, "porders", tables["orders"], VHOST)
+    load(client, "pcustomers", tables["customers"], VHOST)
+    return client
+
+
+def peer_body(scenario: str, customers: dict | None = None) -> dict:
+    data = {"transactions": {"dataset": "porders", "customer": "cust", "product": "sku", "date": "day", "quantity": "qty"}}
+    if customers is not None:
+        data["customers"] = {"dataset": "pcustomers", "id": "id", **customers}
+    return {"task": "recommendation", "scenario": scenario, "data": data, "algorithm": "item_similarity"}
+
+
+def artifact(client: TestClient, name: str, meta: dict) -> recommend.Model:
+    return recommend.decode(client.get(f"/v1/models/{VHOST}/{name}/versions/{meta['version']}/model.rec").content)
+
+
+def test_category_and_size_go_in_the_artifact_with_the_size_edges(peers):
+    resp = train(peers, "peer_products", peer_body("products", {"segment": "kind", "size": "staff"}))
+    assert resp.status_code == 200, resp.text
+    meta = resp.json()
+    x = artifact(peers, "peer_products", meta).extra
+    assert x["has_peers"] is True
+    lo, hi = x["size_edges"]
+    assert 15 <= lo <= 40 and 60 <= hi <= 200
+    attrs = x["customer_attrs"]
+    users = artifact(peers, "peer_products", meta).users
+    assert attrs["segment"][users.index("Rl00")] == "Retail"
+    assert attrs["size"][users.index("Rl00")] == "large"
+    assert attrs["size"][users.index("Hs03")] == "small"
+    assert meta["evaluation"]["peer_groups"] == len(GROUPS)
+
+
+def test_without_category_or_size_a_model_has_no_peers(peers):
+    meta = train(peers, "no_peers", peer_body("products")).json()
+    x = artifact(peers, "no_peers", meta).extra
+    assert x["has_peers"] is False and x["size_edges"] is None
+    assert "peer_groups" not in meta["evaluation"]
+    for sample in meta["samples"]:
+        for it in sample["items"]:
+            assert all(r["code"] != "peer_group" for r in it["reasons"])
+
+
+def test_peers_recommend_what_a_newcomers_group_buys(peers):
+    meta = train(peers, "peer_products2", peer_body("products", {"segment": "kind", "size": "staff"})).json()
+    model = artifact(peers, "peer_products2", meta)
+    b = scenarios.built_from_artifact(model)
+    # A fresh customer has ordered one staple: its peers say the rest.
+    u = model.users.index("Rl16")
+    g = GROUPS.index(("Retail", "large"))
+    picks = scenarios.product_scores(b, u, 10)
+    ids = [model.items[i] for i, _, _ in picks]
+    # Its group's products and the staples lead the list.
+    assert set(ids[:6]) <= {f"G{g}_{p}" for p in range(6)} | set(STAPLES), ids
+    texts = [r["text"] for _, _, rs in picks for r in rs if r["code"] == "peer_group"]
+    assert texts and texts[0].startswith("Bought by ") and texts[0].endswith(" of 17 Retail · large customers"), texts
+
+    # The audience of a group's product is led by that group's customers.
+    item = model.items.index(f"G{g}_0")
+    audience = scenarios.audience_scores(b, item, 5)
+    assert {model.users[u][:2] for u, _, _ in audience} == {"Rl"}, [model.users[u] for u, _, _ in audience]
+    assert any(r["code"] == "peer_group" for _, _, rs in audience for r in rs)
+
+
+def test_peers_lift_the_evaluated_metrics(peers):
+    without = train(peers, "eval_plain", peer_body("products")).json()["metrics"]
+    with_peers = train(peers, "eval_peers", peer_body("products", {"segment": "kind", "size": "staff"})).json()["metrics"]
+    assert with_peers["ndcg@10"] > without["ndcg@10"], (with_peers, without)
+    assert with_peers["hit_rate@10"] >= without["hit_rate@10"]
+
+
+def test_customer_lists_carry_category_and_size(peers):
+    meta = train(peers, "peer_audience", peer_body("audience", {"segment": "kind", "size": "staff"})).json()
+    fields = [it["fields"] for s in meta["samples"] for it in s["items"]]
+    assert fields and all(f["segment"] in ("Retail", "Horeca", "Office") and f["size"] in ("small", "medium", "large") for f in fields)
+
+
+# --------------------------------------------------------------------------
+# Nearby customers of the same category
+# --------------------------------------------------------------------------
+
+# Two towns about 78 km apart.
+TOWNS = {"A": (52.0, 13.0), "B": (52.7, 13.0)}
+
+
+def near_tables(seed: int = 5) -> dict[str, list[dict]]:
+    """Minimarkets in two towns: the established ones of a town buy that
+    town's products besides the staples; three fresh ones per town have
+    ordered one staple, at the very end. One more fresh minimarket, in town
+    A, has no coordinates."""
+    import datetime as dt
+    import random
+
+    rng = random.Random(seed)
+    start = dt.date(2025, 10, 1)
+    last = 364
+    orders, customers = [], []
+    for town, (lat, lon) in TOWNS.items():
+        own = [f"{town}_{p}" for p in range(6)]
+        for c in range(18):
+            cid = f"{town}{c:02d}"
+            customers.append({"id": cid, "kind": "Minimarket", "lat": round(lat + rng.gauss(0, 0.006), 5),
+                              "lon": round(lon + rng.gauss(0, 0.01), 5)})
+            if c < 15:
+                likes = rng.sample(own, 4)
+                day = rng.randrange(20)
+                while day <= last:
+                    for sku in [rng.choice(STAPLES)] + rng.sample(likes, 2):
+                        orders.append({"cust": cid, "sku": sku, "day": (start + dt.timedelta(days=day)).isoformat(), "qty": 1})
+                    day += rng.randint(15, 25)
+            else:
+                orders.append({"cust": cid, "sku": rng.choice(STAPLES), "day": (start + dt.timedelta(days=last - 3)).isoformat(), "qty": 1})
+    customers.append({"id": "Anone", "kind": "Minimarket", "lat": None, "lon": None})
+    orders.append({"cust": "Anone", "sku": STAPLES[0], "day": (start + dt.timedelta(days=last - 3)).isoformat(), "qty": 1})
+    return {"orders": orders, "customers": customers}
+
+
+@pytest.fixture(scope="module")
+def near(tmp_path_factory) -> TestClient:
+    client = TestClient(create_app(Settings(data_dir=tmp_path_factory.mktemp("near") / "data")))
+    tables = near_tables()
+    load(client, "norders", tables["orders"], VHOST)
+    load(client, "ncustomers", tables["customers"], VHOST)
+    return client
+
+
+def near_body(scenario: str, **extra) -> dict:
+    data = {"transactions": {"dataset": "norders", "customer": "cust", "product": "sku", "date": "day", "quantity": "qty"},
+            "customers": {"dataset": "ncustomers", "id": "id", "segment": "kind", "lat": "lat", "lon": "lon"}}
+    return {"task": "recommendation", "scenario": scenario, "data": data, "algorithm": "item_similarity", **extra}
+
+
+def test_nearby_settings_are_checked():
+    for bad in ({"near_km": 0}, {"near_km": 501}, {"near_km": True}, {"near_km": "5"},
+                {"near_peers": 2}, {"near_peers": 201}, {"near_peers": 5.5}):
+        with pytest.raises(Exception, match="near_"):
+            scenarios.parse_request(near_body("products", **bad), 0.2, 0)
+    req = scenarios.parse_request(near_body("products"), 0.2, 0)
+    assert (req.near_km, req.near_peers) == (5.0, 20)
+    req = scenarios.parse_request(near_body("products", near_km=2.5, near_peers=8), 0.2, 0)
+    assert (req.near_km, req.near_peers) == (2.5, 8)
+
+
+def test_the_nearby_settings_go_in_the_artifact(near, peers):
+    meta = train(near, "near_products", near_body("products", near_km=3))
+    assert meta.status_code == 200, meta.text
+    x = artifact(near, "near_products", meta.json()).extra
+    assert (x["near_km"], x["near_peers"]) == (3.0, 20)
+    # Without a category or size there are no peers, near or not.
+    x = artifact(peers, "no_peers_near", train(peers, "no_peers_near", peer_body("products")).json()).extra
+    assert x["near_km"] is None and x["near_peers"] is None
+
+
+def test_a_newcomer_is_offered_what_minimarkets_nearby_buy(near):
+    meta = train(near, "near_products2", near_body("products")).json()
+    model = artifact(near, "near_products2", meta)
+    b = scenarios.built_from_artifact(model)
+    u = model.users.index("A16")
+    peers = scenarios.peer_group(b, u)
+    # Its town's other 17 minimarkets, not the 18 in the other town.
+    assert peers is not None and peers.of == 17 and peers.within == 5.0
+    picks = scenarios.product_scores(b, u, 10)
+    ids = [model.items[i] for i, _, _ in picks]
+    assert set(ids[:6]) <= {f"A_{p}" for p in range(6)} | set(STAPLES), ids
+    assert not any(i.startswith("B_") for i in ids[:6]), ids
+    texts = [r["text"] for _, _, rs in picks for r in rs if r["code"] == "peer_group"]
+    assert texts and all(t.endswith(" of 17 Minimarket customers within 5 km") for t in texts), texts
+    items = [scenarios._item(model.items[i], s, r + 1, rs, {}) for r, (i, s, rs) in enumerate(picks)]
+    nearby = [it["id"] for it in items if any(r["code"] == "peer_group" for r in it["reasons"])][:3]
+    assert scenarios.nearby_summary(b, u, items) == f"Minimarket customers within 5 km buy: {', '.join(nearby)}"
+
+    # Without coordinates its peers are every other minimarket.
+    lone = model.users.index("Anone")
+    peers = scenarios.peer_group(b, lone)
+    assert peers is not None and peers.within is None and peers.of == 36
+    assert scenarios.nearby_summary(b, lone, items) is None
+
+    # The audience of a town's product is that town's customers.
+    audience = scenarios.audience_scores(b, model.items.index("A_0"), 5)
+    assert {model.users[v][0] for v, _, _ in audience} == {"A"}, [model.users[v] for v, _, _ in audience]
+    assert any(r["text"].endswith("Minimarket customers within 5 km") for _, _, rs in audience for r in rs)
+
+
+def test_a_wider_radius_is_capped_at_near_peers(near):
+    meta = train(near, "near_wide", near_body("products", near_km=100, near_peers=10)).json()
+    b = scenarios.built_from_artifact(artifact(near, "near_wide", meta))
+    peers = scenarios.peer_group(b, b.users.index("A16"))
+    assert peers.of == 10 and peers.within == 100.0
+    assert peers.reason(4) == "Bought by 4 of 10 Minimarket customers within 100 km"
+    # Too few nearby falls back to the whole category.
+    meta = train(near, "near_tiny", near_body("products", near_km=0.1)).json()
+    b = scenarios.built_from_artifact(artifact(near, "near_tiny", meta))
+    peers = scenarios.peer_group(b, b.users.index("A16"))
+    assert peers.within is None and peers.of == 36
+
+
+def test_product_samples_say_what_nearby_customers_buy(near):
+    meta = train(near, "near_samples", near_body("products")).json()
+    summaries = [s.get("summary") for s in meta["samples"]]
+    assert any(s and s.startswith("Minimarket customers within 5 km buy: ") for s in summaries), summaries
+    assert meta["evaluation"]["nearby_customers"] > 0

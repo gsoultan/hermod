@@ -808,7 +808,14 @@ type ScenarioSubject struct {
 	// The territory a rule's from_request "territory" binds to.
 	Territory string `protobuf:"bytes,5,opt,name=territory,proto3" json:"territory,omitempty"`
 	// For reorder: every customer, in one result.
-	AllCustomers  bool `protobuf:"varint,6,opt,name=all_customers,json=allCustomers,proto3" json:"all_customers,omitempty"`
+	AllCustomers bool `protobuf:"varint,6,opt,name=all_customers,json=allCustomers,proto3" json:"all_customers,omitempty"`
+	// For a list of customers (visits, reorder, audience): only the customers
+	// of this category, as the model's customers.segment holds it, in any case.
+	Segment string `protobuf:"bytes,7,opt,name=segment,proto3" json:"segment,omitempty"`
+	// For a list of customers: only the customers of this size, "small",
+	// "medium" or "large" (or the model's own size labels), or a number the
+	// model buckets as its training cut its customers' sizes.
+	Size          string `protobuf:"bytes,8,opt,name=size,proto3" json:"size,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -885,6 +892,20 @@ func (x *ScenarioSubject) GetAllCustomers() bool {
 	return false
 }
 
+func (x *ScenarioSubject) GetSegment() string {
+	if x != nil {
+		return x.Segment
+	}
+	return ""
+}
+
+func (x *ScenarioSubject) GetSize() string {
+	if x != nil {
+		return x.Size
+	}
+	return ""
+}
+
 type RecommendScenarioResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The model that answered.
@@ -955,7 +976,11 @@ type ScenarioResult struct {
 	// Best first.
 	Items []*ScenarioPick `protobuf:"bytes,2,rep,name=items,proto3" json:"items,omitempty"`
 	// A visit plan's days, in order; empty for other scenarios.
-	Plan          []*PlanDay `protobuf:"bytes,3,rep,name=plan,proto3" json:"plan,omitempty"`
+	Plan []*PlanDay `protobuf:"bytes,3,rep,name=plan,proto3" json:"plan,omitempty"`
+	// For a customer's products: what nearby customers of its category buy,
+	// in a line, such as "Minimarket customers within 5 km buy: A, B, C";
+	// empty otherwise.
+	Summary       string `protobuf:"bytes,4,opt,name=summary,proto3" json:"summary,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1009,6 +1034,13 @@ func (x *ScenarioResult) GetPlan() []*PlanDay {
 		return x.Plan
 	}
 	return nil
+}
+
+func (x *ScenarioResult) GetSummary() string {
+	if x != nil {
+		return x.Summary
+	}
+	return ""
 }
 
 type ScenarioPick struct {
@@ -1727,22 +1759,25 @@ const file_inference_proto_rawDesc = "" +
 	"\fexclude_seen\x18\b \x01(\bH\x00R\vexcludeSeen\x88\x01\x01\x12\x1f\n" +
 	"\vwithin_days\x18\t \x01(\x05R\n" +
 	"withinDaysB\x0f\n" +
-	"\r_exclude_seen\"\xc4\x01\n" +
+	"\r_exclude_seen\"\xf2\x01\n" +
 	"\x0fScenarioSubject\x12\x1a\n" +
 	"\bcustomer\x18\x01 \x01(\tR\bcustomer\x12\x1c\n" +
 	"\tcustomers\x18\x02 \x03(\tR\tcustomers\x12\x18\n" +
 	"\aproduct\x18\x03 \x01(\tR\aproduct\x12\x1a\n" +
 	"\bsalesman\x18\x04 \x01(\tR\bsalesman\x12\x1c\n" +
 	"\tterritory\x18\x05 \x01(\tR\tterritory\x12#\n" +
-	"\rall_customers\x18\x06 \x01(\bR\fallCustomers\"\x96\x01\n" +
+	"\rall_customers\x18\x06 \x01(\bR\fallCustomers\x12\x18\n" +
+	"\asegment\x18\a \x01(\tR\asegment\x12\x12\n" +
+	"\x04size\x18\b \x01(\tR\x04size\"\x96\x01\n" +
 	"\x19RecommendScenarioResponse\x12\x14\n" +
 	"\x05model\x18\x01 \x01(\tR\x05model\x12+\n" +
 	"\x11recommendation_id\x18\x02 \x01(\tR\x10recommendationId\x126\n" +
-	"\aresults\x18\x03 \x03(\v2\x1c.hermod.ml.v1.ScenarioResultR\aresults\"\x87\x01\n" +
+	"\aresults\x18\x03 \x03(\v2\x1c.hermod.ml.v1.ScenarioResultR\aresults\"\xa1\x01\n" +
 	"\x0eScenarioResult\x12\x18\n" +
 	"\asubject\x18\x01 \x01(\tR\asubject\x120\n" +
 	"\x05items\x18\x02 \x03(\v2\x1a.hermod.ml.v1.ScenarioPickR\x05items\x12)\n" +
-	"\x04plan\x18\x03 \x03(\v2\x15.hermod.ml.v1.PlanDayR\x04plan\"\x94\x02\n" +
+	"\x04plan\x18\x03 \x03(\v2\x15.hermod.ml.v1.PlanDayR\x04plan\x12\x18\n" +
+	"\asummary\x18\x04 \x01(\tR\asummary\"\x94\x02\n" +
 	"\fScenarioPick\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05score\x18\x02 \x01(\x01R\x05score\x12\x12\n" +

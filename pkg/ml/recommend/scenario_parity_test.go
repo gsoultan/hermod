@@ -22,6 +22,7 @@ type scenarioCase struct {
 	K           int    `json:"k"`
 	ExcludeSeen bool   `json:"exclude_seen"`
 	Items       []Pick `json:"items"`
+	Summary     string `json:"summary"`
 }
 
 func scenarioFixture(t testing.TB, name string) (*Model, []scenarioCase) {
@@ -66,7 +67,13 @@ func samePick(got, want Pick) error {
 }
 
 func TestScenariosServeWhatTheWorkerScored(t *testing.T) {
-	for _, name := range []string{"visits", "products", "products_als", "reorder", "audience", "audience_als", "similar"} {
+	// The "_peers", "_cold" and "_near" models were trained with customer
+	// categories and sizes, so products and audience add the peer share,
+	// from the nearby peers when there are enough; the others were trained
+	// before there was one, and answer as they always did.
+	for _, name := range []string{"visits", "products", "products_als", "reorder", "audience", "audience_als", "similar",
+		"products_peers", "audience_peers", "audience_peers_als", "reorder_peers", "products_cold", "audience_cold",
+		"products_peers_wide", "products_near", "audience_near"} {
 		t.Run(name, func(t *testing.T) {
 			m, cases := scenarioFixture(t, name)
 			if len(cases) == 0 {
@@ -87,6 +94,9 @@ func TestScenariosServeWhatTheWorkerScored(t *testing.T) {
 				}
 				if len(res) != 1 {
 					t.Fatalf("%d results", len(res))
+				}
+				if res[0].Summary != c.Summary {
+					t.Errorf("%s %s: summary %q, want %q", name, c.Customer, res[0].Summary, c.Summary)
 				}
 				got := res[0].Items
 				want := c.Items

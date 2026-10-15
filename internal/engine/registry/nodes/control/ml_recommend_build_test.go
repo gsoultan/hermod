@@ -43,7 +43,8 @@ func runBuild(t *testing.T, reg any, cfg map[string]any) ([]hermod.Message, erro
 func TestRecommendBuildEmitsOneRecordPerRow(t *testing.T) {
 	reg := &fakeBuilder{rows: []map[string]any{
 		{"model": "plan", "for_id": "R1", "item_id": "C1", "rank": 1, "plan_date": "2026-10-13"},
-		{"model": "plan", "for_id": "R1", "item_id": "C2", "rank": 2, "plan_date": "2026-10-13", "due_date": "2026-10-20"},
+		{"model": "plan", "for_id": "R1", "item_id": "C2", "rank": 2, "plan_date": "2026-10-13", "due_date": "2026-10-20",
+			"segment": "Retail", "size": "large"},
 	}}
 	msgs, err := runBuild(t, reg, map[string]any{"model": "plan", "for": "all_salesmen", "periodDays": "5", "withinDays": "14", "k": 20.0,
 		"targetSourceId": "pg", "targetTable": "visit_plan", "targetMode": "replace"})
@@ -56,7 +57,8 @@ func TestRecommendBuildEmitsOneRecordPerRow(t *testing.T) {
 		t.Fatalf("called %s/%s with %v", reg.vhost, reg.model, reg.config)
 	}
 	if len(msgs) != 2 || msgs[1].Data()["item_id"] != "C2" || msgs[1].Data()["trigger"] != "nightly" ||
-		msgs[0].Metadata()["_fanout_total"] != "2" || msgs[1].Data()["due_date"] != "2026-10-20" {
+		msgs[0].Metadata()["_fanout_total"] != "2" || msgs[1].Data()["due_date"] != "2026-10-20" ||
+		msgs[1].Data()["segment"] != "Retail" || msgs[1].Data()["size"] != "large" {
 		t.Fatalf("messages %v", explodeData(msgs))
 	}
 }

@@ -9,7 +9,7 @@ import {
   GUIDE_KINDS, LIMITS, checklistBlocker, dataGuide, guideMarkdown, guideTemplates, missingMappings, predictChecklist,
   recommendChecklist, scenarioChecklist, DOC_BLOCKS, type GuideKind,
 } from '@/lib/mlDataGuide'
-import { SCENARIOS, scenarioRoles, type RecommendCheck } from '@/lib/mlRecommend'
+import { NEAR_KM, NEAR_PEERS, SCENARIOS, nearbyApplies, scenarioRoles, type RecommendCheck, type Scenario } from '@/lib/mlRecommend'
 import type { TrainCheck } from '@/lib/mlModels'
 
 /**
@@ -148,6 +148,41 @@ describe('every kind has a complete guide', () => {
     expect(terms['Next N days']).toMatch(/1 to 366/)
     expect(terms['Next N days']).toMatch(/one and a half.*three/s)
     expect(terms['Products due']).toMatch(/two different days/)
+  })
+})
+
+describe('customer category, size and coordinates', () => {
+  const optional = (s: Scenario) => Object.fromEntries(dataGuide(s).optional.map((c) => [c.key, c]))
+
+  it('are optional columns that improve products and audience, nearby customers first', () => {
+    for (const s of ['products', 'audience'] as const) {
+      const o = optional(s)
+      expect(o['customers.segment']?.name, s).toBe('Customer category')
+      expect(o['customers.size']?.name, s).toBe('Customer size')
+      expect(o['customers.segment']?.why, s).toMatch(/few orders/)
+      expect(o['customers.size']?.why, s).toMatch(/number.*small, medium and large/)
+      expect(o['customers.lat']?.why, s).toMatch(/nearby/)
+      expect(o['customers.lon']?.why, s).toMatch(/nearby/)
+      expect(dataGuide(s).required.map((c) => c.key), s).not.toContain('customers.segment')
+    }
+  })
+
+  it('are carried on, and filter, every list of customers', () => {
+    for (const s of ['visits', 'reorder'] as const) {
+      expect(optional(s)['customers.segment']?.why, s).toMatch(/filter/i)
+      expect(optional(s)['customers.size']?.why, s).toMatch(/filter/i)
+    }
+    expect(optional('similar')['customers.segment']).toBeUndefined()
+  })
+
+  it('the nearby radius is the worker\'s', () => {
+    const src = read('ml/worker/hermod_ml/scenarios.py')
+    expect(NEAR_KM.default).toBe(Number(src.match(/^NEAR_KM = ([\d.]+)/m)?.[1]))
+    expect(NEAR_PEERS).toBe(constant(src, 'NEAR_PEERS'))
+    expect([NEAR_KM.min, NEAR_KM.max]).toEqual(src.match(/^NEAR_KM_BOUNDS = \(([\d.]+), ([\d.]+)\)/m)?.slice(1).map(Number))
+    expect(nearbyApplies('products', { customers: { dataset: 'c', id: 'id', segment: 'kind', lat: 'la', lon: 'lo' } })).toBe(true)
+    expect(nearbyApplies('products', { customers: { dataset: 'c', id: 'id', lat: 'la', lon: 'lo' } })).toBe(false)
+    expect(nearbyApplies('reorder', { customers: { dataset: 'c', id: 'id', size: 's', lat: 'la', lon: 'lo' } })).toBe(false)
   })
 })
 

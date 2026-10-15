@@ -1,0 +1,610 @@
+[
+ {
+  "today": "2026-10-01",
+  "product": "S1",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "B16",
+    "score": 0.6825529336929321,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "18 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 17 of 17 Minimarket customers within 5 km"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket",
+     "lat": 52.69063186645508,
+     "lon": 12.99866008758545
+    }
+   },
+   {
+    "id": "A17",
+    "score": 0.6660566926002502,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "20 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 15 of 17 Minimarket customers within 5 km"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket",
+     "lat": 52.01696014404297,
+     "lon": 12.990750312805176
+    }
+   },
+   {
+    "id": "A15",
+    "score": 0.6384353041648865,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "18 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 15 of 17 Minimarket customers within 5 km"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket",
+     "lat": 52.00931930541992,
+     "lon": 13.015230178833008
+    }
+   },
+   {
+    "id": "A16",
+    "score": 0.6384353041648865,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "18 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 15 of 17 Minimarket customers within 5 km"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket",
+     "lat": 51.99068832397461,
+     "lon": 12.997030258178711
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "product": "S3",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "A17",
+    "score": 0.7101743221282959,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "20 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 17 of 17 Minimarket customers within 5 km"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket",
+     "lat": 52.01696014404297,
+     "lon": 12.990750312805176
+    }
+   },
+   {
+    "id": "B15",
+    "score": 0.6604940891265869,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "18 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 16 of 17 Minimarket customers within 5 km"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket",
+     "lat": 52.702171325683594,
+     "lon": 13.009739875793457
+    }
+   },
+   {
+    "id": "B17",
+    "score": 0.6604940891265869,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "18 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 16 of 17 Minimarket customers within 5 km"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket",
+     "lat": 52.697811126708984,
+     "lon": 13.006750106811523
+    }
+   },
+   {
+    "id": "Anone",
+    "score": 0.6513029336929321,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "18 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 33 of 36 Minimarket customers"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket"
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "product": "S2",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "A15",
+    "score": 0.661075234413147,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "18 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 16 of 17 Minimarket customers within 5 km"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket",
+     "lat": 52.00931930541992,
+     "lon": 13.015230178833008
+    }
+   },
+   {
+    "id": "A16",
+    "score": 0.661075234413147,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "18 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 16 of 17 Minimarket customers within 5 km"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket",
+     "lat": 51.99068832397461,
+     "lon": 12.997030258178711
+    }
+   },
+   {
+    "id": "B15",
+    "score": 0.6390164494514465,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "18 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 15 of 17 Minimarket customers within 5 km"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket",
+     "lat": 52.702171325683594,
+     "lon": 13.009739875793457
+    }
+   },
+   {
+    "id": "B16",
+    "score": 0.6390164494514465,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "18 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 15 of 17 Minimarket customers within 5 km"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket",
+     "lat": 52.69063186645508,
+     "lon": 12.99866008758545
+    }
+   },
+   {
+    "id": "B17",
+    "score": 0.6390164494514465,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "18 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 15 of 17 Minimarket customers within 5 km"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket",
+     "lat": 52.697811126708984,
+     "lon": 13.006750106811523
+    }
+   },
+   {
+    "id": "Anone",
+    "score": 0.6310507655143738,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "18 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 31 of 36 Minimarket customers"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket"
+    }
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "product": "A_5",
+  "k": 15,
+  "exclude_seen": false,
+  "items": [
+   {
+    "id": "A01",
+    "score": 0.7511312365531921,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "10 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 10 of 17 Minimarket customers within 5 km"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket",
+     "lat": 51.99100112915039,
+     "lon": 13.004579544067383
+    }
+   },
+   {
+    "id": "A02",
+    "score": 0.7270376682281494,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "10 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 10 of 17 Minimarket customers within 5 km"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket",
+     "lat": 51.99843978881836,
+     "lon": 13.009830474853516
+    }
+   },
+   {
+    "id": "A05",
+    "score": 0.7193306088447571,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "10 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 10 of 17 Minimarket customers within 5 km"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket",
+     "lat": 52.001068115234375,
+     "lon": 12.996760368347168
+    }
+   },
+   {
+    "id": "A07",
+    "score": 0.7193306088447571,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "10 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 10 of 17 Minimarket customers within 5 km"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket",
+     "lat": 52.00394821166992,
+     "lon": 13.00139045715332
+    }
+   },
+   {
+    "id": "A08",
+    "score": 0.7193306088447571,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "10 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 10 of 17 Minimarket customers within 5 km"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket",
+     "lat": 51.99251174926758,
+     "lon": 12.989839553833008
+    }
+   },
+   {
+    "id": "A00",
+    "score": 0.6595800518989563,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "9 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 9 of 17 Minimarket customers within 5 km"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket",
+     "lat": 51.9929313659668,
+     "lon": 12.988519668579102
+    }
+   },
+   {
+    "id": "A12",
+    "score": 0.6595800518989563,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "9 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 9 of 17 Minimarket customers within 5 km"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket",
+     "lat": 51.99245834350586,
+     "lon": 12.994790077209473
+    }
+   },
+   {
+    "id": "A13",
+    "score": 0.6595800518989563,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "9 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 9 of 17 Minimarket customers within 5 km"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket",
+     "lat": 52.008209228515625,
+     "lon": 13.016889572143555
+    }
+   },
+   {
+    "id": "A10",
+    "score": 0.6491480469703674,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "9 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 9 of 17 Minimarket customers within 5 km"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket",
+     "lat": 52.00246047973633,
+     "lon": 12.990409851074219
+    }
+   },
+   {
+    "id": "A14",
+    "score": 0.6491480469703674,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "9 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 9 of 17 Minimarket customers within 5 km"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket",
+     "lat": 51.99972915649414,
+     "lon": 13.000519752502441
+    }
+   },
+   {
+    "id": "A03",
+    "score": 0.6459184885025024,
+    "rank": 11,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "9 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 9 of 17 Minimarket customers within 5 km"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket",
+     "lat": 52.00267028808594,
+     "lon": 13.012519836425781
+    }
+   },
+   {
+    "id": "A09",
+    "score": 0.6459184885025024,
+    "rank": 12,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "9 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 9 of 17 Minimarket customers within 5 km"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket",
+     "lat": 51.99546813964844,
+     "lon": 13.000349998474121
+    }
+   },
+   {
+    "id": "A04",
+    "score": 0.6414409875869751,
+    "rank": 13,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "9 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 9 of 17 Minimarket customers within 5 km"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket",
+     "lat": 52.006919860839844,
+     "lon": 12.998299598693848
+    }
+   },
+   {
+    "id": "A06",
+    "score": 0.6277794241905212,
+    "rank": 14,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "9 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 9 of 17 Minimarket customers within 5 km"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket",
+     "lat": 51.998878479003906,
+     "lon": 12.994589805603027
+    }
+   },
+   {
+    "id": "A11",
+    "score": 0.6173474192619324,
+    "rank": 15,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "9 of 20 similar customers buy it"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 9 of 17 Minimarket customers within 5 km"
+     }
+    ],
+    "fields": {
+     "segment": "Minimarket",
+     "lat": 51.99686813354492,
+     "lon": 12.989020347595215
+    }
+   }
+  ]
+ }
+]

@@ -24,8 +24,10 @@
 // scenario, as_of, period_days, customer_neighbors, the names of the
 // customer and item features, customer_attrs and item_attrs (one value or
 // null per customer or item), salesmen, weights, rules, global_gap,
-// global_visit_gap, has_visits and has_margin. Its algorithm may be "none",
-// with neither factors nor neighbors, for a scenario that needs no products.
+// global_visit_gap, has_visits and has_margin, and, since customer
+// categories and sizes, has_peers and size_edges. Its algorithm may be
+// "none", with neither factors nor neighbors, for a scenario that needs no
+// products.
 // After popular scores come:
 //
 //	customer neighbors     uint32  [users x customer_neighbors] when > 0
@@ -117,6 +119,17 @@ type header struct {
 	GlobalVisitGap    float64                 `json:"global_visit_gap"`
 	HasVisits         bool                    `json:"has_visits"`
 	HasMargin         bool                    `json:"has_margin"`
+	// HasPeers is set when customers have a category (segment) or a size,
+	// so products and audience add the peer share; SizeEdges are the two
+	// tertiles a numeric size was cut at, none for sizes given as labels.
+	// An artifact from before them has neither. NearKm and NearPeers make a
+	// customer's peers the NearPeers nearest of them within NearKm
+	// kilometres, when there are enough; 0 (an artifact without peers, or
+	// from before nearby ones) for its whole peer group.
+	HasPeers  bool      `json:"has_peers"`
+	SizeEdges []float64 `json:"size_edges"`
+	NearKm    float64   `json:"near_km"`
+	NearPeers int       `json:"near_peers"`
 }
 
 // SalesmanInfo is a salesman's capacity as the salesmen table gave it; a nil
@@ -181,6 +194,10 @@ type scenarioData struct {
 
 	globalGap, globalVisitGap float64
 	hasVisits, hasMargin      bool
+	hasPeers                  bool
+	sizeEdges                 []float64
+	nearKm                    float64
+	nearPeers                 int
 }
 
 // Algorithm is the algorithm that trained the model.

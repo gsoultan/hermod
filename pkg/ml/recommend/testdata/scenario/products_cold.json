@@ -1,0 +1,3218 @@
+[
+ {
+  "today": "2026-10-01",
+  "customer": "Hl00",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "G5_5",
+    "score": 0.7994652390480042,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 10 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 11 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_0",
+    "score": 0.463309109210968,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 7 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 8 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_0",
+    "score": 0.20325540006160736,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 5 of 20 similar customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_1",
+    "score": 0.1874513030052185,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_4",
+    "score": 0.17474710941314697,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_3",
+    "score": 0.16838310658931732,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_2",
+    "score": 0.16669268906116486,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G7_2",
+    "score": 0.14202991127967834,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G6_1",
+    "score": 0.13678905367851257,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G0_0",
+    "score": 0.1352231800556183,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "customer": "Hl03",
+  "k": 5,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "G5_4",
+    "score": 0.813101589679718,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 11 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 11 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_1",
+    "score": 0.5472874045372009,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 7 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_0",
+    "score": 0.19224748015403748,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_4",
+    "score": 0.17708614468574524,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_1",
+    "score": 0.17640119791030884,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "customer": "Hl11",
+  "k": 10,
+  "exclude_seen": false,
+  "items": [
+   {
+    "id": "S3",
+    "score": 0.8617157936096191,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 19 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 13 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "S1",
+    "score": 0.836925208568573,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 18 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 13 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "S2",
+    "score": 0.8143985271453857,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 17 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 13 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_4",
+    "score": 0.7994652390480042,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 10 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 11 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_3",
+    "score": 0.7475342154502869,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 11 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 11 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_2",
+    "score": 0.7246411442756653,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 11 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 11 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_5",
+    "score": 0.6591277122497559,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 9 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 10 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_1",
+    "score": 0.4744966924190521,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 6 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 6 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_0",
+    "score": 0.46558770537376404,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 7 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 8 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_0",
+    "score": 0.2043456882238388,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 5 of 20 similar customers"
+     }
+    ],
+    "fields": {}
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "customer": "Hs04",
+  "k": 20,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "G3_5",
+    "score": 0.813101589679718,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 11 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 11 of 17 Horeca \u00b7 small customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G3_4",
+    "score": 0.5276756882667542,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 7 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 17 Horeca \u00b7 small customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_3",
+    "score": 0.20511594414710999,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 5 of 20 similar customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_2",
+    "score": 0.19659459590911865,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 5 of 20 similar customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_4",
+    "score": 0.18409493565559387,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_5",
+    "score": 0.1793588250875473,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G7_2",
+    "score": 0.14382697641849518,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G6_1",
+    "score": 0.13851982355117798,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G0_0",
+    "score": 0.13693413138389587,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G2_2",
+    "score": 0.13693413138389587,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G6_3",
+    "score": 0.13693413138389587,
+    "rank": 11,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_0",
+    "score": 0.13678264617919922,
+    "rank": 12,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_1",
+    "score": 0.13458746671676636,
+    "rank": 13,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G2_3",
+    "score": 0.1333627998828888,
+    "rank": 14,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G1_0",
+    "score": 0.1312420666217804,
+    "rank": 15,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G7_5",
+    "score": 0.1312420666217804,
+    "rank": 16,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G8_1",
+    "score": 0.13114963471889496,
+    "rank": 17,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G0_2",
+    "score": 0.12963761389255524,
+    "rank": 18,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G6_2",
+    "score": 0.12953142821788788,
+    "rank": 19,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G1_3",
+    "score": 0.12832839787006378,
+    "rank": 20,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "customer": "Hl16",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "S3",
+    "score": 0.7610859870910645,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 14 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "S2",
+    "score": 0.7520530223846436,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 14 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_3",
+    "score": 0.4259982109069824,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 5 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 12 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_2",
+    "score": 0.41226083040237427,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 5 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 12 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_5",
+    "score": 0.3656543493270874,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 11 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_4",
+    "score": 0.3628445565700531,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 11 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_1",
+    "score": 0.1756971925497055,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G6_1",
+    "score": 0.16936910152435303,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G2_5",
+    "score": 0.16825999319553375,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G8_0",
+    "score": 0.16825999319553375,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "customer": "Hl17",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "S3",
+    "score": 0.7149321436882019,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 14 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "S1",
+    "score": 0.7130822539329529,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 14 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_5",
+    "score": 0.3684641420841217,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 11 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_3",
+    "score": 0.3545685112476349,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 12 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_4",
+    "score": 0.35411590337753296,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 11 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_2",
+    "score": 0.34083113074302673,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 12 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_1",
+    "score": 0.23461565375328064,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_0",
+    "score": 0.18792565166950226,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_1",
+    "score": 0.1756971925497055,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G8_5",
+    "score": 0.1741882562637329,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "customer": "Rl16",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "S1",
+    "score": 0.7130822539329529,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 14 of 17 Retail \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "S3",
+    "score": 0.6968325972557068,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 13 of 17 Retail \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G2_5",
+    "score": 0.37881720066070557,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 13 of 17 Retail \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G2_2",
+    "score": 0.3545685112476349,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 12 of 17 Retail \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G2_0",
+    "score": 0.3279709815979004,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 10 of 17 Retail \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G2_1",
+    "score": 0.3254193961620331,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 11 of 17 Retail \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G2_3",
+    "score": 0.30565911531448364,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 9 of 17 Retail \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_0",
+    "score": 0.18792565166950226,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_1",
+    "score": 0.1756971925497055,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G8_5",
+    "score": 0.1741882562637329,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "customer": "Hs17",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "S1",
+    "score": 0.7726244330406189,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 5 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 14 of 17 Horeca \u00b7 small customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "S2",
+    "score": 0.765412449836731,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 5 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 14 of 17 Horeca \u00b7 small customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G3_0",
+    "score": 0.392599880695343,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 13 of 17 Horeca \u00b7 small customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G3_3",
+    "score": 0.35469329357147217,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 11 of 17 Horeca \u00b7 small customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G3_5",
+    "score": 0.34028729796409607,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 11 of 17 Horeca \u00b7 small customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G3_1",
+    "score": 0.3143428564071655,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 11 of 17 Horeca \u00b7 small customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G3_2",
+    "score": 0.3018456697463989,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 9 of 17 Horeca \u00b7 small customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_2",
+    "score": 0.23248866200447083,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 7 of 20 similar customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_3",
+    "score": 0.2209502011537552,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 6 of 20 similar customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_4",
+    "score": 0.20175211131572723,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 5 of 20 similar customers"
+     }
+    ],
+    "fields": {}
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "customer": "Om12",
+  "k": 10,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "G7_2",
+    "score": 0.8072192668914795,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 9 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 13 of 17 Office \u00b7 medium customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "S3",
+    "score": 0.681414783000946,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 10 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 15 of 17 Office \u00b7 medium customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G7_5",
+    "score": 0.6706387996673584,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 6 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 10 of 17 Office \u00b7 medium customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "S1",
+    "score": 0.6132350564002991,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 9 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 12 of 17 Office \u00b7 medium customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G7_0",
+    "score": 0.4522040784358978,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 17 Office \u00b7 medium customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_0",
+    "score": 0.07499287277460098,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_5",
+    "score": 0.07180020958185196,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_1",
+    "score": 0.0694299042224884,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G8_5",
+    "score": 0.06874346733093262,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_4",
+    "score": 0.06845881044864655,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "customer": "Hl12",
+  "k": 100,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "G5_3",
+    "score": 0.8374331593513489,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 12 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 12 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_5",
+    "score": 0.7957292199134827,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 11 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 11 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "S1",
+    "score": 0.6787691116333008,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 13 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 14 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "S2",
+    "score": 0.6735023260116577,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 13 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 14 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G7_2",
+    "score": 0.06079527363181114,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G0_2",
+    "score": 0.06058381125330925,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G0_0",
+    "score": 0.058004580438137054,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G2_2",
+    "score": 0.058004580438137054,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G6_3",
+    "score": 0.058004580438137054,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G1_0",
+    "score": 0.05776439234614372,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G7_5",
+    "score": 0.05776439234614372,
+    "rank": 11,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G0_3",
+    "score": 0.05572899803519249,
+    "rank": 12,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G3_0",
+    "score": 0.05572899803519249,
+    "rank": 13,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G1_2",
+    "score": 0.05507619306445122,
+    "rank": 14,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G3_3",
+    "score": 0.05507619306445122,
+    "rank": 15,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G6_1",
+    "score": 0.05507619306445122,
+    "rank": 16,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G1_1",
+    "score": 0.0548001192510128,
+    "rank": 17,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G2_3",
+    "score": 0.0548001192510128,
+    "rank": 18,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G1_3",
+    "score": 0.052731435745954514,
+    "rank": 19,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_0",
+    "score": 0.052731435745954514,
+    "rank": 20,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G2_0",
+    "score": 0.05198796093463898,
+    "rank": 21,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G8_1",
+    "score": 0.05198796093463898,
+    "rank": 22,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G2_5",
+    "score": 0.050662726163864136,
+    "rank": 23,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G0_4",
+    "score": 0.04956857115030289,
+    "rank": 24,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G3_5",
+    "score": 0.04956857115030289,
+    "rank": 25,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G6_2",
+    "score": 0.04956857115030289,
+    "rank": 26,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G7_4",
+    "score": 0.04956857115030289,
+    "rank": 27,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_1",
+    "score": 0.04881982505321503,
+    "rank": 28,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G3_2",
+    "score": 0.04871121421456337,
+    "rank": 29,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G7_3",
+    "score": 0.04871121421456337,
+    "rank": 30,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G1_4",
+    "score": 0.04832915961742401,
+    "rank": 31,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G7_0",
+    "score": 0.04832915961742401,
+    "rank": 32,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G8_5",
+    "score": 0.04745829477906227,
+    "rank": 33,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G1_5",
+    "score": 0.04621151462197304,
+    "rank": 34,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_4",
+    "score": 0.04621151462197304,
+    "rank": 35,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G7_1",
+    "score": 0.04621151462197304,
+    "rank": 36,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G8_3",
+    "score": 0.04621151462197304,
+    "rank": 37,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G8_0",
+    "score": 0.04559645429253578,
+    "rank": 38,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_3",
+    "score": 0.04520779103040695,
+    "rank": 39,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G6_5",
+    "score": 0.04520779103040695,
+    "rank": 40,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G2_1",
+    "score": 0.044060952961444855,
+    "rank": 41,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G3_1",
+    "score": 0.044060952961444855,
+    "rank": 42,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_2",
+    "score": 0.042622312903404236,
+    "rank": 43,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G6_0",
+    "score": 0.042622312903404236,
+    "rank": 44,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G8_2",
+    "score": 0.042622312903404236,
+    "rank": 45,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G0_1",
+    "score": 0.04142499715089798,
+    "rank": 46,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G0_5",
+    "score": 0.04142499715089798,
+    "rank": 47,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_5",
+    "score": 0.0,
+    "rank": 48,
+    "reasons": [
+     {
+      "code": "popular",
+      "text": "One of the most popular products"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G6_4",
+    "score": 0.0,
+    "rank": 49,
+    "reasons": [
+     {
+      "code": "popular",
+      "text": "One of the most popular products"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G3_4",
+    "score": 0.0,
+    "rank": 50,
+    "reasons": [
+     {
+      "code": "popular",
+      "text": "One of the most popular products"
+     }
+    ],
+    "fields": {}
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "customer": "Hl16",
+  "k": 100,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "S3",
+    "score": 0.7610859870910645,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 14 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "S2",
+    "score": 0.7520530223846436,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 14 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_3",
+    "score": 0.4259982109069824,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 5 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 12 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_2",
+    "score": 0.41226083040237427,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 5 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 12 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_5",
+    "score": 0.3656543493270874,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 11 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_4",
+    "score": 0.3628445565700531,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 11 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_1",
+    "score": 0.1756971925497055,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G6_1",
+    "score": 0.16936910152435303,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G2_5",
+    "score": 0.16825999319553375,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G8_0",
+    "score": 0.16825999319553375,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_0",
+    "score": 0.1678733080625534,
+    "rank": 11,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 8 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G3_1",
+    "score": 0.16655932366847992,
+    "rank": 12,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G0_0",
+    "score": 0.16264979541301727,
+    "rank": 13,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G2_2",
+    "score": 0.16264979541301727,
+    "rank": 14,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G6_3",
+    "score": 0.16264979541301727,
+    "rank": 15,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_5",
+    "score": 0.1576753407716751,
+    "rank": 16,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G3_0",
+    "score": 0.15672153234481812,
+    "rank": 17,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G3_3",
+    "score": 0.15502086281776428,
+    "rank": 18,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G6_2",
+    "score": 0.15502086281776428,
+    "rank": 19,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G2_1",
+    "score": 0.15221108496189117,
+    "rank": 20,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_1",
+    "score": 0.1497737616300583,
+    "rank": 21,
+    "reasons": [
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 17 Horeca \u00b7 large customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G1_3",
+    "score": 0.14891240000724792,
+    "rank": 22,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G8_5",
+    "score": 0.14891240000724792,
+    "rank": 23,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G8_3",
+    "score": 0.14697551727294922,
+    "rank": 24,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_3",
+    "score": 0.14613687992095947,
+    "rank": 25,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G7_2",
+    "score": 0.14518307149410248,
+    "rank": 26,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G0_3",
+    "score": 0.14352306723594666,
+    "rank": 27,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G2_3",
+    "score": 0.1427631825208664,
+    "rank": 28,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G6_4",
+    "score": 0.14085054397583008,
+    "rank": 29,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G0_4",
+    "score": 0.14067262411117554,
+    "rank": 30,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G1_2",
+    "score": 0.14067262411117554,
+    "rank": 31,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G3_5",
+    "score": 0.14067262411117554,
+    "rank": 32,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G3_2",
+    "score": 0.13843907415866852,
+    "rank": 33,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_2",
+    "score": 0.13843907415866852,
+    "rank": 34,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G6_0",
+    "score": 0.13843907415866852,
+    "rank": 35,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G8_2",
+    "score": 0.13843907415866852,
+    "rank": 36,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G0_5",
+    "score": 0.13744376599788666,
+    "rank": 37,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G8_4",
+    "score": 0.13744376599788666,
+    "rank": 38,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_0",
+    "score": 0.1373739391565323,
+    "rank": 39,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G1_0",
+    "score": 0.13543705642223358,
+    "rank": 40,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G7_5",
+    "score": 0.13543705642223358,
+    "rank": 41,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G8_1",
+    "score": 0.13543705642223358,
+    "rank": 42,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G1_5",
+    "score": 0.13192695379257202,
+    "rank": 43,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G0_2",
+    "score": 0.1291341632604599,
+    "rank": 44,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G2_4",
+    "score": 0.128104105591774,
+    "rank": 45,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G1_1",
+    "score": 0.12690061330795288,
+    "rank": 46,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G1_4",
+    "score": 0.12590530514717102,
+    "rank": 47,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G2_0",
+    "score": 0.12038848549127579,
+    "rank": 48,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_4",
+    "score": 0.12038848549127579,
+    "rank": 49,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G6_5",
+    "score": 0.1177736222743988,
+    "rank": 50,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G7_4",
+    "score": 0.11478592455387115,
+    "rank": 51,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G7_3",
+    "score": 0.11103802919387817,
+    "rank": 52,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "customer": "Om12",
+  "k": 100,
+  "exclude_seen": true,
+  "items": [
+   {
+    "id": "G7_2",
+    "score": 0.8072192668914795,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 9 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 13 of 17 Office \u00b7 medium customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "S3",
+    "score": 0.681414783000946,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 10 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 15 of 17 Office \u00b7 medium customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G7_5",
+    "score": 0.6706387996673584,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 6 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 10 of 17 Office \u00b7 medium customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "S1",
+    "score": 0.6132350564002991,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 9 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 12 of 17 Office \u00b7 medium customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G7_0",
+    "score": 0.4522040784358978,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Bought by 4 of 20 similar customers"
+     },
+     {
+      "code": "peer_group",
+      "text": "Bought by 7 of 17 Office \u00b7 medium customers"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_0",
+    "score": 0.07499287277460098,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_5",
+    "score": 0.07180020958185196,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_1",
+    "score": 0.0694299042224884,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G8_5",
+    "score": 0.06874346733093262,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_4",
+    "score": 0.06845881044864655,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G8_1",
+    "score": 0.06845881044864655,
+    "rank": 11,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G3_0",
+    "score": 0.0660465881228447,
+    "rank": 12,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G8_0",
+    "score": 0.0660465881228447,
+    "rank": 13,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_4",
+    "score": 0.06527291983366013,
+    "rank": 14,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G6_1",
+    "score": 0.06527291983366013,
+    "rank": 15,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G6_2",
+    "score": 0.06527291983366013,
+    "rank": 16,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G2_3",
+    "score": 0.06494573503732681,
+    "rank": 17,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G0_0",
+    "score": 0.06249405816197395,
+    "rank": 18,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G1_3",
+    "score": 0.06249405816197395,
+    "rank": 19,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G2_2",
+    "score": 0.06249405816197395,
+    "rank": 20,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_3",
+    "score": 0.06249405816197395,
+    "rank": 21,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G6_3",
+    "score": 0.06249405816197395,
+    "rank": 22,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G1_0",
+    "score": 0.06161293387413025,
+    "rank": 23,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G2_0",
+    "score": 0.06161293387413025,
+    "rank": 24,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G8_3",
+    "score": 0.06161293387413025,
+    "rank": 25,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G6_5",
+    "score": 0.061231426894664764,
+    "rank": 26,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G0_3",
+    "score": 0.060042351484298706,
+    "rank": 27,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G2_5",
+    "score": 0.060042351484298706,
+    "rank": 28,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G0_2",
+    "score": 0.058745626360177994,
+    "rank": 29,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G0_4",
+    "score": 0.058745626360177994,
+    "rank": 30,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G3_1",
+    "score": 0.058745626360177994,
+    "rank": 31,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G3_3",
+    "score": 0.058745626360177994,
+    "rank": 32,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G3_5",
+    "score": 0.058745626360177994,
+    "rank": 33,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G1_1",
+    "score": 0.05772954225540161,
+    "rank": 34,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_2",
+    "score": 0.05772954225540161,
+    "rank": 35,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G6_0",
+    "score": 0.05772954225540161,
+    "rank": 36,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G8_2",
+    "score": 0.05772954225540161,
+    "rank": 37,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G0_1",
+    "score": 0.05727675184607506,
+    "rank": 38,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G1_4",
+    "score": 0.05727675184607506,
+    "rank": 39,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G3_4",
+    "score": 0.05727675184607506,
+    "rank": 40,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_2",
+    "score": 0.056244656443595886,
+    "rank": 41,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G1_5",
+    "score": 0.054767049849033356,
+    "rank": 42,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_3",
+    "score": 0.053577497601509094,
+    "rank": 43,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G1_2",
+    "score": 0.05221833288669586,
+    "rank": 44,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G2_1",
+    "score": 0.05221833288669586,
+    "rank": 45,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G3_2",
+    "score": 0.05051334574818611,
+    "rank": 46,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G0_5",
+    "score": 0.04909436032176018,
+    "rank": 47,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_1",
+    "score": 0.04909436032176018,
+    "rank": 48,
+    "reasons": [
+     {
+      "code": "similar_customers",
+      "text": "Customers who buy what this customer buys also buy it"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G4_5",
+    "score": 0.0,
+    "rank": 49,
+    "reasons": [
+     {
+      "code": "popular",
+      "text": "One of the most popular products"
+     }
+    ],
+    "fields": {}
+   },
+   {
+    "id": "G5_0",
+    "score": 0.0,
+    "rank": 50,
+    "reasons": [
+     {
+      "code": "popular",
+      "text": "One of the most popular products"
+     }
+    ],
+    "fields": {}
+   }
+  ]
+ }
+]

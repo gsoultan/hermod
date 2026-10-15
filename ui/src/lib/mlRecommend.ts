@@ -70,17 +70,18 @@ export const ROLES: Record<RoleKey, RoleSpec> = {
       { key: 'id', label: 'Customer id', hint: 'The same ids as in the orders.', kind: 'id' },
       { key: 'salesman', label: 'Salesman', hint: 'Who looks after the customer.', kind: 'id' },
       { key: 'territory', label: 'Territory', hint: 'Region, area or route.', kind: 'text' },
-      { key: 'segment', label: 'Segment', hint: 'Tier, channel or type.', kind: 'text' },
-      { key: 'lat', label: 'Latitude', hint: 'Plans nearby customers on the same day.', kind: 'number' },
-      { key: 'lon', label: 'Longitude', hint: 'Plans nearby customers on the same day.', kind: 'number' },
+      { key: 'segment', label: 'Customer category', hint: 'Tier, channel or type, such as Retail or Wholesale.', kind: 'text' },
+      { key: 'size', label: 'Customer size', hint: 'Small, medium or large, or a number such as headcount or yearly revenue.', kind: 'text' },
+      { key: 'lat', label: 'Latitude', hint: 'Plans nearby customers on the same day, and finds nearby customers of the same category.', kind: 'number' },
+      { key: 'lon', label: 'Longitude', hint: 'Plans nearby customers on the same day, and finds nearby customers of the same category.', kind: 'number' },
       { key: 'blocked', label: 'Credit hold', hint: 'Yes when the customer must not be offered anything.', kind: 'flag' },
     ],
     example: {
-      header: ['customer_id', 'salesman', 'territory', 'segment', 'latitude', 'longitude', 'credit_hold'],
+      header: ['customer_id', 'salesman', 'territory', 'segment', 'size', 'latitude', 'longitude', 'credit_hold'],
       rows: [
-        ['C-1001', 'REP-7', 'North', 'Gold', '52.3702', '4.8952', 'false'],
-        ['C-1002', 'REP-7', 'North', 'Silver', '52.3584', '4.9113', 'false'],
-        ['C-1003', 'REP-9', 'South', 'Bronze', '51.9244', '4.4777', 'true'],
+        ['C-1001', 'REP-7', 'North', 'Retail', 'large', '52.3702', '4.8952', 'false'],
+        ['C-1002', 'REP-7', 'North', 'Retail', 'small', '52.3584', '4.9113', 'false'],
+        ['C-1003', 'REP-9', 'South', 'Wholesale', 'medium', '51.9244', '4.4777', 'true'],
       ],
     },
   },
@@ -177,7 +178,7 @@ const SCENARIO_ROLES: Record<Scenario, Array<{ role: RoleKey; required: boolean;
   products: [
     { role: 'transactions', required: true, why: 'Shows who bought what, so Hermod learns what goes together.' },
     { role: 'products', required: false, why: 'Lets rules skip inactive products, prefer margin or mix categories.' },
-    { role: 'customers', required: false, why: 'Lets rules stay inside a territory.' },
+    { role: 'customers', required: false, why: 'Lets rules stay inside a territory. A category and size offer each customer what others of its kind buy, nearby ones first when it has coordinates.' },
   ],
   reorder: [
     { role: 'transactions', required: true, why: 'Shows how often each customer usually orders.' },
@@ -185,7 +186,7 @@ const SCENARIO_ROLES: Record<Scenario, Array<{ role: RoleKey; required: boolean;
   ],
   audience: [
     { role: 'transactions', required: true, why: 'Shows who bought what, so Hermod finds customers like the buyers.' },
-    { role: 'customers', required: false, why: 'Lets rules skip customers on credit hold.' },
+    { role: 'customers', required: false, why: 'Lets rules skip customers on credit hold. A category and size find customers like those who buy it, nearby ones first.' },
     { role: 'products', required: false, why: 'Helps with products that have few sales yet.' },
   ],
   similar: [
@@ -215,7 +216,8 @@ const NAME_HINTS: Record<RoleKey, Record<string, RegExp>> = {
     id: /cust|client|account|shop|outlet|^id$/i,
     salesman: /sales|rep|agent|seller|owner|manager/i,
     territory: /territ|region|area|zone|route|district/i,
-    segment: /segment|tier|channel|class|type/i,
+    segment: /segment|tier|channel|class|type|categ/i,
+    size: /size|employee|staff|headcount|revenue|turnover/i,
     lat: /^lat/i,
     lon: /^lon|^lng/i,
     blocked: /block|hold|credit|stop|suspend/i,
@@ -389,8 +391,25 @@ export interface ScenarioTrainSpec {
   data: RecommendData
   weights?: Weights
   rules: Rule[]
+  /** Nearby peers: the near_peers nearest customers of the same category within near_km. */
+  near_km?: number
+  near_peers?: number
   algorithm: string
   go_live: unknown
+}
+
+/** Nearby peers' radius in km: the worker's NEAR_KM and NEAR_KM_BOUNDS. */
+export const NEAR_KM = { default: 5, min: 0.1, max: 500 }
+/** How many nearby peers at most: the worker's NEAR_PEERS. */
+export const NEAR_PEERS = 20
+
+/**
+ * Whether a scenario can use nearby customers of the same category as peers:
+ * products or audience, with a customer category or size and coordinates.
+ */
+export function nearbyApplies(scenario: Scenario | null, data: RecommendData): boolean {
+  const c = data.customers
+  return (scenario === 'products' || scenario === 'audience') && !!c && !!(c.segment || c.size) && !!c.lat && !!c.lon
 }
 
 export type CheckStatus = 'green' | 'amber' | 'red'
@@ -469,7 +488,8 @@ export interface ScenarioItem {
 
 /** Who or what a recommendation is for; the scenario decides which keys apply. */
 export type RecommendFor =
-  | { customer: string } | { product: string } | { salesman: string } | { customers: string[] } | { all_customers: true }
+  | ({ customer: string } | { product: string } | { salesman: string } | { customers: string[] } | { all_customers: true })
+  & { segment?: string; size?: string }
 
 /** The windows a reorder question offers, in days: "who will buy in the next 2 weeks". */
 export const DUE_WINDOWS: Array<{ days: number; label: string }> = [
@@ -494,7 +514,8 @@ export interface RecommendRequest {
 
 export interface RecommendResponse {
   recommendation_id: string
-  results: Array<{ for: string; items: ScenarioItem[]; plan?: Array<{ date: string; items: ScenarioItem[] }> }>
+  /** summary: for a customer's products, what nearby customers of its category buy, in a line. */
+  results: Array<{ for: string; items: ScenarioItem[]; plan?: Array<{ date: string; items: ScenarioItem[] }>; summary?: string }>
 }
 
 /** Asks a scenario model (POST .../models/{name}/recommend); a 404 means an older server. */

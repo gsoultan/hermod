@@ -49,7 +49,7 @@ func (m models) RecommendScenario(ctx context.Context, vhost, name string, req m
 	call := ml.ScenarioRequest{Territory: req.Territory, WithinDays: req.WithinDays, K: req.K, Rules: req.Rules, ExcludeSeen: req.ExcludeSeen}
 	if f := req.For; f != nil {
 		call.For = ml.ScenarioFor{Customer: f.Customer, Customers: f.Customers, Product: f.Product, Salesman: f.Salesman,
-			Territory: f.Territory, AllCustomers: f.AllCustomers}
+			Territory: f.Territory, AllCustomers: f.AllCustomers, Segment: f.Segment, Size: f.Size}
 	}
 	if req.Period != nil {
 		call.Period = &ml.ScenarioPeriod{From: req.Period.From, To: req.Period.To}

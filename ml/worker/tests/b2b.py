@@ -81,6 +81,9 @@ def generate(seed: int = 7, customers: int = 300, salesmen: int = 12, products: 
             "rep": rep["rep"],
             "region": rep["territory"],
             "tier": segment,
+            # Its headcount, from the size its orders scale with (no draw of
+            # its own, so every other value is as before).
+            "staff": max(1, round(size * 12)),
             "lat": round(centre[0] + rng.gauss(0, 0.25), 5),
             "lon": round(centre[1] + rng.gauss(0, 0.35), 5),
             "credit_hold": rng.random() < 0.03,
@@ -115,9 +118,10 @@ def generate(seed: int = 7, customers: int = 300, salesmen: int = 12, products: 
     return {"orders": orders, "customers": custs, "items": items, "visits": visits, "reps": reps}
 
 
-def data_roles() -> dict[str, dict[str, str]]:
-    """The training body's "data" for these tables, as the contract shows it."""
-    return {
+def data_roles(size: bool = False) -> dict[str, dict[str, str]]:
+    """The training body's "data" for these tables, as the contract shows it;
+    with size, the customers' headcount as their size."""
+    roles = {
         "transactions": {"dataset": "orders", "customer": "cust_id", "product": "sku", "date": "order_date", "quantity": "qty", "amount": "total"},
         "customers": {"dataset": "customers", "id": "cust_id", "salesman": "rep", "territory": "region", "segment": "tier",
                       "lat": "lat", "lon": "lon", "blocked": "credit_hold", "name": "name"},
@@ -125,6 +129,9 @@ def data_roles() -> dict[str, dict[str, str]]:
         "visits": {"dataset": "visits", "customer": "cust_id", "date": "visit_date", "salesman": "rep", "outcome": "result"},
         "salesmen": {"dataset": "reps", "id": "rep", "visits_per_day": "cap", "working_days": "days"},
     }
+    if size:
+        roles["customers"]["size"] = "staff"
+    return roles
 
 
 def write_csv(out: Path, seed: int = 7) -> None:

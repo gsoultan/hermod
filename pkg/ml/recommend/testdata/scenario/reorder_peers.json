@@ -1,0 +1,1786 @@
+[
+ {
+  "today": "2026-10-01",
+  "salesman": "R01",
+  "items": [
+   {
+    "id": "C0049",
+    "score": 5.523809432983398,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "churn_risk",
+      "text": "No order for 116 days, 5.5 times the usual 21-day gap"
+     }
+    ],
+    "fields": {
+     "name": "Customer 49",
+     "territory": "north",
+     "segment": "A",
+     "size": "large",
+     "salesman": "R01",
+     "lat": 52.16962814331055,
+     "lon": 13.936790466308594
+    },
+    "due_date": "2026-06-28"
+   },
+   {
+    "id": "C0037",
+    "score": 3.885714292526245,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "churn_risk",
+      "text": "No order for 204 days, 3.9 times the usual 52-day gap"
+     }
+    ],
+    "fields": {
+     "name": "Customer 37",
+     "territory": "north",
+     "segment": "B",
+     "size": "large",
+     "salesman": "R01",
+     "lat": 52.4092903137207,
+     "lon": 13.63247013092041
+    },
+    "due_date": "2026-05-03"
+   },
+   {
+    "id": "C0029",
+    "score": 2.6521739959716797,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "churn_risk",
+      "text": "No order for 61 days, 2.7 times the usual 23-day gap"
+     },
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 23 days; last order 61 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 29",
+     "territory": "north",
+     "segment": "C",
+     "size": "medium",
+     "salesman": "R01",
+     "lat": 52.832759857177734,
+     "lon": 13.344400405883789
+    },
+    "due_date": "2026-08-24"
+   },
+   {
+    "id": "C0001",
+    "score": 1.2424242496490479,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 33 days; last order 41 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 1",
+     "territory": "north",
+     "segment": "A",
+     "size": "medium",
+     "salesman": "R01",
+     "lat": 51.8922004699707,
+     "lon": 13.183819770812988
+    },
+    "due_date": "2026-09-23"
+   },
+   {
+    "id": "C0041",
+    "score": 1.085714340209961,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 35 days; last order 38 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 41",
+     "territory": "north",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R01",
+     "lat": 52.160888671875,
+     "lon": 13.978309631347656
+    },
+    "due_date": "2026-09-28"
+   },
+   {
+    "id": "C0069",
+    "score": 0.8571428656578064,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 7 days; last order 6 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 69",
+     "territory": "north",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R01",
+     "lat": 52.34220886230469,
+     "lon": 13.24271011352539
+    },
+    "due_date": "2026-10-02"
+   },
+   {
+    "id": "C0073",
+    "score": 0.800000011920929,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 15 days; last order 12 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 73",
+     "territory": "north",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R01",
+     "lat": 52.33449935913086,
+     "lon": 13.103619575500488
+    },
+    "due_date": "2026-10-04"
+   },
+   {
+    "id": "C0057",
+    "score": 0.7936508059501648,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 63 days; last order 50 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 57",
+     "territory": "north",
+     "segment": "A",
+     "size": "large",
+     "salesman": "R01",
+     "lat": 52.7210693359375,
+     "lon": 13.773889541625977
+    },
+    "due_date": "2026-10-14"
+   },
+   {
+    "id": "C0065",
+    "score": 0.640625,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 64 days; last order 41 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 65",
+     "territory": "north",
+     "segment": "B",
+     "size": "medium",
+     "salesman": "R01",
+     "lat": 51.963138580322266,
+     "lon": 13.683659553527832
+    },
+    "due_date": "2026-10-24"
+   },
+   {
+    "id": "C0009",
+    "score": 0.6315789222717285,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 28 days; last order 18 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 9",
+     "territory": "north",
+     "segment": "B",
+     "size": "large",
+     "salesman": "R01",
+     "lat": 52.745731353759766,
+     "lon": 13.362529754638672
+    },
+    "due_date": "2026-10-12"
+   },
+   {
+    "id": "C0005",
+    "score": 0.6086956262588501,
+    "rank": 11,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 23 days; last order 14 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 5",
+     "territory": "north",
+     "segment": "A",
+     "size": "large",
+     "salesman": "R01",
+     "lat": 52.38005828857422,
+     "lon": 13.491250038146973
+    },
+    "due_date": "2026-10-10"
+   },
+   {
+    "id": "C0025",
+    "score": 0.5714285969734192,
+    "rank": 12,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 7 days; last order 4 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 25",
+     "territory": "north",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R01",
+     "lat": 52.31235885620117,
+     "lon": 12.992469787597656
+    },
+    "due_date": "2026-10-04"
+   },
+   {
+    "id": "C0033",
+    "score": 0.5714285969734192,
+    "rank": 13,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 7 days; last order 4 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 33",
+     "territory": "north",
+     "segment": "C",
+     "size": "medium",
+     "salesman": "R01",
+     "lat": 52.376220703125,
+     "lon": 13.186759948730469
+    },
+    "due_date": "2026-10-04"
+   },
+   {
+    "id": "C0077",
+    "score": 0.45614033937454224,
+    "rank": 14,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 28 days; last order 13 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 77",
+     "territory": "north",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R01",
+     "lat": 52.5667610168457,
+     "lon": 13.59749984741211
+    },
+    "due_date": "2026-10-17"
+   },
+   {
+    "id": "C0053",
+    "score": 0.3855421543121338,
+    "rank": 15,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 42 days; last order 16 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 53",
+     "territory": "north",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R01",
+     "lat": 52.62892150878906,
+     "lon": 13.794039726257324
+    },
+    "due_date": "2026-10-27"
+   },
+   {
+    "id": "C0045",
+    "score": 0.3571428656578064,
+    "rank": 16,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 14 days; last order 5 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 45",
+     "territory": "north",
+     "segment": "B",
+     "size": "medium",
+     "salesman": "R01",
+     "lat": 52.51866149902344,
+     "lon": 13.514530181884766
+    },
+    "due_date": "2026-10-10"
+   },
+   {
+    "id": "C0061",
+    "score": 0.3255814015865326,
+    "rank": 17,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 22 days; last order 7 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 61",
+     "territory": "north",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R01",
+     "lat": 52.85184097290039,
+     "lon": 12.870599746704102
+    },
+    "due_date": "2026-10-16"
+   },
+   {
+    "id": "C0021",
+    "score": 0.2666666805744171,
+    "rank": 18,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 15 days; last order 4 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 21",
+     "territory": "north",
+     "segment": "B",
+     "size": "medium",
+     "salesman": "R01",
+     "lat": 52.05281066894531,
+     "lon": 13.380279541015625
+    },
+    "due_date": "2026-10-12"
+   },
+   {
+    "id": "C0013",
+    "score": 0.22580644488334656,
+    "rank": 19,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 31 days; last order 7 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 13",
+     "territory": "north",
+     "segment": "A",
+     "size": "large",
+     "salesman": "R01",
+     "lat": 52.06053924560547,
+     "lon": 13.194089889526367
+    },
+    "due_date": "2026-10-25"
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "salesman": "R02",
+  "items": [
+   {
+    "id": "C0002",
+    "score": 4.266666889190674,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "churn_risk",
+      "text": "No order for 128 days, 4.3 times the usual 30-day gap"
+     }
+    ],
+    "fields": {
+     "name": "Customer 2",
+     "territory": "south",
+     "segment": "B",
+     "size": "medium",
+     "salesman": "R02",
+     "lat": 47.99748992919922,
+     "lon": 11.894909858703613
+    },
+    "due_date": "2026-06-25"
+   },
+   {
+    "id": "C0038",
+    "score": 1.1428571939468384,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 7 days; last order 8 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 38",
+     "territory": "south",
+     "segment": "B",
+     "size": "large",
+     "salesman": "R02",
+     "lat": 48.28493118286133,
+     "lon": 11.860969543457031
+    },
+    "due_date": "2026-09-30"
+   },
+   {
+    "id": "C0042",
+    "score": 0.9666666388511658,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 30 days; last order 29 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 42",
+     "territory": "south",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R02",
+     "lat": 47.8023796081543,
+     "lon": 11.85060977935791
+    },
+    "due_date": "2026-10-02"
+   },
+   {
+    "id": "C0074",
+    "score": 0.9285714030265808,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 14 days; last order 13 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 74",
+     "territory": "south",
+     "segment": "A",
+     "size": "large",
+     "salesman": "R02",
+     "lat": 47.694129943847656,
+     "lon": 11.656599998474121
+    },
+    "due_date": "2026-10-02"
+   },
+   {
+    "id": "C0058",
+    "score": 0.8333333134651184,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 42 days; last order 35 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 58",
+     "territory": "south",
+     "segment": "B",
+     "size": "medium",
+     "salesman": "R02",
+     "lat": 48.383140563964844,
+     "lon": 11.72146987915039
+    },
+    "due_date": "2026-10-08"
+   },
+   {
+    "id": "C0030",
+    "score": 0.7341772317886353,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 40 days; last order 29 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 30",
+     "territory": "south",
+     "segment": "B",
+     "size": "large",
+     "salesman": "R02",
+     "lat": 47.45977020263672,
+     "lon": 11.303170204162598
+    },
+    "due_date": "2026-10-12"
+   },
+   {
+    "id": "C0034",
+    "score": 0.7301587462425232,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 63 days; last order 46 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 34",
+     "territory": "south",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R02",
+     "lat": 47.76163864135742,
+     "lon": 11.571399688720703
+    },
+    "due_date": "2026-10-18"
+   },
+   {
+    "id": "C0070",
+    "score": 0.7142857313156128,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 7 days; last order 5 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 70",
+     "territory": "south",
+     "segment": "C",
+     "size": "medium",
+     "salesman": "R02",
+     "lat": 48.040218353271484,
+     "lon": 11.58036994934082
+    },
+    "due_date": "2026-10-03"
+   },
+   {
+    "id": "C0018",
+    "score": 0.61654132604599,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 66 days; last order 41 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 18",
+     "territory": "south",
+     "segment": "B",
+     "size": "medium",
+     "salesman": "R02",
+     "lat": 48.114261627197266,
+     "lon": 11.324780464172363
+    },
+    "due_date": "2026-10-27"
+   },
+   {
+    "id": "C0006",
+    "score": 0.5806451439857483,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 16 days; last order 9 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 6",
+     "territory": "south",
+     "segment": "A",
+     "size": "large",
+     "salesman": "R02",
+     "lat": 48.20103073120117,
+     "lon": 12.384989738464355
+    },
+    "due_date": "2026-10-08"
+   },
+   {
+    "id": "C0046",
+    "score": 0.5714285969734192,
+    "rank": 11,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 7 days; last order 4 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 46",
+     "territory": "south",
+     "segment": "B",
+     "size": "large",
+     "salesman": "R02",
+     "lat": 48.393829345703125,
+     "lon": 11.557669639587402
+    },
+    "due_date": "2026-10-04"
+   },
+   {
+    "id": "C0062",
+    "score": 0.46666666865348816,
+    "rank": 12,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 15 days; last order 7 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 62",
+     "territory": "south",
+     "segment": "B",
+     "size": "large",
+     "salesman": "R02",
+     "lat": 47.937808990478516,
+     "lon": 11.444549560546875
+    },
+    "due_date": "2026-10-09"
+   },
+   {
+    "id": "C0054",
+    "score": 0.4285714328289032,
+    "rank": 13,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 21 days; last order 9 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 54",
+     "territory": "south",
+     "segment": "A",
+     "size": "large",
+     "salesman": "R02",
+     "lat": 48.08715057373047,
+     "lon": 10.907699584960938
+    },
+    "due_date": "2026-10-13"
+   },
+   {
+    "id": "C0010",
+    "score": 0.35971224308013916,
+    "rank": 14,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 70 days; last order 25 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 10",
+     "territory": "south",
+     "segment": "B",
+     "size": "medium",
+     "salesman": "R02",
+     "lat": 48.568199157714844,
+     "lon": 12.078559875488281
+    },
+    "due_date": "2026-11-15"
+   },
+   {
+    "id": "C0066",
+    "score": 0.3050847351551056,
+    "rank": 15,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 30 days; last order 9 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 66",
+     "territory": "south",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R02",
+     "lat": 47.7140007019043,
+     "lon": 11.173139572143555
+    },
+    "due_date": "2026-10-22"
+   },
+   {
+    "id": "C0026",
+    "score": 0.2857142984867096,
+    "rank": 16,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 49 days; last order 14 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 26",
+     "territory": "south",
+     "segment": "A",
+     "size": "large",
+     "salesman": "R02",
+     "lat": 48.182151794433594,
+     "lon": 11.779150009155273
+    },
+    "due_date": "2026-11-05"
+   },
+   {
+    "id": "C0050",
+    "score": 0.27272728085517883,
+    "rank": 17,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 22 days; last order 6 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 50",
+     "territory": "south",
+     "segment": "B",
+     "size": "small",
+     "salesman": "R02",
+     "lat": 48.23128890991211,
+     "lon": 11.81509017944336
+    },
+    "due_date": "2026-10-17"
+   },
+   {
+    "id": "C0022",
+    "score": 0.260869562625885,
+    "rank": 18,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 46 days; last order 12 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 22",
+     "territory": "south",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R02",
+     "lat": 47.84941864013672,
+     "lon": 12.081990242004395
+    },
+    "due_date": "2026-11-04"
+   },
+   {
+    "id": "C0078",
+    "score": 0.09090909361839294,
+    "rank": 19,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 22 days; last order 2 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 78",
+     "territory": "south",
+     "segment": "B",
+     "size": "large",
+     "salesman": "R02",
+     "lat": 48.36531066894531,
+     "lon": 11.707010269165039
+    },
+    "due_date": "2026-10-21"
+   },
+   {
+    "id": "C0014",
+    "score": 0.032258063554763794,
+    "rank": 20,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 31 days; last order 1 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 14",
+     "territory": "south",
+     "segment": "C",
+     "size": "medium",
+     "salesman": "R02",
+     "lat": 48.182369232177734,
+     "lon": 11.17728042602539
+    },
+    "due_date": "2026-10-31"
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "salesman": "R03",
+  "items": [
+   {
+    "id": "C0063",
+    "score": 20.571428298950195,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "churn_risk",
+      "text": "No order for 144 days, 20.6 times the usual 7-day gap"
+     }
+    ],
+    "fields": {
+     "name": "Customer 63",
+     "territory": "east",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R03",
+     "lat": 51.35363006591797,
+     "lon": 13.442339897155762
+    },
+    "due_date": "2026-05-17"
+   },
+   {
+    "id": "C0055",
+    "score": 11.933333396911621,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "churn_risk",
+      "text": "No order for 179 days, 11.9 times the usual 15-day gap"
+     }
+    ],
+    "fields": {
+     "name": "Customer 55",
+     "territory": "east",
+     "segment": "A",
+     "size": "large",
+     "salesman": "R03",
+     "lat": 51.18268966674805,
+     "lon": 13.36161994934082
+    },
+    "due_date": "2026-04-20"
+   },
+   {
+    "id": "C0051",
+    "score": 3.278688430786133,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "churn_risk",
+      "text": "No order for 100 days, 3.3 times the usual 30-day gap"
+     }
+    ],
+    "fields": {
+     "name": "Customer 51",
+     "territory": "east",
+     "segment": "C",
+     "size": "medium",
+     "salesman": "R03",
+     "lat": 50.75722122192383,
+     "lon": 13.817079544067383
+    },
+    "due_date": "2026-07-24"
+   },
+   {
+    "id": "C0003",
+    "score": 2.86956524848938,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "churn_risk",
+      "text": "No order for 198 days, 2.9 times the usual 69-day gap"
+     },
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 69 days; last order 198 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 3",
+     "territory": "east",
+     "segment": "B",
+     "size": "large",
+     "salesman": "R03",
+     "lat": 50.92934036254883,
+     "lon": 13.876999855041504
+    },
+    "due_date": "2026-05-25"
+   },
+   {
+    "id": "C0039",
+    "score": 2.7272727489471436,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "churn_risk",
+      "text": "No order for 165 days, 2.7 times the usual 60-day gap"
+     },
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 60 days; last order 165 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 39",
+     "territory": "east",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R03",
+     "lat": 51.01974868774414,
+     "lon": 13.418829917907715
+    },
+    "due_date": "2026-06-19"
+   },
+   {
+    "id": "C0071",
+    "score": 1.25,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 64 days; last order 80 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 71",
+     "territory": "east",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R03",
+     "lat": 51.157291412353516,
+     "lon": 13.432499885559082
+    },
+    "due_date": "2026-09-15"
+   },
+   {
+    "id": "C0011",
+    "score": 1.1428571939468384,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 7 days; last order 8 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 11",
+     "territory": "east",
+     "segment": "A",
+     "size": "large",
+     "salesman": "R03",
+     "lat": 51.21995162963867,
+     "lon": 13.80364990234375
+    },
+    "due_date": "2026-09-30"
+   },
+   {
+    "id": "C0047",
+    "score": 1.116279125213623,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 22 days; last order 24 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 47",
+     "territory": "east",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R03",
+     "lat": 50.914188385009766,
+     "lon": 13.563030242919922
+    },
+    "due_date": "2026-09-29"
+   },
+   {
+    "id": "C0015",
+    "score": 1.0,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 15 days; last order 15 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 15",
+     "territory": "east",
+     "segment": "A",
+     "size": "large",
+     "salesman": "R03",
+     "lat": 51.581138610839844,
+     "lon": 13.599499702453613
+    },
+    "due_date": "2026-10-01"
+   },
+   {
+    "id": "C0007",
+    "score": 0.800000011920929,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 30 days; last order 24 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 7",
+     "territory": "east",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R03",
+     "lat": 50.74496078491211,
+     "lon": 14.378520011901855
+    },
+    "due_date": "2026-10-07"
+   },
+   {
+    "id": "C0035",
+    "score": 0.7906976938247681,
+    "rank": 11,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 22 days; last order 17 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 35",
+     "territory": "east",
+     "segment": "C",
+     "size": "medium",
+     "salesman": "R03",
+     "lat": 50.983768463134766,
+     "lon": 13.241499900817871
+    },
+    "due_date": "2026-10-06"
+   },
+   {
+    "id": "C0031",
+    "score": 0.7899159789085388,
+    "rank": 12,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 60 days; last order 47 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 31",
+     "territory": "east",
+     "segment": "C",
+     "size": "medium",
+     "salesman": "R03",
+     "lat": 50.875221252441406,
+     "lon": 13.592289924621582
+    },
+    "due_date": "2026-10-14"
+   },
+   {
+    "id": "C0027",
+    "score": 0.7746478915214539,
+    "rank": 13,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 71 days; last order 55 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 27",
+     "territory": "east",
+     "segment": "C",
+     "size": "medium",
+     "salesman": "R03",
+     "lat": 51.150108337402344,
+     "lon": 13.658320426940918
+    },
+    "due_date": "2026-10-17"
+   },
+   {
+    "id": "C0043",
+    "score": 0.761904776096344,
+    "rank": 14,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 42 days; last order 32 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 43",
+     "territory": "east",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R03",
+     "lat": 51.17185974121094,
+     "lon": 13.480939865112305
+    },
+    "due_date": "2026-10-11"
+   },
+   {
+    "id": "C0075",
+    "score": 0.5652173757553101,
+    "rank": 15,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 46 days; last order 26 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 75",
+     "territory": "east",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R03",
+     "lat": 50.571529388427734,
+     "lon": 13.65569019317627
+    },
+    "due_date": "2026-10-21"
+   },
+   {
+    "id": "C0019",
+    "score": 0.46341463923454285,
+    "rank": 16,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 41 days; last order 19 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 19",
+     "territory": "east",
+     "segment": "C",
+     "size": "medium",
+     "salesman": "R03",
+     "lat": 51.40019989013672,
+     "lon": 13.174280166625977
+    },
+    "due_date": "2026-10-23"
+   },
+   {
+    "id": "C0023",
+    "score": 0.4285714328289032,
+    "rank": 17,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 7 days; last order 3 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 23",
+     "territory": "east",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R03",
+     "lat": 50.989471435546875,
+     "lon": 14.047800064086914
+    },
+    "due_date": "2026-10-05"
+   },
+   {
+    "id": "C0067",
+    "score": 0.29230770468711853,
+    "rank": 18,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 65 days; last order 19 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 67",
+     "territory": "east",
+     "segment": "A",
+     "size": "large",
+     "salesman": "R03",
+     "lat": 51.28224182128906,
+     "lon": 14.25430965423584
+    },
+    "due_date": "2026-11-16"
+   },
+   {
+    "id": "C0079",
+    "score": 0.2666666805744171,
+    "rank": 19,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 8 days; last order 2 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 79",
+     "territory": "east",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R03",
+     "lat": 50.792659759521484,
+     "lon": 13.54613971710205
+    },
+    "due_date": "2026-10-07"
+   },
+   {
+    "id": "C0059",
+    "score": 0.05607476457953453,
+    "rank": 20,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 54 days; last order 3 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 59",
+     "territory": "east",
+     "segment": "C",
+     "size": "medium",
+     "salesman": "R03",
+     "lat": 50.7175407409668,
+     "lon": 13.920160293579102
+    },
+    "due_date": "2026-11-21"
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "salesman": "R04",
+  "items": [
+   {
+    "id": "C0012",
+    "score": 2.59375,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "churn_risk",
+      "text": "No order for 83 days, 2.6 times the usual 32-day gap"
+     },
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 32 days; last order 83 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 12",
+     "territory": "west",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R04",
+     "lat": 50.78710174560547,
+     "lon": 7.642039775848389
+    },
+    "due_date": "2026-08-11"
+   },
+   {
+    "id": "C0060",
+    "score": 2.5,
+    "rank": 2,
+    "reasons": [
+     {
+      "code": "churn_risk",
+      "text": "No order for 110 days, 2.5 times the usual 44-day gap"
+     },
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 44 days; last order 110 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 60",
+     "territory": "west",
+     "segment": "A",
+     "size": "large",
+     "salesman": "R04",
+     "lat": 51.21160888671875,
+     "lon": 7.028480052947998
+    },
+    "due_date": "2026-07-27"
+   },
+   {
+    "id": "C0072",
+    "score": 1.2857142686843872,
+    "rank": 3,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 7 days; last order 9 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 72",
+     "territory": "west",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R04",
+     "lat": 51.02373123168945,
+     "lon": 7.389210224151611
+    },
+    "due_date": "2026-09-29"
+   },
+   {
+    "id": "C0020",
+    "score": 1.0689655542373657,
+    "rank": 4,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 29 days; last order 31 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 20",
+     "territory": "west",
+     "segment": "B",
+     "size": "medium",
+     "salesman": "R04",
+     "lat": 51.046329498291016,
+     "lon": 6.712900161743164
+    },
+    "due_date": "2026-09-29"
+   },
+   {
+    "id": "C0056",
+    "score": 0.9523809552192688,
+    "rank": 5,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 32 days; last order 30 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 56",
+     "territory": "west",
+     "segment": "A",
+     "size": "large",
+     "salesman": "R04",
+     "lat": 51.1214599609375,
+     "lon": 7.208940029144287
+    },
+    "due_date": "2026-10-03"
+   },
+   {
+    "id": "C0048",
+    "score": 0.7948718070983887,
+    "rank": 6,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 39 days; last order 31 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 48",
+     "territory": "west",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R04",
+     "lat": 51.055519104003906,
+     "lon": 6.814780235290527
+    },
+    "due_date": "2026-10-09"
+   },
+   {
+    "id": "C0080",
+    "score": 0.7333333492279053,
+    "rank": 7,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 15 days; last order 11 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 80",
+     "territory": "west",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R04",
+     "lat": 50.730560302734375,
+     "lon": 6.628509998321533
+    },
+    "due_date": "2026-10-05"
+   },
+   {
+    "id": "C0008",
+    "score": 0.7142857313156128,
+    "rank": 8,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 7 days; last order 5 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 8",
+     "territory": "west",
+     "segment": "C",
+     "size": "medium",
+     "salesman": "R04",
+     "lat": 50.97343826293945,
+     "lon": 6.661980152130127
+    },
+    "due_date": "2026-10-03"
+   },
+   {
+    "id": "C0004",
+    "score": 0.6984127163887024,
+    "rank": 9,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 32 days; last order 22 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 4",
+     "territory": "west",
+     "segment": "A",
+     "size": "large",
+     "salesman": "R04",
+     "lat": 50.6644287109375,
+     "lon": 7.175189971923828
+    },
+    "due_date": "2026-10-11"
+   },
+   {
+    "id": "C0052",
+    "score": 0.6363636255264282,
+    "rank": 10,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 33 days; last order 21 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 52",
+     "territory": "west",
+     "segment": "C",
+     "size": "medium",
+     "salesman": "R04",
+     "lat": 50.671409606933594,
+     "lon": 6.955309867858887
+    },
+    "due_date": "2026-10-13"
+   },
+   {
+    "id": "C0024",
+    "score": 0.5714285969734192,
+    "rank": 11,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 7 days; last order 4 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 24",
+     "territory": "west",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R04",
+     "lat": 51.19409942626953,
+     "lon": 6.944839954376221
+    },
+    "due_date": "2026-10-04"
+   },
+   {
+    "id": "C0044",
+    "score": 0.5333333611488342,
+    "rank": 12,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 22 days; last order 12 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 44",
+     "territory": "west",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R04",
+     "lat": 50.67341995239258,
+     "lon": 7.339700222015381
+    },
+    "due_date": "2026-10-12"
+   },
+   {
+    "id": "C0028",
+    "score": 0.5,
+    "rank": 13,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 8 days; last order 4 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 28",
+     "territory": "west",
+     "segment": "B",
+     "size": "medium",
+     "salesman": "R04",
+     "lat": 51.21213912963867,
+     "lon": 6.95205020904541
+    },
+    "due_date": "2026-10-05"
+   },
+   {
+    "id": "C0068",
+    "score": 0.328125,
+    "rank": 14,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 64 days; last order 21 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 68",
+     "territory": "west",
+     "segment": "C",
+     "size": "medium",
+     "salesman": "R04",
+     "lat": 50.94392013549805,
+     "lon": 6.654950141906738
+    },
+    "due_date": "2026-11-13"
+   },
+   {
+    "id": "C0036",
+    "score": 0.2142857164144516,
+    "rank": 15,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 14 days; last order 3 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 36",
+     "territory": "west",
+     "segment": "C",
+     "size": "small",
+     "salesman": "R04",
+     "lat": 51.109981536865234,
+     "lon": 7.400710105895996
+    },
+    "due_date": "2026-10-12"
+   },
+   {
+    "id": "C0064",
+    "score": 0.18965516984462738,
+    "rank": 16,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 58 days; last order 11 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 64",
+     "territory": "west",
+     "segment": "B",
+     "size": "large",
+     "salesman": "R04",
+     "lat": 50.56106185913086,
+     "lon": 6.545060157775879
+    },
+    "due_date": "2026-11-17"
+   },
+   {
+    "id": "C0076",
+    "score": 0.1875,
+    "rank": 17,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 16 days; last order 3 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 76",
+     "territory": "west",
+     "segment": "B",
+     "size": "large",
+     "salesman": "R04",
+     "lat": 51.11838912963867,
+     "lon": 7.082620143890381
+    },
+    "due_date": "2026-10-14"
+   },
+   {
+    "id": "C0040",
+    "score": 0.1428571492433548,
+    "rank": 18,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 14 days; last order 2 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 40",
+     "territory": "west",
+     "segment": "C",
+     "size": "medium",
+     "salesman": "R04",
+     "lat": 50.52518081665039,
+     "lon": 6.45290994644165
+    },
+    "due_date": "2026-10-13"
+   },
+   {
+    "id": "C0032",
+    "score": 0.13333334028720856,
+    "rank": 19,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 15 days; last order 2 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 32",
+     "territory": "west",
+     "segment": "B",
+     "size": "large",
+     "salesman": "R04",
+     "lat": 50.89802169799805,
+     "lon": 6.691500186920166
+    },
+    "due_date": "2026-10-14"
+   },
+   {
+    "id": "C0016",
+    "score": 0.07999999821186066,
+    "rank": 20,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 25 days; last order 2 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 16",
+     "territory": "west",
+     "segment": "C",
+     "size": "medium",
+     "salesman": "R04",
+     "lat": 51.201759338378906,
+     "lon": 7.166989803314209
+    },
+    "due_date": "2026-10-24"
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "customer": "C0001",
+  "items": [
+   {
+    "id": "C0001",
+    "score": 1.2424242496490479,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 33 days; last order 41 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 1",
+     "territory": "north",
+     "segment": "A",
+     "size": "medium",
+     "salesman": "R01",
+     "lat": 51.8922004699707,
+     "lon": 13.183819770812988
+    },
+    "due_date": "2026-09-23"
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "customer": "C0002",
+  "items": [
+   {
+    "id": "C0002",
+    "score": 4.266666889190674,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "churn_risk",
+      "text": "No order for 128 days, 4.3 times the usual 30-day gap"
+     }
+    ],
+    "fields": {
+     "name": "Customer 2",
+     "territory": "south",
+     "segment": "B",
+     "size": "medium",
+     "salesman": "R02",
+     "lat": 47.99748992919922,
+     "lon": 11.894909858703613
+    },
+    "due_date": "2026-06-25"
+   }
+  ]
+ },
+ {
+  "today": "2026-10-01",
+  "customer": "C0008",
+  "items": [
+   {
+    "id": "C0008",
+    "score": 0.7142857313156128,
+    "rank": 1,
+    "reasons": [
+     {
+      "code": "reorder_due",
+      "text": "Usually orders every 7 days; last order 5 days ago"
+     }
+    ],
+    "fields": {
+     "name": "Customer 8",
+     "territory": "west",
+     "segment": "C",
+     "size": "medium",
+     "salesman": "R04",
+     "lat": 50.97343826293945,
+     "lon": 6.661980152130127
+    },
+    "due_date": "2026-10-03"
+   }
+  ]
+ }
+]

@@ -414,3 +414,71 @@ func TestTheSchedulerRunsDueSchedulesOnce(t *testing.T) {
 		t.Fatal("id prefix")
 	}
 }
+
+func TestABuildWritesCategoryAndSizeWhenTheTableHasThem(t *testing.T) {
+	svc := scenarioService(t, "reorder_peers", storage.MLQuotas{})
+	rows, err := svc.BuildRecommendations(t.Context(), "v", "recs", ModelBuild{For: BuildAllCustomers, WithinDays: 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) == 0 {
+		t.Fatal("no rows")
+	}
+	for _, r := range rows {
+		if r.Segment == "" || r.Size == "" {
+			t.Fatalf("%s: segment %q, size %q", r.ItemID, r.Segment, r.Size)
+		}
+	}
+	db := newTargetDB(t)
+	if _, err := db.ExecContext(t.Context(), `ALTER TABLE recs_out ADD COLUMN segment TEXT`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(t.Context(), `ALTER TABLE recs_out ADD COLUMN SIZE TEXT`); err != nil {
+		t.Fatal(err)
+	}
+	target := BuildTarget{SourceID: "target", Table: "recs_out"}
+	if err := WriteBuild(t.Context(), db, "sqlite", target, "recs", rows); err != nil {
+		t.Fatal(err)
+	}
+	var n, segs, sizes int
+	if err := db.QueryRowContext(t.Context(), `SELECT COUNT(*), COUNT(segment), COUNT(size) FROM recs_out`).Scan(&n, &segs, &sizes); err != nil {
+		t.Fatal(err)
+	}
+	if n != len(rows) || segs != n || sizes != n {
+		t.Fatalf("%d rows, %d with segment, %d with size", n, segs, sizes)
+	}
+	var seg, size string
+	if err := db.QueryRowContext(t.Context(), `SELECT segment, size FROM recs_out WHERE item_id = ?`, rows[0].ItemID).Scan(&seg, &size); err != nil ||
+		seg != rows[0].Segment || size != rows[0].Size {
+		t.Fatalf("%s: %q %q, want %q %q (%v)", rows[0].ItemID, seg, size, rows[0].Segment, rows[0].Size, err)
+	}
+	// A table with only one of them gets that one; one with neither, as built
+	// before they existed, still takes the build.
+	t.Run("size only", func(t *testing.T) {
+		only := newTargetDB(t)
+		if _, err := only.ExecContext(t.Context(), `ALTER TABLE recs_out ADD COLUMN size TEXT`); err != nil {
+			t.Fatal(err)
+		}
+		if err := WriteBuild(t.Context(), only, "sqlite", target, "recs", rows); err != nil {
+			t.Fatal(err)
+		}
+		if err := only.QueryRowContext(t.Context(), `SELECT COUNT(size) FROM recs_out`).Scan(&sizes); err != nil || sizes != len(rows) {
+			t.Fatalf("%d sizes, %v", sizes, err)
+		}
+	})
+	t.Run("neither", func(t *testing.T) {
+		if err := WriteBuild(t.Context(), newTargetDB(t), "sqlite", target, "recs", rows); err != nil {
+			t.Fatalf("a table without segment and size: %v", err)
+		}
+	})
+
+	// For a product list, the row is of the customer it is for.
+	offers := scenarioService(t, "products_peers", storage.MLQuotas{})
+	rows, err = offers.BuildRecommendations(t.Context(), "v", "recs", ModelBuild{For: BuildAllCustomers, K: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) == 0 || rows[0].Segment == "" || rows[0].Size == "" {
+		t.Fatalf("products rows %+v", rows[:min(1, len(rows))])
+	}
+}
