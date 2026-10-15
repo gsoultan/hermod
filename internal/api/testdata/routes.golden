@@ -95,6 +95,8 @@ GET /api/vhosts/{vhost}/ml/models/{name}/versions
 GET /api/vhosts/{vhost}/ml/quotas
 GET /api/vhosts/{vhost}/ml/scripts
 GET /api/vhosts/{vhost}/ml/scripts/{name}
+GET /api/vhosts/{vhost}/ml/sources/{id}/columns
+GET /api/vhosts/{vhost}/ml/sources/{id}/tables
 GET /api/vhosts/{vhost}/secrets
 GET /api/webhooks/requests
 GET /api/webhooks/{path...}
@@ -214,6 +216,7 @@ POST /api/vhosts/{vhost}/ml/models/{name}/serving-key
 POST /api/vhosts/{vhost}/ml/models/{name}/train
 POST /api/vhosts/{vhost}/ml/models/{name}/versions/{version}/promote
 POST /api/vhosts/{vhost}/ml/recommend-check
+POST /api/vhosts/{vhost}/ml/sources/{id}/preview
 POST /api/vhosts/{vhost}/ml/train-check
 POST /api/webhooks/requests/{id}/replay
 POST /api/webhooks/{path...}
