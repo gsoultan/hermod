@@ -114,6 +114,13 @@ func (s *Service) WithWorker(w *worker.Client) *Service {
 	return s
 }
 
+// WithClock replaces the clock a recommendation's "today" and the prediction
+// rate are read from. Tests set it, so a fixture's dates do not age.
+func (s *Service) WithClock(now func() time.Time) *Service {
+	s.now = now
+	return s
+}
+
 // WithWorkerProvider takes the ML worker in force in p instead of
 // worker.Default's.
 func (s *Service) WithWorkerProvider(p *worker.Provider) *Service {

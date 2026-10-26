@@ -424,8 +424,20 @@ func reorderRegistry(t *testing.T) *Registry {
 	return scenarioRegistry(t, "reorder")
 }
 
+// scenarioToday is the day pkg/ml/recommend's scenario fixtures are read as
+// of (its fixtureToday). Read against the real clock they age: every
+// customer falls overdue and a window keeps all of them.
+var scenarioToday = time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+
+// scenarioClock is scenarioToday, moving on at the real clock's pace from
+// when the test began, so a prediction rate is still measured across time.
+func scenarioClock() func() time.Time {
+	start := time.Now()
+	return func() time.Time { return scenarioToday.Add(time.Since(start)) }
+}
+
 // scenarioRegistry is a registry whose vhost "default" holds a scenario
-// fixture of pkg/ml/recommend as model "due".
+// fixture of pkg/ml/recommend as model "due", read as of scenarioToday.
 func scenarioRegistry(t *testing.T, fixture string) *Registry {
 	t.Helper()
 	reg := newSimRegistry(t)
@@ -442,6 +454,7 @@ func scenarioRegistry(t *testing.T, fixture string) *Registry {
 	}))
 	t.Cleanup(srv.Close)
 	reg.mlWorker = worker.New(srv.URL, "", nil)
+	reg.mlNow = scenarioClock()
 	if err := reg.store().(storage.MLModelStore).PutMLModel(t.Context(), storage.MLModel{VHost: "default", Name: "due",
 		Backend: storage.MLBackendWorker, RemoteVersion: "1", Task: storage.MLTaskRecommendation}); err != nil {
 		t.Fatal(err)
@@ -454,8 +467,8 @@ func scenarioRegistry(t *testing.T, fixture string) *Registry {
 // products they are due for.
 func TestMLRecommendWithinDaysListsTheCustomersDue(t *testing.T) {
 	reg := reorderRegistry(t)
-	today := time.Now().UTC().Format(time.DateOnly)
-	end := time.Now().UTC().AddDate(0, 0, 14).Format(time.DateOnly)
+	today := scenarioToday.Format(time.DateOnly)
+	end := scenarioToday.AddDate(0, 0, 14).Format(time.DateOnly)
 	got := transform(t, reg, map[string]any{"rep": "R01"}, map[string]any{
 		"transType": "ml_predict", "model": "due", "mode": "recommend", "recommendFor": "salesman", "idField": "rep",
 		"withinDays": "14", "k": "500", "outputField": "due_soon",
@@ -482,7 +495,7 @@ func TestMLRecommendWithinDaysListsTheCustomersDue(t *testing.T) {
 // rows carry due_date.
 func TestMLRecommendBuildWithinDaysCarriesDueDates(t *testing.T) {
 	reg := reorderRegistry(t)
-	end := time.Now().UTC().AddDate(0, 0, 30).Format(time.DateOnly)
+	end := scenarioToday.AddDate(0, 0, 30).Format(time.DateOnly)
 	rows, written, err := reg.MLRecommendBuild(t.Context(), "default", "due", map[string]any{"for": "all_customers", "withinDays": 30})
 	if err != nil {
 		t.Fatal(err)
