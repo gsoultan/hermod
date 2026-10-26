@@ -199,6 +199,10 @@ export default defineConfig({
       },
     },
     setupFiles: 'src/test/setupTests.ts',
+    // Room for the 5s async-utility timeout set in setupTests.ts: under the
+    // default 5s test timeout, a test that waits once on a loaded runner was
+    // cut off before its own wait could finish.
+    testTimeout: 20000,
     globals: true,
     css: true,
     include: ['src/__tests__/**/*.test.{ts,tsx}'],
