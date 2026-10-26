@@ -385,8 +385,11 @@ func TestTheSchedulerRunsDueSchedulesOnce(t *testing.T) {
 	}
 
 	sched := NewScheduler(func() *Service { return svc }, runner, nil)
-	// Not due yet.
-	sched.now = func() time.Time { return time.Now().Add(30 * time.Second) }
+	// Not due yet: a second before the refresh's own next run. A fixed offset
+	// from the wall clock crosses the top of the hour, and so @hourly, when
+	// the test starts in an hour's last seconds.
+	notYet := status.NextRun.Add(-time.Second)
+	sched.now = func() time.Time { return notYet }
 	sched.Tick(ctx)
 	if len(runner.refilled) != 0 {
 		t.Fatalf("ran early: %v", runner.refilled)
