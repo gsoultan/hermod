@@ -62,6 +62,13 @@ from .precheck import MAX_AUTO_CLASSES, MIN_ROWS  # noqa: F401 (custom.py import
 from .stats import feature_stats
 
 REGRESSION_RTOL = 1e-3
+# A float32 graph rounds each output to within a few steps of the largest
+# value it passes through, which is the target's own scale: spend near 3e5
+# comes back up to 0.03 off at every row, so a row worth 3.42 misses a
+# relative 0.1% while the model is the same. This many float32 steps at the
+# target's scale are allowed on top: 64 * 2^-23 is under 0.001% of it, far
+# below what a wrong conversion produces.
+REGRESSION_FLOAT32_STEPS = 64
 
 TASKS = ("auto", "classification", "regression", recommend.TASK)
 ALGORITHMS = (
@@ -539,6 +546,22 @@ def export_onnx(pipeline: Pipeline, features: list[str], feature_types: dict[str
     return onnx_model
 
 
+def _regression_values_agree(got: np.ndarray, expected: np.ndarray) -> bool:
+    """Each value within REGRESSION_RTOL of the trained model's (of 1 below
+    1), or within REGRESSION_FLOAT32_STEPS float32 steps at the largest
+    value's scale, whichever is looser."""
+    expected = np.asarray(expected, dtype=np.float64)
+    got = np.asarray(got, dtype=np.float64)
+    if len(got) != len(expected):
+        return False
+    if len(expected) == 0:
+        return True
+    scale = float(np.max(np.abs(expected)))
+    floor = REGRESSION_FLOAT32_STEPS * float(np.finfo(np.float32).eps) * scale
+    tolerance = np.maximum(REGRESSION_RTOL * np.maximum(np.abs(expected), 1.0), floor)
+    return bool(np.all(np.abs(got - expected) <= tolerance))
+
+
 def _labels_agree(got: np.ndarray, expected: np.ndarray, probabilities: np.ndarray | None) -> bool:
     """Exact label agreement, except that when `probabilities` (the trained
     model's own) is given, rows whose top two classes are within
@@ -838,9 +861,7 @@ class Trainer:
             if not _labels_agree(got, expected, proba):
                 raise ApiError(500, "ONNX export check failed: the exported model's labels differ from the trained model's.")
         else:
-            expected = np.asarray(expected, dtype=np.float64)
-            tolerance = REGRESSION_RTOL * np.maximum(np.abs(expected), 1.0)
-            if len(got) != len(expected) or not np.all(np.abs(got - expected) <= tolerance):
+            if not _regression_values_agree(got, expected):
                 raise ApiError(500, "ONNX export check failed: the exported model's values differ from the trained model's by more than 0.1%.")
 
         # -- precision -------------------------------------------------------
