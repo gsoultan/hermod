@@ -1,6 +1,6 @@
 module github.com/gsoultan/hermod
 
-go 1.27.2
+go 1.27.3
 
 // Every 1.x version published before 2026-09-02 was withdrawn: the releases and
 // tags were deleted, and both GHCR packages with them. They are unusable in any
@@ -90,7 +90,7 @@ require (
 	github.com/pquerna/otp v1.5.0
 	github.com/prometheus/client_golang v1.21.1
 	github.com/prometheus/client_model v0.6.2
-	github.com/rabbitmq/amqp091-go v1.13.0
+	github.com/rabbitmq/amqp091-go v1.14.0
 	github.com/rabbitmq/rabbitmq-stream-go-client v1.4.6
 	github.com/redis/go-redis/v9 v9.17.2
 	github.com/robfig/cron/v3 v3.0.1
