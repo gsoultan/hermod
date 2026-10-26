@@ -1,15 +1,7 @@
 import '@testing-library/jest-dom'
-import { configure } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { useSessionStore, type SessionUser } from '@/auth/session'
-
-// The suite runs ~200 files in parallel jsdom workers. On a two-core CI runner
-// it takes eleven minutes, and a findBy or waitFor that resolves in tens of
-// milliseconds alone took over a second there: Testing Library's default 1s
-// failed an upload test on every run, and others failed on a loaded laptop.
-// 5s keeps a real hang a failure while letting a slow machine finish.
-configure({ asyncUtilTimeout: 5000 })
 
 export const server = setupServer(
   http.get('/api/config/status', () =>
