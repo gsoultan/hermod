@@ -35,8 +35,22 @@ fail() { echo "  ${RED}✗${RESET} $*" >&2; FAILURES=$((FAILURES + 1)); }
 # A stand-in for a hermod that is running but holds no port. Named so its
 # command line carries the dev binary path, which is the only thing that
 # distinguishes this checkout's processes from any other Hermod on the machine.
+#
+# A script rather than a symlink to sleep: the Rust coreutils on Ubuntu 26.04
+# refuse to run a utility under any other name ("Requested utility ... does not
+# match executable name"). It waits on a FIFO it holds open itself, so it starts
+# no child that a kill would leave behind.
+make_decoy() {
+  cat >"$1" <<'SCRIPT'
+#!/usr/bin/env bash
+fifo="$(mktemp -u)"; mkfifo "$fifo"; exec 3<>"$fifo"; rm -f "$fifo"
+read -r -t "${1:-300}" -u 3 || true
+SCRIPT
+  chmod +x "$1"
+}
+
 DECOY="$DEV_DIR/hermod-cleanup-decoy"
-ln -sf /bin/sleep "$DECOY"
+make_decoy "$DECOY"
 
 cleanup() {
   [[ -n "${DECOY_PID:-}" ]] && kill -9 "$DECOY_PID" 2>/dev/null || true
@@ -76,7 +90,7 @@ fi
 # The sweep must stay inside this checkout. A hermod installed elsewhere on the
 # machine has a different path and must not be touched.
 OUTSIDER="$(mktemp -d)/hermod"
-ln -sf /bin/sleep "$OUTSIDER"
+make_decoy "$OUTSIDER"
 "$OUTSIDER" 300 &
 OUTSIDER_PID=$!
 sleep 0.3
