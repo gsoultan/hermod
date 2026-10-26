@@ -48,11 +48,21 @@ jobs:
       # its own diagnostics, so it dies with the shutdown message instead of
       # the honest "No space left on device" the integration job showed.
       # Same remedy as there: drop toolchains this repository never uses.
+      #
+      # The first list stopped being enough: with 35G free the race step ran
+      # out again while linking a test binary ("final link failed: No space
+      # left on device"), and the package reported "[build failed]". The JVMs,
+      # the CodeQL bundle, the cached Docker images and the other toolchains
+      # below are as unused here.
       - name: Free disk space on the runner
         run: |
           echo "before: $(df -h --output=avail / | tail -1 | tr -d ' ') available"
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
-                      /usr/local/share/boost /usr/share/swift || true
+                      /usr/local/share/boost /usr/share/swift \
+                      /usr/local/.ghcup /usr/lib/jvm /opt/hostedtoolcache/CodeQL \
+                      /opt/microsoft /opt/google /usr/local/share/powershell \
+                      /usr/local/share/chromium /usr/local/lib/node_modules || true
+          sudo docker image prune --all --force > /dev/null 2>&1 || true
           echo "after:  $(df -h --output=avail / | tail -1 | tr -d ' ') available"
       - name: Checkout
         uses: actions/checkout@v4
