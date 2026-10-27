@@ -364,6 +364,15 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # v1.19.0's release died building the binaries with "disk quota
+      # exceeded" on /tmp/go-build*: on the Ubuntu 26.04 runners /tmp is not
+      # the main disk and cannot hold six cross-compiled builds. CI's jobs got
+      # this in #302; goreleaser runs the same go build and needs it too.
+      - name: Keep Go's temporary files on disk
+        run: |
+          mkdir -p "$RUNNER_TEMP/go-tmp"
+          echo "GOTMPDIR=$RUNNER_TEMP/go-tmp" >> "$GITHUB_ENV"
+
       - name: Go mod tidy
         run: |
           go mod tidy
