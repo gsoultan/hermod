@@ -65,6 +65,7 @@ import (
 	"bytes"
 	"container/list"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -782,16 +783,41 @@ func (s *Sink) bodyFallback(msg hermod.Message, html, text, templateID string) (
 //
 // The envelope fields go in first for exactly that reason — writing them last
 // would overwrite a row's own `table` or `id` column with the envelope's.
+//
+// `after` is the row again, under the name the editor offers its columns by:
+// it shows a CDC or batch SQL row as `after.<column>` because that is the shape
+// of the sample it captured, and every other reader in Hermod resolves that to
+// the column. Without it `{{.after.EmailProviderId}}` found no `after` key and
+// every such send was refused as having no provider. `before` is the
+// before-image when there is one, and a row's own `after` column still wins.
 func renderData(msg hermod.Message) map[string]any {
+	row := msg.Data()
 	data := map[string]any{
 		"id":        msg.ID(),
 		"operation": string(msg.Operation()),
 		"table":     msg.Table(),
 		"schema":    msg.Schema(),
 		"metadata":  msg.Metadata(),
+		"after":     row,
 	}
-	maps.Copy(data, msg.Data())
+	if before := imageOf(msg.Before()); before != nil {
+		data["before"] = before
+	}
+	maps.Copy(data, row)
 	return data
+}
+
+// imageOf decodes a change event's image. Nil when there is none or it is not
+// a JSON object.
+func imageOf(raw []byte) map[string]any {
+	if len(raw) == 0 {
+		return nil
+	}
+	var image map[string]any
+	if err := json.Unmarshal(raw, &image); err != nil {
+		return nil
+	}
+	return image
 }
 
 func (s *Sink) render(field, tmpl string, data map[string]any) (string, error) {

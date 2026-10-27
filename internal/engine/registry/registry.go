@@ -108,6 +108,8 @@ type Registry struct {
 	// replaces worker.Default, the provider that answers it.
 	mlWorker  *worker.Client
 	mlWorkers *worker.Provider
+	// mlNow replaces the ML service's clock; tests set it.
+	mlNow func() time.Time
 	// mlMon watches every prediction this process makes; see mlMonitor.
 	mlMon     *monitor.Monitor
 	mlMonOnce sync.Once

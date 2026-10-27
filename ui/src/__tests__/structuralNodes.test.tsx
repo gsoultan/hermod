@@ -144,10 +144,13 @@ describe('structural node editors', () => {
     let uploaded = false
     server.use(
       http.post('/api/files/upload', async ({ request }) => {
-        // jsdom's File does not survive the trip into the handler's FormData
-        // intact (name and content are lost), so only the part is checked.
-        const form = await request.formData()
-        uploaded = form.has('file')
+        // The raw body, not request.formData(): from Node 24, undici's
+        // multipart parser asserts on the jsdom File it is handed and throws,
+        // so the handler would answer 500. The part's header is enough.
+        const body = await request.text()
+        uploaded =
+          (request.headers.get('content-type') ?? '').startsWith('multipart/form-data') &&
+          body.includes('name="file"')
         return HttpResponse.json({ path: '/var/hermod/uploads/countries-1.csv' })
       }),
     )

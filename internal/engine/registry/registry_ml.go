@@ -57,6 +57,9 @@ func (r *Registry) MLService() *ml.Service {
 	svc := ml.NewService(func() any { return r.store() }, r.vhostSecrets(), nil).
 		WithLogStore(func() any { return r.logStore() }).
 		WithMonitor(r.mlMonitor())
+	if r.mlNow != nil {
+		svc.WithClock(r.mlNow)
+	}
 	if r.mlWorker != nil {
 		return svc.WithWorker(r.mlWorker)
 	}

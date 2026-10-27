@@ -915,3 +915,55 @@ func TestWrite_TransportRetriesAskAgainUnderTheSameKey(t *testing.T) {
 		t.Errorf("LastMessageID = %q, want msg-9", sink.LastMessageID())
 	}
 }
+
+// The editor offers a CDC row's columns as `after.<column>`, and every other
+// reader in Hermod resolves that to the column. The sink rendered against the
+// bare row, so `{{.after.EmailProviderId}}` found no `after` key and every
+// send from a batch SQL or CDC workflow was refused as having no provider.
+func TestWrite_RendersTheAfterImage(t *testing.T) {
+	srv, received := gateway(t, accepted)
+
+	cfg := baseConfig(srv.URL)
+	cfg.ProviderID = "{{.after.provider}}"
+	cfg.To = []string{"{{.after.email}}"}
+	sink, err := New(cfg, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	msg := testMessage()
+	msg.data["provider"] = "prov-7"
+	if err := sink.Write(context.Background(), msg); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	if got, _ := (*received)[0]["providerId"].(string); got != "prov-7" {
+		t.Errorf("providerId = %q, want prov-7 rendered from after.provider", got)
+	}
+	if to, _ := (*received)[0]["to"].([]any); len(to) != 1 || to[0] != "buyer@example.org" {
+		t.Errorf("to = %v, want buyer@example.org rendered from after.email", (*received)[0]["to"])
+	}
+}
+
+// A row with a real column called `after` keeps it, as it does everywhere else.
+func TestWrite_ARealAfterColumnWins(t *testing.T) {
+	srv, received := gateway(t, accepted)
+
+	cfg := baseConfig(srv.URL)
+	cfg.ProviderID = "{{.after.provider}}"
+	sink, err := New(cfg, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	msg := testMessage()
+	msg.data["provider"] = "outer"
+	msg.data["after"] = map[string]any{"provider": "column"}
+	if err := sink.Write(context.Background(), msg); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	if got, _ := (*received)[0]["providerId"].(string); got != "column" {
+		t.Errorf("providerId = %q, want the row's own after column", got)
+	}
+}

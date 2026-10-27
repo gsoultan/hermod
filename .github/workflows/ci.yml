@@ -64,6 +64,16 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      # Go puts its build and link scratch space in /tmp, which on the Ubuntu
+      # 26.04 runners is not the main disk (Ubuntu mounts it as a size-limited
+      # tmpfs since 25.10). Linking this repository's binaries filled it:
+      # "final link failed: No space left on device" and "mapping output file
+      # failed: disk quota exceeded", each with tens of gigabytes free on /.
+      # The runner's temp directory is on the main disk.
+      - name: Keep Go's temporary files on disk
+        run: |
+          mkdir -p "$RUNNER_TEMP/go-tmp"
+          echo "GOTMPDIR=$RUNNER_TEMP/go-tmp" >> "$GITHUB_ENV"
       - name: Go mod tidy
         run: |
           go mod tidy
@@ -248,6 +258,16 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      # Go puts its build and link scratch space in /tmp, which on the Ubuntu
+      # 26.04 runners is not the main disk (Ubuntu mounts it as a size-limited
+      # tmpfs since 25.10). Linking this repository's binaries filled it:
+      # "final link failed: No space left on device" and "mapping output file
+      # failed: disk quota exceeded", each with tens of gigabytes free on /.
+      # The runner's temp directory is on the main disk.
+      - name: Keep Go's temporary files on disk
+        run: |
+          mkdir -p "$RUNNER_TEMP/go-tmp"
+          echo "GOTMPDIR=$RUNNER_TEMP/go-tmp" >> "$GITHUB_ENV"
       # The swapfile below takes 8G of a ~14G disk, and the golangci-lint
       # install then died at link time with 6MB free. Same cleanup as the
       # other jobs, and it has to come first: the freed space is what the
@@ -360,6 +380,16 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      # Go puts its build and link scratch space in /tmp, which on the Ubuntu
+      # 26.04 runners is not the main disk (Ubuntu mounts it as a size-limited
+      # tmpfs since 25.10). Linking this repository's binaries filled it:
+      # "final link failed: No space left on device" and "mapping output file
+      # failed: disk quota exceeded", each with tens of gigabytes free on /.
+      # The runner's temp directory is on the main disk.
+      - name: Keep Go's temporary files on disk
+        run: |
+          mkdir -p "$RUNNER_TEMP/go-tmp"
+          echo "GOTMPDIR=$RUNNER_TEMP/go-tmp" >> "$GITHUB_ENV"
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -965,6 +995,16 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      # Go puts its build and link scratch space in /tmp, which on the Ubuntu
+      # 26.04 runners is not the main disk (Ubuntu mounts it as a size-limited
+      # tmpfs since 25.10). Linking this repository's binaries filled it:
+      # "final link failed: No space left on device" and "mapping output file
+      # failed: disk quota exceeded", each with tens of gigabytes free on /.
+      # The runner's temp directory is on the main disk.
+      - name: Keep Go's temporary files on disk
+        run: |
+          mkdir -p "$RUNNER_TEMP/go-tmp"
+          echo "GOTMPDIR=$RUNNER_TEMP/go-tmp" >> "$GITHUB_ENV"
       # Two settings that are off by default and need a restart to take effect,
       # so they are applied together in one restart:
       #
@@ -1231,6 +1271,16 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      # Go puts its build and link scratch space in /tmp, which on the Ubuntu
+      # 26.04 runners is not the main disk (Ubuntu mounts it as a size-limited
+      # tmpfs since 25.10). Linking this repository's binaries filled it:
+      # "final link failed: No space left on device" and "mapping output file
+      # failed: disk quota exceeded", each with tens of gigabytes free on /.
+      # The runner's temp directory is on the main disk.
+      - name: Keep Go's temporary files on disk
+        run: |
+          mkdir -p "$RUNNER_TEMP/go-tmp"
+          echo "GOTMPDIR=$RUNNER_TEMP/go-tmp" >> "$GITHUB_ENV"
       # The one job that never got this, because it only runs on a schedule and
       # so was never in front of me while the other three were being fixed. It
       # builds the whole tree like they do, and it died at 14m25s with "the
@@ -1266,6 +1316,16 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      # Go puts its build and link scratch space in /tmp, which on the Ubuntu
+      # 26.04 runners is not the main disk (Ubuntu mounts it as a size-limited
+      # tmpfs since 25.10). Linking this repository's binaries filled it:
+      # "final link failed: No space left on device" and "mapping output file
+      # failed: disk quota exceeded", each with tens of gigabytes free on /.
+      # The runner's temp directory is on the main disk.
+      - name: Keep Go's temporary files on disk
+        run: |
+          mkdir -p "$RUNNER_TEMP/go-tmp"
+          echo "GOTMPDIR=$RUNNER_TEMP/go-tmp" >> "$GITHUB_ENV"
       # Deliberately @latest, unlike the two gates, which share
       # GOLANGCI_LINT_VERSION. This job reports debt rather than blocking
       # anything — it is nightly, continue-on-error and ends in `|| true` — so a
