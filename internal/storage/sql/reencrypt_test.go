@@ -322,3 +322,38 @@ func TestRotationWithoutAnMLWorkerLeavesNoSetting(t *testing.T) {
 		t.Errorf("rotation created %q", raw)
 	}
 }
+
+// A staging install keeps the token for each production it promotes to in
+// settings, encrypted. A rotation that left them behind would break every
+// link at once.
+func TestRotationKeepsEnvironmentLinkTokensReadable(t *testing.T) {
+	const oldKey = "old-master-key-at-least-16"
+	const newKey = "new-master-key-at-least-16"
+	s := newRotationStorage(t)
+	ctx := t.Context()
+	withKey(t, oldKey)
+
+	stored, _ := json.Marshal(configsecrets.Encrypt(map[string]string{"link-1_token": "hmdp_s3cret"}))
+	if err := s.SaveSetting(ctx, storage.EnvironmentLinkTokensKey, string(stored)); err != nil {
+		t.Fatalf("SaveSetting: %v", err)
+	}
+	if err := s.ReEncryptSecrets(ctx, newKey); err != nil {
+		t.Fatalf("ReEncryptSecrets: %v", err)
+	}
+	crypto.SetMasterKey(newKey)
+
+	raw, err := s.GetSetting(ctx, storage.EnvironmentLinkTokensKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]string
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatalf("setting after rotation %q: %v", raw, err)
+	}
+	if strings.Contains(raw, "s3cret") {
+		t.Errorf("rotation wrote the token in the clear: %s", raw)
+	}
+	if plain := configsecrets.Decrypt(got); plain["link-1_token"] != "hmdp_s3cret" {
+		t.Errorf("after rotation the link token reads %q", plain["link-1_token"])
+	}
+}

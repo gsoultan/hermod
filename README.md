@@ -256,6 +256,7 @@ The README is the overview. Each topic has its own page under [`docs/`](docs/):
 - [Connectors](docs/connectors.md): Which connectors are production-ready, and the evidence behind each tier.
 - [Using Hermod](docs/usage.md): The command-line client, embedding Hermod as a Go library, running the API and workers, supported platforms, and the admin settings endpoints.
 - [Workflows](docs/workflows.md): Control flow, fan-out, versioning and rollback, workflows as MCP tools, blueprints, and the advanced transformation nodes.
+- [Environments](docs/environments.md): Linking a staging install to production and promoting workflows between them, with approval and rollback.
 - [Reliability and delivery guarantees](docs/reliability.md): What Hermod does to avoid losing data, the delivery guarantee it makes, and sink-side idempotency.
 - [Distributed transactions](docs/transactional-sink-groups.md): Transactional sink groups: committing one batch to several sinks atomically.
 - [PostgreSQL CDC](docs/postgres-cdc.md): Replication slots and publications.

@@ -23,7 +23,7 @@ import { downloadWorkflowExport } from '@/utils/workflowExport';
 import { 
   IconArrowLeft, IconArrowsExchange, IconChartBar, IconChevronRight, IconCircleCheck, IconCircleX, IconClock, IconEye, IconHistory, IconInfoCircle, IconRefresh, IconRotateDot, IconSearch, IconTerminal2, IconTimeline,
   IconBug, IconBrain, IconActivity, IconListDetails, IconPlayerPlay, IconFirstAidKit,
-  IconDownload
+  IconDownload, IconRocket
 } from '@tabler/icons-react';
 import { WorkflowDebugger } from './WorkflowDebugger';
 import { DetailFlowCanvas } from './WorkflowEditor/components/DetailFlowCanvas';
@@ -32,6 +32,8 @@ import { useSessionStore } from '@/auth/session';
 import { ExecutionsPanel } from './executions/ExecutionsPanel';
 import { RunWithInputModal } from './executions/RunWithInputModal';
 import { ProposalsPanel } from './proposals/ProposalsPanel';
+import { PromoteDialog } from '../environments/PromoteDialog';
+import { useInstance } from '@/lib/environments';
 import { useProposals } from '@/lib/proposals';
 import { connectWithReconnect } from '@/lib/reconnectingSocket';
 const API_BASE = '/api';
@@ -48,6 +50,10 @@ export function WorkflowDetailPage() {
   const role = useSessionStore((s) => s.user?.role);
   const canEdit = role === 'Administrator' || role === 'Editor';
   const [runInputOpened, setRunInputOpened] = useState(false);
+  const [promoteOpened, setPromoteOpened] = useState(false);
+  const { data: environment } = useInstance();
+  // Production is where workflows arrive, not where they leave from.
+  const canPromote = canEdit && (environment?.role === 'development' || environment?.role === 'staging');
   const { data: proposals } = useProposals(id);
   const pendingProposals = (proposals ?? []).filter((p) => p.status === 'pending').length;
   const openRun = useCallback((runId: string) => {
@@ -414,6 +420,15 @@ export function WorkflowDetailPage() {
               >
                 Export JSON
               </Button>
+              {canPromote && (
+                <Button
+                  color="indigo"
+                  leftSection={<IconRocket size="1rem" />}
+                  onClick={() => setPromoteOpened(true)}
+                >
+                  Promote
+                </Button>
+              )}
             </Group>
           </Group>
         </Paper>
@@ -434,6 +449,16 @@ export function WorkflowDetailPage() {
               </Button>
             </Group>
           </Alert>
+        )}
+
+        {canPromote && (
+          <PromoteDialog
+            workflowId={id}
+            workflowName={workflow.name}
+            opened={promoteOpened}
+            onClose={() => setPromoteOpened(false)}
+            versions={Array.isArray(versions) ? versions : []}
+          />
         )}
 
         {canEdit && runInputOpened && (

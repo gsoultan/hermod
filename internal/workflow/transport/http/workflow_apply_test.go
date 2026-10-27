@@ -130,3 +130,64 @@ func TestApplyWorkflowChangeRefusesAnInvalidWorkflow(t *testing.T) {
 		t.Fatal("an invalid change was stored")
 	}
 }
+
+// A promotion from another environment arrives through these too: a new
+// workflow is created as version 1, and a rollback restores a version and
+// records the restore.
+
+func TestCreateWorkflowVersionedStoresVersionOne(t *testing.T) {
+	st, h, _ := newApplyFixture(t)
+	wf := validWorkflow("wf-new", "orders", "")
+
+	applied, err := h.CreateWorkflowVersioned(t.Context(), wf, "rina", "Promoted from Staging version 3")
+	if err != nil || applied != 1 {
+		t.Fatalf("applied %d err %v", applied, err)
+	}
+	if _, ok := st.workflows["wf-new"]; !ok {
+		t.Fatal("the workflow was not stored")
+	}
+	if len(st.versions) != 1 || st.versions[0].Version != 1 || st.versions[0].CreatedBy != "rina" {
+		t.Fatalf("versions = %+v", st.versions)
+	}
+
+	broken := validWorkflow("wf-bad", "orders", "")
+	broken.Nodes = nil
+	if _, err := h.CreateWorkflowVersioned(t.Context(), broken, "rina", "m"); !errors.Is(err, ErrInvalidWorkflow) {
+		t.Fatalf("invalid: err = %v", err)
+	}
+	if _, ok := st.workflows["wf-bad"]; ok {
+		t.Fatal("an invalid workflow was stored")
+	}
+}
+
+func TestRollbackWorkflowToRestoresAndRecords(t *testing.T) {
+	st, h, _ := newApplyFixture(t)
+	before := retried(validWorkflow("wf", "orders", ""), 2)
+	st.workflows["wf"] = before
+	if _, _, err := h.ApplyWorkflowChange(t.Context(), before, retried(before, 7), "ada", "m"); err != nil {
+		t.Fatal(err)
+	}
+	applied, err := h.RollbackWorkflowTo(t.Context(), "wf", 1, "rina")
+	if err != nil || applied != 3 {
+		t.Fatalf("applied %d err %v", applied, err)
+	}
+	if st.workflows["wf"].MaxRetries != 2 || st.versions[0].Message != "Rolled back to version 1" {
+		t.Fatalf("stored %+v, newest version %+v", st.workflows["wf"], st.versions[0])
+	}
+	if _, err := h.RollbackWorkflowTo(t.Context(), "wf", 42, "rina"); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("unknown version: err = %v", err)
+	}
+}
+
+func TestPortableDropsRuntimeColumns(t *testing.T) {
+	_, h, _ := newApplyFixture(t)
+	wf := validWorkflow("wf", "orders", "")
+	wf.WorkerID, wf.Status, wf.TotalErrors = "w1", "Running", 4
+	got := h.Portable(wf)
+	if got.WorkerID != "" || got.Status != "" || got.TotalErrors != 0 || got.ID != "wf" {
+		t.Fatalf("Portable = %+v", got)
+	}
+	if err := h.Validate(t.Context(), got); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+}

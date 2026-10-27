@@ -281,6 +281,11 @@ func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 			// A model's serving key is this endpoint's credential, checked by
 			// the handler (internal/ml/transport/http Serve).
 			strings.HasPrefix(path, "/api/ml/serve/") ||
+			// A linked environment authenticates with its peer token, and
+			// /pair with a one-time pairing code, both checked by the handler
+			// (internal/environment/transport/http).
+			path == "/api/environments/pair" ||
+			strings.HasPrefix(path, "/api/environments/peer/") ||
 			strings.HasPrefix(path, "/forms/") ||
 			path == "/livez" || path == "/readyz" {
 			next.ServeHTTP(w, r)

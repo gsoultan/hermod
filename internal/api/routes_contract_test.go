@@ -65,6 +65,7 @@ var routeDirs = []string{
 	"internal/chat/transport/http",
 	"internal/dashboard/transport/http",
 	"internal/deadletter/transport/http",
+	"internal/environment/transport/http",
 	"internal/executions/transport/http",
 	"internal/files/transport/http",
 	"internal/forms/transport/http",

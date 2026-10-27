@@ -1573,60 +1573,27 @@ func (h *WorkflowHandler) GetWorkflowComplianceReport(w http.ResponseWriter, r *
 
 func (h *WorkflowHandler) RollbackWorkflow(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	versionStr := r.PathValue("version")
-	version, _ := strconv.Atoi(versionStr)
+	version, _ := strconv.Atoi(r.PathValue("version"))
 
-	v, err := h.Storage.GetWorkflowVersion(r.Context(), id, version)
-	if err != nil {
-		h.JsonError(w, "Failed to find version to rollback: "+err.Error(), http.StatusNotFound)
-		return
-	}
-
-	// Restore workflow from version
-	var wf storage.Workflow
-	if err := json.Unmarshal([]byte(v.Config), &wf); err != nil {
-		h.JsonError(w, "Failed to parse version config: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	wf.ID = id
-	wf.Nodes = v.Nodes
-	wf.Edges = v.Edges
-	wf.TraceRetention = v.TraceRetention
-	wf.AuditRetention = v.AuditRetention
-
-	if err := h.Storage.UpdateWorkflow(r.Context(), wf); err != nil {
-		h.JsonError(w, "Failed to restore workflow: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Create a new version for the rollback action itself
 	user, _ := r.Context().Value(handlers.UserContextKey).(*storage.User)
 	username := "System"
 	if user != nil {
 		username = user.Username
 	}
 
-	// Get current version count
-	versions, _ := h.Storage.ListWorkflowVersions(r.Context(), id)
-	nextVersion := 1
-	if len(versions) > 0 {
-		nextVersion = versions[0].Version + 1
+	if _, err := h.RollbackWorkflowTo(r.Context(), id, version, username); err != nil {
+		if errors.Is(err, ErrVersionNotFound) {
+			h.JsonError(w, "Failed to find version to rollback: "+err.Error(), http.StatusNotFound)
+			return
+		}
+		h.JsonError(w, "Failed to restore workflow: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
-
-	rollbackVersion := storage.WorkflowVersion{
-		ID:             uuid.New().String(),
-		WorkflowID:     id,
-		Version:        nextVersion,
-		Nodes:          wf.Nodes,
-		Edges:          wf.Edges,
-		TraceRetention: wf.TraceRetention,
-		AuditRetention: wf.AuditRetention,
-		Config:         v.Config,
-		CreatedAt:      time.Now(),
-		CreatedBy:      username,
-		Message:        fmt.Sprintf("Rolled back to version %d", version),
+	wf, err := h.Storage.GetWorkflow(r.Context(), id)
+	if err != nil {
+		h.JsonError(w, "Failed to read the restored workflow: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
-	_ = h.Storage.CreateWorkflowVersion(r.Context(), rollbackVersion)
 
 	h.RecordAuditLog(r, "INFO", fmt.Sprintf("Rolled back workflow %s to version %d", id, version), "ROLLBACK", id, "", "", wf)
 
