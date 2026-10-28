@@ -64,3 +64,85 @@ export function classifyBranchIds(raw: unknown): string[] {
   labels.delete(UNSURE_BRANCH);
   return [...labels, UNSURE_BRANCH];
 }
+
+/** A switch's cases or a router's rules, parsed the way the node renders them. */
+function branchItems(raw: unknown): any[] {
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw || '[]');
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return Array.isArray(raw) ? raw : [];
+}
+
+/**
+ * Where each old case or rule went: its index in the new list, or -1 when it
+ * was removed. The editor changes one item at a time, so a list one shorter
+ * lost the first item that no longer lines up; otherwise items keep their
+ * index.
+ */
+function branchMoves(before: any[], after: any[]): number[] {
+  if (after.length === before.length - 1) {
+    const same = (a: any, b: any) => JSON.stringify(a) === JSON.stringify(b);
+    let removed = before.length - 1;
+    for (let i = 0; i < after.length; i++) {
+      if (!same(before[i], after[i])) {
+        removed = i;
+        break;
+      }
+    }
+    return before.map((_, i) => (i < removed ? i : i === removed ? -1 : i - 1));
+  }
+  return before.map((_, i) => (i < after.length ? i : -1));
+}
+
+/**
+ * Keeps a switch's or router's out-edges on the cases or rules they were drawn
+ * from when those change.
+ *
+ * An edge's handle and label are the case's handle id, and the label is the
+ * branch the engine sends a message down. Renaming a case changes its id, and
+ * so does removing an unnamed case before it (case_2 becomes case_1). The edge
+ * was left on the old id: the canvas no longer drew it, but it was saved, and
+ * a message matching the case found no edge and stopped at the node. A
+ * removed case's edges go with it.
+ */
+export function remapBranchEdges<E extends { source: string; sourceHandle?: string | null; data?: any }>(
+  edges: E[],
+  nodeId: string,
+  node: 'router' | 'switch',
+  rawBefore: unknown,
+  rawAfter: unknown,
+): E[] {
+  const before = branchItems(rawBefore);
+  const after = branchItems(rawAfter);
+  const moves = branchMoves(before, after);
+  const oldIds = before.map((item, i) => branchHandleId(node, item?.label, i));
+  const renamed = new Map<string, string | null>();
+  before.forEach((_, i) => {
+    const oldId = oldIds[i];
+    // Two cases with one name share a handle, and its edges cannot be told
+    // apart; moving them would move the other case's too. Typing a new name
+    // passes through such states, so they are left where they are.
+    if (oldIds.indexOf(oldId) !== oldIds.lastIndexOf(oldId)) return;
+    const to = moves[i];
+    const newId = to < 0 ? null : branchHandleId(node, after[to]?.label, to);
+    if (newId !== oldId) renamed.set(oldId, newId);
+  });
+  if (renamed.size === 0) return edges;
+
+  const out: E[] = [];
+  for (const e of edges) {
+    if (e.source !== nodeId || !e.sourceHandle || !renamed.has(e.sourceHandle)) {
+      out.push(e);
+      continue;
+    }
+    const newId = renamed.get(e.sourceHandle);
+    if (newId === null || newId === undefined) continue;
+    out.push({ ...e, sourceHandle: newId, data: { ...(e.data || {}), label: newId } });
+  }
+  return out;
+}
