@@ -2,6 +2,9 @@
 
 Production settings, Kubernetes, worker coordination, backup and shutdown.
 
+Running separate staging and production installs? See [Environments](environments.md) for linking
+them and promoting workflows from one to the other.
+
 ## Production Considerations
 
 - **Logging**: Hermod uses a `Logger` interface and provides a default implementation using `zerolog` for zero-allocation structured logging. You can provide your own implementation via `eng.SetLogger(myLogger)`.

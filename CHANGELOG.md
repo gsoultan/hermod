@@ -7,6 +7,25 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — Promote workflows from staging to production
+
+Run one Hermod per environment and promote a tested workflow from staging to
+production from the UI. Settings › Environments says what each install is and
+links staging to production: enter production's address, then an
+administrator there approves by signing in or with a one-time pairing code.
+Staging's sources and sinks are matched to production's by name and type, and
+the remaining ones are picked once.
+
+**Promote** on a workflow checks it against production (valid, connections
+matched and present, secrets and variables present, minimum time on staging),
+shows what changes there, and sends it. On production it waits under
+**Promotions** for an administrator other than the sender, then deploys as a
+new version with production's own connections, keeping production's runtime
+state, vhost and workspace. A deploy that starts failing within 10 minutes is
+rolled back on its own, and any deploy can be rolled back by hand. The rules
+are production's to set. Every install shows its environment as a badge in the
+header. See [Environments](docs/environments.md).
+
 ### Changed — No more dead letter sink: Hermod keeps failed messages itself
 
 A workflow's **Dead Letter Sink** setting is gone. Choosing a sink to park

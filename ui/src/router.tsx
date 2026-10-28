@@ -49,6 +49,8 @@ const WorkflowEditorPage = lazy(async () => ({ default: (await import('./pages/w
 const WorkflowsPage = lazy(async () => ({ default: (await import('./pages/workflows/WorkflowsPage')).default }))
 const CompliancePage = lazy(async () => ({ default: (await import('./pages/monitoring/ComplianceDashboard')).ComplianceDashboard }))
 const DeadLettersPage = lazy(async () => ({ default: (await import('./pages/monitoring/DeadLettersPage')).DeadLettersPage }))
+const PromotionsPage = lazy(async () => ({ default: (await import('./pages/environments/PromotionsPage')).PromotionsPage }))
+const AcceptLinkPage = lazy(async () => ({ default: (await import('./pages/environments/AcceptLinkPage')).AcceptLinkPage }))
 const ApprovalsPage = lazy(async () => ({ default: (await import('./pages/workflows/ApprovalsPage')).ApprovalsPage }))
 interface RouterContext {
   configStatus?: {
@@ -569,6 +571,27 @@ const approvalsRoute = createRoute({
   ),
 })
 
+const promotionsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/promotions',
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <PromotionsPage />
+    </Suspense>
+  ),
+})
+
+// Opened in a popup by another instance's link wizard; $from is its origin.
+const acceptLinkRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/environments/accept/$from',
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <AcceptLinkPage />
+    </Suspense>
+  ),
+})
+
 const deadLettersRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/dead-letters',
@@ -688,6 +711,8 @@ const routeTree = rootRoute.addChildren([
   complianceRoute,
   marketplaceRoute,
   approvalsRoute,
+  promotionsRoute,
+  acceptLinkRoute,
   deadLettersRoute,
   loginRoute,
   forgotPasswordRoute,

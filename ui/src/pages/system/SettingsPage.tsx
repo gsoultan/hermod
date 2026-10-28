@@ -1,5 +1,5 @@
 import { Box, Button, Group, Modal, NumberInput, SimpleGrid, Stack, Tabs, Text, TextInput, Textarea, Title } from '@mantine/core';
-import { IconActivity, IconCode, IconHistory, IconServer, IconShieldLock, IconWorld } from '@tabler/icons-react';
+import { IconActivity, IconCode, IconHistory, IconRocket, IconServer, IconShieldLock, IconWorld } from '@tabler/icons-react';
 import { useSettingsController } from './settings/useSettingsController';
 import { PlatformTab } from './settings/PlatformTab';
 import { ConnectivityTab } from './settings/ConnectivityTab';
@@ -7,6 +7,15 @@ import { SecurityTab } from './settings/SecurityTab';
 import { ObservabilityTab } from './settings/ObservabilityTab';
 import { GovernanceTab } from './settings/GovernanceTab';
 import { DeveloperTab } from './settings/DeveloperTab';
+import { EnvironmentsTab } from '../environments/EnvironmentsTab';
+
+const tabs = ['platform', 'connectivity', 'security', 'observability', 'governance', 'environments', 'developer'];
+
+/** ?tab=environments opens that tab, so other pages can link straight to it. */
+function initialTab(): string {
+  const t = new URLSearchParams(window.location.search).get('tab');
+  return t && tabs.includes(t) ? t : 'platform';
+}
 
 /**
  * Settings shell.
@@ -26,7 +35,7 @@ export function SettingsPage() {
         <Text c="dimmed" size="sm">Configure and manage your Hermod instance</Text>
       </Stack>
 
-      <Tabs defaultValue="platform" orientation="vertical" variant="pills" styles={{
+      <Tabs defaultValue={initialTab()} orientation="vertical" variant="pills" styles={{
         root: { display: 'flex', gap: '2rem' },
         list: { width: 220, flexShrink: 0 },
         panel: { flex: 1, minWidth: 0 }
@@ -37,6 +46,7 @@ export function SettingsPage() {
           <Tabs.Tab value="security" leftSection={<IconShieldLock size="1.1rem" />}>Security</Tabs.Tab>
           <Tabs.Tab value="observability" leftSection={<IconActivity size="1.1rem" />}>Observability</Tabs.Tab>
           <Tabs.Tab value="governance" leftSection={<IconHistory size="1.1rem" />}>Governance</Tabs.Tab>
+          <Tabs.Tab value="environments" leftSection={<IconRocket size="1.1rem" />}>Environments</Tabs.Tab>
           <Tabs.Tab value="developer" leftSection={<IconCode size="1.1rem" />}>Developer</Tabs.Tab>
         </Tabs.List>
 
@@ -54,6 +64,9 @@ export function SettingsPage() {
         </Tabs.Panel>
         <Tabs.Panel value="governance">
           <GovernanceTab ctx={ctx} />
+        </Tabs.Panel>
+        <Tabs.Panel value="environments">
+          <EnvironmentsTab />
         </Tabs.Panel>
         <Tabs.Panel value="developer">
           <DeveloperTab ctx={ctx} />

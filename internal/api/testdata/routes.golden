@@ -9,6 +9,9 @@
 /debug/pprof/symbol
 /debug/pprof/trace
 /metrics
+DELETE /api/environments/links/{id}
+DELETE /api/environments/peer/self
+DELETE /api/environments/peers/{id}
 DELETE /api/logs
 DELETE /api/mcp
 DELETE /api/sinks/{id}
@@ -44,6 +47,15 @@ GET /api/dead-letters
 GET /api/dead-letters/export
 GET /api/dead-letters/stats
 GET /api/dead-letters/{id}
+GET /api/environments/links
+GET /api/environments/links/{id}/matching
+GET /api/environments/peer/connections
+GET /api/environments/peer/info
+GET /api/environments/peers
+GET /api/environments/promotions
+GET /api/environments/rules
+GET /api/environments/self
+GET /api/environments/sent
 GET /api/forms/{path...}
 GET /api/infra/lineage
 GET /api/infra/mesh-health
@@ -157,6 +169,17 @@ POST /api/config/setup
 POST /api/dead-letters/discard
 POST /api/dead-letters/replay
 POST /api/dead-letters/{id}/replay
+POST /api/environments/links
+POST /api/environments/links/{id}/preview
+POST /api/environments/links/{id}/promotions
+POST /api/environments/links/{id}/test
+POST /api/environments/pair
+POST /api/environments/pairing-codes
+POST /api/environments/peer/check
+POST /api/environments/peer/promotions
+POST /api/environments/promotions/{id}/approve
+POST /api/environments/promotions/{id}/reject
+POST /api/environments/promotions/{id}/rollback
 POST /api/files/upload
 POST /api/forgot-password
 POST /api/forms/{path...}
@@ -247,6 +270,9 @@ PUT /api/config/observability
 PUT /api/config/secrets
 PUT /api/config/state
 PUT /api/config/storage
+PUT /api/environments/links/{id}/mapping
+PUT /api/environments/rules
+PUT /api/environments/self
 PUT /api/me
 PUT /api/ml/worker/connection
 PUT /api/settings

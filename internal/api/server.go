@@ -36,6 +36,8 @@ import (
 	dashboardhttp "github.com/gsoultan/hermod/internal/dashboard/transport/http"
 	deadletterhttp "github.com/gsoultan/hermod/internal/deadletter/transport/http"
 	"github.com/gsoultan/hermod/internal/engine/registry"
+	"github.com/gsoultan/hermod/internal/environment"
+	envhttp "github.com/gsoultan/hermod/internal/environment/transport/http"
 	executionshttp "github.com/gsoultan/hermod/internal/executions/transport/http"
 	fileshttp "github.com/gsoultan/hermod/internal/files/transport/http"
 	formshttp "github.com/gsoultan/hermod/internal/forms/transport/http"
@@ -78,6 +80,10 @@ func IsUIEmbedded() bool {
 
 // Server is the HTTP API server for Hermod.
 // It wires routing, middleware, and access to the storage and engine registry.
+// environmentWatchInterval is how often deploys inside their auto-rollback
+// window are checked.
+const environmentWatchInterval = 30 * time.Second
+
 type Server struct {
 	Handler    *handlers.Handler
 	GrpcServer *googlegrpc.Server
@@ -85,6 +91,11 @@ type Server struct {
 	// stopBackups ends the scheduled-backup writer. Nil when no backup
 	// directory is configured, which is the default.
 	stopBackups func()
+
+	// environments links this instance to the ones it promotes workflows to
+	// and from. Routes builds it when NewServer did not.
+	environments     *environment.Service
+	stopEnvironments func()
 }
 
 // NewServer constructs a new Server with the provided engine registry and storage backend.
@@ -111,6 +122,13 @@ func NewServer(registry *registry.Registry, store storage.Storage, cfg *config.C
 	// Keep the revocation list in step with other instances and bounded. A
 	// revoker nobody refreshes only ever holds what this instance revoked.
 	s.Handler.StartSessionRevocation(context.Background())
+
+	// Watch promotions deployed here, and roll back the ones that fail
+	// within their window when the rules ask for it.
+	s.environments = envhttp.NewService(s.Handler, environment.NewHTTPRemote())
+	watchCtx, stopWatch := context.WithCancel(context.Background())
+	s.stopEnvironments = stopWatch
+	go s.environments.Watch(watchCtx, environmentWatchInterval)
 
 	// Scheduled backups, when a destination is configured. There is no default
 	// directory: a backup carries every credential in the deployment in
@@ -187,6 +205,10 @@ func (s *Server) Routes() http.Handler {
 	aiBudgetH := aibudgethttp.NewHandler(s.Handler)
 	deadLetterH := deadletterhttp.NewHandler(s.Handler)
 	lineageH := lineagehttp.NewHandler(s.Handler)
+	if s.environments == nil {
+		s.environments = envhttp.NewService(s.Handler, environment.NewHTTPRemote())
+	}
+	environmentH := envhttp.NewHandler(s.Handler, s.environments)
 
 	// Health endpoints (unauthenticated; used by Kubernetes and load balancers)
 	mux.HandleFunc("GET /healthz", infraH.HandleLiveness)
@@ -228,6 +250,7 @@ func (s *Server) Routes() http.Handler {
 	mlH.RegisterRoutes(mux)
 	aiBudgetH.RegisterRoutes(mux)
 	lineageH.RegisterRoutes(mux)
+	environmentH.RegisterRoutes(mux)
 
 	mux.HandleFunc("POST /api/graphql/{path...}", webhooksH.HandleGraphQL)
 
@@ -466,6 +489,10 @@ func (s *Server) currentStorage() storage.Storage {
 }
 
 func (s *Server) Stop() {
+	if s.stopEnvironments != nil {
+		s.stopEnvironments()
+		s.stopEnvironments = nil
+	}
 	if s.stopBackups != nil {
 		s.stopBackups()
 		s.stopBackups = nil

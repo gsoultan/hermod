@@ -142,7 +142,12 @@ const MLWorkerSettingKey = "hermod.ml_worker"
 // strings with its credentials encrypted by configsecrets. ReEncryptSecrets
 // rewrites them with a connector's config, so rotating the master key does not
 // strand them.
-var EncryptedSettingKeys = []string{MLWorkerSettingKey}
+var EncryptedSettingKeys = []string{MLWorkerSettingKey, EnvironmentLinkTokensKey}
+
+// EnvironmentLinkTokensKey names the settings row holding the tokens this
+// instance presents to the environments it promotes to (internal/environment):
+// a JSON object of strings, one "<link id>_token" each, encrypted.
+const EnvironmentLinkTokensKey = "hermod.environment_link_tokens" //nolint:gosec // G101: the name of a setting, not a credential.
 
 // ValidMLModelName reports whether name is a letter followed by letters,
 // digits, '_' or '-', within the length limit. It is used in URL paths, so it

@@ -73,6 +73,12 @@ var unguardedMutatingRoutes = map[string]string{
 	"POST /api/ml/serve/{vhost}/{name}/recommend": "public recommendation serving; authenticated by the model's own serving key",
 	"POST /api/ml/serve/{vhost}/jobs/{id}/cancel": "public model serving; authenticated by the serving key of the job's own model",
 	"POST /api/chat/{path...}":                    "public chat endpoint; authenticated by the source's API key, widget key and origin, or Slack/Telegram signature",
+	"POST /api/environments/pair":                 "pre-auth: redeems a one-time pairing code an admin issued; the code is the credential",
+
+	// linked environments: authenticated by the peer token in the handler
+	"POST /api/environments/peer/check":      "a linked environment asks whether a workflow would land; answers a peer token only",
+	"POST /api/environments/peer/promotions": "a linked environment submits a promotion; it waits for an admin's approval here",
+	"DELETE /api/environments/peer/self":     "a linked environment revokes its own peer token",
 
 	// self-service: the handler checks caller identity, not role
 	"PUT /api/me":                      "a user editing their own profile",
