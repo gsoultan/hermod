@@ -37,7 +37,7 @@ import (
 type walk struct {
 	nodes  map[string]*storage.WorkflowNode
 	adj    map[string][]string
-	labels map[string]string
+	labels map[string][]string
 	sinks  map[string]int
 	run    func(node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error)
 }
@@ -139,7 +139,7 @@ func TestAnOutcomeWithNoEdgeMarksTheMessageFiltered(t *testing.T) {
 		msg.Retain()
 		return []hermod.Message{msg}, "false", nil
 	})
-	w.labels = map[string]string{"N:K": "true"}
+	w.labels = map[string][]string{"N:K": {"true"}}
 
 	filtered, unaccounted, routed := w.do(t)
 	if !filtered || unaccounted || routed != 0 {
