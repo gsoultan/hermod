@@ -1,6 +1,15 @@
 import { useEffect } from 'react';
 import { useWorkflowStore } from '../store/useWorkflowStore';
 import { connectWithReconnect } from '@/lib/reconnectingSocket';
+import { advanceFlows } from '../live/edgeFlow';
+import { FAILING_WINDOW_MS, isEngineLive } from '../live/liveHealth';
+
+/**
+ * A running workflow that has sent no status for this long is no longer drawn
+ * as if its last numbers were current. While the editor is open the engine
+ * sends a frame every second; its own health tick is every five.
+ */
+export const STATUS_STALE_AFTER_MS = 15_000;
 
 function getWsProtocol(): string {
   return window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -81,6 +90,15 @@ export function useWorkflowWebSockets(id: string, active: boolean, logsPaused: b
     const buildUrl = () =>
       `${getWsProtocol()}//${window.location.host}/api/ws/status?workflow_id=${encodeURIComponent(id)}`;
 
+    // When the last frame arrived, by this browser's clock: what staleness is
+    // measured against. Null until the first one.
+    let lastFrameAt: number | null = null;
+    const setStale = (stale: boolean) => {
+      if (useWorkflowStore.getState().statusFeedStale !== stale) {
+        useWorkflowStore.setState({ statusFeedStale: stale });
+      }
+    };
+
     const onMessage = (event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data);
@@ -88,8 +106,17 @@ export function useWorkflowWebSockets(id: string, active: boolean, logsPaused: b
 
         updates.forEach(update => {
           if (update.workflow_id === id) {
+            lastFrameAt = Date.now();
             const currentStore = useWorkflowStore.getState();
             const nextState: any = {};
+            if (currentStore.statusFeedStale) nextState.statusFeedStale = false;
+
+            // When the engine read its counters. A frame from an engine that
+            // does not send it is timed on arrival instead.
+            const sampledAt: number = typeof update.sampled_at === 'number' ? update.sampled_at : lastFrameAt;
+            // Every engine frame carries sampled_at, and leaves an empty map
+            // out; in such a frame a missing map means none.
+            const fullFrame = typeof update.sampled_at === 'number';
 
             if (update.node_metrics) {
               const next = shareEntries(currentStore.nodeMetrics, update.node_metrics);
@@ -98,6 +125,8 @@ export function useWorkflowWebSockets(id: string, active: boolean, logsPaused: b
             if (update.node_error_metrics) {
               const next = shareEntries(currentStore.nodeErrorMetrics, update.node_error_metrics);
               if (next !== currentStore.nodeErrorMetrics) nextState.nodeErrorMetrics = next;
+              const flows = advanceFlows(currentStore.nodeErrorFlows, update.node_error_metrics, sampledAt, FAILING_WINDOW_MS);
+              if (flows !== currentStore.nodeErrorFlows) nextState.nodeErrorFlows = flows;
             }
             if (update.node_samples) {
               const next = shareEntries(currentStore.nodeSamples, update.node_samples);
@@ -111,9 +140,21 @@ export function useWorkflowWebSockets(id: string, active: boolean, logsPaused: b
               const next = shareEntries(currentStore.sinkBufferFill, update.sink_buffer_fill);
               if (next !== currentStore.sinkBufferFill) nextState.sinkBufferFill = next;
             }
-            if (update.edge_metrics) {
-              const next = shareEntries(currentStore.edgeThroughput, update.edge_metrics);
-              if (next !== currentStore.edgeThroughput) nextState.edgeThroughput = next;
+            if (update.edge_counts || fullFrame) {
+              const next = advanceFlows(currentStore.edgeFlows, update.edge_counts ?? {}, sampledAt);
+              if (next !== currentStore.edgeFlows) nextState.edgeFlows = next;
+            }
+            if (update.node_busy || fullFrame) {
+              const next = shareEntries(currentStore.nodeBusy, update.node_busy ?? {});
+              if (next !== currentStore.nodeBusy) nextState.nodeBusy = next;
+            }
+            if (update.node_held || fullFrame) {
+              const next = shareEntries(currentStore.nodeHeld, update.node_held ?? {});
+              if (next !== currentStore.nodeHeld) nextState.nodeHeld = next;
+            }
+            if (update.node_latencies) {
+              const next = shareEntries(currentStore.nodeLatencies, update.node_latencies);
+              if (next !== currentStore.nodeLatencies) nextState.nodeLatencies = next;
             }
             if (update.source_status) {
               if (currentStore.sourceStatus !== update.source_status) {
@@ -145,6 +186,21 @@ export function useWorkflowWebSockets(id: string, active: boolean, logsPaused: b
       }
     };
 
-    return connectWithReconnect(buildUrl, onMessage);
+    // A closed socket means nothing on screen is current any more; a running
+    // workflow that has gone silent means the same thing, more slowly.
+    const onConnection = (open: boolean) => {
+      if (!open) setStale(true);
+    };
+    const watchdog = setInterval(() => {
+      const running = isEngineLive(useWorkflowStore.getState().workflowStatus);
+      if (!running || lastFrameAt === null) return;
+      if (Date.now() - lastFrameAt > STATUS_STALE_AFTER_MS) setStale(true);
+    }, 1000);
+
+    const close = connectWithReconnect(buildUrl, onMessage, onConnection);
+    return () => {
+      clearInterval(watchdog);
+      close();
+    };
   }, [id]);
 }

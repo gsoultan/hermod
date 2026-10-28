@@ -217,7 +217,11 @@ func (s *StatusTracker) SampleEdgeCounts() (map[string]uint64, int64) {
 	at := s.clock().UnixMilli()
 	res := make(map[string]uint64)
 	s.edgeIDMetrics.Range(func(key, value any) bool {
-		res[key.(string)] = value.(*atomic.Uint64).Load()
+		id, okKey := key.(string)
+		c, okVal := value.(*atomic.Uint64)
+		if okKey && okVal {
+			res[id] = c.Load()
+		}
 		return true
 	})
 	return res, at

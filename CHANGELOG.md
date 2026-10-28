@@ -7,6 +7,29 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Changed — Workflow edges show what is really flowing
+
+An edge on the workflow canvas now moves only while messages cross it, at the
+speed they cross it, from source to target. Before, every edge animated all
+the time, running or not, and the dashes ran backwards. Each edge has a chip
+with its rate (`12/s`). The engine counts each edge by its own ID, so two edges
+between the same nodes no longer share one count, and while the editor is
+open it sends a status frame every second with the time it was read.
+
+A live run says what is wrong where it is wrong. A failing node draws its
+incoming edge in red with its error rate. A node with a message in flight and
+nothing finished for 30 seconds (or five times its usual run time) is marked
+hung. A stopped sink, an open circuit breaker, a full buffer, a reconnecting
+source or sink, and messages held by the debugger are each shown on the node
+and listed in a banner at the top of the canvas; clicking an entry jumps to
+the node. When the status feed drops, edges stop and say "no data" instead of
+showing the last known state.
+
+A simulation from **Test** replays hop by hop, can be paused, stepped and
+sped up, and is marked out of date once the graph is changed; edges added
+since the run are shown as new. Reduced motion shows the result without
+animation.
+
 ### Added — Promote workflows from staging to production
 
 Run one Hermod per environment and promote a tested workflow from staging to

@@ -106,32 +106,80 @@
  * identical <style> elements, each reinserted on every edge re-render.
  */
 /*
- * Data Pulse. The offset has to fall for the dashes to travel from source to
- * target: a larger offset starts the dash pattern further along, which slides
- * the dashes back toward the start of the path. This rose to 1000, so every
- * pulse ran backwards. 1008 is a whole number of periods of both the pulse
- * dash (8 6) and the breakpoint dash (2 6), so the loop restarts without a jump.
+ * Live edges (LiveEdge). Dots move along an edge only while messages cross it,
+ * at one of four speeds set by the measured rate. The dash period is 12.1 and
+ * each loop moves the pattern by exactly one period, so the loop has no seam;
+ * the offset falls so the dots travel from source to target. A band is a class
+ * rather than an inline duration, so a new rate does not restart the loop.
  */
-@keyframes dash {
-  to { stroke-dashoffset: -1008; }
+@keyframes hermod-edge-flow {
+  from { stroke-dashoffset: 12.1; }
+  to { stroke-dashoffset: 0; }
+}
+.hermod-edge-dots {
+  fill: none;
+  stroke-linecap: round;
+  stroke-dasharray: 0.1 12;
+  animation: hermod-edge-flow linear infinite;
+  pointer-events: none;
+}
+.hermod-edge-dots.band-1 { stroke-width: 3; animation-duration: 0.8s; }
+.hermod-edge-dots.band-2 { stroke-width: 3.5; animation-duration: 0.4s; }
+.hermod-edge-dots.band-3 { stroke-width: 4; animation-duration: 0.2s; }
+.hermod-edge-dots.band-4 { stroke-width: 4.5; animation-duration: 0.1s; }
+/* A sink falling behind: dots bunch up and move slower, the way a queue does. */
+.hermod-edge-dots.backpressure { stroke-dasharray: 0.1 6; animation-duration: 0.5s; }
+
+/* The last fifth of an edge into a failing node, or a simulated failure. */
+.hermod-edge-tail {
+  fill: none;
+  stroke-linecap: round;
+  stroke-dasharray: 0 80 20;
+  pointer-events: none;
 }
 
 /*
- * The path a simulated message took. The offset falls by one period of the
- * edge's 10 6 dash, so the dashes travel from source to target and the loop has
- * no seam.
+ * A simulation replay draws the hop being crossed from source to target. The
+ * path has pathLength 100, so the offset runs 100 to 0 whatever its length.
  */
-@keyframes simulation-flow {
-  from { stroke-dashoffset: 16; }
+@keyframes hermod-edge-cross {
+  from { stroke-dashoffset: 100; }
   to { stroke-dashoffset: 0; }
 }
+.hermod-edge-crossing {
+  fill: none;
+  stroke-linecap: round;
+  stroke-dasharray: 100;
+  animation: hermod-edge-cross var(--hermod-hop-ms, 600ms) ease-out both;
+  pointer-events: none;
+}
+
+/* The edge's chip: its rate, or what is wrong where it leads. */
+.hermod-edge-chip {
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 10px;
+  line-height: 16px;
+  padding: 0 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+  background: var(--mantine-color-body);
+  border: 1px solid var(--mantine-color-default-border);
+  color: var(--mantine-color-text);
+  font-variant-numeric: tabular-nums;
+}
+.hermod-edge-chip[data-tone='muted'] { color: var(--mantine-color-dimmed); }
+.hermod-edge-chip[data-tone='warning'] { color: var(--mantine-color-orange-text); border-color: var(--mantine-color-orange-outline); }
+.hermod-edge-chip[data-tone='error'] { color: var(--mantine-color-red-text); border-color: var(--mantine-color-red-outline); }
+.hermod-edge-chip[data-tone='success'] { color: #fff; background: var(--mantine-color-green-filled); border-color: transparent; font-weight: 700; }
 
 .react-flow__edge-path {
   transition: stroke-width 0.2s, stroke 0.2s;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .react-flow__edge-path {
+  .react-flow__edge-path,
+  .hermod-edge-dots,
+  .hermod-edge-crossing {
     animation: none !important;
     transition: none;
   }

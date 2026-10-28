@@ -11,12 +11,12 @@ export function useWorkflowEvents(
   const { screenToFlowPosition } = useReactFlow();
   const { 
     setNodes, setEdges, setSelectedNode, setDrawerOpened,
-    setQuickAddSource, quickAddSource, active, testResults, setSettingsOpened
+    setQuickAddSource, quickAddSource, testResults, setSettingsOpened
   } = useWorkflowStore(useShallow(state => ({
     setNodes: state.setNodes, setEdges: state.setEdges,
     setSelectedNode: state.setSelectedNode, setDrawerOpened: state.setDrawerOpened,
     setQuickAddSource: state.setQuickAddSource, quickAddSource: state.quickAddSource,
-    active: state.active, testResults: state.testResults, setSettingsOpened: state.setSettingsOpened,
+    testResults: state.testResults, setSettingsOpened: state.setSettingsOpened,
   })));
 
   const addNodeAtPosition = useCallback((type: string, refId: string, label: string, subType: string, position: { x: number, y: number }, extraData?: any) => {
@@ -41,14 +41,12 @@ export function useWorkflowEvents(
         sourceHandle: quickAddSource.handleId,
         target: newNode.id,
         type: 'live',
-        animated: active,
-        style: { strokeWidth: active ? 3 : 2 },
       };
       setEdges((eds) => addEdge(newEdge, eds));
       setQuickAddSource(null);
     }
     return newNode;
-  }, [quickAddSource, active, setEdges, setNodes, setQuickAddSource]);
+  }, [quickAddSource, setEdges, setNodes, setQuickAddSource]);
 
   const onNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
     setSelectedNode(node);

@@ -8,6 +8,24 @@ import {
   applyEdgeChanges 
 } from '@xyflow/react';
 import type { LogEntry } from '../../../../types';
+import type { FlowSample } from '../live/edgeFlow';
+import type { NodeBusy } from '../live/liveHealth';
+
+/** The graph a simulation ran on, as it stood when the run was asked for. */
+export interface SimulationGraph {
+  nodes: Node[];
+  edges: Edge[];
+}
+
+/**
+ * A simulation being replayed hop by hop: every edge up to `hop` is drawn, the
+ * one at `hop` as it is crossed. Null shows the whole path at once.
+ */
+export interface SimulationReplay {
+  hop: number;
+  /** The replay advances on its own; false is stepping by hand. */
+  playing: boolean;
+}
 
 export interface WorkflowState {
   nodes: Node[];
@@ -26,6 +44,11 @@ export interface WorkflowState {
   testModalOpened: boolean;
   testInput: string;
   testResults: any[] | null;
+  /** The graph testResults describe; edges and nodes added since are not in it. */
+  testRunGraph: SimulationGraph | null;
+  simReplay: SimulationReplay | null;
+  /** How fast a replay runs: 0.5, 1 or 2. */
+  replaySpeed: number;
   /**
    * persistedSnapshot of the version last loaded from or saved to the server.
    * The canvas has unsaved edits exactly when it no longer matches this.
@@ -80,9 +103,20 @@ export interface WorkflowState {
   sinkBufferFill: Record<string, number>;
   workflowDeadLetterCount: number;
 
-  // Live edge telemetry
-  edgeSamples: Record<string, any[]>;
-  edgeThroughput: Record<string, number>;
+  // Live run telemetry, derived frame by frame from the status socket.
+  /** Each canvas edge's message rate, by edge ID. */
+  edgeFlows: Record<string, FlowSample>;
+  /** Each node's recent errors, by node ID. */
+  nodeErrorFlows: Record<string, FlowSample>;
+  /** Nodes with a run in flight. */
+  nodeBusy: Record<string, NodeBusy>;
+  /** Messages the debugger holds before each node. */
+  nodeHeld: Record<string, number>;
+  /** Each node's moving-average run time, in nanoseconds. */
+  nodeLatencies: Record<string, number>;
+  /** The status feed is down, or a running workflow has gone silent. */
+  statusFeedStale: boolean;
+  /** Animate edges. Off keeps every state and number, without the motion. */
   pulseEnabled: boolean;
 
   setNodes: (nodes: Node[] | ((nds: Node[]) => Node[])) => void;
@@ -103,7 +137,13 @@ export interface WorkflowState {
   setSettingsOpened: (opened: boolean) => void;
   setTestModalOpened: (opened: boolean) => void;
   setTestInput: (input: string) => void;
-  setTestResults: (results: any[] | null) => void;
+  /**
+   * graph is the canvas the run was asked for on (the current one if left
+   * out); replay plays the path hop by hop.
+   */
+  setTestResults: (results: any[] | null, options?: { graph?: SimulationGraph; replay?: boolean }) => void;
+  setSimReplay: (replay: SimulationReplay | null) => void;
+  setReplaySpeed: (speed: number) => void;
   setNodePreview: (nodeId: string, payload: any | null) => void;
   setSelectedNode: (node: Node | null) => void;
   setQuickAddSource: (source: { nodeId: string; handleId: string | null } | null) => void;
@@ -189,6 +229,9 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   testModalOpened: false,
   testInput: '{\n  "payload": "test"\n}',
   testResults: null,
+  testRunGraph: null,
+  simReplay: null,
+  replaySpeed: 1,
   persistedBaseline: null,
   selectedNode: null,
   quickAddSource: null,
@@ -234,8 +277,12 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   sinkBufferFill: {},
   workflowDeadLetterCount: 0,
 
-  edgeSamples: {},
-  edgeThroughput: {},
+  edgeFlows: {},
+  nodeErrorFlows: {},
+  nodeBusy: {},
+  nodeHeld: {},
+  nodeLatencies: {},
+  statusFeedStale: false,
   pulseEnabled: true,
 
   setNodes: (nodes) => set((state) => {
@@ -282,9 +329,18 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   // A workflow run is newer than every node preview made before it, so those
   // previews go: useNodeContext reads a node's preview ahead of the run, and
   // keeping them would put an older answer in front of the newer one.
-  setTestResults: (testResults) => set(
-    testResults ? { testResults, nodePreviews: {} } : { testResults }
-  ),
+  setTestResults: (testResults, options) => set((state) => {
+    if (!testResults) return { testResults: null, testRunGraph: null, simReplay: null };
+    const graph = options?.graph ?? { nodes: state.nodes, edges: state.edges };
+    return {
+      testResults,
+      testRunGraph: graph,
+      nodePreviews: {},
+      simReplay: options?.replay ? { hop: 0, playing: true } : null,
+    };
+  }),
+  setSimReplay: (simReplay) => set({ simReplay }),
+  setReplaySpeed: (replaySpeed) => set({ replaySpeed }),
   setNodePreview: (nodeId, payload) => set((state) => {
     if (payload == null) {
       if (!(nodeId in state.nodePreviews)) return state;

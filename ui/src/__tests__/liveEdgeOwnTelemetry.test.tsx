@@ -41,12 +41,18 @@ const edgeProps = (id: string, source: string, target: string): EdgeProps =>
     targetPosition: Position.Left,
   }) as unknown as EdgeProps
 
+const T = 1_793_000_000_000
+const flowAt = (rate: number) => ({ count: rate, at: T, rate, band: (rate >= 100 ? 3 : rate >= 10 ? 2 : 1) as 1 | 2 | 3, movedAt: T })
+
 describe('LiveEdge telemetry subscriptions', () => {
   beforeEach(() => {
     counts.base = {}
     useWorkflowStore.setState({
+      workflowStatus: 'running',
+      statusFeedStale: false,
+      nodes: [],
       nodeMetrics: { a: 1, c: 1 },
-      edgeThroughput: { 'a->b': 1, 'c->d': 1 },
+      edgeFlows: { ab: flowAt(5), cd: flowAt(5) },
       nodeSamples: { a: { id: 1 }, c: { id: 2 } },
       testResults: null,
       pulseEnabled: true,
@@ -68,19 +74,30 @@ describe('LiveEdge telemetry subscriptions', () => {
     const before = counts.base.ab
 
     act(() => useWorkflowStore.setState((s) => ({ nodeMetrics: { ...s.nodeMetrics, c: 9 } })))
-    act(() => useWorkflowStore.setState((s) => ({ edgeThroughput: { ...s.edgeThroughput, 'c->d': 9 } })))
+    act(() => useWorkflowStore.setState((s) => ({ edgeFlows: { ...s.edgeFlows, cd: flowAt(500) } })))
     act(() => useWorkflowStore.setState((s) => ({ nodeSamples: { ...s.nodeSamples, c: { id: 3 } } })))
 
     expect(counts.base.ab).toBe(before)
   })
 
-  it('re-renders for its own throughput', () => {
+  it('re-renders when its own flow changes what it shows', () => {
     renderEdges()
     const before = counts.base.ab
 
-    act(() => useWorkflowStore.setState((s) => ({ edgeThroughput: { ...s.edgeThroughput, 'a->b': 50 } })))
+    act(() => useWorkflowStore.setState((s) => ({ edgeFlows: { ...s.edgeFlows, ab: flowAt(150) } })))
 
     expect(counts.base.ab).toBeGreaterThan(before)
+  })
+
+  it('does not re-render for a frame that leaves its speed and rate as shown', () => {
+    renderEdges()
+    const before = counts.base.ab
+
+    // 5.2/s and 5.4/s both read "5/s" at the same speed.
+    act(() => useWorkflowStore.setState((s) => ({ edgeFlows: { ...s.edgeFlows, ab: { ...flowAt(5.2), at: T + 1000 } } })))
+    act(() => useWorkflowStore.setState((s) => ({ edgeFlows: { ...s.edgeFlows, ab: { ...flowAt(5.4), at: T + 2000 } } })))
+
+    expect(counts.base.ab).toBe(before)
   })
 })
 
@@ -104,7 +121,7 @@ describe('status socket telemetry', () => {
   beforeEach(() => {
     sockets.length = 0
     vi.stubGlobal('WebSocket', FakeSocket)
-    useWorkflowStore.setState({ nodeMetrics: {}, edgeThroughput: {}, nodeSamples: {} })
+    useWorkflowStore.setState({ nodeMetrics: {}, edgeFlows: {}, nodeSamples: {} })
   })
   afterEach(() => {
     vi.unstubAllGlobals()
