@@ -33,34 +33,42 @@ func unroutedBranches(wf storage.Workflow) []string {
 		if len(names) == 0 {
 			continue
 		}
-		var labels []string
-		unlabelled := false
-		for _, edge := range wf.Edges {
-			if edge.SourceID != node.ID {
-				continue
-			}
-			label := edgeLabel(edge)
-			if label == "" {
-				unlabelled = true
-				continue
-			}
-			labels = append(labels, label)
-			if label != "default" && !slices.Contains(names, label) {
-				problems = append(problems, fmt.Sprintf(
-					"%s %q: the edge to %s is labelled %q, which matches no %s, so it never carries a message. Was the %s renamed?",
-					node.Type, nodeLabel(node), edge.TargetID, label, branchKind(node.Type), branchKind(node.Type)))
-			}
-		}
-		// An unlabelled edge takes every branch, so no case is left without one.
-		if unlabelled {
+		problems = append(problems, unroutedBranchesOf(node, names, wf.Edges)...)
+	}
+	return problems
+}
+
+// unroutedBranchesOf checks one switch or router, whose branches are names,
+// against its out-edges.
+func unroutedBranchesOf(node storage.WorkflowNode, names []string, edges []storage.WorkflowEdge) []string {
+	var problems []string
+	var labels []string
+	unlabelled := false
+	for _, edge := range edges {
+		if edge.SourceID != node.ID {
 			continue
 		}
-		for _, name := range names {
-			if !slices.Contains(labels, name) {
-				problems = append(problems, fmt.Sprintf(
-					"%s %q: %s %q has no edge, so messages that match it stop here.",
-					node.Type, nodeLabel(node), branchKind(node.Type), name))
-			}
+		label := edgeLabel(edge)
+		if label == "" {
+			unlabelled = true
+			continue
+		}
+		labels = append(labels, label)
+		if label != "default" && !slices.Contains(names, label) {
+			problems = append(problems, fmt.Sprintf(
+				"%s %q: the edge to %s is labelled %q, which matches no %s, so it never carries a message. Was the %s renamed?",
+				node.Type, nodeLabel(node), edge.TargetID, label, branchKind(node.Type), branchKind(node.Type)))
+		}
+	}
+	// An unlabelled edge takes every branch, so no case is left without one.
+	if unlabelled {
+		return problems
+	}
+	for _, name := range names {
+		if !slices.Contains(labels, name) {
+			problems = append(problems, fmt.Sprintf(
+				"%s %q: %s %q has no edge, so messages that match it stop here.",
+				node.Type, nodeLabel(node), branchKind(node.Type), name))
 		}
 	}
 	return problems
