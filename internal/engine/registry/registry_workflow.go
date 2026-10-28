@@ -466,7 +466,7 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 		nodeIndex[wf.Nodes[i].ID] = i
 	}
 
-	edgeLabels := make(map[string]string)
+	edgeLabels := make(map[string][]string)
 	inDegree := make(map[string]int)
 	// Visual breakpoints map: when true, messages should not traverse this edge
 	edgeBreakpoints := make(map[string]bool)
@@ -475,9 +475,10 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 		if l, ok := edge.Config["label"].(string); ok && l != "" {
 			label = l
 		}
-		if label != "" {
-			edgeLabels[edge.SourceID+":"+edge.TargetID] = label
-		}
+		// One entry per edge, even unlabelled: the traversal matches the k-th
+		// edge between a pair to the k-th entry here.
+		key := edge.SourceID + ":" + edge.TargetID
+		edgeLabels[key] = append(edgeLabels[key], label)
 		if bp, ok := edge.Config["breakpoint"].(bool); ok && bp {
 			edgeBreakpoints[edge.SourceID+":"+edge.TargetID] = true
 		}
@@ -586,7 +587,7 @@ func (r *Registry) setupWorkflowRouter(
 	adj map[string][]string,
 	edgeIDs map[string][]string,
 	nodeIndex map[string]int,
-	edgeLabels map[string]string,
+	edgeLabels map[string][]string,
 	edgeBreakpoints map[string]bool,
 	inDegree map[string]int,
 	sinkNodeToIndex map[string]int,

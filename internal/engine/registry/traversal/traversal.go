@@ -39,13 +39,17 @@ type Registry interface {
 }
 
 type WorkflowTraversal struct {
-	Registry        Registry
-	Eng             *pkgengine.Engine
-	WorkflowID      string
-	NodeMap         map[string]*storage.WorkflowNode
-	Adj             map[string][]string
-	NodeIndex       map[string]int
-	EdgeLabels      map[string]string
+	Registry   Registry
+	Eng        *pkgengine.Engine
+	WorkflowID string
+	NodeMap    map[string]*storage.WorkflowNode
+	Adj        map[string][]string
+	NodeIndex  map[string]int
+	// EdgeLabels holds, for each source:target pair, the label of every edge
+	// between the two in the order the workflow lists them — one entry per
+	// edge, "" for an unlabelled one. A pair can carry several edges: two
+	// switch cases that do the same thing are drawn into the same node.
+	EdgeLabels      map[string][]string
 	EdgeBreakpoints map[string]bool
 	InDegree        map[string]int
 	SinkNodeToIndex map[string]int
@@ -115,7 +119,7 @@ func Acquire(
 	nodeMap map[string]*storage.WorkflowNode,
 	adj map[string][]string,
 	nodeIndex map[string]int,
-	edgeLabels map[string]string,
+	edgeLabels map[string][]string,
 	edgeBreakpoints map[string]bool,
 	inDegree map[string]int,
 	sinkNodeToIndex map[string]int,
@@ -512,7 +516,7 @@ func (t *WorkflowTraversal) handleResults(ctx context.Context, node *storage.Wor
 	}
 	took := false
 	for pos, targetID := range targets {
-		if len(msgs) > 0 && TakesEdge(branch, t.EdgeLabels[node.ID+":"+targetID]) {
+		if len(msgs) > 0 && TakesEdge(branch, t.edgeLabel(node.ID, targets, pos)) {
 			took = true
 			t.Telemetry.edge(nodeIdx, pos, len(msgs))
 			for _, msg := range msgs {
@@ -541,6 +545,26 @@ func (t *WorkflowTraversal) handleResults(ctx context.Context, node *storage.Wor
 	if len(msgs) > 0 && len(targets) > 0 && !took {
 		t.Filtered.Store(true)
 	}
+}
+
+// edgeLabel is the label of the edge at targets[pos] in source's out-edges.
+// Adj lists a target once per edge, so the k-th time a target appears is the
+// k-th edge into it from source, and gets that edge's label. Looking the label
+// up by the pair alone gave every edge between the two the last one's label: a
+// switch whose REVISION and REJECTED cases both led to one node sent REJECTED
+// there and stopped REVISION at the switch.
+func (t *WorkflowTraversal) edgeLabel(source string, targets []string, pos int) string {
+	labels := t.EdgeLabels[source+":"+targets[pos]]
+	occurrence := 0
+	for _, prev := range targets[:pos] {
+		if prev == targets[pos] {
+			occurrence++
+		}
+	}
+	if occurrence < len(labels) {
+		return labels[occurrence]
+	}
+	return ""
 }
 
 // dropsOnPurpose reports whether a node of this type emitting nothing means the

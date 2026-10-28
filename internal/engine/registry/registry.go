@@ -266,7 +266,7 @@ type activeEngine struct {
 	nodeMap         map[string]*storage.WorkflowNode
 	adj             map[string][]string
 	nodeIndex       map[string]int
-	edgeLabels      map[string]string
+	edgeLabels      map[string][]string
 	edgeBreakpoints map[string]bool
 	inDegree        map[string]int
 	sinkNodeToIndex map[string]int

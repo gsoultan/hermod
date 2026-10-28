@@ -12,6 +12,7 @@ package traversal_test
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -124,9 +125,9 @@ func TestWorkflowTraversal_ConditionalJoinReached(t *testing.T) {
 		"A":  {"J"},
 		"B":  {"J"},
 	}
-	edgeLabels := map[string]string{
-		"SW:A": "yes",
-		"SW:B": "no",
+	edgeLabels := map[string][]string{
+		"SW:A": {"yes"},
+		"SW:B": {"no"},
 	}
 	inDegree := map[string]int{
 		"SW": 1,
@@ -213,7 +214,7 @@ func TestWorkflowTraversal_BranchesThatMeetAgainDeliverTheMessage(t *testing.T) 
 				"J": {ID: "J", Type: "sink"},
 			}
 			adj := map[string][]string{"S": {"C"}, "C": tc.out, "A": {"J"}}
-			edgeLabels := map[string]string{"C:A": "true", "C:J": "false"}
+			edgeLabels := map[string][]string{"C:A": {"true"}, "C:J": {"false"}}
 			nodeIndex := map[string]int{"S": 0, "C": 1, "A": 2, "J": 3}
 
 			msg := message.AcquireMessage()
@@ -272,6 +273,74 @@ func TestTakesEdge(t *testing.T) {
 	for _, tc := range cases {
 		if got := traversal.TakesEdge(tc.branch, tc.label); got != tc.want {
 			t.Errorf("TakesEdge(branch %q, label %q) = %v, want %v", tc.branch, tc.label, got, tc.want)
+		}
+	}
+}
+
+// Two switch cases drawn into the same node are two edges between one pair.
+// Each must keep its own label: looking a label up by the pair alone gave both
+// edges the label of whichever was drawn last, so the other case stopped at
+// the switch. Both drawing orders are walked, since the order decided which
+// case was lost.
+func TestWorkflowTraversal_CasesSharingATargetEachTakeTheirEdge(t *testing.T) {
+	for _, order := range [][]string{{"REVISION", "REJECTED"}, {"REJECTED", "REVISION"}} {
+		for _, branch := range order {
+			t.Run(fmt.Sprintf("%v/%s", order, branch), func(t *testing.T) {
+				message.ResetOverReleaseCount()
+
+				var mu sync.Mutex
+				ran := map[string]int{}
+				reg := &mockRegistry{}
+				reg.RunWorkflowNodeFn = func(_ string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
+					mu.Lock()
+					ran[node.ID]++
+					mu.Unlock()
+					msg.Retain()
+					if node.ID == "SW" {
+						return []hermod.Message{msg}, branch, nil
+					}
+					return []hermod.Message{msg}, "", nil
+				}
+
+				nodeMap := map[string]*storage.WorkflowNode{
+					"S":  {ID: "S", Type: "source"},
+					"SW": {ID: "SW", Type: "switch"},
+					"N":  {ID: "N", Type: "passthrough"},
+					"K":  {ID: "K", Type: "sink"},
+				}
+				adj := map[string][]string{"S": {"SW"}, "SW": {"N", "N"}, "N": {"K"}}
+				edgeLabels := map[string][]string{"SW:N": order}
+				nodeIndex := map[string]int{"S": 0, "SW": 1, "N": 2, "K": 3}
+
+				msg := message.AcquireMessage()
+				msg.SetID("m1")
+				tr := traversal.Acquire(reg, pkgengine.NewEngine(nil, nil, nil), "wf-shared", nodeMap, adj, nodeIndex, edgeLabels, nil,
+					traversal.ReachableInDegree(adj, "S"), map[string]int{"K": 0})
+				msg.Retain()
+				tr.CurrentMessages[nodeIndex["S"]] = msg
+
+				tr.Traverse(t.Context(), "S")
+
+				mu.Lock()
+				ranN := ran["N"]
+				mu.Unlock()
+				routed := len(tr.Routed)
+				for _, rm := range tr.Routed {
+					rm.Message.Release()
+				}
+				traversal.Release(tr)
+				msg.Release()
+
+				if ranN != 1 {
+					t.Errorf("the node both cases lead to ran %d time(s), want 1", ranN)
+				}
+				if routed != 1 {
+					t.Errorf("the sink was handed %d message(s), want 1", routed)
+				}
+				if n := message.OverReleaseCount(); n != 0 {
+					t.Errorf("the traversal over-released %d reference(s)", n)
+				}
+			})
 		}
 	}
 }
