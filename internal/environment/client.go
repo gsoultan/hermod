@@ -34,7 +34,15 @@ const (
 	PathPeerConns   = "/api/environments/peer/connections"
 	PathPeerCheck   = "/api/environments/peer/check"
 	PathPeerPromote = "/api/environments/peer/promotions"
+	PathPeerRelease = "/api/environments/peer/releases"
 	PathPeerUnpair  = "/api/environments/peer/self"
+)
+
+// Features a receiving instance lists in PeerInfo. An instance from before
+// a feature existed lists nothing, and the sender falls back.
+const (
+	// FeatureReleases: it takes several workflows in one release.
+	FeatureReleases = "releases"
 )
 
 // PairRequest redeems a pairing code.
@@ -42,6 +50,8 @@ type PairRequest struct {
 	Code string `json:"code"`
 	Name string `json:"name"`
 	URL  string `json:"url"`
+	// VHost is the vhost the sender links, shown on the receiving side.
+	VHost string `json:"vhost,omitempty"`
 }
 
 // PairResult is what the receiving instance hands back for a good code.
@@ -50,13 +60,21 @@ type PairResult struct {
 	Token    string   `json:"token"`
 	Instance Instance `json:"instance"`
 	Version  string   `json:"version"`
+	// VHost is the vhost the link sends into; VHostCreated says it was made
+	// for this link.
+	VHost        string `json:"vhost,omitempty"`
+	VHostCreated bool   `json:"vhost_created,omitempty"`
 }
 
 // PeerInfo describes the receiving instance to a linked one.
 type PeerInfo struct {
 	Instance Instance `json:"instance"`
-	Rules    Rules    `json:"rules"`
-	Version  string   `json:"version"`
+	// Rules are the ones that apply to what the linked instance sends.
+	Rules   Rules  `json:"rules"`
+	Version string `json:"version"`
+	// VHost is the vhost the linked instance sends into.
+	VHost    string   `json:"vhost,omitempty"`
+	Features []string `json:"features,omitempty"`
 }
 
 // Connection is a source or sink as a linked instance sees it: never its
@@ -97,6 +115,8 @@ type CheckResult struct {
 	MissingSecrets []string         `json:"missing_secrets"`
 	MissingEnvs    []string         `json:"missing_envs"`
 	Current        *CurrentWorkflow `json:"current,omitempty"`
+	// Problem says why the workflow cannot land at all, or is empty.
+	Problem string `json:"problem,omitempty"`
 }
 
 // Submission is a promotion as it is sent.
@@ -108,6 +128,16 @@ type Submission struct {
 	Note          string           `json:"note,omitempty"`
 	Start         bool             `json:"start"`
 	AutoRollback  bool             `json:"auto_rollback"`
+	// ReleaseID is set when the workflow is part of a release sent one
+	// workflow at a time to an instance that takes no releases.
+	ReleaseID string `json:"release_id,omitempty"`
+}
+
+// ReleaseSubmission is several workflows sent in one click. ReleaseID is
+// made by the sender, so sending it again is harmless.
+type ReleaseSubmission struct {
+	ReleaseID string       `json:"release_id"`
+	Items     []Submission `json:"items"`
 }
 
 // Remote is how this instance calls a linked one.
@@ -117,6 +147,9 @@ type Remote interface {
 	Connections(ctx context.Context, baseURL, token string) (Connections, error)
 	Check(ctx context.Context, baseURL, token string, req CheckRequest) (CheckResult, error)
 	Submit(ctx context.Context, baseURL, token string, sub Submission) (Promotion, error)
+	SubmitRelease(ctx context.Context, baseURL, token string, rs ReleaseSubmission) ([]Promotion, error)
+	// Promotions lists what this instance sent there, as it stands there.
+	Promotions(ctx context.Context, baseURL, token string) ([]Promotion, error)
 	Unpair(ctx context.Context, baseURL, token string) error
 }
 
@@ -257,6 +290,18 @@ func (c *HTTPRemote) Check(ctx context.Context, baseURL, token string, req Check
 func (c *HTTPRemote) Submit(ctx context.Context, baseURL, token string, sub Submission) (Promotion, error) {
 	var out Promotion
 	err := c.do(ctx, http.MethodPost, baseURL, PathPeerPromote, token, sub, &out)
+	return out, err
+}
+
+func (c *HTTPRemote) SubmitRelease(ctx context.Context, baseURL, token string, rs ReleaseSubmission) ([]Promotion, error) {
+	var out []Promotion
+	err := c.do(ctx, http.MethodPost, baseURL, PathPeerRelease, token, rs, &out)
+	return out, err
+}
+
+func (c *HTTPRemote) Promotions(ctx context.Context, baseURL, token string) ([]Promotion, error) {
+	var out []Promotion
+	err := c.do(ctx, http.MethodGet, baseURL, PathPeerPromote, token, nil, &out)
 	return out, err
 }
 

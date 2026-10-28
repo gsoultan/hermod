@@ -90,9 +90,16 @@ func cleanName(name, fallback string) string {
 	return name
 }
 
-// NewPairingCode issues a one-time code another instance redeems to link to
-// this one. label says who it is for; it is shown, never trusted.
-func (s *Service) NewPairingCode(ctx context.Context, label, username string) (string, time.Time, error) {
+// NewPairingCode issues a one-time code another instance redeems to link one
+// of its vhosts to vhost here. label says who it is for; it is shown, never
+// trusted. vhost need not exist yet: it is created when the code is used.
+func (s *Service) NewPairingCode(ctx context.Context, label, vhost, username string) (string, time.Time, error) {
+	if err := ValidateVHostName(vhost); err != nil {
+		return "", time.Time{}, err
+	}
+	if vhost == "all" {
+		return "", time.Time{}, fmt.Errorf("%w: \"all\" stands for every vhost; pick one", ErrInvalid)
+	}
 	code, err := randomCode()
 	if err != nil {
 		return "", time.Time{}, err
@@ -111,7 +118,7 @@ func (s *Service) NewPairingCode(ctx context.Context, label, username string) (s
 		codes = codes[len(codes)-maxPendingCodes+1:]
 	}
 	codes = append(codes, PairingCode{
-		Hash: hashSecret(code), Label: cleanName(label, ""), CreatedBy: username, ExpiresAt: expires,
+		Hash: hashSecret(code), Label: cleanName(label, ""), VHost: vhost, CreatedBy: username, ExpiresAt: expires,
 	})
 	if err := putJSON(ctx, s.store, keyPairing, codes); err != nil {
 		return "", time.Time{}, err
@@ -179,11 +186,16 @@ func (s *Service) Pair(ctx context.Context, req PairRequest) (PairResult, error)
 	peer := Peer{
 		ID: uuid.NewString(), Name: cleanName(req.Name, cleanName(used.Label, "Linked instance")), URL: peerURL,
 		TokenHash: hashSecret(token), CreatedBy: used.CreatedBy, CreatedAt: now,
+		VHost: used.VHost, FromVHost: cleanName(req.VHost, ""),
 	}
 	peers = append(peers, peer)
-	// The code is spent before the peer is saved: a failure in between
+	// The code is spent before anything else is saved: a failure after it
 	// costs the person a new code, never leaves one that can be used twice.
 	if err := putJSON(ctx, s.store, keyPairing, codes); err != nil {
+		return PairResult{}, err
+	}
+	created, err := s.ensureVHost(ctx, used.VHost, peer.Name)
+	if err != nil {
 		return PairResult{}, err
 	}
 	if err := putJSON(ctx, s.store, keyPeers, peers); err != nil {
@@ -194,7 +206,27 @@ func (s *Service) Pair(ctx context.Context, req PairRequest) (PairResult, error)
 	if err != nil {
 		return PairResult{}, err
 	}
-	return PairResult{PeerID: peer.ID, Token: token, Instance: self, Version: s.version}, nil
+	return PairResult{PeerID: peer.ID, Token: token, Instance: self, Version: s.version, VHost: used.VHost, VHostCreated: created}, nil
+}
+
+// ensureVHost creates vhost unless it exists, and reports whether it did.
+// A code issued before codes named a vhost has none, and creates nothing.
+func (s *Service) ensureVHost(ctx context.Context, vhost, peerName string) (bool, error) {
+	if slices.Contains(storage.SharedVHosts, vhost) {
+		return false, nil
+	}
+	existing, _, err := s.store.ListVHosts(ctx, storage.CommonFilter{Limit: maxListed})
+	if err != nil {
+		return false, fmt.Errorf("listing vhosts: %w", err)
+	}
+	if slices.ContainsFunc(existing, func(v storage.VHost) bool { return v.Name == vhost }) {
+		return false, nil
+	}
+	v := storage.VHost{ID: uuid.NewString(), Name: vhost, Description: "Created when " + peerName + " linked to it to promote workflows", CreatedAt: s.now().UTC()}
+	if err := s.store.CreateVHost(ctx, v); err != nil {
+		return false, fmt.Errorf("creating vhost %s: %w", vhost, err)
+	}
+	return true, nil
 }
 
 // Peers lists the instances allowed to send promotions here.
@@ -250,8 +282,9 @@ func (s *Service) AuthenticatePeer(ctx context.Context, token string) (Peer, err
 	return peer, nil
 }
 
-// PeerInfo is what a linked instance learns about this one.
-func (s *Service) PeerInfo(ctx context.Context) (PeerInfo, error) {
+// PeerInfo is what peer learns about this instance: the rules that apply to
+// what it sends, and the vhost it sends into.
+func (s *Service) PeerInfo(ctx context.Context, peer Peer) (PeerInfo, error) {
 	in, err := loadInstance(ctx, s.store)
 	if err != nil {
 		return PeerInfo{}, err
@@ -260,12 +293,25 @@ func (s *Service) PeerInfo(ctx context.Context) (PeerInfo, error) {
 	if err != nil {
 		return PeerInfo{}, err
 	}
-	return PeerInfo{Instance: in, Rules: rules, Version: s.version}, nil
+	return PeerInfo{Instance: in, Rules: rules.For(peer.VHost), Version: s.version, VHost: peer.VHost,
+		Features: []string{FeatureReleases}}, nil
 }
 
 // Links lists the instances this one promotes to.
 func (s *Service) Links(ctx context.Context) ([]Link, error) {
 	return loadLinks(ctx, s.store)
+}
+
+// linkFor is the link vhost's workflows go through: its own, else one made
+// before links were per vhost.
+func (s *Service) linkFor(links []Link, vhost string) (Link, bool) {
+	if i := slices.IndexFunc(links, func(l Link) bool { return l.VHost == vhost }); i >= 0 {
+		return links[i], true
+	}
+	if i := slices.IndexFunc(links, func(l Link) bool { return l.VHost == "" }); i >= 0 {
+		return links[i], true
+	}
+	return Link{}, false
 }
 
 func (s *Service) link(ctx context.Context, id string) (Link, string, error) {
@@ -287,21 +333,32 @@ func (s *Service) link(ctx context.Context, id string) (Link, string, error) {
 	return links[i], token, nil
 }
 
-// LinkWith redeems a pairing code at rawURL and keeps the link. selfURL is
-// the address the other instance shows for this one.
-func (s *Service) LinkWith(ctx context.Context, rawURL, code, selfURL, username string) (Link, error) {
-	u, err := ValidateURL(rawURL)
+// LinkRequest links one vhost here to the instance at URL, with a pairing
+// code its admin issued. SelfURL is the address it shows for this one.
+type LinkRequest struct {
+	URL     string `json:"url"`
+	Code    string `json:"code"`
+	SelfURL string `json:"self_url"`
+	VHost   string `json:"vhost"`
+}
+
+// LinkWith redeems a pairing code and keeps the link for req.VHost.
+func (s *Service) LinkWith(ctx context.Context, req LinkRequest, username string) (Link, error) {
+	u, err := ValidateURL(req.URL)
 	if err != nil {
 		return Link{}, err
 	}
-	if strings.TrimSpace(code) == "" {
+	if err := ValidateVHostName(req.VHost); err != nil {
+		return Link{}, err
+	}
+	if strings.TrimSpace(req.Code) == "" {
 		return Link{}, fmt.Errorf("%w: a pairing code is needed", ErrInvalid)
 	}
 	self, err := loadInstance(ctx, s.store)
 	if err != nil {
 		return Link{}, err
 	}
-	res, err := s.remote.Pair(ctx, u, PairRequest{Code: code, Name: displayName(self), URL: selfURL})
+	res, err := s.remote.Pair(ctx, u, PairRequest{Code: req.Code, Name: displayName(self), URL: req.SelfURL, VHost: req.VHost})
 	if err != nil {
 		return Link{}, err
 	}
@@ -309,6 +366,7 @@ func (s *Service) LinkWith(ctx context.Context, rawURL, code, selfURL, username 
 	l := Link{
 		ID: uuid.NewString(), Name: displayName(res.Instance), URL: u, Role: res.Instance.Role,
 		Version: res.Version, CreatedBy: username, CreatedAt: now, CheckedAt: now, Reachable: true,
+		VHost: req.VHost, TargetVHost: res.VHost, VHostCreated: res.VHostCreated,
 	}
 
 	s.mu.Lock()
@@ -317,10 +375,12 @@ func (s *Service) LinkWith(ctx context.Context, rawURL, code, selfURL, username 
 	if err != nil {
 		return Link{}, err
 	}
-	// Linking the same address again replaces the old link, keeping the
-	// connections already matched.
-	if i := slices.IndexFunc(links, func(old Link) bool { return old.URL == u }); i >= 0 {
-		l.Mapping = links[i].Mapping
+	// Linking a vhost again replaces its old link; the connections already
+	// matched are kept when it goes to the same address.
+	if i := slices.IndexFunc(links, func(old Link) bool { return old.VHost == req.VHost }); i >= 0 {
+		if links[i].URL == u {
+			l.Mapping = links[i].Mapping
+		}
 		if err := saveLinkToken(ctx, s.store, links[i].ID, ""); err != nil {
 			return Link{}, err
 		}
@@ -499,17 +559,23 @@ func (s *Service) localConnections(ctx context.Context, vhost string) (Connectio
 	return Connections{Sources: sourceConnections(srcs), Sinks: sinkConnections(snks)}, nil
 }
 
-// PeerConnections lists this instance's connections for a linked one.
-func (s *Service) PeerConnections(ctx context.Context) (Connections, error) {
-	return s.localConnections(ctx, "")
+// PeerConnections lists the connections peer may use: those in its vhost.
+func (s *Service) PeerConnections(ctx context.Context, peer Peer) (Connections, error) {
+	return s.localConnections(ctx, peer.VHost)
 }
 
-// Matching pairs this instance's connections in vhost (every vhost when
-// empty) with the linked instance's.
+// Matching pairs this instance's connections in the link's vhost with the
+// linked instance's. vhost picks one on a link that serves every vhost.
 func (s *Service) Matching(ctx context.Context, linkID, vhost string) ([]MatchRow, error) {
 	l, token, err := s.link(ctx, linkID)
 	if err != nil {
 		return nil, err
+	}
+	if l.VHost != "" {
+		if vhost != "" && vhost != l.VHost {
+			return nil, fmt.Errorf("%w: this link is for vhost %s, not %s", ErrInvalid, l.VHost, vhost)
+		}
+		vhost = l.VHost
 	}
 	targets, err := s.remote.Connections(ctx, l.URL, token)
 	if err != nil {

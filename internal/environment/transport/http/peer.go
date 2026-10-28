@@ -12,6 +12,7 @@ package http
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -37,6 +38,8 @@ func (h *Handler) registerPeerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/environments/peer/connections", h.peer(h.PeerConnections))
 	mux.HandleFunc("POST /api/environments/peer/check", h.peer(h.PeerCheck))
 	mux.HandleFunc("POST /api/environments/peer/promotions", h.peer(h.PeerPromote))
+	mux.HandleFunc("GET /api/environments/peer/promotions", h.peer(h.PeerPromotions))
+	mux.HandleFunc("POST /api/environments/peer/releases", h.peer(h.PeerRelease))
 	mux.HandleFunc("DELETE /api/environments/peer/self", h.peer(h.PeerUnpair))
 }
 
@@ -92,7 +95,7 @@ func (h *Handler) Pair(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) PeerInfo(w http.ResponseWriter, r *http.Request) {
-	info, err := h.svc.PeerInfo(r.Context())
+	info, err := h.svc.PeerInfo(r.Context(), peerFrom(r))
 	if err != nil {
 		h.writeErr(w, err)
 		return
@@ -101,7 +104,7 @@ func (h *Handler) PeerInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) PeerConnections(w http.ResponseWriter, r *http.Request) {
-	conns, err := h.svc.PeerConnections(r.Context())
+	conns, err := h.svc.PeerConnections(r.Context(), peerFrom(r))
 	if err != nil {
 		h.writeErr(w, err)
 		return
@@ -114,7 +117,7 @@ func (h *Handler) PeerCheck(w http.ResponseWriter, r *http.Request) {
 	if !h.DecodeJSONBody(w, r, maxCheckBody, &in, "") {
 		return
 	}
-	res, err := h.svc.PeerCheck(r.Context(), in)
+	res, err := h.svc.PeerCheck(r.Context(), peerFrom(r), in)
 	if err != nil {
 		h.writeErr(w, err)
 		return
@@ -136,6 +139,34 @@ func (h *Handler) PeerPromote(w http.ResponseWriter, r *http.Request) {
 	h.RecordAuditLog(r, "INFO", "Received a promotion of "+res.WorkflowName+" from "+p.Name, "PROMOTE", res.WorkflowID, "", "",
 		map[string]any{"promotion": res.ID, "sender": res.Sender, "status": res.Status})
 	writeJSON(w, http.StatusCreated, res)
+}
+
+func (h *Handler) PeerRelease(w http.ResponseWriter, r *http.Request) {
+	var in environment.ReleaseSubmission
+	if !h.DecodeJSONBody(w, r, maxReleaseBody, &in, "") {
+		return
+	}
+	p := peerFrom(r)
+	res, err := h.svc.ReceiveRelease(r.Context(), p, in)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	h.RecordAuditLog(r, "INFO", fmt.Sprintf("Received a release of %d workflows from %s", len(res), p.Name), "PROMOTE", "", "", "",
+		map[string]any{"release": in.ReleaseID, "peer": p.ID, "workflows": len(res)})
+	writeJSON(w, http.StatusCreated, res)
+}
+
+func (h *Handler) PeerPromotions(w http.ResponseWriter, r *http.Request) {
+	ps, err := h.svc.PeerPromotions(r.Context(), peerFrom(r))
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	if ps == nil {
+		ps = []environment.Promotion{}
+	}
+	writeJSON(w, http.StatusOK, ps)
 }
 
 func (h *Handler) PeerUnpair(w http.ResponseWriter, r *http.Request) {
@@ -221,6 +252,30 @@ func (l liveStore) GetSource(ctx context.Context, id string) (storage.Source, er
 		return storage.Source{}, err
 	}
 	return st.GetSource(ctx, id)
+}
+
+func (l liveStore) ListWorkflows(ctx context.Context, f storage.CommonFilter) ([]storage.Workflow, int, error) {
+	st, err := l.st()
+	if err != nil {
+		return nil, 0, err
+	}
+	return st.ListWorkflows(ctx, f)
+}
+
+func (l liveStore) ListVHosts(ctx context.Context, f storage.CommonFilter) ([]storage.VHost, int, error) {
+	st, err := l.st()
+	if err != nil {
+		return nil, 0, err
+	}
+	return st.ListVHosts(ctx, f)
+}
+
+func (l liveStore) CreateVHost(ctx context.Context, v storage.VHost) error {
+	st, err := l.st()
+	if err != nil {
+		return err
+	}
+	return st.CreateVHost(ctx, v)
 }
 
 func (l liveStore) GetSink(ctx context.Context, id string) (storage.Sink, error) {

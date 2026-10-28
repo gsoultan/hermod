@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"strconv"
@@ -32,6 +33,8 @@ const (
 	maxSmallBody     = 64 << 10
 	maxCheckBody     = 1 << 20
 	maxPromotionBody = 8 << 20
+	// maxReleaseBody holds a release of 50 workflows.
+	maxReleaseBody = 64 << 20
 )
 
 // Handler serves the environment routes.
@@ -77,6 +80,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/environments/links/{id}/preview", h.EditorOnly(h.Preview))
 	mux.Handle("POST /api/environments/links/{id}/promotions", h.EditorOnly(h.Promote))
 	mux.Handle("GET /api/environments/sent", h.EditorOnly(h.ListSent))
+	mux.Handle("GET /api/environments/ready", h.EditorOnly(h.ListReady))
+	mux.Handle("POST /api/environments/releases/preview", h.EditorOnly(h.PreviewRelease))
+	mux.Handle("POST /api/environments/releases", h.EditorOnly(h.SendRelease))
 
 	h.registerPeerRoutes(mux)
 }
@@ -172,18 +178,19 @@ func (h *Handler) PutRules(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) NewPairingCode(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Label string `json:"label"`
+		VHost string `json:"vhost"`
 	}
 	if r.ContentLength != 0 && !h.DecodeJSONBody(w, r, maxSmallBody, &in, "") {
 		return
 	}
-	code, expires, err := h.svc.NewPairingCode(r.Context(), in.Label, username(r))
+	code, expires, err := h.svc.NewPairingCode(r.Context(), in.Label, in.VHost, username(r))
 	if err != nil {
 		h.writeErr(w, err)
 		return
 	}
 	// The code is not in the audit entry: it is a credential until used.
-	h.RecordAuditLog(r, "INFO", "Issued an environment pairing code", "CREATE", "", "", "", map[string]any{"label": in.Label})
-	writeJSON(w, http.StatusCreated, map[string]any{"code": code, "expires_at": expires})
+	h.RecordAuditLog(r, "INFO", "Issued an environment pairing code for vhost "+in.VHost, "CREATE", "", "", "", map[string]any{"label": in.Label, "vhost": in.VHost})
+	writeJSON(w, http.StatusCreated, map[string]any{"code": code, "expires_at": expires, "vhost": in.VHost})
 }
 
 // peerView is a peer without its token hash.
@@ -194,6 +201,8 @@ type peerView struct {
 	CreatedBy  string `json:"created_by"`
 	CreatedAt  any    `json:"created_at"`
 	LastUsedAt any    `json:"last_used_at,omitempty"`
+	VHost      string `json:"vhost"`
+	FromVHost  string `json:"from_vhost,omitempty"`
 }
 
 func (h *Handler) ListPeers(w http.ResponseWriter, r *http.Request) {
@@ -204,7 +213,7 @@ func (h *Handler) ListPeers(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]peerView, 0, len(peers))
 	for _, p := range peers {
-		v := peerView{ID: p.ID, Name: p.Name, URL: p.URL, CreatedBy: p.CreatedBy, CreatedAt: p.CreatedAt}
+		v := peerView{ID: p.ID, Name: p.Name, URL: p.URL, CreatedBy: p.CreatedBy, CreatedAt: p.CreatedAt, VHost: p.VHost, FromVHost: p.FromVHost}
 		if !p.LastUsedAt.IsZero() {
 			v.LastUsedAt = p.LastUsedAt
 		}
@@ -300,20 +309,16 @@ func (h *Handler) ListLinks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CreateLink(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		URL     string `json:"url"`
-		Code    string `json:"code"`
-		SelfURL string `json:"self_url"`
-	}
+	var in environment.LinkRequest
 	if !h.DecodeJSONBody(w, r, maxSmallBody, &in, "") {
 		return
 	}
-	l, err := h.svc.LinkWith(r.Context(), in.URL, in.Code, in.SelfURL, username(r))
+	l, err := h.svc.LinkWith(r.Context(), in, username(r))
 	if err != nil {
 		h.writeErr(w, err)
 		return
 	}
-	h.RecordAuditLog(r, "INFO", "Linked environment "+l.Name+" at "+l.URL, "CREATE", "", "", "", l)
+	h.RecordAuditLog(r, "INFO", "Linked vhost "+l.VHost+" to environment "+l.Name+" at "+l.URL, "CREATE", "", "", "", l)
 	writeJSON(w, http.StatusCreated, l)
 }
 
@@ -369,23 +374,110 @@ type promoteRequest struct {
 	environment.PromoteOptions
 }
 
-// mayPromote checks the caller may see the workflow's vhost.
-func (h *Handler) mayPromote(w http.ResponseWriter, r *http.Request, workflowID string) bool {
-	wf, err := h.Storage.GetWorkflow(r.Context(), workflowID)
-	if err != nil {
-		h.writeErr(w, err)
-		return false
-	}
+// mayPromote checks the caller may see each workflow's vhost.
+func (h *Handler) mayPromote(w http.ResponseWriter, r *http.Request, workflowIDs ...string) bool {
 	_, vhosts := h.GetRoleAndVHosts(r)
-	vhost := wf.VHost
-	if vhost == "" {
-		vhost = "default"
-	}
-	if !h.HasVHostAccess(vhost, vhosts) {
-		h.JsonError(w, "Forbidden: you do not have access to vhost "+vhost, http.StatusForbidden)
-		return false
+	for _, id := range workflowIDs {
+		wf, err := h.Storage.GetWorkflow(r.Context(), id)
+		if err != nil {
+			h.writeErr(w, err)
+			return false
+		}
+		vhost := wf.VHost
+		if vhost == "" {
+			vhost = "default"
+		}
+		if !h.HasVHostAccess(vhost, vhosts) {
+			h.JsonError(w, "Forbidden: you do not have access to vhost "+vhost, http.StatusForbidden)
+			return false
+		}
 	}
 	return true
+}
+
+type releaseRequest struct {
+	Items []environment.ReleaseItem `json:"items"`
+	environment.PromoteOptions
+}
+
+func (in releaseRequest) workflowIDs() []string {
+	out := make([]string, 0, len(in.Items))
+	for _, it := range in.Items {
+		out = append(out, it.WorkflowID)
+	}
+	return out
+}
+
+// maxReleaseRequest bounds what a release request may name before it is
+// read; the service holds a release to fewer.
+const maxReleaseRequest = 200
+
+func (h *Handler) decodeRelease(w http.ResponseWriter, r *http.Request) (releaseRequest, bool) {
+	var in releaseRequest
+	if !h.DecodeJSONBody(w, r, maxSmallBody, &in, "") {
+		return in, false
+	}
+	if len(in.Items) > maxReleaseRequest {
+		h.JsonError(w, "a release carries at most 50 workflows", http.StatusBadRequest)
+		return in, false
+	}
+	return in, h.mayPromote(w, r, in.workflowIDs()...)
+}
+
+func (h *Handler) PreviewRelease(w http.ResponseWriter, r *http.Request) {
+	in, ok := h.decodeRelease(w, r)
+	if !ok {
+		return
+	}
+	pv, err := h.svc.PreviewRelease(r.Context(), in.Items)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, pv)
+}
+
+func (h *Handler) SendRelease(w http.ResponseWriter, r *http.Request) {
+	in, ok := h.decodeRelease(w, r)
+	if !ok {
+		return
+	}
+	sent, err := h.svc.SendRelease(r.Context(), in.Items, username(r), in.PromoteOptions)
+	for _, rel := range sent {
+		h.RecordAuditLog(r, "INFO", fmt.Sprintf("Promoted %d workflows to %s", len(rel.Promotions), rel.LinkName), "PROMOTE", "", "", "", rel)
+	}
+	if err != nil {
+		if len(sent) > 0 {
+			// Part of it went: say what, as well as what did not.
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "sent": sent})
+			return
+		}
+		h.writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, sent)
+}
+
+// ListReady lists, per link, what changed since it was last promoted, in the
+// vhosts the caller may see.
+func (h *Handler) ListReady(w http.ResponseWriter, r *http.Request) {
+	lanes, err := h.svc.Ready(r.Context())
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	role, vhosts := h.GetRoleAndVHosts(r)
+	out := make([]environment.ReadyLane, 0, len(lanes))
+	for _, l := range lanes {
+		if role != storage.RoleAdministrator {
+			l.Workflows = slices.DeleteFunc(l.Workflows, func(wf environment.ReadyWorkflow) bool { return !h.HasVHostAccess(wf.VHost, vhosts) })
+			if l.VHost != "" && !h.HasVHostAccess(l.VHost, vhosts) {
+				continue
+			}
+		}
+		out = append(out, l)
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (h *Handler) Preview(w http.ResponseWriter, r *http.Request) {

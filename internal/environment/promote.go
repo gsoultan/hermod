@@ -181,9 +181,19 @@ func (s *Service) prepare(ctx context.Context, linkID, workflowID string, versio
 	if err != nil {
 		return Preview{}, storage.Workflow{}, Link{}, "", err
 	}
+	p, out, err := s.prepareWith(ctx, l, token, s.reach(ctx, l, token), workflowID, version)
+	return p, out, l, token, err
+}
+
+// prepareWith is prepare for a link already reached, so a release asks each
+// linked instance for its rules and connections once.
+func (s *Service) prepareWith(ctx context.Context, l Link, token string, r reached, workflowID string, version int) (Preview, storage.Workflow, error) {
 	wf, fromVersion, at, err := s.workflowAt(ctx, workflowID, version)
 	if err != nil {
-		return Preview{}, storage.Workflow{}, Link{}, "", err
+		return Preview{}, storage.Workflow{}, err
+	}
+	if l.VHost != "" && vhostOf(wf.VHost) != vhostOf(l.VHost) {
+		return Preview{}, storage.Workflow{}, fmt.Errorf("%w: %s is in vhost %s, and the link to %s is for vhost %s", ErrInvalid, wf.Name, vhostOf(wf.VHost), l.Name, l.VHost)
 	}
 	p := Preview{
 		LinkID: l.ID, LinkName: l.Name, WorkflowID: wf.ID, WorkflowName: wf.Name, VHost: wf.VHost,
@@ -194,21 +204,20 @@ func (s *Service) prepare(ctx context.Context, linkID, workflowID string, versio
 		valid = Check{Name: valid.Name, Blocking: true, Detail: verr.Error()}
 	}
 	p.Checks = append(p.Checks, valid)
-	out := s.checkAgainst(ctx, &p, l, token, wf, at)
+	out := s.checkAgainst(ctx, &p, l, token, r, wf, at)
 	p.Ready = !slices.ContainsFunc(p.Checks, func(c Check) bool { return c.Blocking && !c.OK })
-	return p, out, l, token, nil
+	return p, out, nil
 }
 
 // checkAgainst adds the checks that need the linked instance to p, and
 // returns wf as it would land there; empty when the instance did not answer.
-func (s *Service) checkAgainst(ctx context.Context, p *Preview, l Link, token string, wf storage.Workflow, at time.Time) storage.Workflow {
-	info, targets, reach := s.reach(ctx, l, token)
-	if !reach.OK {
-		p.Checks = append(p.Checks, reach)
+func (s *Service) checkAgainst(ctx context.Context, p *Preview, l Link, token string, r reached, wf storage.Workflow, at time.Time) storage.Workflow {
+	if !r.check.OK {
+		p.Checks = append(p.Checks, r.check)
 		return storage.Workflow{}
 	}
-	p.Rules = info.Rules
-	srcMap, sinkMap, matched := s.matchRefs(ctx, l, wf, targets)
+	p.Rules = r.info.Rules
+	srcMap, sinkMap, matched := s.matchRefs(ctx, l, wf, r.targets)
 	p.Checks = append(p.Checks, matched)
 
 	out := rewriteRefs(s.applier.Portable(wf), srcMap, sinkMap)
@@ -220,10 +229,13 @@ func (s *Service) checkAgainst(ctx context.Context, p *Preview, l Link, token st
 		p.Checks = append(p.Checks, c)
 		return storage.Workflow{}
 	}
+	if res.Problem != "" {
+		p.Checks = append(p.Checks, Check{Name: "Can land in " + l.Name, Blocking: true, Detail: res.Problem})
+	}
 	p.Checks = append(p.Checks, presenceChecks(l, res, secretNames, envNames)...)
-	if soak := soakProblem(info.Rules, at, s.now()); soak != "" {
+	if soak := soakProblem(r.info.Rules, at, s.now()); soak != "" {
 		p.Checks = append(p.Checks, Check{Name: "Has run long enough", Blocking: true, Detail: soak})
-	} else if info.Rules.MinSoakMinutes > 0 {
+	} else if r.info.Rules.MinSoakMinutes > 0 {
 		p.Checks = append(p.Checks, Check{Name: "Has run long enough", OK: true, Blocking: true})
 	}
 
@@ -236,14 +248,22 @@ func (s *Service) checkAgainst(ctx context.Context, p *Preview, l Link, token st
 	return out
 }
 
+// reached is what a linked instance said about itself, and whether it
+// answered.
+type reached struct {
+	info    PeerInfo
+	targets Connections
+	check   Check
+}
+
 // reach asks the linked instance for its rules and connections.
-func (s *Service) reach(ctx context.Context, l Link, token string) (PeerInfo, Connections, Check) {
+func (s *Service) reach(ctx context.Context, l Link, token string) reached {
 	var targets Connections
 	info, err := s.remote.Info(ctx, l.URL, token)
 	if err == nil {
 		targets, err = s.remote.Connections(ctx, l.URL, token)
 	}
-	return info, targets, reachCheck(l, err)
+	return reached{info: info, targets: targets, check: reachCheck(l, err)}
 }
 
 func reachCheck(l Link, err error) Check {
@@ -370,31 +390,91 @@ func (s *Service) Promote(ctx context.Context, linkID, workflowID, sender string
 	if err != nil {
 		return Promotion{}, err
 	}
-	sent.PeerID = l.ID
-	sent.FromEnv = l.Name
+	sent.PeerID, sent.FromEnv, sent.VHost = l.ID, l.Name, p.VHost
+	return sent, s.recordSent(ctx, sent)
+}
 
+// recordSent adds what was sent to this instance's log of it. PeerID holds
+// the link each went through and FromEnv its name.
+func (s *Service) recordSent(ctx context.Context, sent ...Promotion) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var log []Promotion
 	if err := getJSON(ctx, s.store, keySent, &log); err != nil {
-		return sent, err
+		return err
 	}
-	log = append(log, sent)
+	log = append(log, sent...)
 	if len(log) > maxSentKept {
 		log = log[len(log)-maxSentKept:]
 	}
-	return sent, putJSON(ctx, s.store, keySent, log)
+	return putJSON(ctx, s.store, keySent, log)
 }
 
-// Sent lists the promotions this instance sent, newest first. FromEnv holds
-// the name of the instance each went to.
+// final statuses never change again, so a sent promotion in one is not
+// asked about.
+func final(status string) bool {
+	return status == StatusRejected || status == StatusFailed || status == StatusRolledBack
+}
+
+// Sent lists the promotions this instance sent, newest first, each as the
+// instance it went to last reported it. FromEnv holds that instance's name.
 func (s *Service) Sent(ctx context.Context) ([]Promotion, error) {
 	var log []Promotion
 	if err := getJSON(ctx, s.store, keySent, &log); err != nil {
 		return nil, err
 	}
+	if s.refreshSent(ctx, log) {
+		s.mu.Lock()
+		var fresh []Promotion
+		err := getJSON(ctx, s.store, keySent, &fresh)
+		if err == nil {
+			for i := range fresh {
+				if j := indexOf(log, fresh[i].ID); j >= 0 {
+					fresh[i] = log[j]
+				}
+			}
+			err = putJSON(ctx, s.store, keySent, fresh)
+		}
+		s.mu.Unlock()
+		if err != nil {
+			return nil, err
+		}
+	}
 	slices.Reverse(log)
 	return log, nil
+}
+
+// refreshSent asks each linked instance how the promotions still open there
+// stand, and updates log in place. An instance that does not answer, or is
+// too old to say, leaves its entries as they were.
+func (s *Service) refreshSent(ctx context.Context, log []Promotion) bool {
+	open := map[string]bool{}
+	for _, p := range log {
+		if !final(p.Status) {
+			open[p.PeerID] = true
+		}
+	}
+	changed := false
+	for linkID := range open {
+		l, token, err := s.link(ctx, linkID)
+		if err != nil {
+			continue
+		}
+		there, err := s.remote.Promotions(ctx, l.URL, token)
+		if err != nil {
+			continue
+		}
+		for _, t := range there {
+			i := indexOf(log, t.ID)
+			if i < 0 || log[i].Status == t.Status && log[i].Reason == t.Reason {
+				continue
+			}
+			log[i].Status, log[i].Reason = t.Status, t.Reason
+			log[i].DecidedBy, log[i].DecidedAt, log[i].DeployedAt = t.DecidedBy, t.DecidedAt, t.DeployedAt
+			changed = true
+		}
+	}
+	return changed
 }
 
 // ignoredSettings are workflow fields that describe this instance's run, or

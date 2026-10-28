@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -31,11 +32,44 @@ type memStore struct {
 	versions  map[string][]storage.WorkflowVersion
 	sources   map[string]storage.Source
 	sinks     map[string]storage.Sink
+	vhosts    []storage.VHost
 }
 
 func newMemStore() *memStore {
 	return &memStore{settings: map[string]string{}, workflows: map[string]storage.Workflow{},
 		versions: map[string][]storage.WorkflowVersion{}, sources: map[string]storage.Source{}, sinks: map[string]storage.Sink{}}
+}
+
+func (m *memStore) ListVHosts(_ context.Context, _ storage.CommonFilter) ([]storage.VHost, int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return slices.Clone(m.vhosts), len(m.vhosts), nil
+}
+
+func (m *memStore) CreateVHost(_ context.Context, v storage.VHost) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.vhosts = append(m.vhosts, v)
+	return nil
+}
+
+func (m *memStore) hasVHost(name string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return slices.ContainsFunc(m.vhosts, func(v storage.VHost) bool { return v.Name == name })
+}
+
+func (m *memStore) ListWorkflows(_ context.Context, f storage.CommonFilter) ([]storage.Workflow, int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []storage.Workflow
+	for _, wf := range m.workflows {
+		if f.VHost == "" || wf.VHost == f.VHost {
+			out = append(out, wf)
+		}
+	}
+	slices.SortFunc(out, func(a, b storage.Workflow) int { return strings.Compare(a.ID, b.ID) })
+	return out, len(out), nil
 }
 
 func (m *memStore) GetSetting(_ context.Context, key string) (string, error) {
@@ -204,6 +238,8 @@ func (m memSecrets) HasEnv(name string) bool { return m.envs[name] }
 type loopback struct {
 	target *Service
 	down   bool
+	// old makes it answer as an instance from before releases and vhosts.
+	old bool
 }
 
 var errDown = errors.New("connection refused")
@@ -223,24 +259,53 @@ func (l *loopback) Pair(ctx context.Context, _ string, req PairRequest) (PairRes
 }
 
 func (l *loopback) Info(ctx context.Context, _, token string) (PeerInfo, error) {
-	if _, err := l.peer(ctx, token); err != nil {
+	p, err := l.peer(ctx, token)
+	if err != nil {
 		return PeerInfo{}, err
 	}
-	return l.target.PeerInfo(ctx)
+	info, err := l.target.PeerInfo(ctx, p)
+	if l.old {
+		info.Features, info.VHost = nil, ""
+	}
+	return info, err
 }
 
 func (l *loopback) Connections(ctx context.Context, _, token string) (Connections, error) {
-	if _, err := l.peer(ctx, token); err != nil {
+	p, err := l.peer(ctx, token)
+	if err != nil {
 		return Connections{}, err
 	}
-	return l.target.PeerConnections(ctx)
+	return l.target.PeerConnections(ctx, p)
 }
 
 func (l *loopback) Check(ctx context.Context, _, token string, req CheckRequest) (CheckResult, error) {
-	if _, err := l.peer(ctx, token); err != nil {
+	p, err := l.peer(ctx, token)
+	if err != nil {
 		return CheckResult{}, err
 	}
-	return l.target.PeerCheck(ctx, req)
+	return l.target.PeerCheck(ctx, p, req)
+}
+
+func (l *loopback) SubmitRelease(ctx context.Context, _, token string, rs ReleaseSubmission) ([]Promotion, error) {
+	p, err := l.peer(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	if l.old {
+		return nil, &RemoteError{Status: 404, Message: "404 page not found"}
+	}
+	return l.target.ReceiveRelease(ctx, p, rs)
+}
+
+func (l *loopback) Promotions(ctx context.Context, _, token string) ([]Promotion, error) {
+	p, err := l.peer(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	if l.old {
+		return nil, &RemoteError{Status: 405, Message: "method not allowed"}
+	}
+	return l.target.PeerPromotions(ctx, p)
 }
 
 func (l *loopback) Submit(ctx context.Context, _, token string, sub Submission) (Promotion, error) {
@@ -284,15 +349,15 @@ func newPair(t *testing.T) *pair {
 	return p
 }
 
-// link links staging to production with a fresh code.
+// link links staging's default vhost to production's with a fresh code.
 func (p *pair) link(t *testing.T) Link {
 	t.Helper()
 	ctx := context.Background()
-	code, _, err := p.prd.NewPairingCode(ctx, "", "rina")
+	code, _, err := p.prd.NewPairingCode(ctx, "", "default", "rina")
 	if err != nil {
 		t.Fatal(err)
 	}
-	l, err := p.stg.LinkWith(ctx, "https://prod.example.com/", code, "https://stg.example.com", "gembit")
+	l, err := p.stg.LinkWith(ctx, LinkRequest{URL: "https://prod.example.com/", Code: code, SelfURL: "https://stg.example.com", VHost: "default"}, "gembit")
 	if err != nil {
 		t.Fatalf("LinkWith: %v", err)
 	}
@@ -302,7 +367,7 @@ func (p *pair) link(t *testing.T) Link {
 func TestPairingLinksInstancesAndCodeWorksOnce(t *testing.T) {
 	ctx := context.Background()
 	p := newPair(t)
-	code, expires, err := p.prd.NewPairingCode(ctx, "Staging", "rina")
+	code, expires, err := p.prd.NewPairingCode(ctx, "Staging", "default", "rina")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,7 +376,7 @@ func TestPairingLinksInstancesAndCodeWorksOnce(t *testing.T) {
 	}
 
 	// Typed by a person: lower case, no dash.
-	l, err := p.stg.LinkWith(ctx, "https://prod.example.com/", strings.ToLower(strings.ReplaceAll(code, "-", "")), "https://stg.example.com", "gembit")
+	l, err := p.stg.LinkWith(ctx, LinkRequest{URL: "https://prod.example.com/", Code: strings.ToLower(strings.ReplaceAll(code, "-", "")), SelfURL: "https://stg.example.com", VHost: "default"}, "gembit")
 	if err != nil {
 		t.Fatalf("LinkWith: %v", err)
 	}
@@ -339,7 +404,7 @@ func TestPairingLinksInstancesAndCodeWorksOnce(t *testing.T) {
 		t.Fatal("production stores the token itself rather than its hash")
 	}
 
-	if _, err := p.stg.LinkWith(ctx, "https://other.example.com", code, "", "gembit"); !errors.Is(err, ErrBadPairingCode) {
+	if _, err := p.stg.LinkWith(ctx, LinkRequest{URL: "https://other.example.com", Code: code, VHost: "default"}, "gembit"); !errors.Is(err, ErrBadPairingCode) {
 		t.Fatalf("second use of a code: err = %v, want ErrBadPairingCode", err)
 	}
 }
@@ -347,7 +412,7 @@ func TestPairingLinksInstancesAndCodeWorksOnce(t *testing.T) {
 func TestPairingCodeExpires(t *testing.T) {
 	ctx := context.Background()
 	p := newPair(t)
-	code, _, err := p.prd.NewPairingCode(ctx, "", "rina")
+	code, _, err := p.prd.NewPairingCode(ctx, "", "default", "rina")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,7 +425,7 @@ func TestPairingCodeExpires(t *testing.T) {
 func TestPairingGuessesClearOutstandingCodes(t *testing.T) {
 	ctx := context.Background()
 	p := newPair(t)
-	code, _, err := p.prd.NewPairingCode(ctx, "", "rina")
+	code, _, err := p.prd.NewPairingCode(ctx, "", "default", "rina")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -553,7 +618,7 @@ func TestRulesAndInstanceAreValidated(t *testing.T) {
 		t.Fatalf("bad role: %v", err)
 	}
 	r, err := p.stg.Rules(ctx)
-	if err != nil || r != DefaultRules() {
+	if err != nil || !reflect.DeepEqual(r, DefaultRules()) {
 		t.Fatalf("default rules = %+v, %v", r, err)
 	}
 }
