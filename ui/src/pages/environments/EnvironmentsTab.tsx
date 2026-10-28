@@ -1,26 +1,27 @@
 import { useState } from 'react'
 import {
-  ActionIcon, Alert, Badge, Button, Card, CopyButton, Group, Loader, Modal, NumberInput, Paper, SegmentedControl, Select,
-  Stack, Switch, Text, TextInput, Title, Tooltip,
+  ActionIcon, Alert, Autocomplete, Badge, Button, Card, CopyButton, Group, Loader, Modal, NumberInput, Paper,
+  SegmentedControl, Select, Stack, Switch, Text, TextInput, Title, Tooltip,
 } from '@mantine/core'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { notifications } from '@mantine/notifications'
 import {
   IconArrowRight, IconCheck, IconCopy, IconInfoCircle, IconKey, IconLinkOff, IconPlugConnected, IconPlus, IconRefresh,
-  IconTrash,
+  IconTrash, IconX,
 } from '@tabler/icons-react'
 import { useConfirm } from '@/components/common/ConfirmProvider'
 import { formatDateTime } from '@/utils/dateUtils'
 import {
   approvalLabel, deleteLink, environmentKeys, newPairingCode, putInstance, putRules, revokePeer, roleColor, roleLabel,
-  testLink, useInstance, useLinks, usePeers, useRules, type ApprovalRule, type EnvironmentRole, type Link, type Rules,
+  testLink, useInstance, useLinks, usePeers, useRules, useVHostNames, vhostNameProblem, type ApprovalRule,
+  type EnvironmentRole, type Link, type Rules,
 } from '@/lib/environments'
 import { ConnectionMatching } from './ConnectionMatching'
 import { LinkWizard } from './LinkWizard'
 
 /**
- * Settings › Environments: what this install is, where it promotes
- * workflows to, and who may promote workflows into it.
+ * Settings › Environments: what this install is, where each of its vhosts
+ * promotes workflows to, and who may promote workflows into it.
  */
 export function EnvironmentsTab() {
   const { data: instance, isLoading } = useInstance()
@@ -108,15 +109,15 @@ function SendingSection() {
       <Group justify="space-between">
         <Stack gap={0}>
           <Title order={4}>Promotes to</Title>
-          <Text size="sm" c="dimmed">Where workflows from here go when someone clicks Promote.</Text>
+          <Text size="sm" c="dimmed">Where each vhost's workflows go when someone clicks Promote. One connection per vhost.</Text>
         </Stack>
-        <Button leftSection={<IconPlus size="1rem" />} onClick={() => setWizard(true)}>Link an environment</Button>
+        <Button leftSection={<IconPlus size="1rem" />} onClick={() => setWizard(true)}>Connect an environment</Button>
       </Group>
       {isLoading && <Loader size="sm" />}
       {!isLoading && (links ?? []).length === 0 && (
         <Paper withBorder p="lg" radius="md">
           <Text size="sm" c="dimmed" ta="center">
-            Not linked to anything yet. Link your production instance to promote workflows to it.
+            Not linked to anything yet. Connect a vhost to your production instance to promote its workflows there.
           </Text>
         </Paper>
       )}
@@ -151,7 +152,7 @@ function LinkCard({ link }: { link: Link }) {
   const onUnlink = async () => {
     if (await confirm({
       title: `Unlink ${link.name}`,
-      message: `Workflows can no longer be promoted from here to ${link.name}. What was already promoted stays there. You can link it again later with a new code.`,
+      message: `Workflows in ${link.vhost || 'any vhost'} can no longer be promoted from here to ${link.name}. What was already promoted stays there. You can link it again later with a new code.`,
       confirmLabel: 'Unlink',
       danger: true,
     })) unlink.mutate()
@@ -166,6 +167,12 @@ function LinkCard({ link }: { link: Link }) {
             <Text fw={600}>{link.name}</Text>
             {link.role && <Badge color={roleColor[link.role]} variant="light">{roleLabel[link.role]}</Badge>}
             <Badge color={link.reachable ? 'green' : 'red'} variant="dot">{link.reachable ? 'Reachable' : 'Not reachable'}</Badge>
+          </Group>
+          <Group gap="xs">
+            <Badge variant="outline" color="indigo" tt="none">
+              {link.vhost ? `${link.vhost} → ${link.target_vhost || link.vhost}` : 'Every vhost (older link)'}
+            </Badge>
+            {link.vhost_created && <Text size="xs" c="dimmed">Created there by this link</Text>}
           </Group>
           <Text size="sm" c="dimmed">{link.url}</Text>
           <Text size="xs" c="dimmed">
@@ -248,7 +255,7 @@ function RulesForm({ rules }: { rules: Rules }) {
         )}
         <Switch
           label="Roll back automatically when a deploy starts failing"
-          description="Within 10 minutes of a deploy, a workflow that errors goes back to the version before it."
+          description="Within 10 minutes of a deploy, a release with a workflow that errors goes back, whole, to how it was."
           checked={draft.auto_rollback}
           onChange={(e) => setDraft({ ...draft, auto_rollback: e.currentTarget.checked })}
         />
@@ -261,6 +268,7 @@ function RulesForm({ rules }: { rules: Rules }) {
           value={draft.min_soak_minutes}
           onChange={(v) => setDraft({ ...draft, min_soak_minutes: Number(v) || 0 })}
         />
+        <VHostRulesEditor draft={draft} setDraft={setDraft} />
         <Group justify="flex-end">
           <Button disabled={!dirty} loading={save.isPending} onClick={() => save.mutate(draft)}>Save rules</Button>
         </Group>
@@ -269,13 +277,98 @@ function RulesForm({ rules }: { rules: Rules }) {
   )
 }
 
+const approvalOptions = (Object.keys(approvalLabel) as ApprovalRule[]).map((v) => ({ value: v, label: approvalLabel[v] }))
+
+/** Stricter (or looser) rules for promotions into one vhost, such as payroll. */
+function VHostRulesEditor({ draft, setDraft }: { draft: Rules; setDraft: (r: Rules) => void }) {
+  const { data: vhosts } = useVHostNames()
+  const [name, setName] = useState('')
+  const byVHost = draft.by_vhost ?? {}
+  const entries = Object.entries(byVHost).sort(([a], [b]) => a.localeCompare(b))
+  const trimmed = name.trim()
+  const problem = trimmed ? vhostNameProblem(trimmed) ?? (trimmed in byVHost ? 'It already has rules of its own.' : null) : null
+
+  const put = (next: NonNullable<Rules['by_vhost']>) => {
+    const { by_vhost: _, ...rest } = draft
+    setDraft(Object.keys(next).length > 0 ? { ...rest, by_vhost: next } : rest)
+  }
+
+  return (
+    <Stack gap="xs">
+      <Text fw={500} size="sm">Rules for one vhost</Text>
+      <Text size="xs" c="dimmed">A vhost listed here uses its own approval and minimum time instead of the ones above.</Text>
+      {entries.map(([v, r]) => (
+        <Group key={v} gap="xs" wrap="nowrap">
+          <Badge variant="light" tt="none" miw={90}>{v}</Badge>
+          <Select
+            aria-label={`${v}: who approves`}
+            size="xs"
+            style={{ flex: 2 }}
+            data={approvalOptions}
+            value={r.approval}
+            allowDeselect={false}
+            onChange={(a) => a && put({ ...byVHost, [v]: { ...r, approval: a as ApprovalRule } })}
+          />
+          <NumberInput
+            aria-label={`${v}: minimum time in the sending environment`}
+            size="xs"
+            style={{ flex: 1 }}
+            suffix=" min"
+            min={0}
+            max={43200}
+            value={r.min_soak_minutes}
+            onChange={(n) => put({ ...byVHost, [v]: { ...r, min_soak_minutes: Number(n) || 0 } })}
+          />
+          <ActionIcon
+            variant="subtle"
+            color="red"
+            aria-label={`Remove the rules for ${v}`}
+            onClick={() => {
+              const { [v]: _, ...rest } = byVHost
+              put(rest)
+            }}
+          >
+            <IconX size="1rem" />
+          </ActionIcon>
+        </Group>
+      ))}
+      <Group gap="xs" align="flex-end">
+        <Autocomplete
+          label="Vhost with its own rules"
+          size="xs"
+          placeholder="e.g. payroll"
+          data={(vhosts ?? []).filter((v) => !(v in byVHost))}
+          value={name}
+          error={problem}
+          onChange={setName}
+          style={{ flex: 1 }}
+        />
+        <Button
+          size="xs"
+          variant="light"
+          disabled={!trimmed || !!problem}
+          onClick={() => {
+            put({ ...byVHost, [trimmed]: { approval: draft.approval, min_soak_minutes: draft.min_soak_minutes } })
+            setName('')
+          }}
+        >
+          Add vhost rules
+        </Button>
+      </Group>
+    </Stack>
+  )
+}
+
 function PeersCard() {
   const queryClient = useQueryClient()
   const confirm = useConfirm()
   const { data: peers } = usePeers()
-  const [code, setCode] = useState<{ code: string; expires_at: string } | null>(null)
+  const { data: vhosts } = useVHostNames()
+  const [into, setInto] = useState('')
+  const [code, setCode] = useState<{ code: string; expires_at: string; vhost: string } | null>(null)
+  const intoProblem = into ? vhostNameProblem(into.trim()) : null
 
-  const issue = useMutation({ mutationFn: () => newPairingCode('Created in Settings'), onSuccess: setCode })
+  const issue = useMutation({ mutationFn: () => newPairingCode('Created in Settings', into.trim()), onSuccess: setCode })
   const revoke = useMutation({
     mutationFn: (id: string) => revokePeer(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: environmentKeys.peers }),
@@ -284,12 +377,31 @@ function PeersCard() {
   return (
     <Paper withBorder p="lg" radius="md">
       <Stack gap="md">
-        <Group justify="space-between">
-          <Text fw={600}>Linked instances</Text>
-          <Button size="xs" variant="light" leftSection={<IconKey size="0.9rem" />} onClick={() => issue.mutate()} loading={issue.isPending}>
+        <Text fw={600}>Linked instances</Text>
+        <Group gap="xs" align="flex-end">
+          <Autocomplete
+            label="Into vhost"
+            description="Where its workflows land. Created when the code is used, if it is not here yet."
+            size="xs"
+            placeholder="e.g. hr"
+            data={vhosts ?? []}
+            value={into}
+            error={intoProblem}
+            onChange={setInto}
+            style={{ flex: 1 }}
+          />
+          <Button
+            size="xs"
+            variant="light"
+            leftSection={<IconKey size="0.9rem" />}
+            disabled={!into.trim() || !!intoProblem}
+            onClick={() => issue.mutate()}
+            loading={issue.isPending}
+          >
             Create pairing code
           </Button>
         </Group>
+        {issue.error && <Alert color="red">{(issue.error as Error).message}</Alert>}
         {code && (
           <Alert color="blue" title="Pairing code" withCloseButton onClose={() => setCode(null)}>
             <Group gap="xs">
@@ -303,8 +415,8 @@ function PeersCard() {
               </CopyButton>
             </Group>
             <Text size="sm">
-              Enter it in the other instance under Settings › Environments › Link an environment. It works once, until{' '}
-              {formatDateTime(code.expires_at)}.
+              Enter it in the other instance under Settings › Environments › Connect an environment. Its workflows land
+              in {code.vhost}. It works once, until {formatDateTime(code.expires_at)}.
             </Text>
           </Alert>
         )}
@@ -314,7 +426,10 @@ function PeersCard() {
           (peers ?? []).map((p) => (
             <Group key={p.id} justify="space-between" wrap="nowrap">
               <Stack gap={0}>
-                <Text size="sm" fw={500}>{p.name}</Text>
+                <Group gap="xs">
+                  <Text size="sm" fw={500}>{p.name}</Text>
+                  <Badge size="sm" variant="light" tt="none">{p.vhost ? `into ${p.vhost}` : 'into any vhost (older link)'}</Badge>
+                </Group>
                 <Text size="xs" c="dimmed">
                   {p.url} · linked {formatDateTime(p.created_at)}
                   {p.last_used_at ? ` · last used ${formatDateTime(p.last_used_at)}` : ''}

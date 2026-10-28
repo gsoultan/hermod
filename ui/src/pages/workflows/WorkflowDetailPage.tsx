@@ -32,7 +32,7 @@ import { useSessionStore } from '@/auth/session';
 import { ExecutionsPanel } from './executions/ExecutionsPanel';
 import { RunWithInputModal } from './executions/RunWithInputModal';
 import { ProposalsPanel } from './proposals/ProposalsPanel';
-import { PromoteDialog } from '../environments/PromoteDialog';
+import { ReleaseDialog } from '../environments/ReleaseDialog';
 import { useInstance } from '@/lib/environments';
 import { useProposals } from '@/lib/proposals';
 import { connectWithReconnect } from '@/lib/reconnectingSocket';
@@ -452,9 +452,9 @@ export function WorkflowDetailPage() {
         )}
 
         {canPromote && (
-          <PromoteDialog
-            workflowId={id}
-            workflowName={workflow.name}
+          <ReleaseDialog
+            title={`Promote ${workflow.name}`}
+            items={[{ workflow_id: id, version: 0 }]}
             opened={promoteOpened}
             onClose={() => setPromoteOpened(false)}
             versions={Array.isArray(versions) ? versions : []}

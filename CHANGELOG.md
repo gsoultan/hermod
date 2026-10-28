@@ -19,12 +19,26 @@ the remaining ones are picked once.
 **Promote** on a workflow checks it against production (valid, connections
 matched and present, secrets and variables present, minimum time on staging),
 shows what changes there, and sends it. On production it waits under
-**Promotions** for an administrator other than the sender, then deploys as a
+**Environments** for an administrator other than the sender, then deploys as a
 new version with production's own connections, keeping production's runtime
 state, vhost and workspace. A deploy that starts failing within 10 minutes is
 rolled back on its own, and any deploy can be rolled back by hand. The rules
 are production's to set. Every install shows its environment as a badge in the
 header. See [Environments](docs/environments.md).
+
+### Added — Promote per vhost, as one release
+
+Environments are now connected one vhost at a time: staging's `hr` promotes
+into production's `hr`, and production creates a vhost it does not have yet
+when its administrator allows the connection. A new **Environments** page
+replaces Promotions: on staging, a lane per connected vhost lists what changed
+since it last went out, and **Promote all ready** sends all of it as one
+release, checked first, with anything that cannot land shown and left out in
+one click. On production, a release is approved, rejected and undone as a
+whole, goes live whole or not at all, and is rolled back whole when one of its
+workflows starts failing. Rules can differ per vhost. Older links keep working
+for every vhost, and against an older production the workflows are sent one by
+one. See [Environments](docs/environments.md).
 
 ### Changed — No more dead letter sink: Hermod keeps failed messages itself
 
