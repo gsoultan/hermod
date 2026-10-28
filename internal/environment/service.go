@@ -30,6 +30,9 @@ type Store interface {
 	ListSinks(ctx context.Context, filter storage.CommonFilter) ([]storage.Sink, int, error)
 	GetSource(ctx context.Context, id string) (storage.Source, error)
 	GetSink(ctx context.Context, id string) (storage.Sink, error)
+	ListWorkflows(ctx context.Context, filter storage.CommonFilter) ([]storage.Workflow, int, error)
+	ListVHosts(ctx context.Context, filter storage.CommonFilter) ([]storage.VHost, int, error)
+	CreateVHost(ctx context.Context, vhost storage.VHost) error
 }
 
 // Applier is the workflow update path: the same validation, stored row and

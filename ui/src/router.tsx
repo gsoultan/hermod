@@ -49,7 +49,7 @@ const WorkflowEditorPage = lazy(async () => ({ default: (await import('./pages/w
 const WorkflowsPage = lazy(async () => ({ default: (await import('./pages/workflows/WorkflowsPage')).default }))
 const CompliancePage = lazy(async () => ({ default: (await import('./pages/monitoring/ComplianceDashboard')).ComplianceDashboard }))
 const DeadLettersPage = lazy(async () => ({ default: (await import('./pages/monitoring/DeadLettersPage')).DeadLettersPage }))
-const PromotionsPage = lazy(async () => ({ default: (await import('./pages/environments/PromotionsPage')).PromotionsPage }))
+const EnvironmentsPage = lazy(async () => ({ default: (await import('./pages/environments/EnvironmentsPage')).EnvironmentsPage }))
 const AcceptLinkPage = lazy(async () => ({ default: (await import('./pages/environments/AcceptLinkPage')).AcceptLinkPage }))
 const ApprovalsPage = lazy(async () => ({ default: (await import('./pages/workflows/ApprovalsPage')).ApprovalsPage }))
 interface RouterContext {
@@ -571,25 +571,42 @@ const approvalsRoute = createRoute({
   ),
 })
 
-const promotionsRoute = createRoute({
+const environmentsRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/promotions',
+  path: '/environments',
   component: () => (
     <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
-      <PromotionsPage />
+      <EnvironmentsPage />
     </Suspense>
   ),
 })
 
-// Opened in a popup by another instance's link wizard; $from is its origin.
+// The page's old address, kept for bookmarks.
+const promotionsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/promotions',
+  beforeLoad: () => {
+    throw redirect({ to: '/environments' })
+  },
+})
+
+// Opened in a popup by another instance's Connect dialog; $from is its
+// origin and $vhost the vhost here its workflows land in. An older instance
+// opens it without the vhost.
+const acceptLinkComponent = () => (
+  <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+    <AcceptLinkPage />
+  </Suspense>
+)
 const acceptLinkRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/environments/accept/$from',
-  component: () => (
-    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
-      <AcceptLinkPage />
-    </Suspense>
-  ),
+  component: acceptLinkComponent,
+})
+const acceptLinkVHostRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/environments/accept/$from/$vhost',
+  component: acceptLinkComponent,
 })
 
 const deadLettersRoute = createRoute({
@@ -711,8 +728,10 @@ const routeTree = rootRoute.addChildren([
   complianceRoute,
   marketplaceRoute,
   approvalsRoute,
+  environmentsRoute,
   promotionsRoute,
   acceptLinkRoute,
+  acceptLinkVHostRoute,
   deadLettersRoute,
   loginRoute,
   forgotPasswordRoute,

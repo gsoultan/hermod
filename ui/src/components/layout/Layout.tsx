@@ -599,7 +599,7 @@ export function Layout({ children }: LayoutProps) {
             />
             <SideLink to="/workflows" label="Workflows" icon={IconGitBranch} desktopOpened={desktopOpened} />
             <SideLink to="/approvals" label="Approvals" icon={IconChecklist} desktopOpened={desktopOpened} />
-            <SideLink to="/promotions" label="Promotions" icon={IconTransfer} desktopOpened={desktopOpened} />
+            <SideLink to="/environments" label="Environments" icon={IconTransfer} desktopOpened={desktopOpened} />
             <SideLink to="/dead-letters" label="Dead Letters" icon={IconMailbox} desktopOpened={desktopOpened} />
             <SideLink to="/logs" label="Logs" icon={IconHistory} desktopOpened={desktopOpened} />
             <SideLink to="/schemas" label="Schema Registry" icon={IconBraces} desktopOpened={desktopOpened} />

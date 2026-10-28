@@ -164,9 +164,9 @@ func linked(t *testing.T) (stg, prd *instance, link environment.Link) {
 	var code struct {
 		Code string `json:"code"`
 	}
-	prd.must(t, http.StatusCreated, "admin", http.MethodPost, "/api/environments/pairing-codes", map[string]string{"label": "staging"}, &code)
+	prd.must(t, http.StatusCreated, "admin", http.MethodPost, "/api/environments/pairing-codes", map[string]string{"label": "staging", "vhost": "default"}, &code)
 	stg.must(t, http.StatusCreated, "admin", http.MethodPost, "/api/environments/links",
-		map[string]string{"url": prd.srv.URL, "code": code.Code, "self_url": stg.srv.URL}, &link)
+		map[string]string{"url": prd.srv.URL, "code": code.Code, "self_url": stg.srv.URL, "vhost": "default"}, &link)
 	return stg, prd, link
 }
 
@@ -243,6 +243,12 @@ func TestEnvironmentRoutesAreGuarded(t *testing.T) {
 		{"a peer route needs a token", prd, "", "/api/environments/peer/info", http.MethodGet, nil, http.StatusUnauthorized},
 		{"a session is not a peer token", prd, "admin", "/api/environments/peer/connections", http.MethodGet, nil, http.StatusUnauthorized},
 		{"a wrong pairing code is refused", prd, "", "/api/environments/pair", http.MethodPost, map[string]string{"code": "AAAA-AAAA", "name": "x", "url": "http://x"}, http.StatusBadRequest},
+		{"a pairing code needs a vhost", prd, "admin", "/api/environments/pairing-codes", http.MethodPost, map[string]string{"label": "x"}, http.StatusBadRequest},
+		{"a viewer cannot send a release", stg, "viewer", "/api/environments/releases", http.MethodPost, map[string]any{"items": []any{wfBody}}, http.StatusForbidden},
+		{"an editor cannot release another vhost's workflow", stg, "editor", "/api/environments/releases", http.MethodPost, map[string]any{"items": []any{map[string]any{"workflow_id": "wf-billing"}}}, http.StatusForbidden},
+		{"nor preview that release", stg, "editor", "/api/environments/releases/preview", http.MethodPost, map[string]any{"items": []any{map[string]any{"workflow_id": "wf-billing"}}}, http.StatusForbidden},
+		{"a release from a peer needs its token", prd, "admin", "/api/environments/peer/releases", http.MethodPost, map[string]any{"release_id": "r1"}, http.StatusUnauthorized},
+		{"what a peer sent needs its token", prd, "admin", "/api/environments/peer/promotions", http.MethodGet, nil, http.StatusUnauthorized},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -284,5 +290,87 @@ func TestARevokedLinkCannotPromote(t *testing.T) {
 	prd.must(t, http.StatusOK, "admin", http.MethodGet, "/api/environments/promotions", nil, &none)
 	if len(none) != 0 {
 		t.Fatalf("production holds %+v", none)
+	}
+}
+
+func TestAReleaseCreatesTheVHostAndGoesLiveWholeOverHTTP(t *testing.T) {
+	configured(t)
+	stg := newInstance(t, "Staging", environment.RoleStaging)
+	prd := newInstance(t, "Production HR", environment.RoleProduction)
+	ctx := t.Context()
+	if err := stg.st.CreateSource(ctx, storage.Source{ID: "s-people", Name: "people-db", Type: "postgres", VHost: "HR"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"wf-onb", "wf-leave"} {
+		if err := stg.st.CreateWorkflow(ctx, storage.Workflow{ID: id, Name: id, VHost: "HR",
+			Nodes: []storage.WorkflowNode{{ID: "n1", Type: "source", RefID: "s-people"}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var code struct {
+		Code string `json:"code"`
+	}
+	prd.must(t, http.StatusCreated, "admin", http.MethodPost, "/api/environments/pairing-codes", map[string]string{"vhost": "hr"}, &code)
+	var link environment.Link
+	stg.must(t, http.StatusCreated, "admin", http.MethodPost, "/api/environments/links",
+		map[string]string{"url": prd.srv.URL, "code": code.Code, "self_url": stg.srv.URL, "vhost": "HR"}, &link)
+	if link.VHost != "HR" || link.TargetVHost != "hr" || !link.VHostCreated {
+		t.Fatalf("link = %+v", link)
+	}
+	vhosts, _, err := prd.st.ListVHosts(ctx, storage.CommonFilter{})
+	if err != nil || len(vhosts) != 1 || vhosts[0].Name != "hr" {
+		t.Fatalf("production vhosts = %+v, %v; want hr created", vhosts, err)
+	}
+	var peers []map[string]any
+	prd.must(t, http.StatusOK, "admin", http.MethodGet, "/api/environments/peers", nil, &peers)
+	if len(peers) != 1 || peers[0]["vhost"] != "hr" || peers[0]["from_vhost"] != "HR" {
+		t.Fatalf("peers = %+v", peers)
+	}
+	if err := prd.st.CreateSource(ctx, storage.Source{ID: "p-people", Name: "people-db", Type: "postgres", VHost: "hr"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var lanes []environment.ReadyLane
+	stg.must(t, http.StatusOK, "admin", http.MethodGet, "/api/environments/ready", nil, &lanes)
+	if len(lanes) != 1 || lanes[0].VHost != "HR" || len(lanes[0].Workflows) != 2 {
+		t.Fatalf("lanes = %+v", lanes)
+	}
+	var hidden []environment.ReadyLane
+	stg.must(t, http.StatusOK, "editor", http.MethodGet, "/api/environments/ready", nil, &hidden)
+	if len(hidden) != 0 {
+		t.Fatalf("an editor without HR sees %+v", hidden)
+	}
+
+	body := map[string]any{"items": []any{map[string]any{"workflow_id": "wf-onb"}, map[string]any{"workflow_id": "wf-leave"}}, "start": true}
+	var pv environment.ReleasePreview
+	stg.must(t, http.StatusOK, "admin", http.MethodPost, "/api/environments/releases/preview", body, &pv)
+	if !pv.Ready || len(pv.Groups) != 1 || len(pv.Groups[0].Previews) != 2 {
+		t.Fatalf("preview = %+v", pv)
+	}
+	var sent []environment.SentRelease
+	stg.must(t, http.StatusCreated, "admin", http.MethodPost, "/api/environments/releases", body, &sent)
+	if len(sent) != 1 || len(sent[0].Promotions) != 2 {
+		t.Fatalf("sent = %+v", sent)
+	}
+
+	var pending []environment.Promotion
+	prd.must(t, http.StatusOK, "admin", http.MethodGet, "/api/environments/promotions", nil, &pending)
+	if len(pending) != 2 || pending[0].ReleaseID != sent[0].ReleaseID || pending[0].VHost != "hr" {
+		t.Fatalf("pending = %+v", pending)
+	}
+	// The same admin sends and approves here, which the default rule forbids.
+	prd.must(t, http.StatusOK, "admin", http.MethodPut, "/api/environments/rules", map[string]any{"approval": "any_admin", "auto_rollback": true}, nil)
+	prd.must(t, http.StatusOK, "admin", http.MethodPost, "/api/environments/promotions/"+pending[0].ID+"/approve", nil, nil)
+	for _, id := range []string{"wf-onb", "wf-leave"} {
+		wf, err := prd.st.GetWorkflow(ctx, id)
+		if err != nil || wf.VHost != "hr" || !wf.Active {
+			t.Fatalf("%s in production = %+v, %v", id, wf, err)
+		}
+	}
+	var log []environment.Promotion
+	stg.must(t, http.StatusOK, "admin", http.MethodGet, "/api/environments/sent", nil, &log)
+	if len(log) != 2 || log[0].Status != environment.StatusDeployed || log[1].Status != environment.StatusDeployed {
+		t.Fatalf("staging's sent log = %+v", log)
 	}
 }

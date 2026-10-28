@@ -6,9 +6,11 @@ import { requestJson } from '@/lib/executions'
  * Environments: internal/environment and its transport/http handler.
  *
  * Each install says what it is (development, staging or production). A
- * sending install links to the one it promotes to with a one-time pairing
- * code; the receiving install holds a token for it, and every workflow sent
- * waits there for an administrator unless its rules say otherwise.
+ * sending install connects each of its vhosts to the one it promotes to with
+ * a one-time pairing code; the receiving install holds a token for it, scoped
+ * to the vhost the workflows land in, and creates that vhost when it is
+ * missing. Workflows go as releases: everything sent together is approved,
+ * undone and rolled back together.
  */
 
 export type EnvironmentRole = 'development' | 'staging' | 'production'
@@ -20,10 +22,17 @@ export interface Instance {
 
 export type ApprovalRule = 'admin_except_sender' | 'any_admin' | 'none'
 
+export interface VHostRules {
+  approval: ApprovalRule
+  min_soak_minutes: number
+}
+
 export interface Rules {
   approval: ApprovalRule
   auto_rollback: boolean
   min_soak_minutes: number
+  /** What a vhost here requires instead of the rules above. */
+  by_vhost?: Record<string, VHostRules>
 }
 
 export interface Link {
@@ -38,6 +47,11 @@ export interface Link {
   reachable: boolean
   check_note?: string
   mapping?: Record<string, string>
+  /** The vhost here whose workflows go through this link; empty on an older link that takes every vhost. */
+  vhost: string
+  /** The vhost there they land in, and whether linking created it. */
+  target_vhost?: string
+  vhost_created?: boolean
 }
 
 export interface Peer {
@@ -47,6 +61,9 @@ export interface Peer {
   created_by: string
   created_at: string
   last_used_at?: string
+  /** The one vhost here it sends into; empty on an older peer. */
+  vhost?: string
+  from_vhost?: string
 }
 
 export interface Connection {
@@ -123,6 +140,8 @@ export interface Promotion {
   applied_version?: number
   deployed_at?: string
   reason?: string
+  /** Shared by every workflow sent together; they are decided together. */
+  release_id?: string
 }
 
 export interface PromoteOptions {
@@ -131,6 +150,56 @@ export interface PromoteOptions {
   start?: boolean
   auto_rollback?: boolean
 }
+
+export interface ReleaseItem {
+  workflow_id: string
+  /** 0 is the newest version. */
+  version: number
+}
+
+export interface ReleaseGroup {
+  link_id: string
+  link_name: string
+  vhost: string
+  target_vhost?: string
+  previews: Preview[]
+  ready: boolean
+}
+
+export interface ReleasePreview {
+  groups: ReleaseGroup[] | null
+  /** Workflows in a vhost no environment is connected for. */
+  unlinked: { workflow_id: string; workflow_name: string; vhost: string }[] | null
+  ready: boolean
+}
+
+export interface SentRelease {
+  link_id: string
+  link_name: string
+  release_id: string
+  promotions: Promotion[]
+}
+
+export interface ReadyWorkflow {
+  id: string
+  name: string
+  vhost: string
+  version: number
+  version_at?: string
+  /** 0 when it never went through this link. */
+  last_sent_version: number
+  active: boolean
+}
+
+export interface ReadyLane {
+  link_id: string
+  link_name: string
+  vhost: string
+  target_vhost?: string
+  workflows: ReadyWorkflow[] | null
+}
+
+export type ReleaseOptions = Omit<PromoteOptions, 'version'>
 
 const api = '/api/environments'
 const json = (body: unknown): RequestInit => ({ body: JSON.stringify(body) })
@@ -143,6 +212,7 @@ export const environmentKeys = {
   peers: ['environments', 'peers'] as const,
   promotions: ['environments', 'promotions'] as const,
   sent: ['environments', 'sent'] as const,
+  ready: ['environments', 'ready'] as const,
   matching: (linkId: string, vhost: string) => ['environments', 'matching', linkId, vhost] as const,
 }
 
@@ -151,8 +221,8 @@ export const putInstance = (in_: Instance) => requestJson<Instance>(`${api}/self
 export const getRules = (signal?: AbortSignal) => requestJson<Rules>(`${api}/rules`, { signal })
 export const putRules = (r: Rules) => requestJson<Rules>(`${api}/rules`, { method: 'PUT', ...json(r) })
 
-export const newPairingCode = (label: string) =>
-  requestJson<{ code: string; expires_at: string }>(`${api}/pairing-codes`, { method: 'POST', ...json({ label }) })
+export const newPairingCode = (label: string, vhost: string) =>
+  requestJson<{ code: string; expires_at: string; vhost: string }>(`${api}/pairing-codes`, { method: 'POST', ...json({ label, vhost }) })
 export const listPeers = async (signal?: AbortSignal) => (await requestJson<Peer[] | null>(`${api}/peers`, { signal })) ?? []
 export async function revokePeer(peerId: string): Promise<void> {
   // 204: no body to parse.
@@ -160,8 +230,8 @@ export async function revokePeer(peerId: string): Promise<void> {
 }
 
 export const listLinks = async (signal?: AbortSignal) => (await requestJson<Link[] | null>(`${api}/links`, { signal })) ?? []
-export const createLink = (url: string, code: string) =>
-  requestJson<Link>(`${api}/links`, { method: 'POST', ...json({ url, code, self_url: window.location.origin }) })
+export const createLink = (url: string, code: string, vhost: string) =>
+  requestJson<Link>(`${api}/links`, { method: 'POST', ...json({ url, code, self_url: window.location.origin, vhost }) })
 export const deleteLink = (linkId: string) => requestJson<{ note?: string }>(`${api}/links/${id(linkId)}`, { method: 'DELETE' })
 export const testLink = (linkId: string) =>
   requestJson<{ link: Link; info?: { instance: Instance; rules: Rules; version: string }; error?: string }>(
@@ -179,6 +249,18 @@ export const previewPromotion = (linkId: string, workflowId: string, version = 0
   requestJson<Preview>(`${api}/links/${id(linkId)}/preview`, { method: 'POST', ...json({ workflow_id: workflowId, version }) })
 export const promote = (linkId: string, workflowId: string, opts: PromoteOptions) =>
   requestJson<Promotion>(`${api}/links/${id(linkId)}/promotions`, { method: 'POST', ...json({ workflow_id: workflowId, ...opts }) })
+
+export const listReady = async (signal?: AbortSignal) => (await requestJson<ReadyLane[] | null>(`${api}/ready`, { signal })) ?? []
+export const previewRelease = (items: ReleaseItem[]) =>
+  requestJson<ReleasePreview>(`${api}/releases/preview`, { method: 'POST', ...json({ items }) })
+export const sendRelease = (items: ReleaseItem[], opts: ReleaseOptions) =>
+  requestJson<SentRelease[]>(`${api}/releases`, { method: 'POST', ...json({ items, ...opts }) })
+
+/** The vhost names here, for the pickers; empty when the caller may not list them. */
+export async function listVHostNames(signal?: AbortSignal): Promise<string[]> {
+  const body = await requestJson<{ data?: { name: string }[] } | null>('/api/vhosts', { signal })
+  return (body?.data ?? []).map((v) => String(v.name)).sort()
+}
 
 export const listPromotions = async (signal?: AbortSignal) =>
   (await requestJson<Promotion[] | null>(`${api}/promotions`, { signal })) ?? []
@@ -202,6 +284,15 @@ export function useLinks(enabled = true) {
 
 export function usePeers(enabled = true) {
   return useQuery({ queryKey: environmentKeys.peers, queryFn: ({ signal }) => listPeers(signal), enabled })
+}
+
+export function useReady(enabled = true) {
+  return useQuery({ queryKey: environmentKeys.ready, queryFn: ({ signal }) => listReady(signal), enabled })
+}
+
+/** Keyed under ['vhosts'] so creating or deleting a vhost refreshes it. */
+export function useVHostNames(enabled = true) {
+  return useQuery({ queryKey: ['vhosts', 'names'], queryFn: ({ signal }) => listVHostNames(signal), enabled, staleTime: 60_000 })
 }
 
 export function usePromotions(enabled = true) {
@@ -234,9 +325,9 @@ export const statusLabel: Record<PromotionStatus, string> = {
   pending: 'Waiting for approval',
   deploying: 'Deploying',
   rejected: 'Rejected',
-  deployed: 'Deployed',
+  deployed: 'Live',
   failed: 'Failed',
-  rolled_back: 'Rolled back',
+  rolled_back: 'Undone',
 }
 
 export const statusColor: Record<PromotionStatus, string> = {
@@ -285,9 +376,56 @@ export function decodeOrigin(segment: string): string | null {
   }
 }
 
-/** The address to open on the receiving install so an admin there can approve the link. */
-export function acceptUrl(targetUrl: string, selfOrigin: string): string {
-  return `${normalizeUrl(targetUrl)}/environments/accept/${encodeOrigin(selfOrigin)}`
+/**
+ * The address to open on the receiving install so an admin there can approve
+ * the link, and the vhost there the workflows should land in.
+ */
+export function acceptUrl(targetUrl: string, selfOrigin: string, vhost: string): string {
+  return `${normalizeUrl(targetUrl)}/environments/accept/${encodeOrigin(selfOrigin)}/${encodeURIComponent(vhost)}`
+}
+
+/** The vhost names the server takes for a link or a rule (environment.ValidateVHostName). */
+export function vhostNameProblem(name: string): string | null {
+  if (!name) return 'Name the vhost.'
+  if (name === 'all') return '"all" is not a vhost.'
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(name)) {
+    return 'Use letters, digits, dot, dash or underscore, starting with a letter or digit, up to 64 characters.'
+  }
+  return null
+}
+
+/** Promotions sent together, newest first; a promotion without a release is its own. */
+export function groupByRelease(promotions: Promotion[]): Promotion[][] {
+  const out: Promotion[][] = []
+  const at = new Map<string, number>()
+  for (const p of promotions) {
+    const key = p.release_id ? `${p.peer_id}|${p.release_id}` : `one|${p.id}`
+    const i = at.get(key)
+    if (i === undefined) {
+      at.set(key, out.length)
+      out.push([p])
+    } else {
+      out[i].push(p)
+    }
+  }
+  return out
+}
+
+/** "orders", "orders and leave", "orders, leave and 3 more". */
+export function workflowNames(ps: { workflow_name: string }[]): string {
+  const names = ps.map((p) => p.workflow_name)
+  if (names.length <= 1) return names[0] ?? ''
+  if (names.length === 2) return `${names[0]} and ${names[1]}`
+  if (names.length === 3) return `${names[0]}, ${names[1]} and ${names[2]}`
+  return `${names[0]}, ${names[1]} and ${names.length - 2} more`
+}
+
+/** What a whole release is at, from its members. */
+export function releaseStatus(ps: Promotion[]): PromotionStatus {
+  for (const s of ['deploying', 'pending', 'failed', 'rolled_back', 'rejected'] as PromotionStatus[]) {
+    if (ps.some((p) => p.status === s)) return s
+  }
+  return 'deployed'
 }
 
 /** What the server will accept as an instance address, trimmed of trailing slashes. */

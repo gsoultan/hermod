@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -26,21 +27,56 @@ import (
 // maxCheckItems bounds each list in a CheckRequest.
 const maxCheckItems = 500
 
-// PeerCheck answers a linked instance's CheckRequest.
-func (s *Service) PeerCheck(ctx context.Context, req CheckRequest) (CheckResult, error) {
+// maxReleaseItems bounds how many workflows one release carries.
+const maxReleaseItems = 50
+
+// maxPeerPromotions bounds what a linked instance reads back.
+const maxPeerPromotions = 100
+
+// vhostOf names the vhost a workflow or connection is in; empty is default.
+func vhostOf(v string) string {
+	if v == "" {
+		return "default"
+	}
+	return v
+}
+
+// mayUse reports whether peer may use something in vhost: a peer linked
+// before links were per vhost may use anything.
+func mayUse(peer Peer, vhost string) bool {
+	return peer.VHost == "" || vhostOf(vhost) == vhostOf(peer.VHost)
+}
+
+// PeerCheck answers peer's CheckRequest, within the vhost it sends into:
+// connections and workflows in other vhosts are reported missing, never
+// described.
+func (s *Service) PeerCheck(ctx context.Context, peer Peer, req CheckRequest) (CheckResult, error) {
 	if len(req.Sources) > maxCheckItems || len(req.Sinks) > maxCheckItems ||
 		len(req.Secrets) > maxCheckItems || len(req.Envs) > maxCheckItems {
 		return CheckResult{}, fmt.Errorf("%w: too many items to check", ErrInvalid)
 	}
 	res := CheckResult{
-		MissingSources: missing(req.Sources, func(id string) bool { _, err := s.store.GetSource(ctx, id); return err == nil }),
-		MissingSinks:   missing(req.Sinks, func(id string) bool { _, err := s.store.GetSink(ctx, id); return err == nil }),
+		MissingSources: missing(req.Sources, func(id string) bool {
+			src, err := s.store.GetSource(ctx, id)
+			return err == nil && mayUse(peer, src.VHost)
+		}),
+		MissingSinks: missing(req.Sinks, func(id string) bool {
+			snk, err := s.store.GetSink(ctx, id)
+			return err == nil && mayUse(peer, snk.VHost)
+		}),
 	}
 	vhost := req.VHost
+	if peer.VHost != "" {
+		vhost = peer.VHost
+	}
 	if req.WorkflowID != "" {
 		if wf, err := s.store.GetWorkflow(ctx, req.WorkflowID); err == nil {
-			vhost = wf.VHost
-			res.Current = s.current(ctx, wf)
+			if mayUse(peer, wf.VHost) {
+				vhost = wf.VHost
+				res.Current = s.current(ctx, wf)
+			} else {
+				res.Problem = "A workflow with the same ID is in another vhost there, which this link cannot send into."
+			}
 		}
 	}
 	res.MissingSecrets = missing(req.Secrets, func(name string) bool { return s.secrets != nil && s.secrets.HasSecret(ctx, vhost, name) })
@@ -68,62 +104,164 @@ func (s *Service) current(ctx context.Context, wf storage.Workflow) *CurrentWork
 	return cur
 }
 
-// Receive records a promotion a peer sent. It is checked here as well as on
-// the sender: every connection it names must exist on this instance, and the
-// version must have soaked as long as the rules say. Under the "none"
-// approval rule it is deployed at once.
-func (s *Service) Receive(ctx context.Context, peer Peer, sub Submission) (Promotion, error) {
+// admit checks a workflow peer sent and builds its promotion, without
+// storing anything. It is checked here as well as on the sender: it lands in
+// the vhost peer sends into, every connection it names must exist there, and
+// the version must have soaked as long as that vhost's rules say. What it
+// changes is worked out here, never taken from the sender.
+func (s *Service) admit(ctx context.Context, peer Peer, sub Submission, rules Rules) (Promotion, storage.Workflow, error) {
 	wf := sub.Workflow
 	if err := validSubmission(sub); err != nil {
-		return Promotion{}, err
+		return Promotion{}, wf, err
+	}
+	var current *storage.Workflow
+	existing, err := s.store.GetWorkflow(ctx, wf.ID)
+	switch {
+	case err == nil:
+		if !mayUse(peer, existing.VHost) {
+			return Promotion{}, wf, fmt.Errorf("%w: workflow %s is in vhost %s here, which %s cannot send into", ErrForbidden, wf.ID, vhostOf(existing.VHost), peer.Name)
+		}
+		portable := s.applier.Portable(existing)
+		current = &portable
+		wf.VHost = existing.VHost
+	case errors.Is(err, storage.ErrNotFound):
+		if peer.VHost != "" {
+			wf.VHost = peer.VHost
+		}
+	default:
+		return Promotion{}, wf, fmt.Errorf("reading workflow %s: %w", wf.ID, err)
+	}
+	if why := soakProblem(rules.For(vhostOf(wf.VHost)), sub.FromVersionAt, s.now()); why != "" {
+		return Promotion{}, wf, fmt.Errorf("%w: %s", ErrInvalid, why)
+	}
+	if err := s.hasConnections(ctx, peer, wf); err != nil {
+		return Promotion{}, wf, err
+	}
+	wf = s.applier.Portable(wf)
+	p := Promotion{
+		ID: uuid.NewString(), PeerID: peer.ID, ReleaseID: sub.ReleaseID, FromEnv: peer.Name, WorkflowID: wf.ID, WorkflowName: wf.Name,
+		VHost: wf.VHost, FromVersion: sub.FromVersion, Sender: strings.TrimSpace(sub.Sender),
+		Note: strings.TrimSpace(sub.Note), Start: sub.Start, AutoRollback: sub.AutoRollback,
+		Changes: Diff(current, wf), Status: StatusPending, CreatedAt: s.now().UTC(),
+	}
+	return p, wf, nil
+}
+
+// store keeps promotions and the workflows they carry, under the lock.
+func (s *Service) storePromotions(ctx context.Context, ps []Promotion, wfs []storage.Workflow) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	all, err := loadPromotions(ctx, s.store)
+	if err != nil {
+		return err
+	}
+	for i, p := range ps {
+		if err := putJSON(ctx, s.store, keyPromotionBody+p.ID, wfs[i]); err != nil {
+			return err
+		}
+	}
+	return savePromotions(ctx, s.store, append(all, ps...))
+}
+
+// Receive records a promotion peer sent. Under the "none" approval rule it
+// is deployed at once.
+func (s *Service) Receive(ctx context.Context, peer Peer, sub Submission) (Promotion, error) {
+	if sub.ReleaseID != "" {
+		if err := validReleaseID(sub.ReleaseID); err != nil {
+			return Promotion{}, err
+		}
 	}
 	rules, err := loadRules(ctx, s.store)
 	if err != nil {
 		return Promotion{}, err
 	}
-	if why := soakProblem(rules, sub.FromVersionAt, s.now()); why != "" {
-		return Promotion{}, fmt.Errorf("%w: %s", ErrInvalid, why)
-	}
-	if err := s.hasConnections(ctx, wf); err != nil {
-		return Promotion{}, err
-	}
-
-	// What it changes is worked out here, against what this instance runs,
-	// never taken from the sender.
-	var current *storage.Workflow
-	if existing, err := s.store.GetWorkflow(ctx, wf.ID); err == nil {
-		portable := s.applier.Portable(existing)
-		current = &portable
-		wf.VHost = existing.VHost
-	} else if !errors.Is(err, storage.ErrNotFound) {
-		return Promotion{}, fmt.Errorf("reading workflow %s: %w", wf.ID, err)
-	}
-	wf = s.applier.Portable(wf)
-
-	p := Promotion{
-		ID: uuid.NewString(), PeerID: peer.ID, FromEnv: peer.Name, WorkflowID: wf.ID, WorkflowName: wf.Name,
-		VHost: wf.VHost, FromVersion: sub.FromVersion, Sender: strings.TrimSpace(sub.Sender),
-		Note: strings.TrimSpace(sub.Note), Start: sub.Start, AutoRollback: sub.AutoRollback,
-		Changes: Diff(current, wf), Status: StatusPending, CreatedAt: s.now().UTC(),
-	}
-
-	s.mu.Lock()
-	ps, err := loadPromotions(ctx, s.store)
-	if err == nil {
-		err = putJSON(ctx, s.store, keyPromotionBody+p.ID, wf)
-	}
-	if err == nil {
-		err = savePromotions(ctx, s.store, append(ps, p))
-	}
-	s.mu.Unlock()
+	p, wf, err := s.admit(ctx, peer, sub, rules)
 	if err != nil {
 		return Promotion{}, err
 	}
-
-	if rules.Approval == ApproveNone {
-		return s.deploy(ctx, p.ID, "automatic")
+	if err := s.storePromotions(ctx, []Promotion{p}, []storage.Workflow{wf}); err != nil {
+		return Promotion{}, err
+	}
+	if rules.For(vhostOf(p.VHost)).Approval == ApproveNone {
+		return s.deployGroup(ctx, p.ID, "automatic")
 	}
 	return p, nil
+}
+
+var releaseIDPattern = regexp.MustCompile(`^[A-Za-z0-9-]{1,64}$`)
+
+func validReleaseID(id string) error {
+	if !releaseIDPattern.MatchString(id) {
+		return fmt.Errorf("%w: a release needs an ID of at most 64 letters, digits and dashes", ErrInvalid)
+	}
+	return nil
+}
+
+// ReceiveRelease records the workflows peer sent in one release. Every one
+// is checked before any is stored, so a release arrives whole or not at
+// all. Sending the same release again returns what the first one stored.
+func (s *Service) ReceiveRelease(ctx context.Context, peer Peer, rs ReleaseSubmission) ([]Promotion, error) {
+	if err := validReleaseID(rs.ReleaseID); err != nil {
+		return nil, err
+	}
+	if len(rs.Items) == 0 || len(rs.Items) > maxReleaseItems {
+		return nil, fmt.Errorf("%w: a release carries 1 to %d workflows", ErrInvalid, maxReleaseItems)
+	}
+	if got, err := s.release(ctx, peer.ID, rs.ReleaseID); err != nil || len(got) > 0 {
+		return got, err
+	}
+	rules, err := loadRules(ctx, s.store)
+	if err != nil {
+		return nil, err
+	}
+	ps := make([]Promotion, 0, len(rs.Items))
+	wfs := make([]storage.Workflow, 0, len(rs.Items))
+	seen := map[string]bool{}
+	for _, sub := range rs.Items {
+		sub.ReleaseID = rs.ReleaseID
+		if seen[sub.Workflow.ID] {
+			return nil, fmt.Errorf("%w: workflow %s is in the release twice", ErrInvalid, sub.Workflow.ID)
+		}
+		seen[sub.Workflow.ID] = true
+		p, wf, err := s.admit(ctx, peer, sub, rules)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", cleanName(sub.Workflow.Name, sub.Workflow.ID), err)
+		}
+		ps, wfs = append(ps, p), append(wfs, wf)
+	}
+	if err := s.storePromotions(ctx, ps, wfs); err != nil {
+		return nil, err
+	}
+	if rules.For(vhostOf(ps[0].VHost)).Approval == ApproveNone {
+		if _, err := s.deployGroup(ctx, ps[0].ID, "automatic"); err != nil {
+			slog.Warn("environment: deploying a release on arrival failed", "release", rs.ReleaseID, "error", err)
+		}
+	}
+	return s.release(ctx, peer.ID, rs.ReleaseID)
+}
+
+// release returns the promotions of one release from peerID, in the order
+// they were sent.
+func (s *Service) release(ctx context.Context, peerID, releaseID string) ([]Promotion, error) {
+	ps, err := loadPromotions(ctx, s.store)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(ps, func(p Promotion) bool { return p.PeerID != peerID || p.ReleaseID != releaseID }), nil
+}
+
+// PeerPromotions lists what peer sent here, newest first, as it stands.
+func (s *Service) PeerPromotions(ctx context.Context, peer Peer) ([]Promotion, error) {
+	ps, err := loadPromotions(ctx, s.store)
+	if err != nil {
+		return nil, err
+	}
+	ps = slices.DeleteFunc(ps, func(p Promotion) bool { return p.PeerID != peer.ID })
+	slices.Reverse(ps)
+	if len(ps) > maxPeerPromotions {
+		ps = ps[:maxPeerPromotions]
+	}
+	return ps, nil
 }
 
 func validSubmission(sub Submission) error {
@@ -138,17 +276,18 @@ func validSubmission(sub Submission) error {
 	return nil
 }
 
-// hasConnections checks every connection wf names exists here.
-func (s *Service) hasConnections(ctx context.Context, wf storage.Workflow) error {
+// hasConnections checks every connection wf names exists here, in the vhost
+// peer sends into.
+func (s *Service) hasConnections(ctx context.Context, peer Peer, wf storage.Workflow) error {
 	srcIDs, sinkIDs := workflowRefs(wf)
 	for _, id := range srcIDs {
-		if _, err := s.store.GetSource(ctx, id); err != nil {
-			return fmt.Errorf("%w: the workflow uses source %s, which this instance does not have", ErrInvalid, id)
+		if src, err := s.store.GetSource(ctx, id); err != nil || !mayUse(peer, src.VHost) {
+			return fmt.Errorf("%w: the workflow uses source %s, which this instance does not have in its vhost", ErrInvalid, id)
 		}
 	}
 	for _, id := range sinkIDs {
-		if _, err := s.store.GetSink(ctx, id); err != nil {
-			return fmt.Errorf("%w: the workflow uses sink %s, which this instance does not have", ErrInvalid, id)
+		if snk, err := s.store.GetSink(ctx, id); err != nil || !mayUse(peer, snk.VHost) {
+			return fmt.Errorf("%w: the workflow uses sink %s, which this instance does not have in its vhost", ErrInvalid, id)
 		}
 	}
 	return nil
@@ -182,29 +321,124 @@ func (s *Service) update(ctx context.Context, id string, fn func(*Promotion) err
 	return ps[i], savePromotions(ctx, s.store, ps)
 }
 
-// Approve deploys a pending promotion. Under the admin_except_sender rule
-// the person who sent it cannot approve it.
+// group is the indexes of the promotions approved, rejected and rolled
+// back together with ps[i]: its release, or itself alone.
+func group(ps []Promotion, i int) []int {
+	if ps[i].ReleaseID == "" {
+		return []int{i}
+	}
+	var out []int
+	for j, p := range ps {
+		if p.PeerID == ps[i].PeerID && p.ReleaseID == ps[i].ReleaseID {
+			out = append(out, j)
+		}
+	}
+	return out
+}
+
+func indexOf(ps []Promotion, id string) int {
+	return slices.IndexFunc(ps, func(p Promotion) bool { return p.ID == id })
+}
+
+func (s *Service) promotion(ctx context.Context, id string) (Promotion, error) {
+	ps, err := loadPromotions(ctx, s.store)
+	if err != nil {
+		return Promotion{}, err
+	}
+	i := indexOf(ps, id)
+	if i < 0 {
+		return Promotion{}, ErrNotFound
+	}
+	return ps[i], nil
+}
+
+// Approve deploys a pending promotion together with the rest of its
+// release. Under the admin_except_sender rule the person who sent any of
+// them cannot approve.
 func (s *Service) Approve(ctx context.Context, id, username string) (Promotion, error) {
 	rules, err := loadRules(ctx, s.store)
 	if err != nil {
 		return Promotion{}, err
 	}
-	// Claim it first, so two admins approving at once deploy it once.
-	_, err = s.update(ctx, id, func(p *Promotion) error {
+	// Claim them first, so two admins approving at once deploy them once.
+	s.mu.Lock()
+	ps, err := loadPromotions(ctx, s.store)
+	if err != nil {
+		s.mu.Unlock()
+		return Promotion{}, err
+	}
+	i := indexOf(ps, id)
+	if i < 0 {
+		s.mu.Unlock()
+		return Promotion{}, ErrNotFound
+	}
+	members := group(ps, i)
+	for _, j := range members {
+		p := ps[j]
 		if p.Status != StatusPending {
-			return fmt.Errorf("%w: this promotion is %s, not pending", ErrConflict, p.Status)
+			s.mu.Unlock()
+			return Promotion{}, fmt.Errorf("%w: %s is %s, not pending", ErrConflict, p.WorkflowName, p.Status)
 		}
-		if rules.Approval == ApproveAnyAdminExceptSender && strings.EqualFold(p.Sender, username) {
-			return fmt.Errorf("%w: you sent this promotion, so another admin has to approve it", ErrForbidden)
+		if rules.For(vhostOf(p.VHost)).Approval == ApproveAnyAdminExceptSender && strings.EqualFold(p.Sender, username) {
+			s.mu.Unlock()
+			return Promotion{}, fmt.Errorf("%w: you sent this, so another admin has to approve it", ErrForbidden)
 		}
-		p.Status = StatusDeploying
-		p.DecidedBy, p.DecidedAt = username, s.now().UTC()
-		return nil
-	})
+	}
+	for _, j := range members {
+		ps[j].Status = StatusDeploying
+		ps[j].DecidedBy, ps[j].DecidedAt = username, s.now().UTC()
+	}
+	err = savePromotions(ctx, s.store, ps)
+	s.mu.Unlock()
 	if err != nil {
 		return Promotion{}, err
 	}
-	return s.deploy(ctx, id, username)
+	return s.deployGroup(ctx, id, username)
+}
+
+// deployGroup deploys id's release in the order it was sent. When one fails
+// the ones before it are undone, newest first, and the ones after it are
+// not deployed: a release goes live whole or not at all. It returns id's
+// promotion as it ends.
+func (s *Service) deployGroup(ctx context.Context, id, by string) (Promotion, error) {
+	ps, err := loadPromotions(ctx, s.store)
+	if err != nil {
+		return Promotion{}, err
+	}
+	i := indexOf(ps, id)
+	if i < 0 {
+		return Promotion{}, ErrNotFound
+	}
+	var ids []string
+	for _, j := range group(ps, i) {
+		ids = append(ids, ps[j].ID)
+	}
+	for k, member := range ids {
+		failed, err := s.deploy(ctx, member, by)
+		if err == nil {
+			continue
+		}
+		if len(ids) > 1 {
+			why := failed.WorkflowName + " in the same release could not be deployed"
+			for j := k - 1; j >= 0; j-- {
+				if uerr := s.undo(ctx, ids[j], by, "Undone: "+why); uerr != nil {
+					slog.Warn("environment: undoing a release after a failed deploy", "promotion", ids[j], "error", uerr)
+				}
+			}
+			for _, rest := range ids[k+1:] {
+				_, _ = s.update(ctx, rest, func(p *Promotion) error {
+					p.Status, p.DecidedBy, p.Reason = StatusFailed, by, "Not deployed: "+why
+					return nil
+				})
+			}
+		}
+		got, gerr := s.promotion(ctx, id)
+		if gerr != nil {
+			return failed, err
+		}
+		return got, err
+	}
+	return s.promotion(ctx, id)
 }
 
 // deploy stores the promoted workflow through the workflow update path and
@@ -214,15 +448,10 @@ func (s *Service) deploy(ctx context.Context, id, by string) (Promotion, error) 
 	if err != nil {
 		return s.fail(ctx, id, by, err)
 	}
-	ps, err := loadPromotions(ctx, s.store)
+	p, err := s.promotion(ctx, id)
 	if err != nil {
 		return Promotion{}, err
 	}
-	i := slices.IndexFunc(ps, func(p Promotion) bool { return p.ID == id })
-	if i < 0 {
-		return Promotion{}, ErrNotFound
-	}
-	p := ps[i]
 	msg := fmt.Sprintf("Promoted from %s version %d", p.FromEnv, p.FromVersion)
 
 	var previous, applied int
@@ -275,41 +504,82 @@ func (s *Service) fail(ctx context.Context, id, by string, cause error) (Promoti
 	return p, fmt.Errorf("the promotion could not be deployed: %w", cause)
 }
 
-// Reject declines a pending promotion.
+// Reject declines a pending promotion together with the rest of its
+// release.
 func (s *Service) Reject(ctx context.Context, id, username, reason string) (Promotion, error) {
 	if len(reason) > 1000 {
 		return Promotion{}, fmt.Errorf("%w: the reason must be at most 1000 characters", ErrInvalid)
 	}
-	return s.update(ctx, id, func(p *Promotion) error {
-		if p.Status != StatusPending {
-			return fmt.Errorf("%w: this promotion is %s, not pending", ErrConflict, p.Status)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ps, err := loadPromotions(ctx, s.store)
+	if err != nil {
+		return Promotion{}, err
+	}
+	i := indexOf(ps, id)
+	if i < 0 {
+		return Promotion{}, ErrNotFound
+	}
+	members := group(ps, i)
+	for _, j := range members {
+		if ps[j].Status != StatusPending {
+			return Promotion{}, fmt.Errorf("%w: %s is %s, not pending", ErrConflict, ps[j].WorkflowName, ps[j].Status)
 		}
-		p.Status = StatusRejected
-		p.DecidedBy, p.DecidedAt = username, s.now().UTC()
-		p.Reason = strings.TrimSpace(reason)
-		return nil
-	})
+	}
+	for _, j := range members {
+		ps[j].Status = StatusRejected
+		ps[j].DecidedBy, ps[j].DecidedAt = username, s.now().UTC()
+		ps[j].Reason = strings.TrimSpace(reason)
+	}
+	return ps[i], savePromotions(ctx, s.store, ps)
 }
 
-// Rollback undoes a deployed promotion: the workflow goes back to the
-// version it had before, or is stopped when the promotion created it. Only
-// the newest deployed promotion of a workflow can be rolled back, so an
-// older one never undoes a newer one's change.
+// Rollback undoes a deployed promotion together with the rest of its
+// release, newest first: each workflow goes back to the version it had
+// before, or is stopped when the promotion created it. Only the newest
+// deployed promotion of a workflow can be rolled back, so an older one never
+// undoes a newer one's change.
 func (s *Service) Rollback(ctx context.Context, id, username, reason string) (Promotion, error) {
 	ps, err := loadPromotions(ctx, s.store)
 	if err != nil {
 		return Promotion{}, err
 	}
-	i := slices.IndexFunc(ps, func(p Promotion) bool { return p.ID == id })
+	i := indexOf(ps, id)
 	if i < 0 {
 		return Promotion{}, ErrNotFound
 	}
-	p := ps[i]
-	if p.Status != StatusDeployed {
-		return Promotion{}, fmt.Errorf("%w: only a deployed promotion can be rolled back; this one is %s", ErrConflict, p.Status)
+	if ps[i].Status != StatusDeployed {
+		return Promotion{}, fmt.Errorf("%w: only a deployed promotion can be rolled back; this one is %s", ErrConflict, ps[i].Status)
 	}
-	if slices.ContainsFunc(ps[i+1:], func(q Promotion) bool { return q.WorkflowID == p.WorkflowID && q.Status == StatusDeployed }) {
-		return Promotion{}, fmt.Errorf("%w: a newer promotion of this workflow was deployed since; roll that one back instead", ErrConflict)
+	var deployed []int
+	for _, j := range group(ps, i) {
+		if ps[j].Status != StatusDeployed {
+			continue
+		}
+		p := ps[j]
+		if slices.ContainsFunc(ps[j+1:], func(q Promotion) bool {
+			return q.WorkflowID == p.WorkflowID && q.Status == StatusDeployed && (q.ReleaseID == "" || q.ReleaseID != p.ReleaseID)
+		}) {
+			return Promotion{}, fmt.Errorf("%w: a newer promotion of %s was deployed since; roll that one back instead", ErrConflict, p.WorkflowName)
+		}
+		deployed = append(deployed, j)
+	}
+	if reason == "" {
+		reason = "Rolled back by " + username
+	}
+	for k := len(deployed) - 1; k >= 0; k-- {
+		if err := s.undo(ctx, ps[deployed[k]].ID, username, reason); err != nil {
+			return Promotion{}, err
+		}
+	}
+	return s.promotion(ctx, id)
+}
+
+// undo puts a deployed promotion's workflow back as it was and records it.
+func (s *Service) undo(ctx context.Context, id, username, reason string) error {
+	p, err := s.promotion(ctx, id)
+	if err != nil {
+		return err
 	}
 	if p.PreviousVersion > 0 {
 		_, err = s.applier.RollbackWorkflowTo(ctx, p.WorkflowID, p.PreviousVersion, username)
@@ -323,16 +593,14 @@ func (s *Service) Rollback(ctx context.Context, id, username, reason string) (Pr
 		}
 	}
 	if err != nil {
-		return Promotion{}, fmt.Errorf("rolling back: %w", err)
+		return fmt.Errorf("rolling back %s: %w", p.WorkflowName, err)
 	}
-	if reason == "" {
-		reason = "Rolled back by " + username
-	}
-	return s.update(ctx, id, func(p *Promotion) error {
+	_, err = s.update(ctx, id, func(p *Promotion) error {
 		p.Status = StatusRolledBack
 		p.Reason = reason
 		return nil
 	})
+	return err
 }
 
 // failing reports why a deployed workflow counts as failing, or "": its
@@ -369,8 +637,9 @@ func (s *Service) CheckDeploys(ctx context.Context) (int, error) {
 	}
 	now := s.now()
 	n := 0
-	for _, p := range ps {
-		if p.Status != StatusDeployed || !p.AutoRollback || now.Sub(p.DeployedAt) > RollbackWindow {
+	done := map[string]bool{}
+	for i, p := range ps {
+		if p.Status != StatusDeployed || !p.AutoRollback || now.Sub(p.DeployedAt) > RollbackWindow || done[p.ID] {
 			continue
 		}
 		wf, err := s.store.GetWorkflow(ctx, p.WorkflowID)
@@ -381,11 +650,21 @@ func (s *Service) CheckDeploys(ctx context.Context) (int, error) {
 		if why == "" {
 			continue
 		}
-		if _, err := s.Rollback(ctx, p.ID, "auto-rollback", "Rolled back automatically: "+why); err != nil {
+		members := group(ps, i)
+		reason := "Rolled back automatically: " + why
+		if len(members) > 1 {
+			reason = "Rolled back automatically with its release: " + p.WorkflowName + " " + why
+		}
+		if _, err := s.Rollback(ctx, p.ID, "auto-rollback", reason); err != nil {
 			slog.Warn("environment: automatic rollback failed", "promotion", p.ID, "workflow", p.WorkflowID, "error", err)
 			continue
 		}
-		n++
+		for _, j := range members {
+			if ps[j].Status == StatusDeployed && !done[ps[j].ID] {
+				done[ps[j].ID] = true
+				n++
+			}
+		}
 	}
 	return n, nil
 }

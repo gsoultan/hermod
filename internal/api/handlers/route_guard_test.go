@@ -78,6 +78,7 @@ var unguardedMutatingRoutes = map[string]string{
 	// linked environments: authenticated by the peer token in the handler
 	"POST /api/environments/peer/check":      "a linked environment asks whether a workflow would land; answers a peer token only",
 	"POST /api/environments/peer/promotions": "a linked environment submits a promotion; it waits for an admin's approval here",
+	"POST /api/environments/peer/releases":   "a linked environment submits a release of workflows; it waits for an admin's approval here",
 	"DELETE /api/environments/peer/self":     "a linked environment revokes its own peer token",
 
 	// self-service: the handler checks caller identity, not role
