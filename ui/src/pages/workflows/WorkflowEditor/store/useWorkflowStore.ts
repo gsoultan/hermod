@@ -8,6 +8,7 @@ import {
   applyEdgeChanges 
 } from '@xyflow/react';
 import type { LogEntry } from '../../../../types';
+import { remapBranchEdges } from '../nodes/branchHandleId';
 
 export interface WorkflowState {
   nodes: Node[];
@@ -349,10 +350,23 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
       ? { ...state.selectedNode, data: replace ? config : { ...state.selectedNode.data, ...config } }
       : state.selectedNode;
 
+    // A switch case's or router rule's edges follow it when it is renamed or
+    // removed (remapBranchEdges).
+    let nextEdges = state.edges;
+    if (current.type === 'switch' || current.type === 'router') {
+      const key = current.type === 'switch' ? 'cases' : 'rules';
+      const before = (current.data as any)?.[key];
+      const after = (nextData as any)?.[key];
+      if (JSON.stringify(before) !== JSON.stringify(after)) {
+        nextEdges = remapBranchEdges(state.edges, nodeId, current.type, before, after);
+      }
+    }
+
     return {
       nodes: nextNodes,
+      edges: nextEdges,
       selectedNode: nextSelectedNode,
-      nodePreviews: withoutPreviewsFrom(state.nodePreviews, nodeId, state.edges),
+      nodePreviews: withoutPreviewsFrom(state.nodePreviews, nodeId, nextEdges),
     };
   }),
 }));
