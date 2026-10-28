@@ -1,4 +1,4 @@
-import type { Node } from '@xyflow/react';
+import type { Edge, Node } from '@xyflow/react';
 
 /**
  * What a simulation did to one node, as the canvas shows it.
@@ -95,6 +95,156 @@ export function edgeSimulationState(steps: Steps, edgeId: string): 'taken' | 'un
   const path = pathOf(steps);
   if (!path) return undefined;
   return path.takenEdges.has(edgeId) ? 'taken' : 'untaken';
+}
+
+/** The graph a run was asked for on, and how far a replay of it has got. */
+interface RunGraph {
+  nodes: readonly Node[];
+  edges: readonly Edge[];
+}
+interface Replay {
+  hop: number;
+}
+
+/**
+ * How an edge is drawn after a simulation.
+ *
+ * - `taken`: the message crossed it and the node it reached passed it on.
+ * - `into-error` / `into-filtered`: it crossed it, and the node it reached
+ *   failed on it or emitted nothing.
+ * - `untaken`: the edge was in the run and the message did not cross it.
+ * - `new`: the edge was drawn after the run, which says nothing about it.
+ * - `crossing` / `pending`: during a replay, the hop being crossed now, and
+ *   the ones still to come.
+ */
+export type EdgeSimulationState = 'taken' | 'into-error' | 'into-filtered' | 'untaken' | 'new' | 'crossing' | 'pending';
+
+export interface EdgeSimulationView {
+  state: EdgeSimulationState;
+  /** The hop the message crossed this edge on, from 1; null if it did not. */
+  hop: number | null;
+}
+
+interface Route {
+  /** Each taken edge's hop. */
+  hops: Map<string, number>;
+  /** The node each edge of the run leads to. */
+  targets: Map<string, string>;
+  hopCount: number;
+}
+
+// Keyed on both the steps and the graph they ran on, which are stored together.
+let routeCache: { steps: readonly SimulationStep[]; graph: RunGraph | null; route: Route } | null = null;
+
+/**
+ * The hop each taken edge was crossed on. The engine reports its steps in the
+ * order it ran them, a node only once every edge into it has been walked, so a
+ * node's depth is known by the time its own step comes up: one more than the
+ * deepest edge that reached it. Branches that ran side by side share a hop.
+ */
+function routeOf(steps: readonly SimulationStep[], graph: RunGraph | null): Route {
+  if (routeCache && routeCache.steps === steps && routeCache.graph === graph) return routeCache.route;
+  const targets = new Map<string, string>();
+  for (const edge of graph?.edges ?? []) targets.set(edge.id, edge.target);
+  const depth = new Map<string, number>();
+  const hops = new Map<string, number>();
+  let hopCount = 0;
+  for (const step of steps) {
+    const from = depth.get(step.node_id) ?? 0;
+    for (const edgeId of step.taken_edges ?? []) {
+      const hop = from + 1;
+      if (!hops.has(edgeId)) hops.set(edgeId, hop);
+      hopCount = Math.max(hopCount, hop);
+      const target = targets.get(edgeId);
+      if (target !== undefined) depth.set(target, Math.max(depth.get(target) ?? 0, hop));
+    }
+  }
+  const route = { hops, targets, hopCount };
+  routeCache = { steps, graph, route };
+  return route;
+}
+
+// One object per answer that carries no hop, so selectors comparing the last
+// answer do not re-render the edge.
+const UNTAKEN: EdgeSimulationView = { state: 'untaken', hop: null };
+const NEW: EdgeSimulationView = { state: 'new', hop: null };
+
+/** How an edge is drawn after the last simulation; undefined when none is shown. */
+export function edgeSimulationView(
+  steps: Steps,
+  graph: RunGraph | null,
+  replay: Replay | null,
+  edgeId: string,
+): EdgeSimulationView | undefined {
+  const path = pathOf(steps);
+  if (!path || !Array.isArray(steps)) return undefined;
+  const route = routeOf(steps, graph);
+  const hop = route.hops.get(edgeId);
+  if (hop === undefined) {
+    // Without the graph the run was on, every edge is taken to have been in it.
+    return graph && !route.targets.has(edgeId) ? NEW : UNTAKEN;
+  }
+  if (replay) {
+    if (hop > replay.hop) return { state: 'pending', hop };
+    if (hop === replay.hop) return { state: 'crossing', hop };
+  }
+  const target = route.targets.get(edgeId);
+  const reached = target !== undefined ? path.nodes.get(target) : undefined;
+  if (reached?.status === 'error') return { state: 'into-error', hop };
+  if (reached?.status === 'filtered') return { state: 'into-filtered', hop };
+  return { state: 'taken', hop };
+}
+
+/** How many hops the last simulation's message made. */
+export function simulationHopCount(steps: Steps, graph: RunGraph | null): number {
+  if (!Array.isArray(steps)) return 0;
+  return routeOf(steps, graph).hopCount;
+}
+
+let outdatedCache: { graph: RunGraph; nodes: readonly Node[]; edges: readonly Edge[]; outdated: boolean } | null = null;
+
+const edgeLabel = (e: Edge) => (e.data as { label?: unknown } | undefined)?.label;
+const sameWiring = (a: Edge, b: Edge) =>
+  a.source === b.source &&
+  a.target === b.target &&
+  (a.sourceHandle ?? null) === (b.sourceHandle ?? null) &&
+  (a.targetHandle ?? null) === (b.targetHandle ?? null) &&
+  edgeLabel(a) === edgeLabel(b);
+
+/**
+ * Whether the canvas has changed since the shown simulation ran in a way that
+ * could change its answer: a node added, removed or reconfigured, or an edge
+ * added, removed or rewired. Moving or selecting things does not count.
+ */
+export function simulationOutdated(
+  steps: Steps,
+  graph: RunGraph | null,
+  nodes: readonly Node[],
+  edges: readonly Edge[],
+): boolean {
+  if (!Array.isArray(steps) || !graph) return false;
+  if (outdatedCache && outdatedCache.graph === graph && outdatedCache.nodes === nodes && outdatedCache.edges === edges) {
+    return outdatedCache.outdated;
+  }
+  let outdated = nodes.length !== graph.nodes.length || edges.length !== graph.edges.length;
+  if (!outdated) {
+    const ranNodes = new Map(graph.nodes.map((n) => [n.id, n]));
+    // A node's data is replaced whenever it is configured, and kept as the
+    // same object when it is only moved or selected.
+    outdated = nodes.some((n) => {
+      const ran = ranNodes.get(n.id);
+      return !ran || ran.type !== n.type || ran.data !== n.data;
+    });
+  }
+  if (!outdated) {
+    const ranEdges = new Map(graph.edges.map((e) => [e.id, e]));
+    outdated = edges.some((e) => {
+      const ran = ranEdges.get(e.id);
+      return !ran || !sameWiring(ran, e);
+    });
+  }
+  outdatedCache = { graph, nodes, edges, outdated };
+  return outdated;
 }
 
 // Notes sit on the canvas but are not part of the workflow, so they have no

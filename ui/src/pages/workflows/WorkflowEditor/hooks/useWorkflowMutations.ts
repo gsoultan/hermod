@@ -4,7 +4,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { notifications } from '@mantine/notifications';
 import { apiFetch } from '@/api';
 import { useShallow } from 'zustand/react/shallow';
-import { useWorkflowStore } from '../store/useWorkflowStore';
+import { useWorkflowStore, type SimulationGraph } from '../store/useWorkflowStore';
 import type { Source, Sink } from '@/types';
 import { resolveSampleSource, sampleTableFor, simulationInputs } from '../sampleCapture';
 import { persistedSnapshot } from '../store/persistedSnapshot';
@@ -117,8 +117,16 @@ export function useWorkflowMutations(
   // newer run had replaced.
   const latestRun = useRef(0);
 
+  // The canvas each run was asked for on, by run number: its result describes
+  // that graph, not whatever the canvas has become by the time it answers.
+  const runGraphs = useRef(new Map<number, SimulationGraph>());
   const testMutation = useMutation<any, Error, SimulationVars | undefined, number>({
-    onMutate: () => ++latestRun.current,
+    onMutate: () => {
+      const run = ++latestRun.current;
+      const { nodes, edges } = useWorkflowStore.getState();
+      runGraphs.current.set(run, { nodes, edges });
+      return run;
+    },
     // The Configure Test modal's Run Simulation calls mutate() with no
     // variables, and destructuring them here threw before any request was
     // sent — so that button never ran anything.
@@ -177,12 +185,17 @@ export function useWorkflowMutations(
     },
     onSuccess: (data, vars, run) => {
       setTestModalOpened(false);
+      const graph = run !== undefined ? runGraphs.current.get(run) : undefined;
+      if (run !== undefined) runGraphs.current.delete(run);
       if (run !== latestRun.current) return;
-      setTestResults(data);
+      // A run the operator asked for replays the path; a background refresh
+      // only updates it.
+      setTestResults(data, { graph, replay: !vars?.quiet });
       if (vars?.quiet) return;
       notifications.show({ title: 'Test Complete', message: 'The flow has been simulated. Active paths are highlighted.', color: 'blue' });
     },
-    onError: (err, vars) => {
+    onError: (err, vars, run) => {
+      if (run !== undefined) runGraphs.current.delete(run);
       if (vars?.quiet) return;
       notifications.show({ title: 'Test Failed', message: err.message, color: 'red' });
     }

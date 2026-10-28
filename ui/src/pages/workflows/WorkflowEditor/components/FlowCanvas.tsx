@@ -14,6 +14,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { ConnectionLine } from './ConnectionLine';
 import { LiveEdge } from './LiveEdge';
 import { SimulationOverlay } from '../simulation/SimulationOverlay';
+import { LiveRunBanner } from '../live/LiveRunBanner';
 import { useMantineColorScheme } from '@mantine/core';
 
 // Node types are better imported or defined where they are used
@@ -84,13 +85,12 @@ export function FlowCanvas({ onNodeClick, onEdgeClick, onDrop, onDragOver }: Flo
     live: LiveEdge,
   }), []);
   
-  const { nodes, edges, onNodesChange, onEdgesChange, setEdges, active } = useWorkflowStore(useShallow(state => ({
+  const { nodes, edges, onNodesChange, onEdgesChange, setEdges } = useWorkflowStore(useShallow(state => ({
     nodes: state.nodes,
     edges: state.edges,
     onNodesChange: state.onNodesChange,
     onEdgesChange: state.onEdgesChange,
     setEdges: state.setEdges,
-    active: state.active
   })));
 
   const onConnect = useCallback((params: Connection) => {
@@ -99,12 +99,10 @@ export function FlowCanvas({ onNodeClick, onEdgeClick, onDrop, onDragOver }: Flo
       ...params,
       id: `edge_${Date.now()}`,
       type: 'live',
-      animated: active || false,
-      style: { strokeWidth: 2 },
       data: { label }
     };
     setEdges((eds) => addEdge(edge, eds));
-  }, [active, setEdges]);
+  }, [setEdges]);
 
   return (
     <ReactFlow
@@ -127,6 +125,7 @@ export function FlowCanvas({ onNodeClick, onEdgeClick, onDrop, onDragOver }: Flo
     >
       <Background color={isDark ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-gray-3)'} gap={20} />
       <SimulationOverlay />
+      <LiveRunBanner />
       {/* Lifted clear of the collapsed Live Logs bar (40px), which now floats
           over the canvas instead of sitting below it. */}
       <Controls style={{ bottom: 52 }} />

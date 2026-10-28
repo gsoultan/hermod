@@ -42,3 +42,39 @@ func TestGetStatusReportsPerNodeTelemetry(t *testing.T) {
 		t.Errorf("EdgeMetrics[src->ai] = %d, want 2", got)
 	}
 }
+
+// The status frame carries each canvas edge's count under the edge's own ID,
+// with the time the counts were read, so the editor can turn successive frames
+// into a rate instead of reading a lifetime total as messages per second.
+func TestGetStatusReportsEdgeCountsByEdgeIDWithTheirReadTime(t *testing.T) {
+	e := NewEngine(nil, nil, nil)
+	e.EdgeIDCounter("edge-1").Add(7)
+
+	before := time.Now().UnixMilli()
+	st := e.GetStatus()
+	after := time.Now().UnixMilli()
+
+	if got := st.EdgeCounts["edge-1"]; got != 7 {
+		t.Errorf("EdgeCounts[edge-1] = %d, want 7", got)
+	}
+	if st.SampledAt < before || st.SampledAt > after {
+		t.Errorf("SampledAt = %d, want a time between %d and %d", st.SampledAt, before, after)
+	}
+}
+
+// A node with a run in flight is in the status frame, so the editor can tell a
+// hung node from an idle one.
+func TestGetStatusReportsNodesWithWorkInFlight(t *testing.T) {
+	e := NewEngine(nil, nil, nil)
+	e.NodeStats("lookup").Begin(time.Now().Add(-2 * time.Second))
+	e.NodeStats("map").Observe(time.Millisecond, false)
+
+	st := e.GetStatus()
+	busy, ok := st.NodeBusy["lookup"]
+	if !ok || busy.InFlight != 1 || busy.SinceProgressMs < 2000 {
+		t.Errorf("NodeBusy[lookup] = %+v (present %v), want 1 in flight for at least 2s", busy, ok)
+	}
+	if _, ok := st.NodeBusy["map"]; ok {
+		t.Error("a node with nothing in flight is reported busy")
+	}
+}

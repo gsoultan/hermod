@@ -138,3 +138,36 @@ func TestEdgeCounterFeedsTheReportedEdgeMetrics(t *testing.T) {
 		t.Errorf("EdgeMetrics[src->map] = %d, want 4", got)
 	}
 }
+
+// A node that has taken a message and finished nothing since is hung, and the
+// editor can only say so if the status reports it: a node that never returns
+// never reaches Observe, so its counters simply stop moving, exactly as an idle
+// node's do. Begin and End bracket each run so the in-flight work is visible.
+func TestNodeBusyReportsInFlightWorkAndTimeSinceProgress(t *testing.T) {
+	s := NewStatusTracker()
+	t0 := time.UnixMilli(1_793_000_000_000)
+	now := t0
+	s.now = func() time.Time { return now }
+
+	n := s.NodeStats("ai")
+	n.Begin(t0)
+	now = t0.Add(45 * time.Second)
+
+	busy := s.GetNodeBusy()
+	if got := busy["ai"]; got.InFlight != 1 || got.SinceProgressMs != 45_000 {
+		t.Fatalf("NodeBusy[ai] = %+v, want 1 in flight with no progress for 45s", got)
+	}
+
+	// Finishing that run is progress; the next one starts a fresh clock.
+	n.End(now)
+	if _, ok := s.GetNodeBusy()["ai"]; ok {
+		t.Fatalf("a node with nothing in flight is reported busy: %+v", s.GetNodeBusy())
+	}
+	n.Begin(now)
+	n.Begin(now.Add(time.Second))
+	now = now.Add(3 * time.Second)
+	n.End(now.Add(-time.Second))
+	if got := s.GetNodeBusy()["ai"]; got.InFlight != 1 || got.SinceProgressMs != 1_000 {
+		t.Errorf("NodeBusy[ai] = %+v, want 1 in flight and 1s since the last run finished", got)
+	}
+}

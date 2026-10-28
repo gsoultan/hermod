@@ -32,8 +32,11 @@ const fromWorkflowA = () => ({
   sinkCBStatuses: { 'sink-a': 'open' },
   sinkBufferFill: { 'sink-a': 40 },
   workflowDeadLetterCount: 5,
-  edgeSamples: { e1: [{ order_id: 7 }] },
-  edgeThroughput: { 'src->a': 12 },
+  edgeFlows: { e1: { count: 40, at: 1, rate: 12, band: 2 as const, movedAt: 1 } },
+  nodeErrorFlows: { src: { count: 3, at: 1, rate: 1, band: 1 as const, movedAt: 1 } },
+  nodeBusy: { src: { in_flight: 1, since_progress_ms: 50_000 } },
+  nodeHeld: { src: 1 },
+  statusFeedStale: true,
   selectedNode: { id: 'src', type: 'source', position: { x: 0, y: 0 }, data: { label: 'Orders' } },
 })
 
@@ -71,8 +74,11 @@ describe('opening another workflow', () => {
     expect(s.sinkCBStatuses).toEqual({})
     expect(s.sinkBufferFill).toEqual({})
     expect(s.workflowDeadLetterCount).toBe(0)
-    expect(s.edgeSamples).toEqual({})
-    expect(s.edgeThroughput).toEqual({})
+    expect(s.edgeFlows).toEqual({})
+    expect(s.nodeErrorFlows).toEqual({})
+    expect(s.nodeBusy).toEqual({})
+    expect(s.nodeHeld).toEqual({})
+    expect(s.statusFeedStale).toBe(false)
     expect(s.selectedNode).toBeNull()
   })
 

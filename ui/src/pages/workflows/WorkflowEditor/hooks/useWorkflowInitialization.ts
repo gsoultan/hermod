@@ -56,19 +56,22 @@ function toStoreValues(workflow: any): any {
     targetHandle: edge.target_handle,
     type: 'live',
     data: edge.config,
-    animated: workflow.active,
-    style: { strokeWidth: workflow.active ? 3 : 2 },
+    // No React Flow `animated`: it ran its own dash on every edge of an active
+    // workflow, whether or not anything was flowing. LiveEdge draws motion
+    // from the measured rate instead.
     markerEnd: {
       type: MarkerType.ArrowClosed,
       width: 20,
       height: 20,
-      color: workflow.active ? 'var(--mantine-color-blue-6)' : 'var(--mantine-color-gray-5)',
+      color: 'var(--mantine-color-gray-5)',
     }
   }));
   // A simulation describes the workflow it ran on. The store outlives this
   // page, so without this the next workflow opened was drawn with the last
   // one's result.
   newValues.testResults = null;
+  newValues.testRunGraph = null;
+  newValues.simReplay = null;
   // Same for each node's own preview: it ran on this workflow's nodes.
   newValues.nodePreviews = {};
   return newValues;
@@ -91,8 +94,12 @@ function noLiveState() {
     sinkCBStatuses: {},
     sinkBufferFill: {},
     workflowDeadLetterCount: 0,
-    edgeSamples: {},
-    edgeThroughput: {},
+    edgeFlows: {},
+    nodeErrorFlows: {},
+    nodeBusy: {},
+    nodeHeld: {},
+    nodeLatencies: {},
+    statusFeedStale: false,
     selectedNode: null,
   };
 }

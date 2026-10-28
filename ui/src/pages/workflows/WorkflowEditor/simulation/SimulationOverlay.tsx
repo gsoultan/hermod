@@ -3,8 +3,9 @@ import { Panel } from '@xyflow/react';
 import { IconEraser, IconRoute } from '@tabler/icons-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useWorkflowStore } from '../store/useWorkflowStore';
-import { simulationCounts, simulationFailures, simulationStatusWord, type SimulationNodeStatus } from './simulationPath';
+import { simulationCounts, simulationFailures, simulationOutdated, simulationStatusWord, type SimulationNodeStatus } from './simulationPath';
 import { SIMULATION_STATUS_STYLE } from './SimulationStatusBadge';
+import { SimulationReplay } from './SimulationReplay';
 
 /** The arrowhead on an edge the simulated message travelled along. */
 export const TAKEN_EDGE_MARKER_ID = 'hermod-simulation-taken-arrow';
@@ -26,6 +27,7 @@ export function SimulationOverlay() {
   const counts = useWorkflowStore(useShallow((s) => simulationCounts(s.testResults, s.nodes)));
   const failures = useWorkflowStore(useShallow((s) => simulationFailures(s.testResults, s.nodes)));
   const setTestResults = useWorkflowStore((s) => s.setTestResults);
+  const outdated = useWorkflowStore((s) => simulationOutdated(s.testResults, s.testRunGraph, s.nodes, s.edges));
 
   if (!counts) return null;
 
@@ -98,6 +100,14 @@ export function SimulationOverlay() {
               <Box w={18} h={3} bg="green.6" style={{ borderRadius: 2 }} />
               <Text size="xs" c="dimmed">path taken</Text>
             </Group>
+
+            <SimulationReplay />
+
+            {outdated && (
+              <Badge color="orange" variant="light" title="Nodes or connections changed after this simulation ran">
+                Graph changed since this run
+              </Badge>
+            )}
 
             <Button
               size="compact-sm"

@@ -496,8 +496,12 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 	eng.SetTraceRecorder(r)
 
 	adj := make(map[string][]string)
+	// edgeIDs holds each edge's canvas ID at its target's position in adj, so
+	// the router counts every edge under the ID the editor draws it by.
+	edgeIDs := make(map[string][]string)
 	for _, edge := range wf.Edges {
 		adj[edge.SourceID] = append(adj[edge.SourceID], edge.TargetID)
+		edgeIDs[edge.SourceID] = append(edgeIDs[edge.SourceID], edge.ID)
 	}
 
 	// Find source nodes for router
@@ -509,7 +513,7 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 	}
 
 	// Set Workflow Router
-	r.setupWorkflowRouter(eng, id, sourceNodes, nodeMap, adj, nodeIndex, edgeLabels, edgeBreakpoints, inDegree, sinkNodeToIndex)
+	r.setupWorkflowRouter(eng, id, sourceNodes, nodeMap, adj, edgeIDs, nodeIndex, edgeLabels, edgeBreakpoints, inDegree, sinkNodeToIndex)
 
 	// Per-source configuration
 	sourceEngineCfg := config.SourceConfig{}
@@ -589,6 +593,7 @@ func (r *Registry) setupWorkflowRouter(
 	sourceNodes []*storage.WorkflowNode,
 	nodeMap map[string]*storage.WorkflowNode,
 	adj map[string][]string,
+	edgeIDs map[string][]string,
 	nodeIndex map[string]int,
 	edgeLabels map[string][]string,
 	edgeBreakpoints map[string]bool,
@@ -611,7 +616,7 @@ func (r *Registry) setupWorkflowRouter(
 	// Per-node and per-edge counters, resolved once here so each message pays
 	// only atomic adds for them. Payload samples are taken only while someone
 	// has this workflow's status open.
-	tel := traversal.NewTelemetry(eng, nodeIndex, adj, r.workflowWatcherCount(id))
+	tel := traversal.NewTelemetry(eng, nodeIndex, adj, edgeIDs, r.workflowWatcherCount(id))
 
 	eng.SetRouter(func(ctx context.Context, msg hermod.Message) ([]pkgengine.RoutedMessage, error) {
 		// Stamp the workflow id onto every message as it enters the workflow.

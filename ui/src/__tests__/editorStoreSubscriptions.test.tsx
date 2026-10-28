@@ -39,7 +39,7 @@ const node = (id: string, x = 0): Node => ({ id, type: 'transformation', positio
 
 // Writes that none of the subjects below read.
 const unrelatedWrites = () => {
-  act(() => useWorkflowStore.setState({ nodeMetrics: { a: 5 }, edgeThroughput: { 'a->b': 2 } }))
+  act(() => useWorkflowStore.setState({ nodeMetrics: { a: 5 }, nodeBusy: { a: { in_flight: 1, since_progress_ms: 10 } } }))
   act(() => useWorkflowStore.setState((s) => ({ logs: [{ message: 'line' } as any, ...s.logs] })))
   act(() => useWorkflowStore.setState({ nodeSamples: { a: { id: 1 } }, sourceStatus: 'running' }))
   act(() => useWorkflowStore.getState().onNodesChange([{ type: 'position', id: 'a', position: { x: 40, y: 0 } }]))
@@ -70,7 +70,7 @@ describe('editor store subscriptions', () => {
       edges: [],
       logs: [],
       nodeMetrics: {},
-      edgeThroughput: {},
+      nodeBusy: {},
       nodeSamples: {},
       sourceStatus: '',
       selectedNode: null,

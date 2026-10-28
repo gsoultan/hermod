@@ -30,6 +30,24 @@ type NodeStats struct {
 	// nextSample is the UnixNano before which no further payload sample may
 	// be taken for this node; see ClaimSample.
 	nextSample atomic.Int64
+
+	// inFlight is how many runs of the node have begun and not ended, and
+	// progressAt the UnixNano of the last run ending, or of the run that began
+	// while nothing else was in flight. Together they tell a hung node — work
+	// in it and nothing finished for a long time — from an idle one, whose
+	// counters stop moving just the same.
+	inFlight   atomic.Int64
+	progressAt atomic.Int64
+
+	// held is how many messages the debugger is holding before this node.
+	held atomic.Int64
+}
+
+// NodeBusy is a node with work in it: how many runs are in flight, and how long
+// it has been since the node last finished one.
+type NodeBusy struct {
+	InFlight        int64 `json:"in_flight"`
+	SinceProgressMs int64 `json:"since_progress_ms"`
 }
 
 // NodeStats returns the handle for nodeID, creating it on first use. Every
@@ -72,6 +90,69 @@ func loadOrStoreTyped[T any](m *sync.Map, key string, fresh *T) *T {
 		return t
 	}
 	return fresh
+}
+
+// Begin records a run of the node starting at now. Every Begin must be matched
+// by an End.
+func (n *NodeStats) Begin(now time.Time) {
+	if n.inFlight.Add(1) == 1 {
+		n.progressAt.Store(now.UnixNano())
+	}
+}
+
+// End records a run of the node finishing at now, failed or not.
+func (n *NodeStats) End(now time.Time) {
+	if n.inFlight.Add(-1) < 0 {
+		// An End without its Begin; never report negative work.
+		n.inFlight.Store(0)
+	}
+	n.progressAt.Store(now.UnixNano())
+}
+
+// Hold records the debugger holding a message before the node; Release ends it.
+func (n *NodeStats) Hold() { n.held.Add(1) }
+
+// Release records the debugger letting go of a message it held before the node.
+func (n *NodeStats) Release() {
+	if n.held.Add(-1) < 0 {
+		n.held.Store(0)
+	}
+}
+
+// GetNodeHeld returns how many messages the debugger holds before each node.
+// Nodes with none held are absent.
+func (s *StatusTracker) GetNodeHeld() map[string]int64 {
+	res := make(map[string]int64)
+	s.nodeStats.Range(func(key, value any) bool {
+		id, okKey := key.(string)
+		n, okVal := value.(*NodeStats)
+		if okKey && okVal {
+			if held := n.held.Load(); held > 0 {
+				res[id] = held
+			}
+		}
+		return true
+	})
+	return res
+}
+
+// GetNodeBusy returns every node with a run in flight. Idle nodes are absent.
+func (s *StatusTracker) GetNodeBusy() map[string]NodeBusy {
+	now := s.clock().UnixNano()
+	res := make(map[string]NodeBusy)
+	s.nodeStats.Range(func(key, value any) bool {
+		id, okKey := key.(string)
+		n, okVal := value.(*NodeStats)
+		if !okKey || !okVal {
+			return true
+		}
+		if inFlight := n.inFlight.Load(); inFlight > 0 {
+			since := max(now-n.progressAt.Load(), 0)
+			res[id] = NodeBusy{InFlight: inFlight, SinceProgressMs: since / int64(time.Millisecond)}
+		}
+		return true
+	})
+	return res
 }
 
 // Count records one message through the node without a duration — for a node
@@ -119,6 +200,31 @@ func (n *NodeStats) ClaimSample(nowNanos int64, every time.Duration) bool {
 // caller can resolve it once and add to it without building the key.
 func (s *StatusTracker) EdgeCounter(sourceNodeID, targetNodeID string) *atomic.Uint64 {
 	return s.getOrCreateAtomic(&s.edgeMetrics, sourceNodeID+"->"+targetNodeID)
+}
+
+// EdgeIDCounter returns the message counter for one canvas edge, by the edge's
+// own ID. EdgeCounter is keyed by the pair of nodes an edge joins, so two edges
+// between the same two nodes share it; this one tells them apart.
+func (s *StatusTracker) EdgeIDCounter(edgeID string) *atomic.Uint64 {
+	return s.getOrCreateAtomic(&s.edgeIDMetrics, edgeID)
+}
+
+// SampleEdgeCounts returns every edge's cumulative message count by edge ID,
+// and the time it read them in Unix milliseconds. The counts only become a rate
+// against an earlier sample, and status frames go out at uneven intervals, so
+// the time of the read has to travel with them.
+func (s *StatusTracker) SampleEdgeCounts() (map[string]uint64, int64) {
+	at := s.clock().UnixMilli()
+	res := make(map[string]uint64)
+	s.edgeIDMetrics.Range(func(key, value any) bool {
+		id, okKey := key.(string)
+		c, okVal := value.(*atomic.Uint64)
+		if okKey && okVal {
+			res[id] = c.Load()
+		}
+		return true
+	})
+	return res, at
 }
 
 // GetNodeLatencies returns each node's moving-average run time. Nodes that

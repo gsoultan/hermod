@@ -4,8 +4,16 @@ import { Box, Text, useMantineColorScheme, ActionIcon, Tooltip, Paper, Group, St
 import { useShallow } from 'zustand/react/shallow';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
 import { nodeSimulationResult } from '@/pages/workflows/WorkflowEditor/simulation/simulationPath';
+import { nodeLiveProblem } from '@/pages/workflows/WorkflowEditor/live/liveHealth';
 import { SIMULATION_STATUS_STYLE, SimulationStatusBadge } from '@/pages/workflows/WorkflowEditor/simulation/SimulationStatusBadge';
 import { IconEye, IconPlus, IconTrash } from '@tabler/icons-react';
+function problemFields(p: ReturnType<typeof nodeLiveProblem>) {
+  return {
+    problemSeverity: p?.severity ?? null,
+    problemText: p ? p.text.charAt(0).toUpperCase() + p.text.slice(1) : null,
+  };
+}
+
 export const WorkflowContext = createContext<{
   onPlusClick: (nodeId: string, handleId: string | null) => void;
 } | null>(null);
@@ -110,6 +118,9 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
       // The same object until the next run, so a telemetry frame does not
       // re-render the node on its account.
       simulation: nodeSimulationResult(state.testResults, id),
+      // What is wrong here on a live run, as plain fields so useShallow
+      // compares them; null fields when nothing is.
+      ...problemFields(state.testResults ? null : nodeLiveProblem(state, id)),
     }))
   );
 
@@ -118,7 +129,8 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
   const sample = live.sample ?? data.sample;
   const cbStatus = live.cbStatus ?? data.cbStatus;
   const bufferFill = live.bufferFill ?? data.bufferFill;
-  const { sourceStatus, sinkStatus, simulation } = live;
+  const { sourceStatus, sinkStatus, simulation, problemSeverity, problemText } = live;
+  const problemColor = problemSeverity === 'error' ? 'red' : problemSeverity === 'warning' ? 'orange' : null;
 
   const nodeStatus = type === 'Source' ? sourceStatus : (type === 'Sink' ? sinkStatus : null);
 
@@ -154,7 +166,7 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
       style={{
         background: isDark ? 'rgba(37, 38, 43, 0.8)' : 'rgba(255, 255, 255, 0.8)',
         backdropFilter: 'blur(8px)',
-        border: `${borderWidth} ${borderStyle} var(--mantine-color-${cbOpen ? 'red' : (selected ? 'blue' : (simulationColor ?? healthColor))}-6)`,
+        border: `${problemColor ? '3px' : borderWidth} ${borderStyle} var(--mantine-color-${cbOpen ? 'red' : (selected ? 'blue' : (simulationColor ?? problemColor ?? healthColor))}-6)`,
         boxShadow: reached ? `0 0 0 4px var(--mantine-color-${simulationColor}-light), var(--paper-shadow)` : undefined,
         // Greyed rather than faded hard: its label has to stay readable, since
         // the node is still one the operator may want to open.
@@ -348,6 +360,22 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
           the refactor that dropped the simulation's canvas styling -- so a run
           changed nothing here while the toast said the path was highlighted. */}
       {simulation && <SimulationStatusBadge result={simulation} />}
+
+      {/* On a live run, what is wrong here, above the node where it is seen
+          first: stuck, hung, failing, stopped or falling behind. */}
+      {problemColor && problemText && (
+        <Badge
+          role="note"
+          aria-label={`Problem: ${problemText}`}
+          color={problemColor}
+          variant="filled"
+          size="sm"
+          radius="sm"
+          style={{ position: 'absolute', top: -12, left: 10, zIndex: 105, textTransform: 'none', maxWidth: 'calc(100% - 20px)' }}
+        >
+          {problemText}
+        </Badge>
+      )}
     </Paper>
   );
 };
