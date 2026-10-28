@@ -30,7 +30,10 @@ type mockRegistry struct {
 	RunWorkflowNodeFn func(workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error)
 	// OnNodeContext, when set, sees the context each node is run with.
 	OnNodeContext func(ctx context.Context)
-	Logs          []string
+	// PauseFn, when set, attaches a debugger and is called in place of the
+	// pause at each node.
+	PauseFn func(nodeID string)
+	Logs    []string
 
 	// Nodes on parallel branches log from their own goroutines — two that fail
 	// together both report it.
@@ -69,8 +72,12 @@ func (m *mockRegistry) RunWorkflowNodeContext(ctx context.Context, workflowID st
 	msg.Retain()
 	return []hermod.Message{msg}, "", nil
 }
-func (m *mockRegistry) IsDebuggerAttached(workflowID string) bool                               { return false }
-func (m *mockRegistry) PauseForDebuggerContext(context.Context, string, string, hermod.Message) {}
+func (m *mockRegistry) IsDebuggerAttached(workflowID string) bool { return m.PauseFn != nil }
+func (m *mockRegistry) PauseForDebuggerContext(_ context.Context, _ string, nodeID string, _ hermod.Message) {
+	if m.PauseFn != nil {
+		m.PauseFn(nodeID)
+	}
+}
 func (m *mockRegistry) BroadcastLog(workflowID, level, msg, details string) {
 	m.logsMu.Lock()
 	defer m.logsMu.Unlock()

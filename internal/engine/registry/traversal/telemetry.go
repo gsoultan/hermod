@@ -40,6 +40,9 @@ type Telemetry struct {
 	// edges is indexed by NodeIndex, then by position in Adj[nodeID]: the
 	// order handleResults walks the targets in.
 	edges [][]*atomic.Uint64
+	// edgeIDs is laid out like edges and counts the same messages under each
+	// canvas edge's own ID; nil where the edge has no ID.
+	edgeIDs [][]*atomic.Uint64
 
 	// watchers counts the clients watching this workflow's status. Payload
 	// samples are taken only while it is above zero; nil means never.
@@ -48,8 +51,9 @@ type Telemetry struct {
 
 // NewTelemetry resolves the counters for every node and edge of a workflow.
 // adj must not change afterwards: edge counters are matched to targets by
-// position.
-func NewTelemetry(eng *pkgengine.Engine, nodeIndex map[string]int, adj map[string][]string, watchers *atomic.Int32) *Telemetry {
+// position. edgeIDs, when given, holds each edge's canvas ID at the same
+// position as its target in adj.
+func NewTelemetry(eng *pkgengine.Engine, nodeIndex map[string]int, adj map[string][]string, edgeIDs map[string][]string, watchers *atomic.Int32) *Telemetry {
 	if eng == nil {
 		return nil
 	}
@@ -57,6 +61,7 @@ func NewTelemetry(eng *pkgengine.Engine, nodeIndex map[string]int, adj map[strin
 		eng:      eng,
 		nodes:    make([]*telemetry.NodeStats, len(nodeIndex)),
 		edges:    make([][]*atomic.Uint64, len(nodeIndex)),
+		edgeIDs:  make([][]*atomic.Uint64, len(nodeIndex)),
 		watchers: watchers,
 	}
 	for id, idx := range nodeIndex {
@@ -69,10 +74,16 @@ func NewTelemetry(eng *pkgengine.Engine, nodeIndex map[string]int, adj map[strin
 			continue
 		}
 		counters := make([]*atomic.Uint64, len(targets))
+		byID := make([]*atomic.Uint64, len(targets))
+		ids := edgeIDs[id]
 		for i, target := range targets {
 			counters[i] = eng.EdgeCounter(id, target)
+			if i < len(ids) && ids[i] != "" {
+				byID[i] = eng.EdgeIDCounter(ids[i])
+			}
 		}
 		tel.edges[idx] = counters
+		tel.edgeIDs[idx] = byID
 	}
 	return tel
 }
@@ -98,6 +109,31 @@ func (tel *Telemetry) observe(idx int, d time.Duration, failed bool) {
 	}
 }
 
+// begin records a run of the node at idx starting at now.
+func (tel *Telemetry) begin(idx int, now time.Time) {
+	if n := tel.node(idx); n != nil {
+		n.Begin(now)
+	}
+}
+
+// end records a run of the node at idx finishing at now.
+func (tel *Telemetry) end(idx int, now time.Time) {
+	if n := tel.node(idx); n != nil {
+		n.End(now)
+	}
+}
+
+// hold records the debugger holding a message before the node at idx, and
+// returns the call that records it letting go.
+func (tel *Telemetry) hold(idx int) func() {
+	n := tel.node(idx)
+	if n == nil {
+		return func() {}
+	}
+	n.Hold()
+	return n.Release
+}
+
 // edge records n messages sent along the pos-th edge out of the node at idx.
 func (tel *Telemetry) edge(idx, pos, n int) {
 	if tel == nil || idx < 0 || idx >= len(tel.edges) {
@@ -108,6 +144,9 @@ func (tel *Telemetry) edge(idx, pos, n int) {
 		return
 	}
 	counters[pos].Add(uint64(n))
+	if c := tel.edgeIDs[idx][pos]; c != nil {
+		c.Add(uint64(n))
+	}
 }
 
 // sample stores msg as the node's latest payload sample, if anyone is watching

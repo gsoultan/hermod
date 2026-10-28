@@ -216,6 +216,12 @@ func (e *Engine) EdgeCounter(sourceNodeID, targetNodeID string) *atomic.Uint64 {
 	return e.statusTracker.EdgeCounter(sourceNodeID, targetNodeID)
 }
 
+// EdgeIDCounter returns the message counter for one canvas edge, by its ID.
+// Resolve it once and keep it: adding to it builds no key.
+func (e *Engine) EdgeIDCounter(edgeID string) *atomic.Uint64 {
+	return e.statusTracker.EdgeIDCounter(edgeID)
+}
+
 func (e *Engine) UpdateEdgeMetric(sourceNodeID string, targetNodeID string, count uint64) {
 	e.statusTracker.UpdateEdgeMetric(sourceNodeID, targetNodeID, count)
 }

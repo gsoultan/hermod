@@ -65,6 +65,15 @@ func TestRunningWorkflowReportsPerNodeAndPerEdgeTelemetry(t *testing.T) {
 			t.Errorf("EdgeMetrics[%s] = %d, want %d", edge, got, messages)
 		}
 	}
+	// The editor draws each canvas edge from its own count, keyed by its ID.
+	for _, edge := range []string{"e1", "e2", "e3"} {
+		if got := st.EdgeCounts[edge]; got != messages {
+			t.Errorf("EdgeCounts[%s] = %d, want %d", edge, got, messages)
+		}
+	}
+	if st.SampledAt == 0 {
+		t.Error("the status does not say when its edge counts were read")
+	}
 	for _, node := range []string{"cond", "map"} {
 		if got := st.NodeLatencies[node]; got <= 0 {
 			t.Errorf("NodeLatencies[%s] = %v, want a measured run time", node, got)
@@ -107,4 +116,43 @@ func keys(m map[string]any) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// While someone has a workflow open, its status is pushed on a steady beat so
+// the editor's edge rates stay current. The engine only pushes on its own
+// events and its health tick, every few seconds and unevenly. Nobody watching
+// costs nothing: no frame is built.
+func TestWatchedWorkflowStatusIsPushedOnABeat(t *testing.T) {
+	reg := NewRegistry(newPipeStorage())
+	reg.SetStateStore(state.NewMemoryStore())
+	const wfID = "wf-status-beat"
+
+	runTelemetryWorkflowAndKeepRunning := func() func() {
+		snk := &pipeSink{name: "out", countOnly: true}
+		return startBenchPipeline(t, reg, benchWorkflow(wfID), newWideSource(10, 8), snk)
+	}
+	stop := runTelemetryWorkflowAndKeepRunning()
+	defer stop()
+
+	if pushed := reg.pushWatchedStatuses(); pushed != 0 {
+		t.Fatalf("pushed %d frames with nobody watching, want 0", pushed)
+	}
+
+	ch := reg.SubscribeWorkflowStatus(wfID)
+	defer reg.UnsubscribeStatus(ch)
+	for len(ch) > 0 {
+		<-ch
+	}
+
+	if pushed := reg.pushWatchedStatuses(); pushed != 1 {
+		t.Fatalf("pushed %d frames with the workflow open, want 1", pushed)
+	}
+	select {
+	case u := <-ch:
+		if u.WorkflowID != wfID || u.SampledAt == 0 {
+			t.Errorf("pushed frame = workflow %q, sampled_at %d; want %q and a read time", u.WorkflowID, u.SampledAt, wfID)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the watched workflow's subscriber got no frame")
+	}
 }

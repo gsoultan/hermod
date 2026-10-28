@@ -399,10 +399,23 @@ func (t *WorkflowTraversal) runNode(ctx context.Context, idx int, node *storage.
 	}
 
 	if t.Registry.IsDebuggerAttached(t.WorkflowID) {
+		release := t.Telemetry.hold(idx)
 		t.Registry.PauseForDebuggerContext(ctx, t.WorkflowID, node.ID, msg)
+		release()
 	}
 
 	start := time.Now()
+	// In flight from here to done, so a node that never returns shows as busy
+	// rather than as idle.
+	t.Telemetry.begin(idx, start)
+	ended := false
+	defer func() {
+		// A panicking node is recovered by processNode; without this it would
+		// stay in flight and read as hung for good.
+		if !ended {
+			t.Telemetry.end(idx, time.Now())
+		}
+	}()
 	msgs, branch, err := t.Registry.RunWorkflowNodeContext(ctx, t.WorkflowID, node, msg)
 
 	// Stamped when the node finished, not when it started. The step's payload is
@@ -413,6 +426,8 @@ func (t *WorkflowTraversal) runNode(ctx context.Context, idx int, node *storage.
 	// dropping a field it had not yet produced. One instant for every fan-out
 	// sibling: they did all finish together.
 	done := time.Now()
+	t.Telemetry.end(idx, done)
+	ended = true
 
 	// Per-node count, errors and run time. The debugger pause above is
 	// outside the measured span, so a breakpoint does not read as a slow node.

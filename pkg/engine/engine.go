@@ -461,10 +461,23 @@ func (e *Engine) GetStatus() telemetry.StatusUpdate {
 	if len(nodeLatencies) > 0 {
 		update.NodeLatencies = nodeLatencies
 	}
+	nodeBusy := e.statusTracker.GetNodeBusy()
+	if len(nodeBusy) > 0 {
+		update.NodeBusy = nodeBusy
+	}
+	nodeHeld := e.statusTracker.GetNodeHeld()
+	if len(nodeHeld) > 0 {
+		update.NodeHeld = nodeHeld
+	}
 	edgeMetrics := e.statusTracker.GetEdgeMetrics()
 	if len(edgeMetrics) > 0 {
 		update.EdgeMetrics = edgeMetrics
 	}
+	edgeCounts, sampledAt := e.statusTracker.SampleEdgeCounts()
+	if len(edgeCounts) > 0 {
+		update.EdgeCounts = edgeCounts
+	}
+	update.SampledAt = sampledAt
 
 	if e.dqScorer != nil {
 		update.AverageDQScore = e.dqScorer.GetAverageScore(e.workflowID) * 100

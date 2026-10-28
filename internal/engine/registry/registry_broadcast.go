@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/storage"
+	pkgengine "github.com/gsoultan/hermod/pkg/engine"
 	"github.com/gsoultan/hermod/pkg/engine/telemetry"
 )
 
@@ -624,4 +625,63 @@ func (r *Registry) hasLogStorage() bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.logStore() != nil
+}
+
+// watchedStatusInterval is how often a workflow that someone has open has its
+// status pushed. The editor turns successive edge counts into rates, and the
+// engine on its own pushes only on events and on its health tick — every five
+// seconds by default, and unevenly.
+const watchedStatusInterval = time.Second
+
+// runWatchedStatusPusher pushes each watched workflow's status every interval
+// until the registry closes.
+func (r *Registry) runWatchedStatusPusher(interval time.Duration) {
+	defer func() {
+		if p := recover(); p != nil {
+			r.logger.Error("Registry: watched status pusher panicked", "panic", p)
+		}
+	}()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-r.ctx.Done():
+			return
+		case <-ticker.C:
+			r.pushWatchedStatuses()
+		}
+	}
+}
+
+// pushWatchedStatuses broadcasts the status of every running workflow that has
+// a status subscriber, and returns how many it pushed. A workflow nobody is
+// watching is skipped before its status is built.
+func (r *Registry) pushWatchedStatuses() int {
+	if r.hasStatusSubs.Load() <= 0 {
+		return 0
+	}
+	type watched struct {
+		id  string
+		eng *pkgengine.Engine
+	}
+	r.mu.Lock()
+	targets := make([]watched, 0, len(r.engines))
+	for id, ae := range r.engines {
+		if ae == nil || ae.engine == nil {
+			continue
+		}
+		if r.workflowWatcherCount(id).Load() > 0 {
+			targets = append(targets, watched{id: id, eng: ae.engine})
+		}
+	}
+	r.mu.Unlock()
+
+	for _, w := range targets {
+		update := w.eng.GetStatus()
+		if update.WorkflowID == "" {
+			update.WorkflowID = w.id
+		}
+		r.BroadcastStatus(update)
+	}
+	return len(targets)
 }

@@ -76,7 +76,7 @@ func TestTraversalRecordsNodeAndEdgeTelemetry(t *testing.T) {
 	}
 	eng := pkgengine.NewEngine(nil, nil, nil)
 	g := newTelemetryGraph()
-	tel := traversal.NewTelemetry(eng, g.nodeIndex, g.adj, nil)
+	tel := traversal.NewTelemetry(eng, g.nodeIndex, g.adj, nil, nil)
 
 	for i := range 5 {
 		g.run(t, reg, eng, tel, i)
@@ -121,7 +121,7 @@ func TestTraversalCountsEveryFanOutMessageOnTheEdge(t *testing.T) {
 	}
 	eng := pkgengine.NewEngine(nil, nil, nil)
 	g := newTelemetryGraph()
-	tel := traversal.NewTelemetry(eng, g.nodeIndex, g.adj, nil)
+	tel := traversal.NewTelemetry(eng, g.nodeIndex, g.adj, nil, nil)
 
 	g.run(t, reg, eng, tel, 0)
 
@@ -142,7 +142,7 @@ func TestTraversalSamplesOnlyWhileWatchedAndAtMostOncePerInterval(t *testing.T) 
 	eng := pkgengine.NewEngine(nil, nil, nil)
 	g := newTelemetryGraph()
 	var watchers atomic.Int32
-	tel := traversal.NewTelemetry(eng, g.nodeIndex, g.adj, &watchers)
+	tel := traversal.NewTelemetry(eng, g.nodeIndex, g.adj, nil, &watchers)
 
 	for i := range 20 {
 		g.run(t, reg, eng, tel, i)
@@ -180,4 +180,122 @@ func sampleSeq(sample map[string]any) any {
 		return data["seq"]
 	}
 	return nil
+}
+
+// Each edge is also counted under its canvas ID, position for position with
+// the adjacency, so two edges between the same two nodes keep separate counts
+// and the editor can draw each with its own rate.
+func TestTraversalCountsEachEdgeUnderItsOwnID(t *testing.T) {
+	reg := &mockRegistry{}
+	eng := pkgengine.NewEngine(nil, nil, nil)
+	g := newTelemetryGraph()
+	// T reaches U along two edges, as two switch cases into one sink would.
+	g.adj["T"] = []string{"U", "U"}
+	g.inDegree["U"] = 2
+	edgeIDs := map[string][]string{"S": {"e-st"}, "T": {"e-tu-1", "e-tu-2"}}
+	tel := traversal.NewTelemetry(eng, g.nodeIndex, g.adj, edgeIDs, nil)
+
+	for i := range 4 {
+		g.run(t, reg, eng, tel, i)
+	}
+
+	counts := eng.GetStatus().EdgeCounts
+	for id, want := range map[string]uint64{"e-st": 4, "e-tu-1": 4, "e-tu-2": 4} {
+		if got := counts[id]; got != want {
+			t.Errorf("EdgeCounts[%s] = %d, want %d", id, got, want)
+		}
+	}
+}
+
+// While a node is running a message it is reported busy, and once it returns it
+// is not: this is what lets the editor flag a node that has hung.
+func TestTraversalReportsANodeBusyWhileItRuns(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	reg := &mockRegistry{
+		RunWorkflowNodeFn: func(_ string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
+			if node.ID == "T" {
+				close(entered)
+				<-release
+			}
+			msg.Retain()
+			return []hermod.Message{msg}, "", nil
+		},
+	}
+	eng := pkgengine.NewEngine(nil, nil, nil)
+	g := newTelemetryGraph()
+	tel := traversal.NewTelemetry(eng, g.nodeIndex, g.adj, nil, nil)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		g.run(t, reg, eng, tel, 0)
+	}()
+	<-entered
+
+	if got := eng.GetStatus().NodeBusy["T"]; got.InFlight != 1 {
+		t.Errorf("NodeBusy[T] = %+v while T runs, want 1 in flight", got)
+	}
+	close(release)
+	<-done
+	if busy := eng.GetStatus().NodeBusy; len(busy) != 0 {
+		t.Errorf("NodeBusy = %+v after the traversal finished, want none", busy)
+	}
+}
+
+// A node that panics is recovered by the traversal. It must not be left
+// counted as in flight, or the editor would report it hung for good.
+func TestTraversalDoesNotLeaveAPanickedNodeBusy(t *testing.T) {
+	reg := &mockRegistry{
+		RunWorkflowNodeFn: func(_ string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
+			if node.ID == "T" {
+				panic("boom")
+			}
+			msg.Retain()
+			return []hermod.Message{msg}, "", nil
+		},
+	}
+	eng := pkgengine.NewEngine(nil, nil, nil)
+	g := newTelemetryGraph()
+	tel := traversal.NewTelemetry(eng, g.nodeIndex, g.adj, nil, nil)
+
+	g.run(t, reg, eng, tel, 0)
+
+	if busy := eng.GetStatus().NodeBusy; len(busy) != 0 {
+		t.Errorf("NodeBusy = %+v after T panicked, want none", busy)
+	}
+}
+
+// A message held by the debugger before a node is reported, so the editor can
+// say the node is waiting on the debugger rather than leaving it to look stuck.
+func TestTraversalReportsAMessageHeldByTheDebugger(t *testing.T) {
+	held := make(chan struct{})
+	release := make(chan struct{})
+	reg := &mockRegistry{
+		PauseFn: func(nodeID string) {
+			if nodeID == "U" {
+				close(held)
+				<-release
+			}
+		},
+	}
+	eng := pkgengine.NewEngine(nil, nil, nil)
+	g := newTelemetryGraph()
+	tel := traversal.NewTelemetry(eng, g.nodeIndex, g.adj, nil, nil)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		g.run(t, reg, eng, tel, 0)
+	}()
+	<-held
+
+	if got := eng.GetStatus().NodeHeld["U"]; got != 1 {
+		t.Errorf("NodeHeld[U] = %d while the debugger holds a message there, want 1", got)
+	}
+	close(release)
+	<-done
+	if held := eng.GetStatus().NodeHeld; len(held) != 0 {
+		t.Errorf("NodeHeld = %v after the debugger let go, want none", held)
+	}
 }

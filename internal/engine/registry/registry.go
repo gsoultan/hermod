@@ -404,6 +404,7 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 	go reg.startReconciliationLoop(ctx)
 	go reg.optimizer.Start(reg.ctx)
 	go reg.runStatusFlusher()
+	go reg.runWatchedStatusPusher(watchedStatusInterval)
 	go reg.runDashboardSampler(dashboardSampleInterval())
 	reg.publishExpressionSecrets()
 	return reg
