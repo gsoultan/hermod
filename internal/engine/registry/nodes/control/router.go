@@ -86,3 +86,23 @@ func routeBranch(nodeType, label string, index int) string {
 	}
 	return prefix + "_" + strconv.Itoa(index)
 }
+
+// BranchNames lists the branches a switch's cases or a router's rules route to,
+// in order, named as routeBranch names them. The default branch is not listed.
+// Any other node type has none.
+func BranchNames(nodeType string, config map[string]any) []string {
+	key := "cases"
+	switch nodeType {
+	case "switch":
+	case "router":
+		key = "rules"
+	default:
+		return nil
+	}
+	var names []string
+	for i, item := range evaluator.ParseObjectList(config[key]) {
+		label, _ := item["label"].(string)
+		names = append(names, routeBranch(nodeType, label, i))
+	}
+	return names
+}

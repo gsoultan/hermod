@@ -373,6 +373,14 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 		return errors.New("registry is closing, cannot start new workflow")
 	}
 
+	// Logged once r.mu is released: broadcasting takes it for reading. Deferred
+	// before the lock, so it runs after the unlock below.
+	defer func() {
+		for _, problem := range unroutedBranches(wf) {
+			r.broadcastLog(id, "WARN", problem)
+		}
+	}()
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -1357,14 +1365,27 @@ func (r *Registry) replayWriteToSink(ctx context.Context, workflowID string, nod
 // branch was named, so a resumed message could miss a node a live message
 // reaches, and an approval with an unlabelled edge delivered nothing after its
 // decision.
+//
+// Each target is listed once, however many taken edges lead to it. A replay
+// runs the nodes it is given one after another, with nothing to make a node
+// two edges reach wait for both and run once, so a target listed twice ran
+// twice and wrote twice.
 func replayTargets(wf storage.Workflow, adj map[string][]string, nodeID, branch string) []string {
-	if branch == "" {
-		return adj[nodeID]
-	}
 	var targets []string
+	add := func(id string) {
+		if !slices.Contains(targets, id) {
+			targets = append(targets, id)
+		}
+	}
+	if branch == "" {
+		for _, id := range adj[nodeID] {
+			add(id)
+		}
+		return targets
+	}
 	for _, edge := range wf.Edges {
 		if edge.SourceID == nodeID && traversal.TakesEdge(branch, edgeLabel(edge)) {
-			targets = append(targets, edge.TargetID)
+			add(edge.TargetID)
 		}
 	}
 	return targets
