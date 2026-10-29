@@ -33,6 +33,9 @@ func (r *Registry) TestSource(ctx context.Context, cfg factory.SourceConfig) err
 }
 
 func (r *Registry) TestSink(ctx context.Context, cfg factory.SinkConfig) error {
+	if cfg.Type == "txgroup" {
+		return r.checkTxGroup(ctx, cfg)
+	}
 	return r.discoveryService.TestSink(ctx, cfg)
 }
 
