@@ -789,11 +789,41 @@ func (r *Runner) runBufferToSink(ctx context.Context, sinkWg *sync.WaitGroup) {
 		for _, q := range keyed {
 			close(q)
 		}
+		// Workers leave on cancellation, and the handler above can still queue
+		// a message after they have: it races the cancelled context, and a
+		// select picks among ready cases at random. Nothing would count that
+		// message out of inFlightWg, and Start waits on it before closing the
+		// sink channels, so the engine never stopped. Whatever is still queued
+		// once stopping has begun is handed back here. While the engine runs,
+		// the workers drain the closed queues themselves.
+		if ctx.Err() != nil {
+			r.abandonQueued(shared)
+			for _, q := range keyed {
+				r.abandonQueued(q)
+			}
+		}
 
 		if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			r.engine.logger.Error("Buffer-to-Sink consumer error", "workflow_id", r.engine.workflowID, "error", err)
 			r.errCh <- err
 		}
+	}
+}
+
+// abandonQueued gives back every message left in a closed worker queue: the
+// waiting caller, if any, is told the workflow stopped, and the in-flight slot
+// is released. The source never sees an acknowledgement, so a source that
+// redelivers will send the message again.
+func (r *Runner) abandonQueued(q chan hermod.Message) {
+	for m := range q {
+		if m != nil {
+			rs := replyState{out: reply.Outcome{Status: reply.Failed, Error: "the workflow stopped before it finished with the message"}}
+			rs.id, rs.awaited = reply.Take(m)
+			rs.resolve()
+			m.Release()
+		}
+		r.engine.inFlightWg.Done()
+		<-r.engine.inFlightSem
 	}
 }
 
