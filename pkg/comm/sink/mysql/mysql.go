@@ -625,12 +625,17 @@ func (s *MySQLSink) createTable(ctx context.Context, tx sqlExecutor, quotedTable
 	return nil
 }
 
-// mappingDataType is the mapping's column type, TEXT when unset.
+// mappingDataType is the mapping's column type when unset: TEXT, except for a
+// key, which MySQL cannot index as TEXT without a prefix length. A key gets
+// VARCHAR(255), the type of the default table's own key.
 func mappingDataType(m sqlutil.ColumnMapping) string {
-	if m.DataType == "" {
-		return "TEXT"
+	if m.DataType != "" {
+		return m.DataType
 	}
-	return m.DataType
+	if m.IsPrimaryKey {
+		return "VARCHAR(255)"
+	}
+	return "TEXT"
 }
 
 // mappingColumnDef is the column definition a mapping creates.

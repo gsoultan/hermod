@@ -7,6 +7,35 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — Transactional groups (2PC) can be set up and run from the UI
+
+Running a transactional group end to end, from the Sinks page through a
+webhook into PostgreSQL and MariaDB, turned up six things that stopped it
+working. All are fixed:
+
+- **The member picker was always empty.** Neither the Sinks page nor the
+  workflow editor passed the list of sinks to the form, so it said "No eligible
+  sinks" and called every saved member deleted. The form now fetches the list.
+- **One failed batch broke the PostgreSQL member until a restart.** The sink
+  remembered a table it had created inside a transaction that then rolled back,
+  so every later write failed with `relation does not exist`. A table is now
+  remembered only once the transaction that created it commits. This also
+  affected ordinary PostgreSQL sinks whose first batch failed.
+- **A MySQL key column with no type could not create its table.** It was made
+  `TEXT PRIMARY KEY`, which MySQL refuses. An untyped key is now `VARCHAR(255)`.
+- **Members' secret and env references were not resolved**, so a member whose
+  password was a secret could not connect.
+- **Test Connection on a group always failed** with "an ID is required". It now
+  checks the group without starting it — member count, the transaction log,
+  each member's preflight — and names the member at fault.
+- **A group with no state store was refused with no hint in the form.** The form
+  now shows a "Ready to run" check that names the problem and links to
+  Settings, and the error says SQLite is enough for a single server. An
+  in-memory state store, which loses the log on restart, is now refused too.
+
+The form itself is shorter: the sinks, the readiness check, then *Database
+setup* (only for the databases chosen) and *Advanced* folded away.
+
 ### Added — Edge breakpoints stop messages
 
 A breakpoint on a workflow edge now holds a live message on that edge, before

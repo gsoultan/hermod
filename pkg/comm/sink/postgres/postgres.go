@@ -68,6 +68,14 @@ type PostgresSink struct {
 	autoTruncate     bool
 	autoSync         bool
 
+	// txTables are the tables first verified inside the open transaction that
+	// Begin started, and preparedTables those of each prepared one, by ID. Both
+	// are guarded by mu. PostgreSQL DDL is transactional: a table created in a
+	// transaction that rolls back never existed, so verifiedTables may only keep
+	// it once the transaction commits. See forgetTables.
+	txTables       []string
+	preparedTables map[string][]string
+
 	// mappedFields is the set of top-level message fields the mappings cover,
 	// used to notice the ones they do not. Built once at construction: it is
 	// consulted per message and the mappings never change after that.
@@ -212,10 +220,35 @@ func (s *PostgresSink) WriteBatch(ctx context.Context, msgs []hermod.Message) er
 	if err != nil {
 		return err
 	}
+	// Tables this batch verifies first. They stand only if the transaction that
+	// verified them commits: in a transaction of our own that is decided here,
+	// in one Begin started it is decided by Commit, Prepare and their rollbacks.
+	var fresh []string
 	if localTx != nil {
-		defer func() { _ = localTx.Rollback(ctx) }()
+		committed := false
+		defer func() {
+			if !committed {
+				s.forgetTables(fresh)
+			}
+			_ = localTx.Rollback(ctx)
+		}()
+		commit := func() error {
+			if err := localTx.Commit(ctx); err != nil {
+				return err
+			}
+			committed = true
+			return nil
+		}
+		return s.writeBatchIn(ctx, executor, localTx, msgs, &fresh, commit)
 	}
+	defer func() { s.holdTables(fresh) }()
+	return s.writeBatchIn(ctx, executor, nil, msgs, &fresh, nil)
+}
 
+// writeBatchIn applies a batch through executor. localTx and commit are set
+// when the sink owns the transaction; fresh collects the tables it verifies.
+func (s *PostgresSink) writeBatchIn(ctx context.Context, executor pgExecutor, localTx pgx.Tx,
+	msgs []hermod.Message, fresh *[]string, commit func() error) error {
 	// An insert-only batch has no observable ordering, so it can take the COPY
 	// fast path. Everything else — and anything the classifier is unsure about —
 	// stays on the ordered path below, which preserves change-data-capture
@@ -225,25 +258,25 @@ func (s *PostgresSink) WriteBatch(ctx context.Context, msgs []hermod.Message) er
 		if table == "" {
 			return errors.New("postgres sink: refusing to write to an unsafe or empty table name")
 		}
-		if err := s.ensureTable(ctx, executor, table); err != nil {
+		if err := s.ensureTable(ctx, executor, table, fresh); err != nil {
 			return fmt.Errorf("ensure table %s: %w", table, err)
 		}
 		if err := s.writeBatchCopy(ctx, localTx, table, msgs); err != nil {
 			return err
 		}
-		return localTx.Commit(ctx)
+		return commit()
 	}
 
 	// Messages are applied in their original order to preserve change-data-capture
 	// semantics (e.g. a delete followed by an insert for the same key).
 	for _, msg := range msgs {
-		if err := s.applyMessage(ctx, executor, msg); err != nil {
+		if err := s.applyMessage(ctx, executor, msg, fresh); err != nil {
 			return err
 		}
 	}
 
-	if localTx != nil {
-		return localTx.Commit(ctx)
+	if commit != nil {
+		return commit()
 	}
 	return nil
 }
@@ -273,12 +306,12 @@ func (s *PostgresSink) beginExecution(ctx context.Context) (pgExecutor, pgx.Tx, 
 	return tx, tx, nil
 }
 
-func (s *PostgresSink) applyMessage(ctx context.Context, executor pgExecutor, msg hermod.Message) error {
+func (s *PostgresSink) applyMessage(ctx context.Context, executor pgExecutor, msg hermod.Message, fresh *[]string) error {
 	table := s.resolveTable(msg)
 	if table == "" {
 		return errors.New("postgres sink: refusing to write to an unsafe or empty table name")
 	}
-	if err := s.ensureTable(ctx, executor, table); err != nil {
+	if err := s.ensureTable(ctx, executor, table, fresh); err != nil {
 		return fmt.Errorf("ensure table %s: %w", table, err)
 	}
 	if err := s.applyOperation(ctx, executor, table, msg); err != nil {
@@ -461,6 +494,9 @@ func (s *PostgresSink) Commit(ctx context.Context) error {
 	}
 	err := tx.Commit(ctx)
 	s.setTx(nil)
+	if tables := s.takeTxTables(); err != nil {
+		s.forgetTables(tables)
+	}
 	return err
 }
 
@@ -471,6 +507,7 @@ func (s *PostgresSink) Rollback(ctx context.Context) error {
 	}
 	err := tx.Rollback(ctx)
 	s.setTx(nil)
+	s.forgetTables(s.takeTxTables())
 	return err
 }
 
@@ -492,8 +529,10 @@ func (s *PostgresSink) Prepare(ctx context.Context, txID string) (string, error)
 	// single-connection local commit so writes still succeed atomically per
 	// transaction (without cross-sink 2PC guarantees).
 	if s.pooled {
+		tables := s.takeTxTables()
 		if err := tx.Commit(ctx); err != nil {
 			s.setTx(nil)
+			s.forgetTables(tables)
 			return "", fmt.Errorf("local commit (pooled, 2PC unsupported) failed: %w", err)
 		}
 		s.setTx(nil)
@@ -516,6 +555,8 @@ func (s *PostgresSink) Prepare(ctx context.Context, txID string) (string, error)
 			"UUID (%q): it would be interpolated into PREPARE TRANSACTION: %w", txID, err)
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf("PREPARE TRANSACTION '%s'", txID)); err != nil {
+		// A failed PREPARE aborts the transaction, so nothing it created stands.
+		s.forgetTables(s.takeTxTables())
 		return "", err
 	}
 	// PREPARE TRANSACTION ends the server-side transaction but the pgx wrapper
@@ -523,6 +564,14 @@ func (s *PostgresSink) Prepare(ctx context.Context, txID string) (string, error)
 	// pool (the redundant ROLLBACK is a harmless no-op on the server).
 	_ = tx.Rollback(ctx)
 	s.setTx(nil)
+	if tables := s.takeTxTables(); len(tables) > 0 {
+		s.mu.Lock()
+		if s.preparedTables == nil {
+			s.preparedTables = map[string][]string{}
+		}
+		s.preparedTables[txID] = tables
+		s.mu.Unlock()
+	}
 	return txID, nil
 }
 
@@ -538,6 +587,10 @@ func (s *PostgresSink) CommitPrepared(ctx context.Context, txID string) error {
 		return err
 	}
 	_, err := s.pool.Exec(ctx, fmt.Sprintf("COMMIT PREPARED '%s'", txID))
+	if tables := s.takePreparedTables(txID); err != nil {
+		// Whether it committed is unknown here; checking again is the safe side.
+		s.forgetTables(tables)
+	}
 	return err
 }
 
@@ -553,6 +606,7 @@ func (s *PostgresSink) RollbackPrepared(ctx context.Context, txID string) error 
 	if err := s.init(ctx); err != nil {
 		return err
 	}
+	s.forgetTables(s.takePreparedTables(txID))
 	_, err := s.pool.Exec(ctx, fmt.Sprintf("ROLLBACK PREPARED '%s'", txID))
 	if isUndefinedPreparedTransaction(err) {
 		// Already gone, which is the outcome this call exists to produce.
@@ -898,7 +952,10 @@ func (s *PostgresSink) primaryKeyPredicates(msg hermod.Message, startIdx int) ([
 	return pks, args, nil
 }
 
-func (s *PostgresSink) ensureTable(ctx context.Context, executor pgExecutor, table string) error {
+// ensureTable creates or reconciles table once, then remembers it. A table it
+// verifies is appended to fresh, so the caller can forget it again if the
+// transaction it ran in does not commit.
+func (s *PostgresSink) ensureTable(ctx context.Context, executor pgExecutor, table string, fresh *[]string) error {
 	if _, ok := s.verifiedTables.Load(table); ok {
 		return nil
 	}
@@ -936,7 +993,52 @@ func (s *PostgresSink) ensureTable(ctx context.Context, executor pgExecutor, tab
 	}
 
 	s.verifiedTables.Store(table, true)
+	if fresh != nil {
+		*fresh = append(*fresh, table)
+	}
 	return nil
+}
+
+// forgetTables drops tables from the verified cache, so the next write checks
+// them again. It is called when the transaction that verified them did not
+// commit, which undid whatever CREATE TABLE, ALTER TABLE or TRUNCATE it ran.
+// Forgetting is always safe — it costs one more existence check — whereas
+// keeping such a table makes every later write fail with "relation does not
+// exist" until the process restarts.
+func (s *PostgresSink) forgetTables(tables []string) {
+	for _, t := range tables {
+		s.verifiedTables.Delete(t)
+	}
+}
+
+// holdTables records tables verified inside the transaction Begin started,
+// until that transaction is decided.
+func (s *PostgresSink) holdTables(tables []string) {
+	if len(tables) == 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.txTables = append(s.txTables, tables...)
+}
+
+// takeTxTables returns and clears the tables held for the open transaction.
+func (s *PostgresSink) takeTxTables() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t := s.txTables
+	s.txTables = nil
+	return t
+}
+
+// takePreparedTables returns and clears the tables held for a prepared
+// transaction.
+func (s *PostgresSink) takePreparedTables(txID string) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t := s.preparedTables[txID]
+	delete(s.preparedTables, txID)
+	return t
 }
 
 // lockTable returns an unlock function for a per-table mutex.

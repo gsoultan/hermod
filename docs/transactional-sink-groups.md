@@ -16,6 +16,25 @@ MySQL (and MariaDB, which shares the sink) — so a group can keep any mix of Po
 and MySQL destinations consistent with each other. A group containing a sink that
 cannot participate is **refused at construction**, not silently degraded.
 
+### Setting one up in the UI
+
+1. **Give Hermod a durable state store**, once: *Settings → Platform → Global State
+   Store*. SQLite is enough for a single Hermod server; use Redis or Etcd when several
+   workers share the work, so whichever runs the group can read its log. Out of the box
+   none is configured, and every group is refused until one is.
+2. **Create the member sinks** as ordinary PostgreSQL, YugabyteDB, MySQL or MariaDB
+   sinks, and prepare their servers (see *Database setup* below and in the form).
+3. **Add a sink of type *Transactional Group (2PC)*** — on the Sinks page, or from the
+   workflow editor's palette — and pick at least two of those sinks under *Sinks to write
+   to*. The form says whether the group is ready to run, and *Test Connection* asks each
+   database whether it really accepts two-phase commit, without touching a running
+   group's transaction log.
+4. **Wire the group into a workflow** as its sink. Every batch that reaches it is written
+   to all members in one transaction.
+
+If a member refuses a batch, nothing is written anywhere, and the engine retries that
+batch the way it retries any failed sink write.
+
 ### Declaring one
 
 A group is a sink of type `txgroup` whose config names its members. It is a
@@ -40,8 +59,9 @@ batching loop, and independent batches cannot share a transaction boundary.
 
 **A durable state store is required.** The coordinator's log has to outlive the
 process — a crash with an in-memory log strands prepared transactions with
-nothing able to resolve them — so a group refuses to start unless distributed
-state (Redis or Etcd) is configured.
+nothing able to resolve them — so a group refuses to start unless a state store
+that survives a restart is configured: SQLite for a single Hermod server, Redis or
+Etcd when several workers share the work. The `memory` store is refused.
 
 On start-up the group preflights every member, resolves anything the previous
 run left in doubt, and starts its reaper. A member that cannot genuinely

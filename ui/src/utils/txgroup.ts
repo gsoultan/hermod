@@ -116,3 +116,37 @@ export function validateTxGroup(config: Record<string, any>, sinks: SinkOption[]
 
   return problems;
 }
+
+/** How each capable sink type is named to a person. */
+export const TYPE_LABELS: Record<string, string> = {
+  postgres: 'PostgreSQL',
+  yugabyte: 'YugabyteDB',
+  mysql: 'MySQL',
+  mariadb: 'MariaDB',
+};
+
+export const typeLabel = (type: string) => TYPE_LABELS[type] ?? type;
+
+/** The kinds of database whose server needs setting up for two-phase commit. */
+export type DatabaseKind = 'postgres' | 'mysql';
+
+const KIND_OF: Record<string, DatabaseKind> = {
+  postgres: 'postgres',
+  yugabyte: 'postgres',
+  mysql: 'mysql',
+  mariadb: 'mysql',
+};
+
+/**
+ * Which server set-up notes apply to the chosen members, each once. YugabyteDB
+ * shares PostgreSQL's sink and MariaDB shares MySQL's, so they share notes too.
+ */
+export function setupNotesFor(memberIds: string[], sinks: SinkOption[]): DatabaseKind[] {
+  const byId = new Map((sinks || []).map((s) => [s.id, s]));
+  const kinds = new Set<DatabaseKind>();
+  for (const id of memberIds) {
+    const kind = KIND_OF[byId.get(id)?.type ?? ''];
+    if (kind) kinds.add(kind);
+  }
+  return (['postgres', 'mysql'] as DatabaseKind[]).filter((k) => kinds.has(k));
+}

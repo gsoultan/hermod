@@ -94,6 +94,60 @@ func (r *Registry) createTxGroupSink(ctx context.Context, cfg factory.SinkConfig
 	return group, nil
 }
 
+// checkTxGroup answers "Test connection" for a group: everything that would
+// stop it starting, checked without starting it.
+//
+// It does not build the group. Building one recovers its transaction log and
+// starts its reaper, and a check run beside a live workflow must not resolve
+// that workflow's in-flight transactions. So it checks what building would
+// check — member count, the log, the age, each member's type and its
+// preflight — and nothing else. It needs no ID, which an unsaved group lacks.
+func (r *Registry) checkTxGroup(ctx context.Context, cfg factory.SinkConfig) error {
+	memberIDs := splitMemberIDs(cfg.Config["members"])
+	if len(memberIDs) < 2 {
+		return fmt.Errorf("choose at least two member sinks (got %d); "+
+			"a single sink already gets atomicity from its own transaction", len(memberIDs))
+	}
+	if problem := r.TxGroupLogProblem(); problem != "" {
+		return errors.New(problem)
+	}
+	if raw := strings.TrimSpace(cfg.Config["max_prepared_age"]); raw != "" {
+		if _, err := time.ParseDuration(raw); err != nil {
+			return fmt.Errorf("max_prepared_age %q is not a duration such as 15m or 1h: %w", raw, err)
+		}
+	}
+
+	var problems []string
+	for _, id := range memberIDs {
+		name := id
+		if stored, err := r.GetSinkConfig(ctx, id); err == nil && stored.Name != "" {
+			name = stored.Name
+		}
+		if err := r.checkTxGroupMember(ctx, id); err != nil {
+			problems = append(problems, fmt.Sprintf("%s: %v", name, err))
+		}
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("%d of %d members cannot take part: %s",
+			len(problems), len(memberIDs), strings.Join(problems, "; "))
+	}
+	return nil
+}
+
+// checkTxGroupMember builds one member as the group would, asks it whether it
+// can really prepare, and closes it.
+func (r *Registry) checkTxGroupMember(ctx context.Context, id string) error {
+	snk, err := r.resolveAndCreateTxGroupMember(ctx, id)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = snk.Close() }()
+	if p, ok := snk.(hermod.TwoPhaseCommitPreflight); ok {
+		return p.PreflightTwoPhaseCommit(ctx)
+	}
+	return snk.Ping(ctx)
+}
+
 // newTxCoordinator builds the coordinator backing a group.
 //
 // The transaction log has to outlive the process, or a crash leaves
@@ -101,10 +155,9 @@ func (r *Registry) createTxGroupSink(ctx context.Context, cfg factory.SinkConfig
 // store is refused rather than quietly replaced with an in-memory one: a group
 // that cannot recover is worse than a group that will not start.
 func (r *Registry) newTxCoordinator(cfg factory.SinkConfig) (*twopc.Coordinator, error) {
-	if r.stateStore == nil {
-		return nil, fmt.Errorf("txgroup sink %q: a state store is required so the coordinator's "+
-			"transaction log survives a restart; configure distributed state (Redis or Etcd) "+
-			"before using a transactional group", cfg.ID)
+	// Read without taking r.mu: StartWorkflow holds it while it builds sinks.
+	if problem := txGroupLogProblem(r.stateStore); problem != "" {
+		return nil, fmt.Errorf("txgroup sink %q: %s", cfg.ID, problem)
 	}
 	if cfg.ID == "" {
 		return nil, errors.New("txgroup sink: an ID is required to scope its transaction log")
@@ -128,6 +181,37 @@ func (r *Registry) newTxCoordinator(cfg factory.SinkConfig) (*twopc.Coordinator,
 		return nil, fmt.Errorf("txgroup sink %q: %w", cfg.ID, err)
 	}
 	return c, nil
+}
+
+// TxGroupLogProblem says why a transactional group could not keep a durable
+// transaction log right now, or returns "" when it can. createTxGroupSink
+// refuses to build a group for the same reason, and the editor shows it before
+// the workflow is ever run, so the two cannot disagree.
+//
+// The log has to outlive the process: a crash between the vote and the
+// decision leaves members holding prepared transactions that only the log can
+// resolve. A SQLite file does that for a single Hermod server. With several
+// workers the log must be shared, so Redis or Etcd.
+func (r *Registry) TxGroupLogProblem() string {
+	// Settings can replace the store while a request reads it. Only callers
+	// outside the registry come here; the registry's own path already holds mu.
+	r.mu.RLock()
+	ss := r.stateStore
+	r.mu.RUnlock()
+	return txGroupLogProblem(ss)
+}
+
+func txGroupLogProblem(ss hermod.StateStore) string {
+	if ss == nil {
+		return "a state store is required so the coordinator's transaction log survives a restart, " +
+			"and none is configured. Set one in Settings → Platform → Global State Store: SQLite for a " +
+			"single Hermod server, Redis or Etcd when several workers share the work"
+	}
+	if d, ok := ss.(interface{ Durable() bool }); ok && !d.Durable() {
+		return "the state store keeps its data in memory, so the coordinator's transaction log would " +
+			"not survive a restart. Choose SQLite, Redis or Etcd in Settings → Platform → Global State Store"
+	}
+	return ""
 }
 
 // splitMemberIDs parses the comma-separated member list, discarding blanks so a

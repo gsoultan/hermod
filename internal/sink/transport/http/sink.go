@@ -58,11 +58,21 @@ func (h *SinkHandler) RegisterSinkRoutes(mux *http.ServeMux) {
 // the engine — leaving someone to assemble a group in the editor that refuses to
 // start when the workflow runs. This is the same list the engine enforces, so
 // the two cannot disagree.
+//
+// It also reports whether a group could keep its transaction log here, which
+// needs a durable state store. Without one every group is refused when its
+// workflow starts, so the form says so up front, with the engine's own reason.
 func (h *SinkHandler) ListTwoPhaseCapableSinkTypes(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	resp := map[string]any{
 		"types": factory.TwoPhaseCapableSinkTypes(),
-	})
+	}
+	if h.Handler != nil && h.Registry != nil {
+		problem := h.Registry.TxGroupLogProblem()
+		resp["log_ready"] = problem == ""
+		resp["log_problem"] = problem
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func (h *SinkHandler) ListSinks(w http.ResponseWriter, r *http.Request) {
