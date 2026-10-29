@@ -6,11 +6,14 @@ const BASE_RECONNECT_DELAY = 1000;
  * connection (with capped exponential backoff) whenever it closes unexpectedly.
  * It returns a teardown function that permanently stops reconnection and closes
  * the active socket. onConnection, when given, hears each open and each close.
+ * onSocket, when given, is handed each socket as it is opened and null once
+ * torn down, for a caller that sends as well as listens.
  */
 export function connectWithReconnect(
   buildUrl: () => string,
   onMessage: (event: MessageEvent) => void,
   onConnection?: (open: boolean) => void,
+  onSocket?: (ws: WebSocket | null) => void,
 ): () => void {
   let ws: WebSocket | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -21,6 +24,7 @@ export function connectWithReconnect(
     if (closed) return;
 
     ws = new WebSocket(buildUrl());
+    onSocket?.(ws);
 
     ws.onmessage = onMessage;
 
@@ -59,5 +63,6 @@ export function connectWithReconnect(
       ws.onerror = null;
       ws.close();
     }
+    onSocket?.(null);
   };
 }

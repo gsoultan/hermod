@@ -10,6 +10,7 @@ import {
 import type { LogEntry } from '../../../../types';
 import type { FlowSample } from '../live/edgeFlow';
 import type { NodeBusy } from '../live/liveHealth';
+import type { EdgePause } from '../live/edgePauses';
 import { remapBranchEdges } from '../nodes/branchHandleId';
 
 /** The graph a simulation ran on, as it stood when the run was asked for. */
@@ -26,6 +27,8 @@ export interface SimulationReplay {
   hop: number;
   /** The replay advances on its own; false is stepping by hand. */
   playing: boolean;
+  /** The edge with a breakpoint the replay stopped at, crossing at `hop`. */
+  breakpoint?: string;
 }
 
 export interface WorkflowState {
@@ -113,6 +116,8 @@ export interface WorkflowState {
   nodeBusy: Record<string, NodeBusy>;
   /** Messages the debugger holds before each node. */
   nodeHeld: Record<string, number>;
+  /** Messages held on edge breakpoints, by pause ID. */
+  edgePauses: Record<string, EdgePause>;
   /** Each node's moving-average run time, in nanoseconds. */
   nodeLatencies: Record<string, number>;
   /** The status feed is down, or a running workflow has gone silent. */
@@ -282,6 +287,7 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   nodeErrorFlows: {},
   nodeBusy: {},
   nodeHeld: {},
+  edgePauses: {},
   nodeLatencies: {},
   statusFeedStale: false,
   pulseEnabled: true,

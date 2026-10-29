@@ -195,6 +195,28 @@ export function edgeSimulationView(
   return { state: 'taken', hop };
 }
 
+/**
+ * The first edge with a breakpoint the replay reaches after hop `after`, and
+ * the hop it is crossed on; null if there is none. Breakpoints are read from
+ * the canvas as it is now, so one set after the run still stops its replay.
+ */
+export function nextSimulationBreakpoint(
+  steps: Steps,
+  graph: RunGraph | null,
+  edges: readonly Edge[],
+  after: number,
+): { hop: number; edgeId: string } | null {
+  if (!Array.isArray(steps)) return null;
+  const { hops } = routeOf(steps, graph);
+  let next: { hop: number; edgeId: string } | null = null;
+  for (const edge of edges) {
+    if (!(edge.data as { breakpoint?: unknown } | undefined)?.breakpoint) continue;
+    const hop = hops.get(edge.id);
+    if (hop !== undefined && hop > after && (!next || hop < next.hop)) next = { hop, edgeId: edge.id };
+  }
+  return next;
+}
+
 /** How many hops the last simulation's message made. */
 export function simulationHopCount(steps: Steps, graph: RunGraph | null): number {
   if (!Array.isArray(steps)) return 0;

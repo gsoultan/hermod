@@ -365,9 +365,26 @@ func (h *WSHandler) HandleDebuggerWS(w http.ResponseWriter, r *http.Request) {
 
 	workflowID := r.URL.Query().Get("workflow_id")
 
-	// Subscribe to debugger events
-	ch := h.Registry.SubscribeDebugger(workflowID)
+	// The Debugger tab steps: every message stops before every node. The
+	// workflow editor attaches with mode=breakpoints, so having a workflow open
+	// stops messages only on the edges a breakpoint is set on.
+	var ch chan registry.DebuggerEvent
+	if r.URL.Query().Get("mode") == "breakpoints" {
+		ch = h.Registry.SubscribeBreakpoints(workflowID)
+	} else {
+		ch = h.Registry.SubscribeDebugger(workflowID)
+	}
 	defer h.Registry.UnsubscribeDebugger(workflowID, ch)
+
+	// A pause that began before this connection is not announced again, so it
+	// is sent now; without it an editor that reconnects could not resume it.
+	// One that begins meanwhile may arrive twice, and is told apart by its
+	// pause_id.
+	for _, ev := range h.Registry.HeldPauses(workflowID) {
+		if err := wsWriteJSON(conn, ev); err != nil {
+			return
+		}
+	}
 
 	// Keep-alive configuration so the connection survives idle periods behind a
 	// reverse proxy (e.g. Cloudflare) and so we can observe pong/close frames.
@@ -387,13 +404,21 @@ func (h *WSHandler) HandleDebuggerWS(w http.ResponseWriter, r *http.Request) {
 			var cmd struct {
 				Action string `json:"action"`
 				MsgID  string `json:"msg_id"`
+				// PauseID answers one pause; an edge pause has one of its
+				// own. Older clients send only msg_id, which names a pause
+				// before a node.
+				PauseID string `json:"pause_id"`
 			}
 			if err := conn.ReadJSON(&cmd); err != nil {
 				return
 			}
 			// A valid command also proves the peer is alive, so extend the deadline.
 			_ = conn.SetReadDeadline(time.Now().Add(wsPongWait))
-			h.Registry.DebuggerCommand(workflowID, cmd.MsgID, cmd.Action)
+			pauseID := cmd.PauseID
+			if pauseID == "" {
+				pauseID = cmd.MsgID
+			}
+			h.Registry.DebuggerCommand(workflowID, pauseID, cmd.Action)
 		}
 	}()
 

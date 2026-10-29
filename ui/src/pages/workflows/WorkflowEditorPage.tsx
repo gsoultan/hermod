@@ -35,6 +35,7 @@ import { useNodeContext } from './WorkflowEditor/hooks/useNodeContext';
 import { useAutoSampleUpstream } from './WorkflowEditor/hooks/useAutoSampleUpstream';
 import { useWorkflowInitialization } from './WorkflowEditor/hooks/useWorkflowInitialization';
 import { useWorkflowWebSockets } from './WorkflowEditor/hooks/useWorkflowWebSockets';
+import { useEdgeBreakpoints } from './WorkflowEditor/hooks/useEdgeBreakpoints';
 import { useWorkflowMutations } from './WorkflowEditor/hooks/useWorkflowMutations';
 import { useWorkflowEvents } from './WorkflowEditor/hooks/useWorkflowEvents';
 import { useWorkflowHotkeys } from './WorkflowEditor/hooks/useWorkflowHotkeys';
@@ -141,6 +142,7 @@ function EditorInner() {
   });
 
   useWorkflowWebSockets(id, active, logsPaused);
+  useEdgeBreakpoints(id);
 
   const {
     testMutation, saveMutation, toggleMutation, rebuildMutation,

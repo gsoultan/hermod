@@ -476,7 +476,9 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 
 	edgeLabels := make(map[string][]string)
 	inDegree := make(map[string]int)
-	// Visual breakpoints map: when true, messages should not traverse this edge
+	// Edges a message stops on while a debugger is attached, by canvas edge ID:
+	// keyed by the pair of nodes, a breakpoint on one of two edges between
+	// them stopped messages on both.
 	edgeBreakpoints := make(map[string]bool)
 	for _, edge := range wf.Edges {
 		label := edge.SourceHandle
@@ -488,7 +490,7 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 		key := edge.SourceID + ":" + edge.TargetID
 		edgeLabels[key] = append(edgeLabels[key], label)
 		if bp, ok := edge.Config["breakpoint"].(bool); ok && bp {
-			edgeBreakpoints[edge.SourceID+":"+edge.TargetID] = true
+			edgeBreakpoints[edge.ID] = true
 		}
 		inDegree[edge.TargetID]++
 	}
@@ -652,6 +654,7 @@ func (r *Registry) setupWorkflowRouter(
 
 		t := traversal.Acquire(r, eng, id, nodeMap, adj, nodeIndex, edgeLabels, edgeBreakpoints, effectiveInDegree, sinkNodeToIndex)
 		t.Telemetry = tel
+		t.EdgeIDs = edgeIDs
 		msg.Retain()
 		t.CurrentMessages[nodeIndex[sourceNodeID]] = msg
 

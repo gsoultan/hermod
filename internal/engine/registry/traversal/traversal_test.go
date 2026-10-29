@@ -34,7 +34,10 @@ type mockRegistry struct {
 	// PauseFn, when set, attaches a debugger and is called in place of the
 	// pause at each node.
 	PauseFn func(nodeID string)
-	Logs    []string
+	// EdgePauseFn, when set, attaches a debugger watching breakpoints and is
+	// called in place of the pause at each edge breakpoint.
+	EdgePauseFn func(edgeID, targetNodeID string, msg hermod.Message)
+	Logs        []string
 
 	// Nodes on parallel branches log from their own goroutines — two that fail
 	// together both report it.
@@ -77,6 +80,12 @@ func (m *mockRegistry) IsDebuggerAttached(workflowID string) bool { return m.Pau
 func (m *mockRegistry) PauseForDebuggerContext(_ context.Context, _ string, nodeID string, _ hermod.Message) {
 	if m.PauseFn != nil {
 		m.PauseFn(nodeID)
+	}
+}
+func (m *mockRegistry) BreakpointsWatched(string) bool { return m.EdgePauseFn != nil }
+func (m *mockRegistry) PauseAtEdge(_ context.Context, _, edgeID, targetNodeID string, msg hermod.Message) {
+	if m.EdgePauseFn != nil {
+		m.EdgePauseFn(edgeID, targetNodeID, msg)
 	}
 }
 func (m *mockRegistry) BroadcastLog(workflowID, level, msg, details string) {
