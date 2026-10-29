@@ -223,6 +223,11 @@
   grid-template-columns: minmax(0, 1fr) auto auto;
   grid-template-areas: 'main state tail';
 }
+.hermod-row-with-lead {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-areas: 'lead main state tail';
+}
+.hermod-row-lead { grid-area: lead; display: flex; }
 .hermod-row-main { grid-area: main; }
 .hermod-row-state { grid-area: state; }
 .hermod-row-tail { grid-area: tail; }
@@ -234,8 +239,12 @@
     grid-template-areas: 'main tail' 'state tail';
     row-gap: 4px;
   }
-  /* Under the name, not under the icon tile (36px tile + md gap). */
-  .hermod-row:has(.mantine-ThemeIcon-root) .hermod-row-state { padding-left: 52px; }
+  .hermod-row-with-lead {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: 'lead main tail' 'lead state tail';
+  }
+  /* The icon tile and the arrow go: on a phone the name needs their width. */
+  .hermod-row-icon, .hermod-row-chevron { display: none !important; }
   .hermod-row-text {
     white-space: normal !important;
     display: -webkit-box;

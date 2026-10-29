@@ -1,10 +1,8 @@
-import { useState } from 'react';
-import { 
-  Container, Title, Button, Group, Table, ActionIcon, Text, Badge, Paper, 
-  Stack, TextInput, Pagination, Tooltip, Modal, Select, Menu, Checkbox
+import { lazy, Suspense, useState } from 'react';
+import {
+  ActionIcon, Badge, Box, Button, Checkbox, Group, Menu, Modal, Pagination, Select, Text,
 } from '@mantine/core';
-import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { lazy, Suspense } from 'react'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useSessionStore } from '@/auth/session';
 import { stashDraftWorkflow } from '@/lib/draftWorkflow';
@@ -12,10 +10,16 @@ import type { Workflow, Worker, Workspace } from '@/types';
 import { apiFetch } from '@/api';
 import { downloadWorkflowExport } from '@/utils/workflowExport';
 import { notifications } from '@mantine/notifications';
-import { useDisclosure, useDebouncedValue } from '@mantine/hooks';
+import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
 import { useVHost } from '@/context/VHostContext';
-import { IconActivity, IconChevronDown, IconCopy, IconDownload, IconEdit, IconFolder, IconGitBranch, IconHierarchy, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconSparkles, IconTrash } from '@tabler/icons-react';
+import {
+  IconChevronDown, IconCopy, IconDotsVertical, IconDownload, IconEdit, IconFolder, IconHierarchy, IconPlus,
+  IconSparkles, IconTrash,
+} from '@tabler/icons-react';
 import { useConfirm } from '@/components/common/ConfirmProvider';
+import { EmptyState, FilterBar, PageHeader, RowList } from '@/components/rows';
+import { FlowRow } from '@/components/flows/FlowRow';
+import { FLOW_FILTERS, fromTo, matchesFilter, type FlowFilter } from './flowsModel';
 const API_BASE = '/api';
 
 const TemplatesModal = lazy(() => import('./WorkflowsPage_TemplatesModal'))
@@ -28,6 +32,11 @@ const DescribeAutomationModal = lazy(() =>
   import('./builder/DescribeAutomationModal').then((m) => ({ default: m.DescribeAutomationModal })),
 )
 
+/**
+ * Flows: search, one filter, a workspace picker, and a row per flow with its
+ * switch. Everything else about a flow is behind its ⋯ or the arrow into it;
+ * everything about making one is behind New flow ▾.
+ */
 export default function WorkflowsPage() {
   const confirm = useConfirm();
   const queryClient = useQueryClient();
@@ -36,6 +45,7 @@ export default function WorkflowsPage() {
   // Debounced so a burst of keystrokes costs one request, and used as the query
   // key so the key changes once per search rather than once per character.
   const [debouncedSearch] = useDebouncedValue(search, 300);
+  const [filter, setFilter] = useState<FlowFilter>('all');
   const [activePage, setPage] = useState(1);
   const itemsPerPage = 30;
   const [selectedWorkspace, setSelectedWorkspace] = useState<string>('all');
@@ -43,7 +53,7 @@ export default function WorkflowsPage() {
   // The selection belongs to the rows on screen. Kept across a page, search,
   // workspace or vhost change, a batch delete reached workflows the user could
   // no longer see. Reset during render, so no frame shows the old count.
-  const selectionScope = `${activePage}|${debouncedSearch}|${selectedVHost}|${selectedWorkspace}`;
+  const selectionScope = `${activePage}|${debouncedSearch}|${selectedVHost}|${selectedWorkspace}|${filter}`;
   const [selectionScopeSeen, setSelectionScopeSeen] = useState(selectionScope);
   if (selectionScope !== selectionScopeSeen) {
     setSelectionScopeSeen(selectionScope);
@@ -57,10 +67,6 @@ export default function WorkflowsPage() {
   // admits Editors and Administrators only.
   const role = useSessionStore((s) => s.user?.role);
   const canEdit = role === 'Administrator' || role === 'Editor';
-  const [moveOpened, { open: openMoveModal, close: closeMoveModal }] = useDisclosure(false);
-  // null is a real choice here — "No workspace" is how a workflow leaves one —
-  // so it cannot share the empty string with "nothing picked yet".
-  const [moveTarget, setMoveTarget] = useState<string | null>(null);
 
   const { data: workspacesResponse } = useQuery<Workspace[]>({
     queryKey: ['workspaces'],
@@ -72,9 +78,9 @@ export default function WorkflowsPage() {
 
   const { data: workflowsResponse, isLoading } = useQuery<{ data: Workflow[], total: number }>({
     queryKey: ['workflows', activePage, debouncedSearch, selectedVHost, selectedWorkspace],
-        // Hold the previous page/search on screen while the next one loads,
-        // instead of dropping to undefined and blanking the table.
-        placeholderData: keepPreviousData,
+    // Hold the previous page/search on screen while the next one loads,
+    // instead of dropping to undefined and blanking the list.
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       let url = `${API_BASE}/workflows?page=${activePage}&limit=${itemsPerPage}&search=${encodeURIComponent(debouncedSearch)}&vhost=${selectedVHost}`;
       if (selectedWorkspace !== 'all') {
@@ -93,7 +99,10 @@ export default function WorkflowsPage() {
     }
   });
 
-  const workflows = workflowsResponse?.data || [];
+  const allWorkflows = workflowsResponse?.data || [];
+  // The server knows search, vhost and workspace; running / problems / off is
+  // read off the rows it returned, so it narrows the page rather than the total.
+  const workflows = allWorkflows.filter((wf) => matchesFilter(wf, filter));
   const totalItems = workflowsResponse?.total || 0;
   const workers = workersResponse?.data || [];
   // /api/workspaces answers with a bare array, but an error envelope or a future
@@ -103,22 +112,15 @@ export default function WorkflowsPage() {
   const workspaces = Array.isArray(workspacesResponse) ? workspacesResponse : [];
 
   const workspaceOptions = [
-    { value: 'all', label: 'All Workspaces' },
+    { value: 'all', label: 'All workspaces' },
     // The view you need to find what is still unorganised; the API reads
     // "none" as unassigned rather than as a workspace with that id.
     { value: 'none', label: 'No workspace' },
     ...workspaces.map((ws: Workspace) => ({ value: ws.id, label: ws.name }))
   ];
 
-  const getWorkspaceName = (id: string) => {
-    const ws = workspaces.find((w: Workspace) => w.id === id);
-    return ws ? ws.name : null;
-  };
-
-  const getWorkerName = (id: string) => {
-    const worker = workers.find((w: Worker) => w.id === id);
-    return worker ? worker.name : id;
-  };
+  const getWorkspaceName = (id: string) => workspaces.find((w: Workspace) => w.id === id)?.name ?? null;
+  const getWorkerName = (id: string) => workers.find((w: Worker) => w.id === id)?.name ?? id;
 
   // 'all' is a view, not a place to put something. When it is selected the
   // first real vhost stands in for it, which is what the import path has
@@ -159,13 +161,12 @@ export default function WorkflowsPage() {
       if (warning) {
         notifications.show({ title: 'Exported with missing dependencies', message: warning, color: 'yellow', autoClose: false });
       } else {
-        notifications.show({ title: 'Success', message: 'Workflow exported successfully', color: 'green' });
+        notifications.show({ title: 'Exported', message: `${wf.name} was exported`, color: 'green' });
       }
     } catch (err: any) {
-      notifications.show({ title: 'Export Failed', message: err.message, color: 'red' });
+      notifications.show({ title: 'Export failed', message: err.message, color: 'red' });
     }
   };
-
 
   const templateImportMutation = useMutation({
     mutationFn: async (json: string) => {
@@ -204,11 +205,11 @@ export default function WorkflowsPage() {
       notifications.show({ title: 'Success', message: 'Workflow imported successfully', color: 'green' });
     },
     onError: (err: any) => {
-      notifications.show({ 
+      notifications.show({
         id: 'workflow-template-import-error',
-        title: 'Import Failed', 
-        message: err.message, 
-        color: 'red' 
+        title: 'Import Failed',
+        message: err.message,
+        color: 'red'
       });
     }
   });
@@ -220,10 +221,10 @@ export default function WorkflowsPage() {
         body: JSON.stringify({ ids, active })
       });
     },
-    onSuccess: () => {
+    onSuccess: (_d, { ids, active }) => {
       queryClient.invalidateQueries({ queryKey: ['workflows'] });
       setSelectedIDs([]);
-      notifications.show({ title: 'Success', message: 'Batch operation completed', color: 'green' });
+      notifications.show({ message: `${ids.length} ${ids.length === 1 ? 'flow' : 'flows'} turned ${active ? 'on' : 'off'}`, color: 'green' });
     }
   });
 
@@ -241,10 +242,6 @@ export default function WorkflowsPage() {
     }
   });
 
-  // Assigning a workspace had no home on this page even though the table has
-  // always had a Workspace column: the only route in was the editor's settings
-  // drawer, five clicks deep behind a panel that starts closed.
-  //
   // The endpoint reports per-id results rather than one status, because a batch
   // can be partly admitted — a workspace with two free slots takes two of three.
   const batchWorkspaceMutation = useMutation({
@@ -263,7 +260,6 @@ export default function WorkflowsPage() {
     onSuccess: (results) => {
       queryClient.invalidateQueries({ queryKey: ['workflows'] });
       setSelectedIDs([]);
-      closeMoveModal();
 
       const failures = Object.entries(results || {}).filter(([, r]) => r.startsWith('Error:'));
       if (failures.length === 0) {
@@ -286,9 +282,7 @@ export default function WorkflowsPage() {
 
   const toggleMutation = useMutation({
     mutationFn: async ({ id }: { id: string; active: boolean }) => {
-       await apiFetch(`${API_BASE}/workflows/${id}/toggle`, {
-         method: 'POST'
-       });
+      await apiFetch(`${API_BASE}/workflows/${id}/toggle`, { method: 'POST' });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workflows'] });
@@ -296,369 +290,221 @@ export default function WorkflowsPage() {
   });
 
   const totalPages = Math.ceil(totalItems / itemsPerPage);
+  const selected = selectedIDs.map((id) => allWorkflows.find((w) => w.id === id)).filter((w): w is Workflow => Boolean(w));
 
-  const allSelected = workflows.length > 0 && selectedIDs.length === workflows.length;
+  const detailOf = (wf: Workflow) => {
+    const workspace = wf.workspace_id ? (getWorkspaceName(wf.workspace_id) || wf.workspace_id) : null;
+    const parts = [fromTo(wf), wf.vhost || 'default'];
+    if (wf.worker_id) parts.push(getWorkerName(wf.worker_id));
+    return (
+      <>
+        {parts.join(' · ')}
+        {workspace && (
+          <>
+            {' · '}
+            <Badge size="xs" variant="light" component="span" style={{ verticalAlign: 'middle' }}>{workspace}</Badge>
+          </>
+        )}
+      </>
+    );
+  };
 
   return (
-    <Container size="xl">
-      <Stack gap="lg">
-        <Group justify="space-between">
-          <Group>
-            <IconGitBranch size="2rem" color="var(--mantine-color-indigo-6)" />
-            <Title order={2}>Workflows</Title>
+    <Box maw={1100} mx="auto">
+      <PageHeader
+        title="Flows"
+        actions={canEdit && (
+          <Group gap={0} wrap="nowrap">
+            <Button component={Link} to="/workflows/new" leftSection={<IconPlus size="1rem" />} style={{ borderTopRightRadius: 0, borderBottomRightRadius: 0 }}>
+              New flow
+            </Button>
+            <Menu shadow="md" width={240} position="bottom-end">
+              <Menu.Target>
+                <ActionIcon size={36} variant="filled" aria-label="More ways to make a flow" style={{ borderTopLeftRadius: 0, borderBottomLeftRadius: 0, borderLeft: '1px solid rgba(255,255,255,0.3)' }}>
+                  <IconChevronDown size="1rem" />
+                </ActionIcon>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Item leftSection={<IconSparkles size="1rem" />} onClick={openDescribe}>Describe it</Menu.Item>
+                <Menu.Item leftSection={<IconHierarchy size="1rem" />} onClick={openTemplates}>Templates</Menu.Item>
+                <Menu.Item leftSection={<IconDownload size="1rem" />} onClick={openImport}>Import JSON</Menu.Item>
+              </Menu.Dropdown>
+            </Menu>
           </Group>
-          <Group>
-            {selectedIDs.length > 0 && (
-              <Menu shadow="md" width={200}>
-                <Menu.Target>
-                  <Button variant="outline" color="blue" rightSection={<IconChevronDown size="1rem" />}>
-                    Batch Actions ({selectedIDs.length})
-                  </Button>
-                </Menu.Target>
-
-                <Menu.Dropdown>
-                  <Menu.Label>Lifecycle</Menu.Label>
-                  <Menu.Item 
-                    leftSection={<IconPlayerPlay size="1rem" />} 
-                    onClick={() => batchToggleMutation.mutate({ ids: selectedIDs, active: true })}
-                  >
-                    Start Selected
-                  </Menu.Item>
-                  <Menu.Item 
-                    leftSection={<IconPlayerStop size="1rem" />}
-                    onClick={() => batchToggleMutation.mutate({ ids: selectedIDs, active: false })}
-                  >
-                    Stop Selected
-                  </Menu.Item>
-                  <Menu.Divider />
-                  <Menu.Label>Organization</Menu.Label>
-                  <Menu.Item
-                    leftSection={<IconFolder size="1rem" />}
-                    onClick={() => {
-                      // Seed with the current workspace when the selection
-                      // agrees on one, so reassigning a group does not start
-                      // from blank and read as "none".
-                      const current = new Set(
-                        selectedIDs.map((id) => workflows.find((w: Workflow) => w.id === id)?.workspace_id || '')
-                      );
-                      setMoveTarget(current.size === 1 ? ([...current][0] || null) : null);
-                      openMoveModal();
-                    }}
-                  >
-                    Move to Workspace…
-                  </Menu.Item>
-                  <Menu.Divider />
-                  <Menu.Item
-                    color="red"
-                    leftSection={<IconTrash size="1rem" />}
-                    onClick={async () => {
-                      if (await confirm({ title: `Delete ${selectedIDs.length} workflows`, message: `Permanently delete ${selectedIDs.length} selected workflow(s)?`, consequence: 'Running workflows are stopped. This cannot be undone.', confirmLabel: 'Delete all', danger: true })) {
-                        batchDeleteMutation.mutate(selectedIDs);
-                      }
-                    }}
-                  >
-                    Delete Selected
-                  </Menu.Item>
-                </Menu.Dropdown>
-              </Menu>
-            )}
-            {canEdit && (
-              <Button variant="light" color="grape" onClick={openDescribe} leftSection={<IconSparkles size="1rem" />}>
-                Describe an automation
-              </Button>
-            )}
-            <Button variant="light" color="indigo" onClick={openTemplates} leftSection={<IconHierarchy size="1rem" />}>
-              Sample Library
-            </Button>
-            <Button variant="light" color="gray" onClick={openImport} leftSection={<IconDownload size="1rem" />}>
-              Import JSON
-            </Button>
-            <Button component={Link} to="/workflows/new" leftSection={<IconPlus size="1rem" />}>
-              Create Workflow
-            </Button>
-          </Group>
-        </Group>
-
-        <Modal
-          opened={moveOpened}
-          onClose={closeMoveModal}
-          title={`Move ${selectedIDs.length} workflow(s) to a workspace`}
-        >
-          <Stack>
-            <Select
-              label="Workspace"
-              // Clearing the field is the "take it out of every workspace"
-              // action, so it is spelled out rather than left as an empty row.
-              placeholder="Select a workspace"
-              data={[
-                { value: '', label: 'No workspace' },
-                ...workspaces.map((ws: Workspace) => ({ value: ws.id, label: ws.name })),
-              ]}
-              value={moveTarget ?? ''}
-              onChange={(val) => setMoveTarget(val)}
-              allowDeselect={false}
-              leftSection={<IconFolder size="0.9rem" />}
-            />
-            {workspaces.length === 0 && (
-              <Text size="xs" c="dimmed">
-                No workspaces exist yet. Create one in Settings &rarr; Governance.
-              </Text>
-            )}
-            <Text size="xs" c="dimmed">
-              A workspace with a workflow limit only admits as many as it has room for;
-              any that do not fit are reported and left where they are.
-            </Text>
-            <Group justify="flex-end" mt="md">
-              <Button variant="outline" color="gray" onClick={closeMoveModal}>Cancel</Button>
-              <Button
-                loading={batchWorkspaceMutation.isPending}
-                onClick={() => batchWorkspaceMutation.mutate({ ids: selectedIDs, workspaceID: moveTarget ?? '' })}
-              >
-                Move
-              </Button>
-            </Group>
-          </Stack>
-        </Modal>
-
-        {describeOpened && (
-          <Suspense fallback={null}>
-            <DescribeAutomationModal
-              opened
-              onClose={closeDescribe}
-              defaultVHost={importTargetVHost}
-              availableVHosts={availableVHosts.length > 0 ? availableVHosts : ['default']}
-              onOpenInEditor={(workflow) => {
-                // Opened, not saved: the editor takes the draft as a new,
-                // stopped workflow and saving it is the person's call.
-                stashDraftWorkflow(workflow);
-                closeDescribe();
-                navigate({ to: '/workflows/new' });
-              }}
-            />
-          </Suspense>
         )}
+      />
 
-        <Modal opened={templatesOpened} onClose={closeTemplates} title="Workflow Sample Library" size="xl">
-          <Suspense fallback={<Text size="sm">Loading templates…</Text>}>
-            <TemplatesModal
-              onUseTemplate={(data) => {
-                templateImportMutation.mutate(JSON.stringify(data))
-                closeTemplates()
-              }}
-            />
-          </Suspense>
-        </Modal>
+      <FilterBar
+        search={{ value: search, onChange: (v) => { setSearch(v); setPage(1); }, placeholder: 'Search flows' }}
+        filter={{ value: filter, onChange: (v) => setFilter(v as FlowFilter), options: FLOW_FILTERS }}
+      >
+        <Select
+          aria-label="Workspace"
+          data={workspaceOptions}
+          value={selectedWorkspace}
+          onChange={(val) => { setSelectedWorkspace(val || 'all'); setPage(1); }}
+          leftSection={<IconFolder size="1rem" />}
+          allowDeselect={false}
+          w={200}
+        />
+      </FilterBar>
 
-        <Modal
-          opened={importOpened}
-          onClose={closeImport}
-          title="Import Workflow"
-          size="xl"
-          closeOnClickOutside={false}
+      {selected.length > 0 && (
+        <Group
+          component="section"
+          aria-label={`${selected.length} selected`}
+          gap="xs"
+          mb="md"
+          p="sm"
+          style={{ border: '1px solid var(--mantine-color-blue-4)', background: 'var(--mantine-color-blue-light)', borderRadius: 'var(--mantine-radius-md)' }}
         >
-          <Suspense fallback={<Text size="sm">Loading the import wizard…</Text>}>
-            <ImportWizard
-              defaultVHost={importTargetVHost}
-              availableVHosts={availableVHosts.length > 0 ? availableVHosts : ['default']}
-              onCancel={closeImport}
-              onImported={(name) => {
-                queryClient.invalidateQueries({ queryKey: ['workflows'] });
-                queryClient.invalidateQueries({ queryKey: ['import-existing'] });
-                notifications.show({ title: 'Imported', message: `${name} is ready. It arrives stopped.`, color: 'green' });
-                closeImport();
-              }}
-            />
-          </Suspense>
-        </Modal>
+          <Text size="sm" fw={600} mr="xs">{selected.length} selected</Text>
+          <Menu shadow="md" width={240}>
+            <Menu.Target>
+              <Button size="xs" variant="default" rightSection={<IconChevronDown size="0.9rem" />}>Move to workspace</Button>
+            </Menu.Target>
+            <Menu.Dropdown>
+              {/* Taking flows out of every workspace is a real choice, so it is a row of its own. */}
+              <Menu.Item onClick={() => batchWorkspaceMutation.mutate({ ids: selectedIDs, workspaceID: '' })}>No workspace</Menu.Item>
+              {workspaces.map((ws) => (
+                <Menu.Item key={ws.id} onClick={() => batchWorkspaceMutation.mutate({ ids: selectedIDs, workspaceID: ws.id })}>{ws.name}</Menu.Item>
+              ))}
+              {workspaces.length === 0 && <Menu.Label>No workspaces yet. Make one in Settings › Workspace.</Menu.Label>}
+            </Menu.Dropdown>
+          </Menu>
+          <Button size="xs" variant="default" onClick={() => batchToggleMutation.mutate({ ids: selectedIDs, active: true })}>Turn on</Button>
+          <Button size="xs" variant="default" onClick={() => batchToggleMutation.mutate({ ids: selectedIDs, active: false })}>Turn off</Button>
+          <Button size="xs" variant="default" onClick={() => selected.forEach((wf) => handleExport(wf))}>Export JSON</Button>
+          <Button
+            size="xs"
+            variant="default"
+            c="red"
+            onClick={async () => {
+              if (await confirm({ title: `Delete ${selected.length} flows`, message: `Permanently delete ${selected.length} selected ${selected.length === 1 ? 'flow' : 'flows'}?`, consequence: 'Running flows are stopped. This cannot be undone.', confirmLabel: 'Delete all', danger: true })) {
+                batchDeleteMutation.mutate(selectedIDs);
+              }
+            }}
+          >
+            Delete
+          </Button>
+          <Text size="xs" c="dimmed" visibleFrom="md">Moving checks the workspace's quota first and admits what fits.</Text>
+        </Group>
+      )}
 
-        <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
-          <Stack gap="md">
-          <Group grow>
-            <TextInput 
-              placeholder="Search workflows..." 
-              leftSection={<IconSearch size="1rem" />} 
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-            />
-            <Select
-              placeholder="Workspace"
-              data={workspaceOptions}
-              value={selectedWorkspace}
-              onChange={(val) => {
-                setSelectedWorkspace(val || 'all');
-                setPage(1);
-              }}
-              leftSection={<IconFolder size="1rem" />}
-            />
-          </Group>
+      {describeOpened && (
+        <Suspense fallback={null}>
+          <DescribeAutomationModal
+            opened
+            onClose={closeDescribe}
+            defaultVHost={importTargetVHost}
+            availableVHosts={availableVHosts.length > 0 ? availableVHosts : ['default']}
+            onOpenInEditor={(workflow) => {
+              // Opened, not saved: the editor takes the draft as a new,
+              // stopped workflow and saving it is the person's call.
+              stashDraftWorkflow(workflow);
+              closeDescribe();
+              navigate({ to: '/workflows/new' });
+            }}
+          />
+        </Suspense>
+      )}
 
-            <Table.ScrollContainer minWidth={700}>
-              <Table verticalSpacing="sm">
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th style={{ width: 40 }}>
-                    <Checkbox 
-                      aria-label="Select all workflows"
-                      checked={allSelected}
-                      indeterminate={selectedIDs.length > 0 && !allSelected}
-                      onChange={(e) => {
-                        if (e.currentTarget.checked) {
-                          setSelectedIDs(workflows.map((wf: any) => wf.id));
-                        } else {
-                          setSelectedIDs([]);
+      <Modal opened={templatesOpened} onClose={closeTemplates} title="Templates" size="xl">
+        <Suspense fallback={<Text size="sm">Loading templates…</Text>}>
+          <TemplatesModal
+            onUseTemplate={(data) => {
+              templateImportMutation.mutate(JSON.stringify(data))
+              closeTemplates()
+            }}
+          />
+        </Suspense>
+      </Modal>
+
+      <Modal
+        opened={importOpened}
+        onClose={closeImport}
+        title="Import a flow"
+        size="xl"
+        closeOnClickOutside={false}
+      >
+        <Suspense fallback={<Text size="sm">Loading the import wizard…</Text>}>
+          <ImportWizard
+            defaultVHost={importTargetVHost}
+            availableVHosts={availableVHosts.length > 0 ? availableVHosts : ['default']}
+            onCancel={closeImport}
+            onImported={(name) => {
+              queryClient.invalidateQueries({ queryKey: ['workflows'] });
+              queryClient.invalidateQueries({ queryKey: ['import-existing'] });
+              notifications.show({ title: 'Imported', message: `${name} is ready. It arrives stopped.`, color: 'green' });
+              closeImport();
+            }}
+          />
+        </Suspense>
+      </Modal>
+
+      {isLoading ? (
+        <Text ta="center" py="xl" c="dimmed">Loading flows…</Text>
+      ) : workflows.length === 0 ? (
+        search || filter !== 'all' || selectedWorkspace !== 'all' ? (
+          <EmptyState title="No flows match" detail="Try another word, or set the filter back to All." action={{ label: 'Show all', onClick: () => { setSearch(''); setFilter('all'); setSelectedWorkspace('all'); } }} />
+        ) : (
+          <EmptyState
+            title="No flows yet"
+            detail="A flow takes messages from a source, through the steps you choose, to a sink."
+            action={canEdit ? { label: 'New flow', to: '/workflows/new' } : undefined}
+          />
+        )
+      ) : (
+        <RowList aria-label="Flows">
+          {workflows.map((wf) => (
+            <FlowRow
+              key={wf.id}
+              flow={wf}
+              detail={detailOf(wf)}
+              lead={canEdit && (
+                <Checkbox
+                  aria-label={`Select ${wf.name}`}
+                  checked={selectedIDs.includes(wf.id)}
+                  onChange={(e) => setSelectedIDs(e.currentTarget.checked ? [...selectedIDs, wf.id] : selectedIDs.filter((id) => id !== wf.id))}
+                />
+              )}
+              onToggle={canEdit ? (f) => toggleMutation.mutate({ id: f.id, active: f.active }) : undefined}
+              toggling={toggleMutation.isPending && toggleMutation.variables?.id === wf.id}
+              menu={canEdit && (
+                <Menu shadow="md" width={200} position="bottom-end">
+                  <Menu.Target>
+                    <ActionIcon variant="subtle" color="gray" aria-label={`More for ${wf.name}`}>
+                      <IconDotsVertical size="1rem" />
+                    </ActionIcon>
+                  </Menu.Target>
+                  <Menu.Dropdown>
+                    <Menu.Item component={Link} to="/workflows/$id/edit" params={{ id: wf.id } as any} leftSection={<IconEdit size="1rem" />}>Edit flow</Menu.Item>
+                    <Menu.Item leftSection={<IconCopy size="1rem" />} onClick={() => cloneMutation.mutate(wf)}>Clone</Menu.Item>
+                    <Menu.Item leftSection={<IconDownload size="1rem" />} onClick={() => handleExport(wf)}>Export JSON</Menu.Item>
+                    <Menu.Divider />
+                    <Menu.Item
+                      color="red"
+                      leftSection={<IconTrash size="1rem" />}
+                      onClick={async () => {
+                        if (await confirm({ title: 'Delete flow', message: `Permanently delete ${wf.name}?`, consequence: 'If it is running it will be stopped. This cannot be undone.', confirmLabel: 'Delete', danger: true })) {
+                          deleteMutation.mutate(wf.id);
                         }
                       }}
-                    />
-                  </Table.Th>
-                  <Table.Th>Name</Table.Th>
-                  <Table.Th>Workspace</Table.Th>
-                  <Table.Th>Virtual Host</Table.Th>
-                  <Table.Th>Worker</Table.Th>
-                  <Table.Th>Status</Table.Th>
-                  <Table.Th>Graph</Table.Th>
-                  {/* Six icon buttons wrapped onto two rows at 150px. */}
-                  <Table.Th style={{ width: 210 }}>Actions</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {isLoading ? (
-                  <Table.Tr><Table.Td colSpan={7}><Text ta="center" py="xl" c="dimmed">Loading workflows...</Text></Table.Td></Table.Tr>
-                ) : workflows?.length === 0 ? (
-                  <Table.Tr><Table.Td colSpan={7}><Text ta="center" py="xl" c="dimmed">{search ? 'No workflows match your search' : 'No workflows found'}</Text></Table.Td></Table.Tr>
-                ) : workflows.map((wf: Workflow) => (
-                  <Table.Tr key={wf.id} bg={selectedIDs.includes(wf.id) ? 'var(--mantine-color-blue-light)' : undefined}>
-                    <Table.Td>
-                      <Checkbox 
-                        aria-label={`Select workflow ${wf.name}`}
-                        checked={selectedIDs.includes(wf.id)}
-                        onChange={(e) => {
-                          if (e.currentTarget.checked) {
-                            setSelectedIDs([...selectedIDs, wf.id]);
-                          } else {
-                            setSelectedIDs(selectedIDs.filter(id => id !== wf.id));
-                          }
-                        }}
-                      />
-                    </Table.Td>
-                    <Table.Td>
-                      <Link to="/workflows/$id" params={{ id: wf.id } as any} style={{ textDecoration: 'none', color: 'inherit' }}>
-                        <Text fw={600} style={{ cursor: 'pointer' }}>{wf.name}</Text>
-                      </Link>
-                    </Table.Td>
-                    <Table.Td>
-                      {wf.workspace_id ? (
-                        <Badge variant="light" color="blue" leftSection={<IconFolder size="0.7rem" />}>
-                          {getWorkspaceName(wf.workspace_id) || wf.workspace_id}
-                        </Badge>
-                      ) : (
-                        <Text size="xs" c="dimmed">Default</Text>
-                      )}
-                    </Table.Td>
-                    <Table.Td>
-                      <Badge variant="dot" color="indigo">{wf.vhost || 'default'}</Badge>
-                    </Table.Td>
-                    <Table.Td>
-                      <Text size="sm">{wf.worker_id ? getWorkerName(wf.worker_id) : <Text span c="dimmed" fs="italic">Auto Sharded</Text>}</Text>
-                    </Table.Td>
-                    {/* Nine columns left these cells too narrow for their own
-                        contents at 1440px: the status read "ACT…", the counts
-                        "3 NO…" and "2 ED…". The two count columns say one thing
-                        between them, so they are one column, and the badges are
-                        told not to shrink below their text. */}
-                    <Table.Td style={{ whiteSpace: 'nowrap' }}>
-                      <Tooltip label={wf.status || (wf.active ? 'Active' : 'Inactive')} disabled={!wf.status}>
-                        <Badge variant="light" color={wf.active ? 'green' : 'gray'} style={{ flexShrink: 0 }}>
-                          {wf.active ? 'Active' : 'Inactive'}
-                        </Badge>
-                      </Tooltip>
-                      {/* The engine's own status string goes in the badge's
-                          tooltip rather than under it: stacking "running"
-                          beneath a green "Active" badge repeated what the badge
-                          already said while squeezing the column so the badge
-                          itself rendered as "ACT…". */}
-                    </Table.Td>
-                    <Table.Td style={{ whiteSpace: 'nowrap' }}>
-                      <Text size="sm" c="dimmed">
-                        {wf.nodes?.length || 0} nodes · {wf.edges?.length || 0} edges
-                      </Text>
-                    </Table.Td>
-                    <Table.Td>
-                      <Group gap={4} justify="flex-end">
-                        <Tooltip label={wf.active ? 'Stop' : 'Start'}>
-                          <ActionIcon 
-                            aria-label={wf.active ? 'Stop workflow' : 'Start workflow'}
-                            variant="subtle" 
-                            color={wf.active ? 'orange' : 'green'}
-                            onClick={() => toggleMutation.mutate({ id: wf.id, active: wf.active })}
-                          >
-                            {wf.active ? <IconPlayerStop size="1rem" /> : <IconPlayerPlay size="1rem" />}
-                          </ActionIcon>
-                        </Tooltip>
-                        <Tooltip label="View Details & Logs">
-                          <ActionIcon aria-label="View details and logs" component={Link} to="/workflows/$id" params={{ id: wf.id } as any} variant="subtle" color="blue">
-                            <IconActivity size="1rem" />
-                          </ActionIcon>
-                        </Tooltip>
-                        <Tooltip label="Edit Graph">
-                          <ActionIcon aria-label="Edit workflow graph" component={Link} to="/workflows/$id/edit" params={{ id: wf.id } as any} variant="subtle" color="blue">
-                            <IconEdit size="1rem" />
-                          </ActionIcon>
-                        </Tooltip>
-                        <Tooltip label="Clone">
-                          <ActionIcon 
-                            aria-label="Clone workflow"
-                            variant="subtle" 
-                            color="gray" 
-                            onClick={() => cloneMutation.mutate(wf)}
-                            loading={cloneMutation.isPending}
-                          >
-                            <IconCopy size="1rem" />
-                          </ActionIcon>
-                        </Tooltip>
-                        <Tooltip label="Export JSON">
-                          <ActionIcon 
-                            aria-label="Export workflow to JSON"
-                            variant="subtle" 
-                            color="gray" 
-                            onClick={() => handleExport(wf)}
-                          >
-                            <IconDownload size="1rem" />
-                          </ActionIcon>
-                        </Tooltip>
-                        <Tooltip label="Delete">
-                          <ActionIcon 
-                            aria-label="Delete workflow"
-                            variant="subtle" 
-                            color="red" 
-                            onClick={async () => {
-                              if (await confirm({ title: 'Delete workflow', message: 'Permanently delete this workflow?', consequence: 'If it is running it will be stopped. This cannot be undone.', confirmLabel: 'Delete', danger: true })) {
-                                deleteMutation.mutate(wf.id);
-                              }
-                            }}
-                          >
-                            <IconTrash size="1rem" />
-                          </ActionIcon>
-                        </Tooltip>
-                      </Group>
-                    </Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-            </Table.ScrollContainer>
-            {totalPages > 1 && (
-              <Group justify="center" p="md" bg="var(--mantine-color-body)" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
-                <Pagination total={totalPages} value={activePage} onChange={setPage} radius="md" />
-              </Group>
-            )}
-          </Stack>
-        </Paper>
-      </Stack>
-    </Container>
+                    >
+                      Delete
+                    </Menu.Item>
+                  </Menu.Dropdown>
+                </Menu>
+              )}
+            />
+          ))}
+        </RowList>
+      )}
+      {totalPages > 1 && (
+        <Group justify="center" mt="md">
+          <Pagination total={totalPages} value={activePage} onChange={setPage} radius="md" />
+        </Group>
+      )}
+    </Box>
   );
 }
-
-

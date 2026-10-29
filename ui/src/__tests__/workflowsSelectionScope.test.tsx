@@ -60,24 +60,24 @@ describe('workflow list selection', () => {
   it('is cleared when the page changes', async () => {
     const user = userEvent.setup()
     renderPage()
-    await user.click(await screen.findByRole('checkbox', { name: 'Select workflow First Page Workflow' }, { timeout: 10000 }))
-    expect(screen.getByRole('button', { name: /batch actions \(1\)/i })).toBeInTheDocument()
+    await user.click(await screen.findByRole('checkbox', { name: 'Select First Page Workflow' }, { timeout: 10000 }))
+    expect(screen.getByRole('region', { name: '1 selected' })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: '2' }))
     await screen.findByText('Second Page Workflow', {}, { timeout: 10000 })
 
-    expect(screen.queryByRole('button', { name: /batch actions/i })).toBeNull()
+    expect(screen.queryByRole('region', { name: /selected/ })).toBeNull()
   })
 
   it('is cleared when the search changes', async () => {
     const user = userEvent.setup()
     renderPage()
-    await user.click(await screen.findByRole('checkbox', { name: 'Select workflow First Page Workflow' }, { timeout: 10000 }))
-    expect(screen.getByRole('button', { name: /batch actions \(1\)/i })).toBeInTheDocument()
+    await user.click(await screen.findByRole('checkbox', { name: 'Select First Page Workflow' }, { timeout: 10000 }))
+    expect(screen.getByRole('region', { name: '1 selected' })).toBeInTheDocument()
 
-    await user.type(screen.getByPlaceholderText('Search workflows...'), 'matched')
+    await user.type(screen.getByPlaceholderText('Search flows'), 'matched')
     await screen.findByText('Matched Workflow', {}, { timeout: 10000 })
 
-    await waitFor(() => expect(screen.queryByRole('button', { name: /batch actions/i })).toBeNull())
+    await waitFor(() => expect(screen.queryByRole('region', { name: /selected/ })).toBeNull())
   })
 })

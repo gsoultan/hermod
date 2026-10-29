@@ -54,7 +54,8 @@ describe('Workflows page: Describe an automation', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByRole('button', { name: /describe an automation/i }))
+    await user.click(await screen.findByRole('button', { name: 'More ways to make a flow' }))
+    await user.click(await screen.findByRole('menuitem', { name: /describe it/i, hidden: true }))
     fireEvent.change(await screen.findByRole('textbox', { name: /describe the automation/i }), { target: { value: 'Copy orders' } })
     await user.click(screen.getByRole('combobox', { name: /^provider/i }))
     await user.click(await screen.findByRole('option', { name: 'Ollama (local)', hidden: true }))
@@ -70,7 +71,7 @@ describe('Workflows page: Describe an automation', () => {
   it('is not offered to a Viewer', async () => {
     signInAs('Viewer')
     renderPage()
-    await screen.findByText(/no workflows found/i)
-    expect(screen.queryByRole('button', { name: /describe an automation/i })).toBeNull()
+    await screen.findByText('No flows yet')
+    expect(screen.queryByRole('button', { name: 'More ways to make a flow' })).toBeNull()
   })
 })

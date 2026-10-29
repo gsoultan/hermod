@@ -17,6 +17,8 @@ interface RowProps {
   to?: string;
   params?: Record<string, string>;
   onOpen?: () => void;
+  /** A checkbox for selecting the row, before the icon. */
+  lead?: ReactNode;
 }
 
 /**
@@ -24,7 +26,7 @@ interface RowProps {
  * arrow. The name and detail are the link; the action sits beside it so
  * pressing Retry never also opens the row.
  */
-export function Row({ icon: Icon, iconTone = 'default', title, detail, state, action, to, params, onOpen }: RowProps) {
+export function Row({ icon: Icon, iconTone = 'default', title, detail, state, action, to, params, onOpen, lead }: RowProps) {
   const opens = Boolean(to || onOpen);
   const body = (
     <Group gap="md" wrap="nowrap" style={{ minWidth: 0, flex: 1 }}>
@@ -35,6 +37,7 @@ export function Row({ icon: Icon, iconTone = 'default', title, detail, state, ac
           radius="md"
           size={36}
           aria-hidden
+          className="hermod-row-icon"
           style={{ flex: 'none' }}
         >
           <Icon size="1.1rem" stroke={1.6} />
@@ -70,14 +73,15 @@ export function Row({ icon: Icon, iconTone = 'default', title, detail, state, ac
         paddingBottom: 'var(--mantine-spacing-sm)',
         borderTop: '1px solid var(--mantine-color-default-border)',
       }}
-      className="hermod-row"
+      className={lead ? 'hermod-row hermod-row-with-lead' : 'hermod-row'}
     >
+      {lead && <Box className="hermod-row-lead" onClick={(e) => e.stopPropagation()}>{lead}</Box>}
       <Box className="hermod-row-main" style={{ display: 'flex', minWidth: 0, alignSelf: 'stretch' }}>{main}</Box>
       {/* Its own grid cell: beside the name on a desktop, under it on a phone, where the name needs the width. */}
       {state && <Box className="hermod-row-state">{state}</Box>}
       <Group gap="md" wrap="nowrap" className="hermod-row-tail">
         {action && <Box onClick={(e) => e.stopPropagation()}>{action}</Box>}
-        {opens && <IconChevronRight size="1rem" aria-hidden style={{ color: 'var(--mantine-color-dimmed)' }} />}
+        {opens && <IconChevronRight size="1rem" aria-hidden className="hermod-row-chevron" style={{ color: 'var(--mantine-color-dimmed)' }} />}
       </Group>
     </Box>
   );
