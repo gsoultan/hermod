@@ -19,7 +19,9 @@ import (
 	"strconv"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/hermod/internal/api/handlers"
 	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/pkg/engine/telemetry"
 )
 
 func (h *WorkerHandler) RegisterWorkerRoutes(mux *http.ServeMux) {
@@ -29,6 +31,8 @@ func (h *WorkerHandler) RegisterWorkerRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/workers", h.AdminOnly(h.CreateWorker))
 	mux.Handle("PUT /api/workers/{id}", h.AdminOnly(h.UpdateWorker))
 	mux.HandleFunc("POST /api/workers/{id}/heartbeat", h.UpdateWorkerHeartbeat)
+	// Workers sign in as editors; the handler further holds each to its own ID.
+	mux.Handle("POST /api/workers/{id}/live-status", h.EditorOnly(h.ReportLiveStatus))
 	mux.HandleFunc("POST /api/workers/{id}/start", h.StartWorker)
 	mux.HandleFunc("POST /api/workers/{id}/shutdown", h.ShutdownWorker)
 	// StartWorker and ShutdownWorker check the role in-handler; these three did
@@ -320,4 +324,65 @@ func (h *WorkerHandler) platformURLFromRequest(r *http.Request) string {
 		scheme = proto
 	}
 	return scheme + "://" + r.Host
+}
+
+// maxLiveStatusBytes bounds one live-status report. A report carries a frame
+// per workflow someone has open, payload samples included.
+const maxLiveStatusBytes = 4 << 20
+
+// masterWorkerUserID is the user the auth middleware builds for the master key.
+const masterWorkerUserID = "worker:master"
+
+// ReportLiveStatus relays a remote worker's live workflow status to the editors
+// watching it, and replies with which of the worker's workflows someone has
+// open, so the worker sends only those.
+//
+// Editors subscribe to status on the platform. A workflow running on a remote
+// worker has its engine there instead, so before this its edges drew "no data".
+//
+// Only a worker may call it, and only as itself. A frame is relayed only for a
+// workflow that exists, is not pinned to another worker, is not running here
+// (two engines' counts on one feed would make nonsense rates) and is open.
+func (h *WorkerHandler) ReportLiveStatus(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	user, _ := r.Context().Value(handlers.UserContextKey).(*storage.User)
+	if user == nil || (user.ID != "worker:"+id && user.ID != masterWorkerUserID) {
+		h.JsonError(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	var report telemetry.LiveStatusReport
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxLiveStatusBytes)).Decode(&report); err != nil {
+		h.JsonError(w, "invalid live status report", http.StatusBadRequest)
+		return
+	}
+
+	reply := telemetry.LiveStatusReply{Watched: []string{}}
+	if reg := h.Registry; reg != nil {
+		for _, update := range report.Updates {
+			if h.mayRelay(r, id, update.WorkflowID) {
+				reg.BroadcastStatus(update)
+			}
+		}
+		if watched := reg.WatchedAmong(report.Running); watched != nil {
+			reply.Watched = watched
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(reply)
+}
+
+// mayRelay reports whether worker workerID may put a frame for workflowID on
+// the platform's status feed. An unpinned workflow is placed by sharding, which
+// the platform does not record, so any worker may speak for it.
+func (h *WorkerHandler) mayRelay(r *http.Request, workerID, workflowID string) bool {
+	if workflowID == "" || !h.Registry.IsWorkflowWatched(workflowID) || h.Registry.IsEngineRunning(workflowID) {
+		return false
+	}
+	wf, err := h.Storage.GetWorkflow(r.Context(), workflowID)
+	if err != nil {
+		return false
+	}
+	return wf.WorkerID == "" || wf.WorkerID == workerID
 }

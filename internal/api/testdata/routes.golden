@@ -251,6 +251,7 @@ POST /api/worker/ai/check
 POST /api/worker/ai/usage
 POST /api/workers
 POST /api/workers/{id}/heartbeat
+POST /api/workers/{id}/live-status
 POST /api/workers/{id}/shutdown
 POST /api/workers/{id}/start
 POST /api/workflows

@@ -7,6 +7,18 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — Live edges for workflows on remote workers
+
+A workflow running on a remote worker (`--mode=worker --platform-url=…
+--worker-guid=…`) now animates its edges in the editor like one running on the
+platform. Its edges used to say "no data", because the editor reads status on
+the platform and the engine was on the worker. The worker now checks in every
+5 seconds with the workflows it runs; for those someone has open the platform
+asks for their status, and the worker sends it every second, payload samples
+included, to `POST /api/workers/{id}/live-status`. A worker may report only as
+itself and only for workflows not pinned to another worker. A worker on a
+shared database, without `--platform-url`, still shows "no data".
+
 ### Changed — Workflow edges show what is really flowing
 
 An edge on the workflow canvas now moves only while messages cross it, at the
