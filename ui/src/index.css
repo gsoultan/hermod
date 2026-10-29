@@ -252,3 +252,6 @@
     -webkit-box-orient: vertical;
   }
 }
+
+/* The add-a-step picker: its choices and rows are plain buttons that light on hover. */
+.hermod-pick:hover:not(:disabled) { background: var(--mantine-color-default-hover); }

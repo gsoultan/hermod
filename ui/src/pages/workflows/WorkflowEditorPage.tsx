@@ -26,6 +26,8 @@ import { notifications } from '@mantine/notifications';
 import { useWorkflowStore } from './WorkflowEditor/store/useWorkflowStore';
 import { EditorToolbar } from './WorkflowEditor/components/EditorToolbar';
 import { FLOW_TABS } from './flowTabs';
+import { AddStepPicker } from './WorkflowEditor/picker/AddStepPicker';
+import type { StepItem } from './WorkflowEditor/picker/stepChoices';
 import { useFlowActions } from './useFlowActions';
 import { FlowCanvas } from './WorkflowEditor/components/FlowCanvas';
 import { LiveLogPanel } from './WorkflowEditor/components/LiveLogPanel';
@@ -56,7 +58,7 @@ function EditorInner() {
   const { selectedVHost } = useVHost();
 
   const { 
-    vhost, selectedNode, active, logsPaused, quickAddSource,
+    vhost, selectedNode, active, logsPaused,
     testResults, workerID,
     workflowStatus, settingsOpened,
     updateNodeConfig, setTestModalOpened,
@@ -70,7 +72,6 @@ function EditorInner() {
     selectedNode: state.selectedNode,
     active: state.active,
     logsPaused: state.logsPaused,
-    quickAddSource: state.quickAddSource,
     testResults: state.testResults,
     workerID: state.workerID,
     workflowStatus: state.workflowStatus,
@@ -88,6 +89,16 @@ function EditorInner() {
 
   const navigate = useNavigate();
   const flowActions = useFlowActions(id, name);
+  const [pickerOpened, setPickerOpened] = useState(false);
+  const hasSource = useWorkflowStore((s) => s.nodes.some((n: any) => n.type === 'source'));
+  const { data: installedPlugins } = useQuery<any[]>({
+    queryKey: ['marketplace', 'plugins', 'installed'],
+    queryFn: async () => {
+      const res = await apiFetch('/api/marketplace/plugins');
+      const all = await res.json();
+      return (Array.isArray(all) ? all : []).filter((p: any) => p.installed);
+    },
+  });
   const [configModalOpen, setConfigModalOpen] = useState(false);
   const [aiFixModalData, setAIFixModalData] = useState<any>(null);
   const [saveConfirmOpened, setSaveConfirmOpened] = useState(false);
@@ -160,8 +171,39 @@ function EditorInner() {
   } = useWorkflowEvents(reactFlowWrapper, setConfigModalOpen);
 
   // Node operations
+  // The + on a node and the Add step button both open the picker; the + also
+  // remembers where the new step goes.
   const handlePlusClick = (nodeId: string, handleId: string | null) => {
     setQuickAddSource({ nodeId, handleId });
+    setPickerOpened(true);
+  };
+
+  const addStep = (type: string, refId: string, label: string, subType: string, extraData?: any) => {
+    const bounds = reactFlowWrapper.current?.getBoundingClientRect();
+    const { nodes, quickAddSource: from } = useWorkflowStore.getState();
+    let pos;
+    if (from) {
+      const sourceNode = nodes.find(n => n.id === from.nodeId);
+      pos = sourceNode ? { x: sourceNode.position.x + 250, y: sourceNode.position.y } : { x: 100, y: 100 };
+    } else {
+      pos = screenToFlowPosition({ x: (bounds?.width || 400) / 2, y: (bounds?.height || 400) / 2 });
+    }
+    const node = addNodeAtPosition(type, refId, label, subType, pos, extraData);
+    // Select the newly added node and open popup/drawer accordingly
+    setSelectedNode(node);
+    if (type === 'source' || type === 'sink' || type === 'transformation' || type === 'validator') {
+      setConfigModalOpen(true);
+    } else {
+      // Logic/flow nodes (switch, router, condition, merge, ...)
+      // open the node settings modal for configuration.
+      setDrawerOpened(false);
+      setSettingsOpened(true);
+    }
+  };
+
+  const openPalette = () => {
+    setQuickAddSource(null);
+    setDrawerTab(hasSource ? 'transformations' : 'sources');
     setDrawerOpened(true);
   };
 
@@ -318,7 +360,7 @@ function EditorInner() {
                 leftSection={<IconPlus size="1rem" />}
                 size="sm"
                 style={{ position: 'absolute', top: 12, right: 12, zIndex: 5 }}
-                onClick={() => { setQuickAddSource(null); setDrawerTab('nodes'); setDrawerOpened(true); }}
+                onClick={() => { setQuickAddSource(null); setPickerOpened(true); }}
               >
                 Add step
               </Button>
@@ -369,32 +411,22 @@ function EditorInner() {
             // The drawer passes the item's icon and colour before its extra
             // data; taking extraData fifth spread the icon component into the
             // new node's data and dropped a plugin's id.
-            onAddItem={(type, refId, label, subType, _icon, _color, extraData) => {
-              const bounds = reactFlowWrapper.current?.getBoundingClientRect();
-              const { nodes } = useWorkflowStore.getState();
-              let pos;
-              if (quickAddSource) {
-                const sourceNode = nodes.find(n => n.id === quickAddSource!.nodeId);
-                pos = sourceNode ? { x: sourceNode.position.x + 250, y: sourceNode.position.y } : { x: 100, y: 100 };
-              } else {
-                pos = screenToFlowPosition({ x: (bounds?.width || 400) / 2, y: (bounds?.height || 400) / 2 });
-              }
-              const node = addNodeAtPosition(type, refId, label, subType, pos, extraData);
-              // Select the newly added node and open popup/drawer accordingly
-              setSelectedNode(node);
-              if (type === 'source' || type === 'sink' || type === 'transformation' || type === 'validator') {
-                setConfigModalOpen(true);
-              } else {
-                // Logic/flow nodes (switch, router, condition, merge, ...)
-                // open the node settings modal for configuration.
-                setDrawerOpened(false);
-                setSettingsOpened(true);
-              }
-            }}
+            onAddItem={(type, refId, label, subType, _icon, _color, extraData) => addStep(type, refId, label, subType, extraData)}
             sources={sources?.data || []}
             sinks={sinks?.data || []}
           />
         </Flex>
+
+        <AddStepPicker
+          opened={pickerOpened}
+          onClose={() => setPickerOpened(false)}
+          onPick={(item: StepItem) => addStep(item.type, item.refId, item.label, item.subType, item.pluginID || item.defaults ? { ...(item.pluginID ? { pluginID: item.pluginID } : {}), ...(item.defaults ?? {}) } : undefined)}
+          onOpenPalette={openPalette}
+          hasSource={hasSource}
+          sources={sources?.data || []}
+          sinks={sinks?.data || []}
+          plugins={installedPlugins || []}
+        />
 
         <WorkflowNodeSettingsModal 
           opened={settingsOpened}

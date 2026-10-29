@@ -269,7 +269,7 @@ export function SidebarDrawer({
             <ThemeIcon variant="light" color="blue" size="md">
               <IconAdjustments size="1.2rem" />
             </ThemeIcon>
-            <Title order={4}>Workflow Panel</Title>
+            <Title order={4}>{coercedTab === 'settings' ? 'Flow settings' : coercedTab === 'copilot' ? 'AI copilot' : 'Add a step'}</Title>
           </Group>
           <ActionIcon aria-label="Close" variant="subtle" color="gray" onClick={() => setDrawerOpened(false)}>
             <IconX size="1.2rem" />
@@ -295,7 +295,7 @@ export function SidebarDrawer({
             <TextInput
               mb="sm"
               size="xs"
-              placeholder="Search sources, transformations and sinks..."
+              placeholder="Search sources, transformations and sinks"
               aria-label="Search the node palette"
               leftSection={<IconSearch size="0.9rem" />}
               value={paletteSearch}
@@ -327,7 +327,7 @@ export function SidebarDrawer({
                     <Paper withBorder p="xs" radius="md" bg={isDark ? 'dark.8' : 'indigo.0'}>
                       <Group gap="xs" px="xs" mb="xs">
                         <IconPuzzle size="1rem" color="var(--mantine-color-indigo-6)" />
-                        <Text size="xs" fw={800} c="indigo.7" style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>Installed Plugins</Text>
+                        <Text size="xs" fw={800} c="indigo.7" style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>Installed plugins</Text>
                       </Group>
                       <Stack gap={2}>
                         {(Array.isArray(plugins) ? plugins : [])
@@ -386,7 +386,7 @@ export function SidebarDrawer({
                       whole block goes rather than leaving the label stranded. */}
                   {(!searchActive || filterExisting(sources, 'source').length > 0) && (
                   <Box>
-                    <Text size="xs" fw={800} c="dimmed" mb="xs" px="xs" style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>Existing Sources</Text>
+                    <Text size="xs" fw={800} c="dimmed" mb="xs" px="xs" style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>Your sources</Text>
                     <Stack gap={2}>
                       {filterExisting(sources, 'source').map(s => renderDraggableItem({
                         type: 'source',
@@ -427,7 +427,7 @@ export function SidebarDrawer({
                       whole block goes rather than leaving the label stranded. */}
                   {(!searchActive || filterExisting(sinks, 'sink').length > 0) && (
                   <Box>
-                    <Text size="xs" fw={800} c="dimmed" mb="xs" px="xs" style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>Existing Sinks</Text>
+                    <Text size="xs" fw={800} c="dimmed" mb="xs" px="xs" style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>Your sinks</Text>
                     <Stack gap={2}>
                       {filterExisting(sinks, 'sink').map(s => renderDraggableItem({
                         type: 'sink',

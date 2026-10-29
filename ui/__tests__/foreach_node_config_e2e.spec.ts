@@ -33,10 +33,11 @@ test('a foreach node can be given its array path from the palette', async ({ pag
   await page.goto('/workflows/new', { waitUntil: 'networkidle' });
   await page.waitForTimeout(2000);
 
-  if (!(await page.getByText('Workflow Panel').isVisible().catch(() => false))) {
+  if (!(await page.getByText('Add a step', { exact: true }).isVisible().catch(() => false))) {
     await page.getByRole('button', { name: 'Add step' }).click();
+    await page.getByRole('button', { name: 'Browse the full palette' }).click();
   }
-  await expect(page.getByText('Workflow Panel')).toBeVisible();
+  await expect(page.getByText('Add a step', { exact: true })).toBeVisible();
 
   // The Transformations tab stays disabled until the canvas has a source.
   await paletteItem(page, 'Sources', 'PostgreSQL').click();
