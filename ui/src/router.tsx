@@ -31,6 +31,7 @@ const Layout = lazy(async () => ({ default: (await import('./components/layout/L
 import { Center, Loader } from '@mantine/core'
 import { apiFetch } from './api'
 import { ensureSession, getSessionRole } from './auth/session'
+import { legacyRedirect } from './components/layout/nav'
 import {lazy, Suspense} from "react"
 // Lazy-load remaining pages to comply with bundle-size & lazy-loading guidelines
 const SettingsPage = lazy(async () => ({ default: (await import('./pages/system/SettingsPage')).SettingsPage }))
@@ -51,6 +52,10 @@ const CompliancePage = lazy(async () => ({ default: (await import('./pages/monit
 const DeadLettersPage = lazy(async () => ({ default: (await import('./pages/monitoring/DeadLettersPage')).DeadLettersPage }))
 const EnvironmentsPage = lazy(async () => ({ default: (await import('./pages/environments/EnvironmentsPage')).EnvironmentsPage }))
 const AcceptLinkPage = lazy(async () => ({ default: (await import('./pages/environments/AcceptLinkPage')).AcceptLinkPage }))
+const ConnectionsPage = lazy(async () => ({ default: (await import('./pages/hubs/ConnectionsPage')).ConnectionsPage }))
+const ActivityPage = lazy(async () => ({ default: (await import('./pages/hubs/ActivityPage')).ActivityPage }))
+const DeveloperPage = lazy(async () => ({ default: (await import('./pages/hubs/DeveloperPage')).DeveloperPage }))
+const SettingsHubPage = lazy(async () => ({ default: (await import('./pages/hubs/SettingsHubPage')).SettingsHubPage }))
 const ApprovalsPage = lazy(async () => ({ default: (await import('./pages/workflows/ApprovalsPage')).ApprovalsPage }))
 interface RouterContext {
   configStatus?: {
@@ -82,6 +87,20 @@ async function getCachedConfigStatus() {
   } catch {}
   return data
 }
+
+/**
+ * A retired top-level page answers at its old URL and sends the visitor to
+ * the hub that holds it now, keeping whatever else was in the query string
+ * (a workflow_id on /logs, for one).
+ */
+const retired = (pathname: string) => ({ search }: { search: Record<string, unknown> }) => {
+  const target = legacyRedirect(pathname)
+  if (!target) return
+  throw redirect({ to: target.to, search: { ...search, ...target.search } } as any)
+}
+
+/** Hubs carry their open tab in the query string and pass everything else through. */
+const hubSearch = (search: Record<string, unknown>): Record<string, unknown> & { tab?: string } => search as any
 
 const rootRoute = createRootRouteWithContext<RouterContext>()({
   component: () => (
@@ -185,6 +204,7 @@ const sourcesRoute = createRoute({
 const sourcesIndexRoute = createRoute({
   getParentRoute: () => sourcesRoute,
   path: '/',
+  beforeLoad: retired('/sources'),
   component: () => (
     <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
       <SourcesPage />
@@ -220,6 +240,7 @@ const sinksRoute = createRoute({
 const sinksIndexRoute = createRoute({
   getParentRoute: () => sinksRoute,
   path: '/',
+  beforeLoad: retired('/sinks'),
   component: () => (
     <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
       <SinksPage />
@@ -418,24 +439,63 @@ const profileRoute = createRoute({
   ),
 })
 
+// Settings is a list for everyone; the platform tabs behind it (?tab=...) are
+// for Administrators, as the old Settings page was. A non-administrator who
+// follows such a link lands on the list rather than being bounced to Home.
+const SettingsRoutePage = () => {
+  const { tab } = settingsRoute.useSearch()
+  const showPlatform = Boolean(tab) && getSessionRole() === 'Administrator'
+  return (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      {showPlatform ? <SettingsPage /> : <SettingsHubPage />}
+    </Suspense>
+  )
+}
+
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings',
+  validateSearch: hubSearch,
+  component: SettingsRoutePage,
+})
+
+const connectionsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/connections',
+  validateSearch: hubSearch,
   component: () => (
     <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
-      <SettingsPage />
+      <ConnectionsPage />
     </Suspense>
   ),
-  beforeLoad: () => {
-    if (getSessionRole() !== 'Administrator') {
-      throw redirect({ to: '/' })
-    }
-  }
+})
+
+const activityRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/activity',
+  validateSearch: hubSearch,
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <ActivityPage />
+    </Suspense>
+  ),
+})
+
+const developerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/developer',
+  validateSearch: hubSearch,
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <DeveloperPage />
+    </Suspense>
+  ),
 })
 
 const logsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/logs',
+  beforeLoad: retired('/logs'),
   component: () => (
     <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
       <LogsPage />
@@ -451,6 +511,7 @@ const logsRoute = createRoute({
 const schemasRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/schemas',
+  beforeLoad: retired('/schemas'),
   component: () => (
     <Suspense fallback={<Center h="100vh"><Loader /></Center>}>
       <SchemasPage />
@@ -463,11 +524,12 @@ const schemasRoute = createRoute({
 const secretsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/secrets',
-  beforeLoad: () => {
+  beforeLoad: (args: any) => {
     const role = getSessionRole()
     if (role !== 'Administrator' && role !== 'Editor') {
       throw redirect({ to: '/' })
     }
+    retired('/secrets')(args)
   },
   component: () => (
     <Suspense fallback={<Center h="100vh"><Loader /></Center>}>
@@ -481,11 +543,12 @@ const secretsRoute = createRoute({
 const modelsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/ml/models',
-  beforeLoad: () => {
+  beforeLoad: (args: any) => {
     const role = getSessionRole()
     if (role !== 'Administrator' && role !== 'Editor') {
       throw redirect({ to: '/' })
     }
+    retired('/ml/models')(args)
   },
   component: () => (
     <Suspense fallback={<Center h="100vh"><Loader /></Center>}>
@@ -499,6 +562,7 @@ const modelsRoute = createRoute({
 const aiBudgetRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/ai/budget',
+  beforeLoad: retired('/ai/budget'),
   component: () => (
     <Suspense fallback={<Center h="100vh"><Loader /></Center>}>
       <AIBudgetPage />
@@ -509,21 +573,23 @@ const aiBudgetRoute = createRoute({
 const auditLogsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/audit-logs',
+  beforeLoad: (args: any) => {
+    if (getSessionRole() !== 'Administrator') {
+      throw redirect({ to: '/' })
+    }
+    retired('/audit-logs')(args)
+  },
   component: () => (
     <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
       <AuditLogsPage />
     </Suspense>
   ),
-  beforeLoad: () => {
-    if (getSessionRole() !== 'Administrator') {
-      throw redirect({ to: '/' })
-    }
-  },
 })
 
 const lineageRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/lineage',
+  beforeLoad: retired('/lineage'),
   component: () => (
     <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
       <LineagePage />
@@ -534,6 +600,7 @@ const lineageRoute = createRoute({
 const healthRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/health',
+  beforeLoad: retired('/health'),
   component: () => (
     <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
       <GlobalHealthPage />
@@ -544,6 +611,7 @@ const healthRoute = createRoute({
 const complianceRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/compliance',
+  beforeLoad: retired('/compliance'),
   component: () => (
     <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
       <CompliancePage />
@@ -554,6 +622,7 @@ const complianceRoute = createRoute({
 const marketplaceRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/marketplace',
+  beforeLoad: retired('/marketplace'),
   component: () => (
     <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
       <CommunityMarketplace />
@@ -612,6 +681,7 @@ const acceptLinkVHostRoute = createRoute({
 const deadLettersRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/dead-letters',
+  beforeLoad: retired('/dead-letters'),
   component: () => (
     <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
       <DeadLettersPage />
@@ -717,6 +787,9 @@ const routeTree = rootRoute.addChildren([
   ]),
   profileRoute,
   settingsRoute,
+  connectionsRoute,
+  activityRoute,
+  developerRoute,
   logsRoute,
   auditLogsRoute,
   schemasRoute,
@@ -738,7 +811,8 @@ const routeTree = rootRoute.addChildren([
   setupRoute,
 ])
 
-export const router = createRouter({
+/** One router per app; tests build their own so a redirect in one test does not stall the next. */
+export const createAppRouter = () => createRouter({
   routeTree,
   defaultPendingComponent: () => (
     <Center h="100vh">
@@ -781,6 +855,8 @@ export const router = createRouter({
     </Suspense>
   ),
 })
+
+export const router = createAppRouter()
 
 declare module '@tanstack/react-router' {
   interface Register {
