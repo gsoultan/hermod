@@ -30,7 +30,7 @@ const stats: DashboardStats = {
 let streamStats: DashboardStats = stats
 
 vi.mock('@/hooks/useDashboardStream', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/hooks/useDashboardStream')>()
+  const actual = await importOriginal<Record<string, unknown>>()
   return {
     ...actual,
     useDashboardStream: () => ({ stats: streamStats, series: [1100, 1184], connection: 'live', error: null }),
