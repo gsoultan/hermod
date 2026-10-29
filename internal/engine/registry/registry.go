@@ -245,6 +245,12 @@ type Registry struct {
 	// watched, and a router holding a pointer must keep seeing updates.
 	workflowWatchers sync.Map // string -> *atomic.Int32
 
+	// remoteWatched is the set of workflows the platform last said someone has
+	// open, on a worker that runs them remotely. Each adds one to its
+	// workflow's watcher count; see SetRemotelyWatched.
+	remoteWatchedMu sync.Mutex
+	remoteWatched   map[string]bool
+
 	ctx    context.Context
 	cancel context.CancelFunc
 }

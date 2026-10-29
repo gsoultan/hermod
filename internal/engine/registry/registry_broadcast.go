@@ -12,6 +12,7 @@ package registry
 
 import (
 	"context"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -756,4 +757,65 @@ func (r *Registry) pushWatchedStatuses() int {
 		r.BroadcastStatus(update)
 	}
 	return len(targets)
+}
+
+// IsWorkflowWatched reports whether anyone has the workflow's status open: an
+// editor or detail page subscribed here, or, on a remote worker, one the
+// platform reported (SetRemotelyWatched).
+func (r *Registry) IsWorkflowWatched(workflowID string) bool {
+	return r.workflowWatcherCount(workflowID).Load() > 0
+}
+
+// WatchedAmong returns, in order, the workflows in ids that someone has open.
+// It answers a remote worker asking which of the workflows it runs to relay.
+func (r *Registry) WatchedAmong(ids []string) []string {
+	var out []string
+	for _, id := range ids {
+		if r.IsWorkflowWatched(id) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// SetRemotelyWatched records which workflows the platform last said someone
+// has open. A remote worker has no editor of its own, so without this a
+// workflow open on the platform would read as unwatched here and the router
+// would take no payload samples for it.
+//
+// Each workflow in ids counts as one watcher however often it is repeated, and
+// one left out is no longer counted. Local subscribers are never touched.
+func (r *Registry) SetRemotelyWatched(ids []string) {
+	r.remoteWatchedMu.Lock()
+	defer r.remoteWatchedMu.Unlock()
+	for id := range r.remoteWatched {
+		if !slices.Contains(ids, id) {
+			delete(r.remoteWatched, id)
+			r.workflowWatcherCount(id).Add(-1)
+		}
+	}
+	for _, id := range ids {
+		if r.remoteWatched[id] {
+			continue
+		}
+		if r.remoteWatched == nil {
+			r.remoteWatched = make(map[string]bool)
+		}
+		r.remoteWatched[id] = true
+		r.workflowWatcherCount(id).Add(1)
+	}
+}
+
+// RunningWorkflowIDs lists the workflows this registry is running.
+func (r *Registry) RunningWorkflowIDs() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	ids := make([]string, 0, len(r.engines))
+	for id, ae := range r.engines {
+		if ae != nil && ae.isWorkflow {
+			ids = append(ids, id)
+		}
+	}
+	slices.Sort(ids)
+	return ids
 }
