@@ -46,7 +46,7 @@ export function BudgetForm({ budget, readOnly, saving, error, onSave }: {
           crosses a limit is let through and only the next one is refused: a month can overshoot by one call.
         </Text>
         <Group grow align="flex-start">
-          <NumberInput label="Monthly token budget" description="Input and output tokens of the whole vhost"
+          <NumberInput label="Monthly token budget" description="Input and output tokens of the whole virtual host"
             min={0} allowDecimal={false} thousandSeparator="," value={tokens ?? ''} onChange={(v) => setTokens(num(v))} disabled={readOnly} />
           <NumberInput label="Monthly cost budget" description="Worked out from the prices below"
             min={0} decimalScale={2} value={cost ?? ''} onChange={(v) => setCost(num(v))} disabled={readOnly} />
@@ -84,7 +84,7 @@ export function BudgetForm({ budget, readOnly, saving, error, onSave }: {
 
         <Stack gap="xs">
           <Text fw={500} size="sm">Workflow caps</Text>
-          <Text size="xs" c="dimmed">A workflow's own monthly limit, inside the vhost's.</Text>
+          <Text size="xs" c="dimmed">A flow's own monthly limit, inside the virtual host's.</Text>
           {caps.map((c, i) => (
             <Group key={i} gap="xs" align="flex-end" wrap="nowrap">
               <TextInput aria-label={`Workflow ID ${i + 1}`} placeholder="workflow id" value={c.workflow_id} style={{ flex: 2 }}

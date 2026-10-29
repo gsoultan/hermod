@@ -88,7 +88,7 @@ test.describe('Hermod Core Scenarios E2E', () => {
     await page.getByRole('button', { name: 'Add virtual host' }).click();
     await page.getByLabel(/Name/i).fill(vhostName);
     await page.getByLabel(/Description/i).fill(description);
-    await page.getByRole('button', { name: /Create VHost/i }).click();
+    await page.getByRole('button', { name: /Create virtual host/i }).click();
     
     await page.waitForURL(/\/vhosts/);
     const vhostRow = page.getByRole('list', { name: 'Virtual hosts' }).getByRole('listitem').filter({ hasText: vhostName });
@@ -139,7 +139,7 @@ test.describe('Hermod Core Scenarios E2E', () => {
     await page.waitForURL(/tab=vhosts/);
     await page.getByRole('button', { name: 'Add virtual host' }).click();
     await page.getByLabel(/Name/i).fill(vhostName);
-    await page.getByRole('button', { name: /Create VHost/i }).click();
+    await page.getByRole('button', { name: /Create virtual host/i }).click();
     await page.waitForURL(/\/vhosts/);
     await expect(page.getByRole('list', { name: 'Virtual hosts' }).getByRole('listitem').filter({ hasText: vhostName })).toBeVisible();
 

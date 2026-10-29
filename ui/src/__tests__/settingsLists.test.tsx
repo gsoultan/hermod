@@ -175,3 +175,15 @@ describe('adding people, virtual hosts and workers', () => {
     expect(screen.getByRole('link', { name: /back to settings/i })).toHaveAttribute('href', '/settings')
   })
 })
+
+describe('My account', () => {
+  it('is titled as its Settings row, with the person under it and the way back', async () => {
+    server.use(http.get('/api/me', () => HttpResponse.json({ id: 'u1', username: 'gembit', full_name: 'Gembit S', email: 'g@example.com', role: 'Administrator', vhosts: [], two_factor_enabled: false })))
+    const { ProfilePage } = await import('@/pages/system/ProfilePage')
+    renderPage(<ProfilePage />)
+    expect(await screen.findByRole('heading', { level: 1, name: 'My account' })).toBeInTheDocument()
+    expect(screen.getByText('Gembit S · @gembit · Administrator')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /back to settings/i })).toHaveAttribute('href', '/settings')
+    expect(screen.getByRole('tab', { name: 'Profile' })).toBeInTheDocument()
+  })
+})

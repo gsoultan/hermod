@@ -112,7 +112,7 @@ describe('Dead letters page', () => {
     deadLetterApi()
     renderPage()
 
-    expect(await screen.findByText(/workflows that keep failed messages here/i)).toBeInTheDocument()
+    expect(await screen.findByText(/kept here when the flow is set to keep them/i)).toBeInTheDocument()
     expect(screen.queryByText(/dead.letter sink/i)).not.toBeInTheDocument()
   })
 

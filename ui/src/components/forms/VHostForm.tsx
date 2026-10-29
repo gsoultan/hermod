@@ -68,14 +68,14 @@ export function VHostForm({ initialData, isEditing = false }: VHostFormProps) {
       />
       <Textarea
         label="Description"
-        placeholder="What is this vhost for?"
+        placeholder="What is this virtual host for?"
         value={vhost.description}
         onChange={(e) => setVHost({ ...vhost, description: e.currentTarget.value })}
       />
       <Group justify="flex-end" mt="xl">
         <Button variant="outline" onClick={() => navigate({ to: '/vhosts' })}>Cancel</Button>
         <Button onClick={() => submitMutation.mutate(vhost)} loading={submitMutation.isPending}>
-          {isEditing ? "Save Changes" : "Create VHost"}
+          {isEditing ? "Save changes" : "Create virtual host"}
         </Button>
       </Group>
     </Stack>

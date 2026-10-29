@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Alert, Badge, Box, Button, Checkbox, Code, Drawer, Group, Paper, ScrollArea, Select, SimpleGrid, Stack, Table, Tabs, Text,
-  TextInput, Title, Tooltip,
+  TextInput, Tooltip,
 } from '@mantine/core'
 import { useDebouncedValue } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
@@ -16,6 +16,7 @@ import {
   type DeadLetter, type DeadLetterFilters, type DeadLetterStats, type ReplayOutcome, type When,
 } from '@/lib/deadLetters'
 import { ReplayDeadLetterModal } from './ReplayDeadLetterModal'
+import { SectionHeader } from '@/components/rows';
 
 const PAGE_SIZE = 25
 // The server replays at most this many in one request.
@@ -173,17 +174,17 @@ export function DeadLettersPage() {
   const openFailedAt = open ? failedAtLabel(open, names) : ''
 
   return (
-    <Stack gap="lg" p="md">
-      <Group justify="space-between" align="flex-start">
-        <Box>
-          <Title order={2}>Dead letters</Title>
-          <Text c="dimmed" size="sm">Failed messages from workflows that keep failed messages here, once their retries ran out. Replay them once the cause is fixed, or discard them.</Text>
-        </Box>
-        <Group gap="xs">
-          <Button variant="default" leftSection={<IconDownload size={16} />} onClick={() => exportCSV()}>Export CSV</Button>
-          <Button variant="default" leftSection={<IconMail size={16} />} component="a" href="/settings">Mail settings</Button>
-        </Group>
-      </Group>
+    <Stack gap="lg">
+      <SectionHeader
+        title="Dead letters"
+        lede="Messages a flow gave up on after its retries ran out, kept here when the flow is set to keep them. Replay them once the cause is fixed, or discard them."
+        actions={
+          <>
+            <Button variant="default" leftSection={<IconDownload size={16} />} onClick={() => exportCSV()}>Export CSV</Button>
+            <Button variant="default" leftSection={<IconMail size={16} />} component="a" href="/settings?tab=connectivity">Mail settings</Button>
+          </>
+        }
+      />
 
       <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
         <StatCard label="In the queue" value={stats?.queued} />

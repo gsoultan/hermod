@@ -85,7 +85,7 @@ export function LinkWizard({ opened, onClose }: LinkWizardProps) {
   return (
     <Modal opened={opened} onClose={close} title="Connect an environment" size="lg">
       <Stepper active={step} size="sm" allowNextStepsSelect={false}>
-        <Stepper.Step label="Where" description="Address and vhost">
+        <Stepper.Step label="Where" description="Address and virtual host">
           <Stack mt="md">
             <Text size="sm">
               Enter the address of the Hermod that workflows from here should be promoted to, usually your production
@@ -103,8 +103,8 @@ export function LinkWizard({ opened, onClose }: LinkWizardProps) {
             <Group grow align="flex-start">
               <Select
                 label="Workflows from"
-                description="The vhost here"
-                placeholder="Pick a vhost"
+                description="The virtual host here"
+                placeholder="Pick a virtual host"
                 data={vhosts ?? []}
                 value={from}
                 searchable
@@ -122,7 +122,7 @@ export function LinkWizard({ opened, onClose }: LinkWizardProps) {
                 onChange={(e) => setLandIn(e.currentTarget.value)}
               />
             </Group>
-            <Text size="xs" c="dimmed">If it has no vhost of that name yet, it creates one when its administrator allows the link.</Text>
+            <Text size="xs" c="dimmed">If it has no virtual host of that name yet, it creates one when its administrator allows the link.</Text>
             <Group justify="flex-end">
               <Button variant="default" onClick={close}>Cancel</Button>
               <Button disabled={!!problem || !from || !!thereProblem} onClick={() => setStep(1)}>Next</Button>

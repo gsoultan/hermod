@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
-import { Alert, Badge, Box, Grid, Group, Loader, Paper, Select, Stack, Text, Title } from '@mantine/core'
+import { Alert, Badge, Box, Grid, Group, Loader, Paper, Select, Stack, Text } from '@mantine/core'
 import { IconAlertCircle, IconGitMerge, IconLock } from '@tabler/icons-react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
@@ -8,6 +8,7 @@ import { EmptyState } from '@/components/common/EmptyState'
 import { errorStatus, getImpact, getLineage, impactKey, lineageKey, type LineageNode } from '@/lib/lineage'
 import { LineageGraphView, kindWords } from './lineage/LineageGraphView'
 import { ImpactPanel } from './lineage/ImpactPanel'
+import { SectionHeader } from '@/components/rows';
 
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
 
@@ -20,7 +21,7 @@ export function LineagePage() {
   const navigate = useNavigate()
   const { selectedVHost } = useVHost()
   const vhost = selectedVHost || 'all'
-  const scopeWords = vhost === 'all' ? 'every vhost you can see' : vhost
+  const scopeWords = vhost === 'all' ? 'every virtual host you can see' : vhost
   const [selected, setSelected] = useState<string | null>(null)
 
   const graphQuery = useQuery({
@@ -57,26 +58,16 @@ export function LineagePage() {
   const status = errorStatus(graphQuery.error)
 
   return (
-    <Box p="md" className="page-enter">
+    <Box className="page-enter">
       <Stack gap="lg">
-        <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
-          <Group gap="sm" align="flex-start">
-            <IconGitMerge size="2rem" color="var(--mantine-color-blue-filled)" aria-hidden />
-            <Box style={{ flex: 1 }}>
-              <Group gap="sm" align="center">
-                <Title order={2} fw={800}>Data lineage</Title>
-                <Badge variant="light" size="lg" radius="sm" tt="none" aria-label="VHost shown">{vhost}</Badge>
-              </Group>
-              <Text size="sm" c="dimmed">
-                Built from the saved workflows of {scopeWords}: the tables, topics, files, endpoints and models they read
-                and write. Pick an asset to see everything downstream of it — what breaks if it changes.
-              </Text>
-            </Box>
-            {graph && graph.nodes.length > 0 && (
-              <Text size="sm" fw={600}>{plural(graph.summary.workflows, 'workflow')} · {plural(graph.summary.assets, 'asset')}</Text>
-            )}
-          </Group>
-        </Paper>
+        <SectionHeader
+          title="Lineage"
+          meta={<Badge variant="light" size="lg" radius="sm" tt="none" aria-label="Virtual host shown">{vhost}</Badge>}
+          lede={`Built from the saved flows of ${scopeWords}: the tables, topics, files, endpoints and models they read and write. Pick an asset to see everything downstream of it, which is what breaks if it changes.`}
+          actions={graph && graph.nodes.length > 0 && (
+            <Text size="sm" fw={600}>{plural(graph.summary.workflows, 'flow')} · {plural(graph.summary.assets, 'asset')}</Text>
+          )}
+        />
 
         {graphQuery.isLoading ? (
           <Group component="output" justify="center" p="xl" aria-label="Loading the lineage">

@@ -146,9 +146,9 @@ export function UserForm({ initialData, isEditing = false }: UserFormProps) {
         onChange={(value) => setUser({ ...user, role: value as Role })}
       />
       <MultiSelect
-        label="Assigned VHosts"
+        label="Virtual hosts they can use"
         description="Limits this user to the selected environments. Empty means all."
-        placeholder="Pick vhosts"
+        placeholder="Pick virtual hosts"
         data={vhosts?.map((v: { name: string }) => v.name) || []}
         value={user.vhosts}
         maxValues={user.role === 'Administrator' ? undefined : 1}
@@ -186,7 +186,7 @@ export function UserForm({ initialData, isEditing = false }: UserFormProps) {
       <Group justify="flex-end" mt="xl">
         <Button variant="outline" onClick={() => navigate({ to: '/users' })}>Cancel</Button>
         <Button onClick={() => submitMutation.mutate(user)} loading={submitMutation.isPending}>
-          {isEditing ? "Save Changes" : "Create User"}
+          {isEditing ? "Save changes" : "Create user"}
         </Button>
       </Group>
     </Stack>

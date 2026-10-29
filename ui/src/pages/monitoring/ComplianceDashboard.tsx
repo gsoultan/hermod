@@ -7,6 +7,7 @@ import {
 import { apiFetch } from '@/api';
 import { formatTime } from '@/utils/dateUtils';
 import { IconCheck, IconEyeOff, IconFingerprint, IconLock, IconShieldLock } from '@tabler/icons-react';
+import { SectionHeader } from '@/components/rows';
 interface PIIStat {
   discoveries: Record<string, number>;
   last_updated: string;
@@ -60,25 +61,18 @@ export function ComplianceDashboard() {
   const protectionRate = workflows.length > 0 ? (protectedWorkflows / workflows.length) * 100 : 0;
 
   return (
-    <Box p="md" style={{ position: 'relative', minHeight: '400px' }}>
+    <Box style={{ position: 'relative', minHeight: '400px' }}>
       <LoadingOverlay visible={loading} />
       <Stack gap="lg">
-        <Paper p="md" withBorder radius="md" bg="blue.0">
-          <Group gap="sm">
-            <IconShieldLock size="2rem" color="var(--mantine-color-blue-filled)" />
-            <Box style={{ flex: 1 }}>
-              <Title order={2} fw={800}>Compliance Dashboard</Title>
-              <Text size="sm" c="dimmed">
-                Monitor PII/PHI exposure and data protection coverage across all workflows.
-              </Text>
-            </Box>
-          </Group>
-        </Paper>
+        <SectionHeader
+          title="Compliance"
+          lede="Where personal or health data shows up in your flows, and how many flows mask it."
+        />
 
         <SimpleGrid cols={{ base: 1, md: 3 }} spacing="lg">
           <Paper p="xl" radius="md" withBorder>
             <Group justify="space-between">
-              <Text size="xs" c="dimmed" fw={700} tt="uppercase">Data Protection Coverage</Text>
+              <Text size="xs" c="dimmed" fw={700} tt="uppercase">Data protection coverage</Text>
               <ThemeIcon color="teal" variant="light" size="lg" radius="md"><IconLock size="1.2rem" /></ThemeIcon>
             </Group>
             <Group mt="md">
@@ -95,23 +89,23 @@ export function ComplianceDashboard() {
               />
               <Box>
                 <Text fw={800} size="xl">{protectedWorkflows} / {workflows.length}</Text>
-                <Text size="xs" c="dimmed">Workflows with Masking</Text>
+                <Text size="xs" c="dimmed">Flows that mask it</Text>
               </Box>
             </Group>
           </Paper>
 
           <Paper p="xl" radius="md" withBorder>
             <Group justify="space-between">
-              <Text size="xs" c="dimmed" fw={700} tt="uppercase">Total PII Discoveries</Text>
+              <Text size="xs" c="dimmed" fw={700} tt="uppercase">Personal data found</Text>
               <ThemeIcon color="orange" variant="light" size="lg" radius="md"><IconFingerprint size="1.2rem" /></ThemeIcon>
             </Group>
             <Text fw={800} size="32px" mt="md">{totalDiscoveries.toLocaleString()}</Text>
-            <Text size="xs" c="dimmed">Across all active pipelines</Text>
+            <Text size="xs" c="dimmed">Across all running flows</Text>
           </Paper>
 
           <Paper p="xl" radius="md" withBorder>
             <Group justify="space-between">
-              <Text size="xs" c="dimmed" fw={700} tt="uppercase">Compliance Status</Text>
+              <Text size="xs" c="dimmed" fw={700} tt="uppercase">Compliance status</Text>
               <ThemeIcon color={totalDiscoveries > 0 ? 'blue' : 'green'} variant="light" size="lg" radius="md">
                 {totalDiscoveries > 0 ? <IconShieldLock size="1.2rem" /> : <IconCheck size="1.2rem" />}
               </ThemeIcon>
@@ -127,13 +121,13 @@ export function ComplianceDashboard() {
 
         <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
           <Paper p="md" withBorder radius="md">
-            <Title order={4} mb="md">Discoveries by Type</Title>
+            <Title order={4} mb="md">Discoveries by type</Title>
             <ScrollArea h={300}>
               <Table.ScrollContainer minWidth={700}>
                 <Table verticalSpacing="sm">
                 <Table.Thead>
                   <Table.Tr>
-                    <Table.Th>Data Type</Table.Th>
+                    <Table.Th>Data type</Table.Th>
                     <Table.Th ta="right">Count</Table.Th>
                   </Table.Tr>
                 </Table.Thead>
@@ -163,13 +157,13 @@ export function ComplianceDashboard() {
           </Paper>
 
           <Paper p="md" withBorder radius="md">
-            <Title order={4} mb="md">Top Exposed Workflows</Title>
+            <Title order={4} mb="md">Most exposed flows</Title>
             <ScrollArea h={300}>
               <Table.ScrollContainer minWidth={700}>
                 <Table verticalSpacing="sm">
                 <Table.Thead>
                   <Table.Tr>
-                    <Table.Th>Workflow</Table.Th>
+                    <Table.Th>Flow</Table.Th>
                     <Table.Th ta="right">Discoveries</Table.Th>
                   </Table.Tr>
                 </Table.Thead>

@@ -149,10 +149,10 @@ describe('Machine Learning in the sidebar', () => {
     expect(labels('Editor')).not.toContain('Models')
   })
 
-  it('titles the page Machine Learning', async () => {
+  it('titles the tab Machine learning', async () => {
     pageApi()
     renderPage()
-    expect(await screen.findByRole('heading', { level: 2, name: 'Machine Learning' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 2, name: 'Machine learning' })).toBeInTheDocument()
   })
 })
 

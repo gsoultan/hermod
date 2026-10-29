@@ -106,7 +106,7 @@ describe('Lineage page', () => {
     const asked = lineageApi()
     renderPage()
     expect(screen.getByRole('status', { name: /loading the lineage/i })).toBeInTheDocument()
-    expect(await screen.findByText('2 workflows · 3 assets')).toBeInTheDocument()
+    expect(await screen.findByText('2 flows · 3 assets')).toBeInTheDocument()
     expect(asked).toContain('graph tenant-a')
     // Every node is reachable from the keyboard.
     expect(screen.getByRole('button', { name: /show what depends on public\.orders/i })).toBeInTheDocument()

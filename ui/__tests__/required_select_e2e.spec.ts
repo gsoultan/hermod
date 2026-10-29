@@ -20,7 +20,7 @@ async function startAddSource(page: Page, vhostName: string) {
   await page.goto('/sources');
   await page.getByRole('button', { name: 'Add Source' }).click();
   await page.getByLabel('Name').fill(`Select regression ${Date.now()}`);
-  await page.getByRole('combobox', { name: 'VHost', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Virtual host', exact: true }).click();
   await page.getByRole('option', { name: vhostName }).click();
 }
 
@@ -55,7 +55,7 @@ test.describe('required Selects do not deselect on re-click', () => {
     test.setTimeout(120000);
     await startAddSource(page, vhostName);
 
-    await page.getByRole('combobox', { name: 'VHost', exact: true }).click();
+    await page.getByRole('combobox', { name: 'Virtual host', exact: true }).click();
     await page.getByRole('option', { name: vhostName }).click();
 
     await expect(
@@ -80,7 +80,7 @@ test.describe('required Selects do not deselect on re-click', () => {
     await page.goto('/sinks');
     await page.getByRole('button', { name: 'Add Sink' }).click();
     await page.getByLabel('Name').fill(`Sink select ${Date.now()}`);
-    await page.getByRole('combobox', { name: 'VHost', exact: true }).click();
+    await page.getByRole('combobox', { name: 'Virtual host', exact: true }).click();
     await page.getByRole('option', { name: vhostName }).click();
 
     await page.getByRole('combobox', { name: 'Type', exact: true }).click();

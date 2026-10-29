@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { MantineProvider } from '@mantine/core'
 import { describe, expect, it, vi } from 'vitest'
 import { IconGitBranch } from '@tabler/icons-react'
-import { EmptyState, FilterBar, PageHeader, Row, RowList, StatePill } from '@/components/rows'
+import { EmptyState, FilterBar, PageHeader, Row, RowList, SectionHeader, StatePill } from '@/components/rows'
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, to, params: _p, search: _s, ...props }: any) => <a href={to} {...props}>{children}</a>,
@@ -107,5 +107,22 @@ describe('EmptyState', () => {
   it('can send the person somewhere instead', () => {
     wrap(<EmptyState title="No connections" action={{ label: 'Add connection', to: '/connections/new' }} />)
     expect(screen.getByRole('link', { name: 'Add connection' })).toHaveAttribute('href', '/connections/new')
+  })
+})
+
+describe('SectionHeader', () => {
+  it('heads a tab inside a page: the tab label as a second-level heading, a lede, a badge and the actions', () => {
+    wrap(<SectionHeader title="Dead letters" lede="Messages a flow gave up on." meta={<span>prod</span>} actions={<button>Export CSV</button>} />)
+    expect(screen.getByRole('heading', { level: 2, name: 'Dead letters' })).toBeInTheDocument()
+    expect(screen.getByText('Messages a flow gave up on.')).toBeInTheDocument()
+    expect(screen.getByText('prod')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Export CSV' })).toBeInTheDocument()
+  })
+})
+
+describe('Row avatar', () => {
+  it('shows the first letter in place of an icon', () => {
+    wrap(<RowList aria-label="People"><Row avatar="gembit" title="gembit" /></RowList>)
+    expect(screen.getByText('G')).toBeInTheDocument()
   })
 })

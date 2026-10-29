@@ -48,7 +48,7 @@ export function MLDatasetSinkConfig({ config, updateConfig, vhost }: MLDatasetSi
     <Stack gap="md">
       <Autocomplete
         label="Dataset"
-        description="A dataset of this vhost. A new name starts a new dataset."
+        description="A dataset of this virtual host. A new name starts a new dataset."
         placeholder="customers"
         required
         data={datasets.map((d) => d.name)}

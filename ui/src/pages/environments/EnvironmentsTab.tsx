@@ -109,7 +109,7 @@ function SendingSection() {
       <Group justify="space-between">
         <Stack gap={0}>
           <Title order={4}>Promotes to</Title>
-          <Text size="sm" c="dimmed">Where each vhost's workflows go when someone clicks Promote. One connection per vhost.</Text>
+          <Text size="sm" c="dimmed">Where each virtual host's flows go when someone clicks Promote. One connection per virtual host.</Text>
         </Stack>
         <Button leftSection={<IconPlus size="1rem" />} onClick={() => setWizard(true)}>Connect an environment</Button>
       </Group>
@@ -295,8 +295,8 @@ function VHostRulesEditor({ draft, setDraft }: { draft: Rules; setDraft: (r: Rul
 
   return (
     <Stack gap="xs">
-      <Text fw={500} size="sm">Rules for one vhost</Text>
-      <Text size="xs" c="dimmed">A vhost listed here uses its own approval and minimum time instead of the ones above.</Text>
+      <Text fw={500} size="sm">Rules for one virtual host</Text>
+      <Text size="xs" c="dimmed">A virtual host listed here uses its own approval and minimum time instead of the ones above.</Text>
       {entries.map(([v, r]) => (
         <Group key={v} gap="xs" wrap="nowrap">
           <Badge variant="light" tt="none" miw={90}>{v}</Badge>
@@ -380,7 +380,7 @@ function PeersCard() {
         <Text fw={600}>Linked instances</Text>
         <Group gap="xs" align="flex-end">
           <Autocomplete
-            label="Into vhost"
+            label="Into virtual host"
             description="Where its workflows land. Created when the code is used, if it is not here yet."
             size="xs"
             placeholder="e.g. hr"

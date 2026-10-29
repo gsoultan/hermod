@@ -1,5 +1,6 @@
-import { IconActivity, IconCheck, IconCpu, IconNetwork, IconServer, IconAlertTriangle } from '@tabler/icons-react';
-import { Title, Text, Stack, Paper, Group, Badge, SimpleGrid, ThemeIcon, Table, ScrollArea, Loader, Center } from '@mantine/core'
+import { IconActivity, IconCheck, IconCpu, IconNetwork, IconServer } from '@tabler/icons-react';
+import { Text, Stack, Paper, Group, Badge, SimpleGrid, ThemeIcon, Table, ScrollArea, Loader, Center } from '@mantine/core'
+import { SectionHeader } from '@/components/rows'
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '@/api'
 import { formatTime } from '@/utils/dateUtils'
@@ -88,20 +89,18 @@ export default function GlobalHealthPage() {
 
   return (
     <Stack gap="lg">
-      <Group justify="space-between">
-        <Stack gap={0}>
-          <Title order={2}>Global Mesh Health</Title>
-          <Text size="sm" c="dimmed">Real-time status of all Hermod clusters and worker nodes</Text>
-        </Stack>
-        <Badge size="xl" variant="dot" color="green">{onlineWorkers} Nodes Online</Badge>
-      </Group>
+      <SectionHeader
+        title="Mesh health"
+        lede="Every Hermod worker, whether it is online, and how much of its machine is in use."
+        meta={<Badge size="lg" variant="dot" color="green">{onlineWorkers} online</Badge>}
+      />
 
       <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
         <Paper withBorder p="md" radius="md">
           <Group justify="space-between">
             <div>
-              <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase' }}>Active Capacity</Text>
-              <Text size="xl" fw={800}>{totalWorkflows} Workflows</Text>
+              <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase' }}>Running flows</Text>
+              <Text size="xl" fw={800}>{totalWorkflows} {totalWorkflows === 1 ? 'flow' : 'flows'}</Text>
             </div>
             <ThemeIcon color="blue" variant="light" size="xl" radius="md">
               <IconNetwork size="1.4rem" />
@@ -127,7 +126,7 @@ export default function GlobalHealthPage() {
         <Paper withBorder p="md" radius="md">
           <Group justify="space-between">
             <div>
-              <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase' }}>System Health</Text>
+              <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase' }}>System health</Text>
               <Text size="xl" fw={800}>Optimal</Text>
             </div>
             <ThemeIcon color="green" variant="light" size="xl" radius="md">
@@ -137,18 +136,6 @@ export default function GlobalHealthPage() {
         </Paper>
       </SimpleGrid>
 
-      <Paper withBorder p="md" radius="md" bg="red.0">
-        <Stack gap="xs">
-          <Group gap="xs">
-            <IconAlertTriangle color="var(--mantine-color-red-6)" size="1.2rem" />
-            <Text fw={700} c="red.7">Intelligent Data Quality Alerts</Text>
-          </Group>
-          <Text size="sm" c="red.9">
-            Data Quality drift detected in <strong>Workflow: Transaction Processing</strong>. 
-            Score dropped to 65% (historical average 98%). Source: Kafka (vhost: prod).
-          </Text>
-        </Stack>
-      </Paper>
 
       <Paper withBorder radius="md">
         <ScrollArea h={500}>
@@ -156,13 +143,13 @@ export default function GlobalHealthPage() {
             <Table verticalSpacing="md" horizontalSpacing="lg">
             <Table.Thead>
               <Table.Tr>
-                <Table.Th>Node / Cluster</Table.Th>
+                <Table.Th>Worker or cluster</Table.Th>
                 <Table.Th>Status</Table.Th>
                 <Table.Th>Workload</Table.Th>
                 <Table.Th>CPU</Table.Th>
                 <Table.Th>Memory</Table.Th>
                 <Table.Th>Storage</Table.Th>
-                <Table.Th>Last Seen</Table.Th>
+                <Table.Th>Last seen</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
@@ -189,7 +176,7 @@ export default function GlobalHealthPage() {
                         <Group gap="xs">
                           <Text size="sm" fw={500}>{node.name || 'Unnamed Node'}</Text>
                           {node.type === 'cluster' && (
-                            <Badge size="xs" variant="outline" color="indigo">Mesh Cluster</Badge>
+                            <Badge size="xs" variant="outline" color="indigo">Mesh cluster</Badge>
                           )}
                           {node.type === 'worker' && (
                             <Badge size="xs" variant="outline" color="blue">Worker</Badge>

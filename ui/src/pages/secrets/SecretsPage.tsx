@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import {
-  ActionIcon, Alert, Badge, Box, Button, Code, CopyButton, Group, Loader, Paper, Select, Stack, Table, Text, Title,
+  ActionIcon, Alert, Badge, Box, Button, Code, CopyButton, Group, Loader, Paper, Select, Stack, Table, Text,
   Tooltip,
 } from '@mantine/core'
 import { IconAlertCircle, IconCheck, IconCopy, IconKey, IconPlus, IconRefresh, IconTrash } from '@tabler/icons-react'
@@ -12,6 +12,7 @@ import {
   deleteVHostSecret, isSecretVHost, listVHostSecrets, vhostSecretsKey, type VHostSecretEntry,
 } from '@/lib/vhostSecrets'
 import { SecretFormModal } from './SecretFormModal'
+import { SectionHeader } from '@/components/rows';
 
 /** A timestamp as the table shows it; storage's zero time means "not recorded". */
 function when(iso: string | undefined): string {
@@ -106,47 +107,32 @@ export function SecretsPage() {
   })
 
   return (
-    <Box p="md" className="page-enter">
+    <Box className="page-enter">
       <Stack gap="lg">
-        <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
-          <Stack gap="md">
-            <Group gap="sm" align="flex-start">
-              <IconKey size="2rem" color="var(--mantine-color-blue-filled)" />
-              <Box style={{ flex: 1 }}>
-                <Group gap="sm" align="center">
-                  <Title order={2} fw={800}>Secrets</Title>
-                  {vhost && (
-                    <Badge variant="light" size="lg" radius="sm" tt="none" aria-label="VHost shown">
-                      {vhost}
-                    </Badge>
-                  )}
-                </Group>
-                <Text size="sm" c="dimmed">
-                  API keys, passwords and tokens a vhost keeps for its own workflows. A value is encrypted,
-                  and is never shown again once saved. Use one as <Code>{'{{secret.NAME}}'}</Code> in any
-                  source, transformation or sink setting.
-                </Text>
-              </Box>
-              {vhost && (
-                <Button leftSection={<IconPlus size="1.2rem" />} onClick={() => setEditing({})}>
-                  Add secret
-                </Button>
-              )}
-            </Group>
-            {!isSecretVHost(selectedVHost) && (
-              <Select
-                label="VHost"
-                description="A secret belongs to one vhost."
-                placeholder="Select one"
-                data={vhostOptions}
-                value={chosen}
-                onChange={setChosen}
-                allowDeselect={false}
-                maw={360}
-              />
+        <Box>
+          <SectionHeader
+            title="Secrets"
+            meta={vhost && <Badge variant="light" size="lg" radius="sm" tt="none" aria-label="Virtual host shown">{vhost}</Badge>}
+            lede={<>API keys, passwords and tokens a virtual host keeps for its own flows. A value is encrypted, and is never shown again once saved. Use one as <Code>{'{{secret.NAME}}'}</Code> in any source, step or sink setting.</>}
+            actions={vhost && (
+              <Button leftSection={<IconPlus size="1rem" />} onClick={() => setEditing({})}>
+                Add secret
+              </Button>
             )}
-          </Stack>
-        </Paper>
+          />
+          {!isSecretVHost(selectedVHost) && (
+            <Select
+              label="Virtual host"
+              description="A secret belongs to one virtual host."
+              placeholder="Select one"
+              data={vhostOptions}
+              value={chosen}
+              onChange={setChosen}
+              allowDeselect={false}
+              maw={360}
+            />
+          )}
+        </Box>
 
         {deleteMutation.error && (
           <Alert color="red" icon={<IconAlertCircle size="1rem" />} title="The secret was not deleted">
@@ -156,8 +142,8 @@ export function SecretsPage() {
 
         <Paper radius="md" withBorder style={{ overflow: 'hidden' }}>
           {!vhost ? (
-            <EmptyState compact icon={<IconKey size="1.3rem" />} title="Choose a vhost"
-              description="Secrets are kept per vhost. Pick one above to see and manage its secrets." />
+            <EmptyState compact icon={<IconKey size="1.3rem" />} title="Choose a virtual host"
+              description="Secrets are kept per virtual host. Pick one above to see and manage its secrets." />
           ) : isLoading ? (
             <Group justify="center" p="xl"><Loader size="sm" /><Text size="sm" c="dimmed">Loading secrets…</Text></Group>
           ) : error ? (
@@ -166,7 +152,7 @@ export function SecretsPage() {
             </Alert>
           ) : rows.length === 0 ? (
             <EmptyState compact icon={<IconKey size="1.3rem" />} title={`No secrets in ${vhost} yet`}
-              description={<>Add one, then read it in a workflow of this vhost with <Code>{'{{secret.NAME}}'}</Code>. A name this vhost does not hold is read from the global secret manager.</>}
+              description={<>Add one, then read it in a flow of this virtual host with <Code>{'{{secret.NAME}}'}</Code>. A name this virtual host does not hold is read from the global secret manager.</>}
               action={{ label: 'Add secret', onClick: () => setEditing({}) }} />
           ) : (
             <Table.ScrollContainer minWidth={700}>
