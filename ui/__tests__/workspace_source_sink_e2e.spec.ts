@@ -29,18 +29,20 @@ test('sources and sinks expose their workspace and can be filtered by it', async
   expect(created.body.id, 'POST /api/workspaces must return the id it minted').toBeTruthy();
 
   for (const [route, label, empty] of [
-    ['/sources', 'sources', 'No sources configured yet'],
-    ['/sinks', 'sinks', 'No sinks found'],
+    ['/sources', 'Sources', 'No sources match'],
+    ['/sinks', 'Sinks', 'No sinks match'],
   ] as const) {
     await page.goto(route);
+    // Each row names its workspace in its detail line, and the list has a
+    // workspace filter.
     await expect(
-      page.getByRole('columnheader', { name: 'Workspace' }),
-      `${label} needs a Workspace column`,
+      page.getByRole('list', { name: label }),
+      `${label} should list its connections`,
     ).toBeVisible({ timeout: 15000 });
 
-    const filter = page.getByLabel('Filter by workspace');
+    const filter = page.getByRole('combobox', { name: 'Filter by workspace' });
 
-    // A brand-new workspace holds nothing, so the filter must empty the table —
+    // A brand-new workspace holds nothing, so the filter must empty the list —
     // proof the parameter reaches the query rather than being ignored.
     await filter.click();
     await page.getByRole('option', { name, exact: true }).click();
@@ -50,7 +52,7 @@ test('sources and sinks expose their workspace and can be filtered by it', async
     // literally "none".
     await filter.click();
     await page.getByRole('option', { name: 'No workspace', exact: true }).click();
-    await expect(page.locator('table tbody tr').first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('list', { name: label }).getByRole('listitem').first()).toBeVisible({ timeout: 10000 });
     await expect(page.getByText(empty)).toHaveCount(0);
   }
 

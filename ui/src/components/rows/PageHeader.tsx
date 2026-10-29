@@ -9,7 +9,7 @@ interface PageHeaderProps {
   lede?: string;
   /** Buttons on the right; keep it to one primary and at most one other. */
   actions?: ReactNode;
-  back?: { to: string; label: string };
+  back?: { to: string; label: string; search?: Record<string, string> };
   /** A line under the title, such as a state pill or a count. */
   meta?: ReactNode;
 }
@@ -19,7 +19,7 @@ export function PageHeader({ title, lede, actions, back, meta }: PageHeaderProps
   return (
     <Stack gap={4} mb="lg">
       {back && (
-        <Anchor component={Link} to={back.to} size="sm" c="dimmed" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, width: 'fit-content' }}>
+        <Anchor component={Link} to={back.to} search={back.search as any} size="sm" c="dimmed" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, width: 'fit-content' }}>
           <IconChevronLeft size="0.9rem" aria-hidden /> {back.label}
         </Anchor>
       )}

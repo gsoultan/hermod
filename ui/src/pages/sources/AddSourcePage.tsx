@@ -1,30 +1,22 @@
-import { Title, Paper, Stack, Group, Box, Text } from '@mantine/core';
+import { Paper } from '@mantine/core';
 import { Suspense } from 'react';
 import { FormSkeleton } from '@/components/common/FormSkeleton';
 import { SourceForm } from '@/components/forms/SourceForm';
-import { IconDatabaseImport } from '@tabler/icons-react';
+import { PageHeader } from '@/components/rows';
+
 export function AddSourcePage() {
   return (
-    <Box p="md">
-      <Stack gap="lg">
-        <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
-          <Group gap="sm">
-            <IconDatabaseImport size="2rem" color="var(--mantine-color-blue-filled)" />
-            <Box>
-              <Title order={2} fw={800}>Add New Source</Title>
-              <Text size="sm" c="dimmed">Configure a new data source to capture changes.</Text>
-            </Box>
-          </Group>
-        </Paper>
-
-        <Paper p="xl" withBorder radius="md">
-          <Suspense fallback={<FormSkeleton />}>
-            <SourceForm />
-          </Suspense>
-        </Paper>
-      </Stack>
-    </Box>
+    <>
+      <PageHeader
+        title="Add source"
+        lede="Pick what to read from, connect to it, then name it."
+        back={{ to: '/connections', search: { tab: 'sources' }, label: 'Back to connections' }}
+      />
+      <Paper p="xl" withBorder radius="md">
+        <Suspense fallback={<FormSkeleton />}>
+          <SourceForm />
+        </Suspense>
+      </Paper>
+    </>
   );
 }
-
-
