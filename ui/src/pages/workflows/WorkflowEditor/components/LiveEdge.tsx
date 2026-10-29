@@ -1,6 +1,6 @@
 import { memo, useState, type CSSProperties } from 'react';
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from '@xyflow/react';
-import { HoverCard, Code, Stack, Text, ActionIcon, Tooltip, Badge } from '@mantine/core';
+import { HoverCard, Code, Stack, Text, ActionIcon, Tooltip, Badge, Button, Group } from '@mantine/core';
 import { useShallow } from 'zustand/react/shallow';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
 import {
@@ -11,6 +11,8 @@ import {
 import { TAKEN_EDGE_MARKER_ID } from '@/pages/workflows/WorkflowEditor/simulation/SimulationOverlay';
 import { edgeLiveView, type EdgeLiveState } from '@/pages/workflows/WorkflowEditor/live/liveHealth';
 import { REPLAY_HOP_MS } from '@/pages/workflows/WorkflowEditor/simulation/SimulationReplay';
+import { applyDebuggerEvent, pausesOnEdge, type EdgePause } from '@/pages/workflows/WorkflowEditor/live/edgePauses';
+import { sendDebuggerCommand } from '@/pages/workflows/WorkflowEditor/live/breakpointSocket';
 import { IconTrash, IconPlayerPause, IconPlayerPlay } from '@tabler/icons-react';
 
 function formatPreview(val: any): string {
@@ -47,6 +49,15 @@ const DOTS_COLOR: Partial<Record<EdgeLiveState, string>> = {
 
 /** The simulation states drawn as the message having crossed the edge. */
 const CROSSED: ReadonlySet<EdgeSimulationState> = new Set(['taken', 'into-error', 'into-filtered']);
+
+/** Lets held messages go, and drops each one the engine was told about. */
+function resumePauses(pauses: readonly EdgePause[]) {
+  for (const p of pauses) {
+    if (!sendDebuggerCommand({ action: 'resume', msg_id: p.msgId, pause_id: p.pauseId })) return;
+    const { edgePauses } = useWorkflowStore.getState();
+    useWorkflowStore.setState({ edgePauses: applyDebuggerEvent(edgePauses, { edge_id: p.edgeId, pause_id: p.pauseId, state: 'resume' }) });
+  }
+}
 
 function simulationLook(state: EdgeSimulationState, outdated: boolean): CSSProperties {
   if (CROSSED.has(state)) {
@@ -89,6 +100,9 @@ export const LiveEdge = memo((props: EdgeProps) => {
   );
   const setEdges = useWorkflowStore(s => s.setEdges);
   const hasBreakpoint = !!(data as any)?.breakpoint;
+  // Live messages held on this edge's breakpoint, waiting to be let go.
+  const pauses = useWorkflowStore(s => pausesOnEdge(s.edgePauses, id));
+  const paused = !simulation && pauses.length > 0;
 
   const samples = Array.isArray(srcSample) ? srcSample : (srcSample ? [srcSample] : []);
 
@@ -125,6 +139,14 @@ export const LiveEdge = memo((props: EdgeProps) => {
     if (live.label) chip = { text: live.label, tone: look.tone };
     if (pulseEnabled && live.band > 0 && DOTS_COLOR[live.state]) dots = DOTS_COLOR[live.state]!;
     if (live.state === 'failing') tail = color('red-6');
+    if (paused) {
+      // Held here: nothing crosses until it is let go, whatever the rate says.
+      const held = LIVE_LOOK.held;
+      pathStyle = { stroke: held.stroke, strokeWidth: held.width, strokeDasharray: held.dash, opacity: 1 };
+      chip = { text: pauses.length > 1 ? `paused · ${pauses.length}` : 'paused', tone: 'warning' };
+      dots = null;
+      tail = null;
+    }
   }
   if (selected) pathStyle = { ...pathStyle, strokeWidth: Number(pathStyle.strokeWidth ?? 1.5) + 1.5 };
 
@@ -148,7 +170,7 @@ export const LiveEdge = memo((props: EdgeProps) => {
         data-simulation-end={simulation?.state === 'into-error' ? 'error' : simulation?.state === 'into-filtered' ? 'filtered' : undefined}
         data-hop={simulation?.hop ?? undefined}
         data-outdated={simulation && outdated ? 'true' : undefined}
-        data-flow-state={simulation ? undefined : live.state}
+        data-flow-state={simulation ? undefined : paused ? 'paused' : live.state}
         data-flow-band={simulation ? undefined : live.band}
         style={{
           ...pathStyle,
@@ -211,11 +233,30 @@ export const LiveEdge = memo((props: EdgeProps) => {
             </HoverCard.Target>
             <HoverCard.Dropdown>
               <Stack gap="xs" maw={360}>
-                <Text fw={700} size="xs">
-                  {simulation ? 'Message on this edge in the simulation' : `Recent messages (${samples.length})`}
-                </Text>
+                {paused ? (
+                  <>
+                    <Text fw={700} size="xs">
+                      {pauses.length > 1 ? `${pauses.length} messages held at this breakpoint` : 'Message held at this breakpoint'}
+                    </Text>
+                    <Code block style={{ fontSize: 11 }}>{formatPreview(pauses[0].data)}</Code>
+                    <Group gap="xs">
+                      <Button size="compact-xs" color="green" leftSection={<IconPlayerPlay size={12} aria-hidden />} onClick={() => resumePauses(pauses.slice(0, 1))}>
+                        Resume
+                      </Button>
+                      {pauses.length > 1 && (
+                        <Button size="compact-xs" variant="light" color="green" onClick={() => resumePauses(pauses)}>
+                          Resume all {pauses.length}
+                        </Button>
+                      )}
+                    </Group>
+                  </>
+                ) : (
+                  <Text fw={700} size="xs">
+                    {simulation ? 'Message on this edge in the simulation' : `Recent messages (${samples.length})`}
+                  </Text>
+                )}
                 {hasBreakpoint && <Badge size="xs" color="orange" variant="light">Breakpoint</Badge>}
-                {previews.length === 0 ? (
+                {paused ? null : previews.length === 0 ? (
                   <Text size="xs" c="dimmed">{simulation ? 'No message crossed this edge' : 'No samples yet'}</Text>
                 ) : (
                   previews.slice(0, 5).map((s: any, i: number) => (

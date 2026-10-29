@@ -196,7 +196,22 @@ func (r *Registry) UnsubscribeLiveMessages(ch chan LiveMessage) {
 	close(ch)
 }
 
+// SubscribeDebugger attaches a debugger that steps: while it is attached every
+// message stops before every node, as well as at edge breakpoints.
 func (r *Registry) SubscribeDebugger(workflowID string) chan DebuggerEvent {
+	return r.subscribeDebugger(workflowID, true)
+}
+
+// SubscribeBreakpoints attaches a debugger that answers edge breakpoints only:
+// messages stop where a breakpoint is set and nowhere else. It is what the
+// workflow editor opens, so having a workflow open does not stop it at every
+// node.
+func (r *Registry) SubscribeBreakpoints(workflowID string) chan DebuggerEvent {
+	return r.subscribeDebugger(workflowID, false)
+}
+
+// subscribeDebugger records each subscriber with whether it steps.
+func (r *Registry) subscribeDebugger(workflowID string, stepping bool) chan DebuggerEvent {
 	r.debuggerSubsMu.Lock()
 	defer r.debuggerSubsMu.Unlock()
 	if r.debuggerSubs == nil {
@@ -206,7 +221,7 @@ func (r *Registry) SubscribeDebugger(workflowID string) chan DebuggerEvent {
 		r.debuggerSubs[workflowID] = make(map[chan DebuggerEvent]bool)
 	}
 	ch := make(chan DebuggerEvent, 10)
-	r.debuggerSubs[workflowID][ch] = true
+	r.debuggerSubs[workflowID][ch] = stepping
 	return ch
 }
 
@@ -222,8 +237,10 @@ func (r *Registry) UnsubscribeDebugger(workflowID string, ch chan DebuggerEvent)
 	close(ch)
 }
 
-func (r *Registry) DebuggerCommand(workflowID, msgID, action string) {
-	key := workflowID + ":" + msgID
+// DebuggerCommand answers the pause named pauseID. A pause before a node is
+// named by its message's ID; one on an edge by the event's pause_id.
+func (r *Registry) DebuggerCommand(workflowID, pauseID, action string) {
+	key := workflowID + ":" + pauseID
 	r.debugChansMu.Lock()
 	ch, ok := r.debugChans[key]
 	r.debugChansMu.Unlock()
@@ -519,7 +536,22 @@ func (r *Registry) broadcastLiveMessageFromHermod(workflowID, nodeID string, msg
 	})
 }
 
+// IsDebuggerAttached reports whether a stepping debugger is attached, which
+// stops every message before every node.
 func (r *Registry) IsDebuggerAttached(workflowID string) bool {
+	r.debuggerSubsMu.RLock()
+	defer r.debuggerSubsMu.RUnlock()
+	for _, stepping := range r.debuggerSubs[workflowID] {
+		if stepping {
+			return true
+		}
+	}
+	return false
+}
+
+// BreakpointsWatched reports whether any debugger is attached, stepping or not,
+// to answer the workflow's edge breakpoints.
+func (r *Registry) BreakpointsWatched(workflowID string) bool {
 	r.debuggerSubsMu.RLock()
 	defer r.debuggerSubsMu.RUnlock()
 	return len(r.debuggerSubs[workflowID]) > 0
@@ -533,52 +565,92 @@ func (r *Registry) PauseForDebugger(workflowID, nodeID string, msg hermod.Messag
 // debuggerPauseLimit is the longest a breakpoint holds a message.
 const debuggerPauseLimit = 5 * time.Minute
 
-// PauseForDebuggerContext holds a message at a breakpoint until the debugger
+// PauseForDebuggerContext holds a message before a node until the debugger
 // answers, debuggerPauseLimit passes, or ctx ends. The last is what lets a
 // workflow stopped while paused stop now rather than after the limit.
 func (r *Registry) PauseForDebuggerContext(ctx context.Context, workflowID, nodeID string, msg hermod.Message) {
 	if msg == nil {
 		return
 	}
-
-	ev := DebuggerEvent{
+	r.holdForDebugger(ctx, DebuggerEvent{
 		WorkflowID: workflowID,
 		NodeID:     nodeID,
 		MsgID:      msg.ID(),
-		Data:       r.getConsistentData(msg),
-		State:      "paused",
+		PauseID:    msg.ID(),
+	}, msg)
+}
+
+// PauseAtEdge holds a message on an edge breakpoint, before targetNodeID, until
+// the debugger answers, debuggerPauseLimit passes, or ctx ends.
+//
+// A message fanned out down two breakpoint edges is held on both at once, so
+// each pause is answered by its own ID, made of the edge and the message.
+func (r *Registry) PauseAtEdge(ctx context.Context, workflowID, edgeID, targetNodeID string, msg hermod.Message) {
+	if msg == nil {
+		return
 	}
+	r.holdForDebugger(ctx, DebuggerEvent{
+		WorkflowID: workflowID,
+		NodeID:     targetNodeID,
+		EdgeID:     edgeID,
+		MsgID:      msg.ID(),
+		PauseID:    edgeID + "/" + msg.ID(),
+	}, msg)
+}
+
+// holdForDebugger announces ev as paused with msg's payload, and waits for a
+// command naming ev.PauseID, debuggerPauseLimit, or ctx to end.
+func (r *Registry) holdForDebugger(ctx context.Context, ev DebuggerEvent, msg hermod.Message) {
+	ev.Data = r.getConsistentData(msg)
+	ev.State = "paused"
 	r.broadcastDebuggerEvent(ev)
 
-	key := workflowID + ":" + msg.ID()
+	key := ev.WorkflowID + ":" + ev.PauseID
 	ch := make(chan string, 1)
 
 	r.debugChansMu.Lock()
 	r.debugChans[key] = ch
+	r.debugHeld[key] = ev
 	r.debugChansMu.Unlock()
 
 	defer func() {
 		r.debugChansMu.Lock()
 		delete(r.debugChans, key)
+		delete(r.debugHeld, key)
 		r.debugChansMu.Unlock()
 	}()
 
 	timer := time.NewTimer(debuggerPauseLimit)
 	defer timer.Stop()
 
+	// However the pause ends it is announced, so a debugger stops offering to
+	// answer a message that has already moved on.
+	ev.Data = nil
 	select {
 	case action := <-ch:
-		r.broadcastDebuggerEvent(DebuggerEvent{
-			WorkflowID: workflowID,
-			NodeID:     nodeID,
-			MsgID:      msg.ID(),
-			State:      action,
-		})
+		ev.State = action
 	case <-timer.C:
-		// Timeout
+		ev.State = "timeout"
 	case <-ctx.Done():
 		// The workflow is stopping.
+		ev.State = "stopped"
 	}
+	r.broadcastDebuggerEvent(ev)
+}
+
+// HeldPauses lists the messages held for the debugger in a workflow now, as
+// they were announced. A debugger that attaches, or reattaches, after a pause
+// began learns of it here: the announcement is not sent again.
+func (r *Registry) HeldPauses(workflowID string) []DebuggerEvent {
+	r.debugChansMu.Lock()
+	defer r.debugChansMu.Unlock()
+	var held []DebuggerEvent
+	for _, ev := range r.debugHeld {
+		if ev.WorkflowID == workflowID {
+			held = append(held, ev)
+		}
+	}
+	return held
 }
 
 func (r *Registry) RecordStep(ctx context.Context, workflowID, messageID string, step hermod.TraceStep) {

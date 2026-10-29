@@ -7,6 +7,34 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — Edge breakpoints stop messages
+
+A breakpoint on a workflow edge now holds a live message on that edge, before
+the node it leads to, while the workflow is open in the editor. The edge turns
+orange and reads `paused`; hovering it shows the message as it would arrive
+and a **Resume** button (and **Resume all** when several are waiting). Other
+branches keep moving. Before, the editor stored breakpoints and the engine
+ignored them.
+
+- Breakpoints only hold messages while someone is attached to answer them. A
+  workflow nobody has open runs straight through, so a forgotten breakpoint
+  cannot stall production. A held message is let go after five minutes, or
+  when the workflow stops.
+- The editor attaches in a breakpoints-only mode
+  (`/api/ws/debugger?mode=breakpoints`), so having a workflow open does not
+  stop it before every node the way the Debugger tab does. A pause is answered
+  by its `pause_id`, so one message held on two edges is two pauses. An editor
+  that reconnects is sent the pauses already held.
+- Breakpoints are matched by edge ID, so a breakpoint on one of two edges
+  between the same nodes no longer applies to both.
+- A simulation replay from **Test** stops at an edge with a breakpoint and
+  carries on with **Resume**; with reduced motion it goes straight to the first
+  breakpoint.
+- Breakpoints are read when the workflow starts, so set or clear one and save:
+  saving an edge change restarts a running workflow, as it already did.
+- The Debugger tab never showed a held message as paused (it read `status`;
+  the engine sends `state`), so it never offered Resume. It does now.
+
 ### Changed — Workflow edges show what is really flowing
 
 An edge on the workflow canvas now moves only while messages cross it, at the

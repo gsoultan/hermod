@@ -93,6 +93,12 @@ type DebuggerEvent struct {
 	MsgID      string         `json:"msg_id"`
 	Data       map[string]any `json:"data"`
 	State      string         `json:"state"` // "paused", "resumed", "aborted"
+	// EdgeID names the edge a message is held on by an edge breakpoint; NodeID
+	// is then the node it leads to. Empty for a pause before a node.
+	EdgeID string `json:"edge_id,omitempty"`
+	// PauseID is what a command names to answer this pause. A message held on
+	// two edges at once is two pauses, so it is not the message ID alone.
+	PauseID string `json:"pause_id,omitempty"`
 }
 
 type PIIStats struct {
@@ -147,6 +153,8 @@ type Registry struct {
 	statusSubsMu        sync.RWMutex
 	debuggerSubsMu      sync.RWMutex
 	debugChans          map[string]chan string
+	// debugHeld is the announcement of each pause in debugChans, by the same key.
+	debugHeld           map[string]DebuggerEvent
 	debugChansMu        sync.Mutex
 	lastDashboardUpdate time.Time
 
@@ -354,6 +362,7 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 		workflowLiveMsgSubs: make(map[string]map[chan LiveMessage]bool),
 		debuggerSubs:        make(map[string]map[chan DebuggerEvent]bool),
 		debugChans:          make(map[string]chan string),
+		debugHeld:           make(map[string]DebuggerEvent),
 		notificationService: ns,
 		nodeStates:          make(map[string]any),
 		lookupCache:         make(map[string]lookupCacheEntry),

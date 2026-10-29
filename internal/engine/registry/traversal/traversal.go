@@ -32,6 +32,12 @@ type Registry interface {
 	// PauseForDebuggerContext returns when ctx ends as well as when the
 	// debugger answers.
 	PauseForDebuggerContext(ctx context.Context, workflowID string, nodeID string, msg hermod.Message)
+	// BreakpointsWatched reports whether anyone is attached to answer the
+	// workflow's edge breakpoints.
+	BreakpointsWatched(workflowID string) bool
+	// PauseAtEdge holds msg on an edge breakpoint until the debugger answers or
+	// ctx ends.
+	PauseAtEdge(ctx context.Context, workflowID, edgeID, targetNodeID string, msg hermod.Message)
 	BroadcastLog(workflowID, level, message, details string)
 	Logger() hermod.Logger
 	// RecordCircuitBreakerFailure counts a downstream failure against a breaker.
@@ -49,8 +55,13 @@ type WorkflowTraversal struct {
 	// between the two in the order the workflow lists them — one entry per
 	// edge, "" for an unlabelled one. A pair can carry several edges: two
 	// switch cases that do the same thing are drawn into the same node.
-	EdgeLabels      map[string][]string
+	EdgeLabels map[string][]string
+	// EdgeBreakpoints holds, by canvas edge ID, the edges a message stops on
+	// while a debugger is attached.
 	EdgeBreakpoints map[string]bool
+	// EdgeIDs holds each edge's canvas ID at its target's position in Adj. nil
+	// leaves edges unnamed, so no breakpoint can match.
+	EdgeIDs         map[string][]string
 	InDegree        map[string]int
 	SinkNodeToIndex map[string]int
 
@@ -181,6 +192,7 @@ func Release(t *WorkflowTraversal) {
 	t.Registry = nil
 	t.Eng = nil
 	t.Telemetry = nil
+	t.EdgeIDs = nil
 	TraversalPool.Put(t)
 }
 
@@ -527,7 +539,11 @@ func (t *WorkflowTraversal) handleResults(ctx context.Context, node *storage.Wor
 					passMsg = msg.Clone()
 				}
 
-				t.resolveEdge(ctx, targetID, passMsg)
+				if edgeID := t.breakpointAt(node.ID, pos); edgeID != "" {
+					t.holdAtEdge(ctx, edgeID, targetID, passMsg)
+				} else {
+					t.resolveEdge(ctx, targetID, passMsg)
+				}
 
 				// If we cloned, release the clone's initial reference count
 				// as resolveEdge has already called Retain() if it stored it.
@@ -545,6 +561,46 @@ func (t *WorkflowTraversal) handleResults(ctx context.Context, node *storage.Wor
 	if len(msgs) > 0 && len(targets) > 0 && !took {
 		t.Filtered.Store(true)
 	}
+}
+
+// breakpointAt returns the ID of the edge at source's pos-th out-edge if it
+// carries a breakpoint and someone is attached to answer it, and "" otherwise.
+// A workflow without breakpoints pays one length check.
+//
+// Nobody attached means nobody to answer: holding then would stall a production
+// workflow for the full pause limit on every message.
+func (t *WorkflowTraversal) breakpointAt(source string, pos int) string {
+	if len(t.EdgeBreakpoints) == 0 {
+		return ""
+	}
+	ids := t.EdgeIDs[source]
+	if pos >= len(ids) || !t.EdgeBreakpoints[ids[pos]] {
+		return ""
+	}
+	if !t.Registry.BreakpointsWatched(t.WorkflowID) {
+		return ""
+	}
+	return ids[pos]
+}
+
+// holdAtEdge holds msg on a breakpoint edge until the debugger lets it go, then
+// delivers it to targetID.
+//
+// It waits on a goroutine of its own, so sibling edges carry on and the source
+// node's concurrency slot is not held for the length of the pause. Traverse
+// still waits for it. The target is counted as having a message held before it,
+// as the debugger's pause before a node is.
+func (t *WorkflowTraversal) holdAtEdge(ctx context.Context, edgeID, targetID string, msg hermod.Message) {
+	// The caller releases its reference as soon as this returns.
+	msg.Retain()
+	idx := t.NodeIndex[targetID]
+	t.Wg.Go(func() {
+		defer msg.Release()
+		release := t.Telemetry.hold(idx)
+		t.Registry.PauseAtEdge(ctx, t.WorkflowID, edgeID, targetID, msg)
+		release()
+		t.resolveEdge(ctx, targetID, msg)
+	})
 }
 
 // edgeLabel is the label of the edge at targets[pos] in source's out-edges.
@@ -615,6 +671,7 @@ func (t *WorkflowTraversal) walkFrom(ctx context.Context, node *storage.Workflow
 	child := Acquire(t.Registry, t.Eng, t.WorkflowID, t.NodeMap, t.Adj, t.NodeIndex,
 		t.EdgeLabels, t.EdgeBreakpoints, t.InDegree, t.SinkNodeToIndex)
 	child.Telemetry = t.Telemetry
+	child.EdgeIDs = t.EdgeIDs
 
 	child.handleResults(ctx, node, []hermod.Message{msg}, branch, nil)
 	child.Wg.Wait()

@@ -17,8 +17,17 @@ interface DebugEvent {
   timestamp: string;
   data: any;
   error?: string;
+  /** "paused", or how a pause ended. The engine sends it as `state`. */
+  state?: string;
   status?: string;
+  /** Set when the message is held on an edge breakpoint rather than before a node. */
+  edge_id?: string;
+  /** What a command names to answer the pause. */
+  pause_id?: string;
 }
+
+/** Whether an event is a message held now. */
+const isPaused = (ev: DebugEvent) => (ev.state ?? ev.status) === 'paused';
 
 /**
  * Most events the debugger holds. Every event used to be kept for as long as
@@ -60,8 +69,8 @@ export function WorkflowDebugger({ workflowId }: { workflowId: string }) {
     return () => socket.close();
   }, [workflowId]);
 
-  const sendCommand = (msgId: string, action: string) => {
-    ws.current?.send(JSON.stringify({ action, msg_id: msgId }));
+  const sendCommand = (ev: DebugEvent, action: string) => {
+    ws.current?.send(JSON.stringify({ action, msg_id: ev.msg_id, pause_id: ev.pause_id ?? ev.msg_id }));
   };
 
   const clearEvents = () => setEvents([]);
@@ -105,16 +114,16 @@ export function WorkflowDebugger({ workflowId }: { workflowId: string }) {
           ) : (
             <Stack gap="sm">
               {events.map((ev, idx) => (
-                <Paper key={idx} withBorder p="sm" radius="md" bg={ev.status === 'paused' ? 'orange.0' : 'transparent'}>
+                <Paper key={idx} withBorder p="sm" radius="md" bg={isPaused(ev) ? 'orange.0' : 'transparent'}>
                   <Stack gap="xs">
                     <Group justify="space-between">
                       <Group gap="xs">
                         <ThemeIcon size="sm" color={ev.error ? 'red' : 'blue'} variant="light">
-                          {ev.status === 'paused' ? <IconPlayerPause size={14} /> : <IconActivity size={14} />}
+                          {isPaused(ev) ? <IconPlayerPause size={14} /> : <IconActivity size={14} />}
                         </ThemeIcon>
-                        <Text fw={700} size="sm">Node: {ev.node_id}</Text>
-                        <Badge size="xs" variant="outline">{ev.type}</Badge>
-                        {ev.status === 'paused' && <Badge color="orange" size="xs">PAUSED</Badge>}
+                        <Text fw={700} size="sm">{ev.edge_id ? `Edge: ${ev.edge_id} → ${ev.node_id}` : `Node: ${ev.node_id}`}</Text>
+                        {ev.type && <Badge size="xs" variant="outline">{ev.type}</Badge>}
+                        {isPaused(ev) && <Badge color="orange" size="xs">PAUSED</Badge>}
                       </Group>
                       <Text size="xs" c="dimmed">{formatDateTime(ev.timestamp)}</Text>
                     </Group>
@@ -136,14 +145,14 @@ export function WorkflowDebugger({ workflowId }: { workflowId: string }) {
                       </Alert>
                     )}
 
-                    {ev.status === 'paused' && (
+                    {isPaused(ev) && (
                       <Group gap="xs" mt="xs">
                         <Button 
                           size="xs" 
                           variant="filled" 
                           color="green" 
                           leftSection={<IconPlayerPlay size={14} />}
-                          onClick={() => sendCommand(ev.msg_id, 'resume')}
+                          onClick={() => sendCommand(ev, 'resume')}
                         >
                           Resume
                         </Button>
@@ -152,7 +161,7 @@ export function WorkflowDebugger({ workflowId }: { workflowId: string }) {
                           variant="outline" 
                           color="blue" 
                           leftSection={<IconStepInto size={14} />}
-                          onClick={() => sendCommand(ev.msg_id, 'step')}
+                          onClick={() => sendCommand(ev, 'step')}
                         >
                           Step
                         </Button>
