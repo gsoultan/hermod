@@ -1,10 +1,16 @@
-import { 
-  ActionIcon, Button, Divider, Flex, Group, Paper, Select, Text, TextInput, Menu, Badge, Tooltip
+import {
+  ActionIcon, Anchor, Badge, Button, Divider, Flex, Group, Menu, Text, TextInput, Tooltip
 } from '@mantine/core';
+import { Link } from '@tanstack/react-router';
 import { useShallow } from 'zustand/react/shallow';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
-import { IconActivity, IconChevronDown, IconDatabase, IconDeviceFloppy, IconEraser, IconFocus2, IconHistory, IconLayoutSidebarRight, IconPlayerPause, IconPlayerPlay, IconRefresh, IconSettings, IconShieldLock, IconSparkles, IconTerminal2, IconTimeline, IconZoomIn, IconZoomOut, IconSearch } from '@tabler/icons-react';
+import {
+  IconActivity, IconCheck, IconChevronDown, IconChevronLeft, IconCopy, IconDatabase, IconDots, IconDownload, IconEraser,
+  IconFocus2, IconHistory, IconLayoutDistributeHorizontal, IconPlayerPlay, IconRefresh, IconSearch, IconSettings,
+  IconShieldLock, IconSparkles, IconTerminal2, IconTimeline, IconTrash, IconZoomIn, IconZoomOut
+} from '@tabler/icons-react';
 import { normalizeWorkflowStatus } from '@/utils/workflowStatus';
+
 interface EditorToolbarProps {
   id: string;
   isNew: boolean;
@@ -14,6 +20,9 @@ interface EditorToolbarProps {
   onToggle: () => void;
   onRebuild: () => void;
   onClearTest: () => void;
+  onExport: () => void;
+  onClone: () => void;
+  onDelete: () => void;
   onAutoLayout?: () => void;
   onSearch?: () => void;
   isSaving: boolean;
@@ -23,36 +32,40 @@ interface EditorToolbarProps {
   zoomIn: () => void;
   zoomOut: () => void;
   fitView: () => void;
-  vhosts: any[];
-  workers: any[];
+  /** Kept for the page that passes them; the virtual host and worker are chosen in Flow settings now. */
+  vhosts?: any[];
+  workers?: any[];
   /** Live workflow status, shown inline so the editor needs only one header bar. */
   workflowStatus?: string;
 }
 
+/**
+ * The editor's one header: back, the name and its state on the left; Test ▾,
+ * Turn on, Save and ⋯ on the right. Everything the old Tools and Inspect
+ * menus held is behind ⋯, and the virtual host and worker moved into Flow
+ * settings, so nothing competes with the canvas.
+ */
 export function EditorToolbar({
-  isNew, onSave, onTest, onConfigureTest, onToggle, onRebuild, onClearTest,
-  onAutoLayout,
+  id, isNew, onSave, onTest, onConfigureTest, onToggle, onRebuild, onClearTest,
+  onExport, onClone, onDelete, onAutoLayout, onSearch,
   isSaving, isTesting, isToggling,
   zoom, zoomIn, zoomOut, fitView,
-  vhosts, workers, onSearch,
   workflowStatus,
 }: EditorToolbarProps) {
-  const { 
-    name, dryRun, vhost, workerID, testResults, active,
-    setName, setVHost, setWorkerID, setDrawerOpened, setQuickAddSource, 
+  const {
+    name, dryRun, testResults, active,
+    setName, setDryRun, setDrawerOpened, setDrawerTab, setQuickAddSource,
     setTraceInspectorOpened, setSchemaRegistryOpened, setHistoryOpened, setLiveStreamOpened,
     setAIGeneratorOpened, setComplianceReportOpened, pulseEnabled, setPulseEnabled
   } = useWorkflowStore(useShallow(state => ({
     name: state.name,
     dryRun: state.dryRun,
-    vhost: state.vhost,
-    workerID: state.workerID,
     testResults: state.testResults,
     active: state.active,
     setName: state.setName,
-    setVHost: state.setVHost,
-    setWorkerID: state.setWorkerID,
+    setDryRun: state.setDryRun,
     setDrawerOpened: state.setDrawerOpened,
+    setDrawerTab: state.setDrawerTab,
     setQuickAddSource: state.setQuickAddSource,
     setTraceInspectorOpened: state.setTraceInspectorOpened,
     setSchemaRegistryOpened: state.setSchemaRegistryOpened,
@@ -64,225 +77,153 @@ export function EditorToolbar({
     setPulseEnabled: state.setPulseEnabled
   })));
 
+  const openSettings = () => {
+    setQuickAddSource(null);
+    setDrawerTab('settings');
+    setDrawerOpened(true);
+  };
+
   return (
-    <Paper withBorder p="xs" radius="md" mb="md" shadow="xs">
-      {/*
-        Two rows on a phone, one on a desktop. This Flex did not wrap, so at
-        390px both groups were forced onto one line: the name input truncated
-        to "Workflow Nam", and the five action buttons wrapped into the
-        search-and-zoom cluster. The identity group can shrink and the action
-        group drops below it; the vhost/worker selects and the zoom cluster
-        are desktop conveniences and hide below `sm`.
-      */}
-      <Flex justify="space-between" align="center" gap="md" wrap="wrap">
-        <Group gap="sm" wrap="nowrap" style={{ flex: '1 1 240px', maxWidth: 900, minWidth: 0 }}>
-          <TextInput
-            placeholder="Workflow Name"
-            value={name}
-            onChange={(e) => setName(e.currentTarget.value)}
-            style={{ flex: '1 1 140px', minWidth: 0 }}
-            size="sm"
-          />
-          {!isNew && workflowStatus && (
-            <Badge color={normalizeWorkflowStatus(workflowStatus).color} variant="filled" size="lg" radius="sm">
-              {normalizeWorkflowStatus(workflowStatus).label}
-            </Badge>
-          )}
-          {dryRun && (
-            <Badge color="orange" variant="light" size="lg" radius="sm">Dry-Run Mode</Badge>
-          )}
-          <Select
-            placeholder="VHost"
-            data={(Array.isArray(vhosts) ? vhosts : []).map((vh: any) => ({ value: vh.name, label: vh.name }))}
-            value={vhost}
-            onChange={(val) => setVHost(val || 'default')}
-            size="sm"
-            style={{ width: 120 }}
-            visibleFrom="sm"
-          />
-          <Select
-            placeholder="Worker"
-            data={(Array.isArray(workers) ? workers : []).map((w: any) => ({ value: w.id, label: w.name || w.id }))}
-            value={workerID}
-            onChange={(val) => setWorkerID(val || '')}
-            size="sm"
-            style={{ width: 120 }}
-            visibleFrom="sm"
-          />
+    <Flex justify="space-between" align="center" gap="sm" wrap="wrap" mb="sm">
+      <Group gap="sm" wrap="wrap" preventGrowOverflow={false} style={{ flex: '1 1 260px', maxWidth: 720, minWidth: 0 }}>
+        {isNew ? (
+          <Anchor component={Link} to="/workflows" size="sm" c="dimmed" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, whiteSpace: 'nowrap' }}>
+            <IconChevronLeft size="0.9rem" aria-hidden /> Back to flows
+          </Anchor>
+        ) : (
+          <Anchor component={Link} to="/workflows/$id" params={{ id } as any} size="sm" c="dimmed" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, whiteSpace: 'nowrap' }}>
+            <IconChevronLeft size="0.9rem" aria-hidden /> Back to the flow
+          </Anchor>
+        )}
+        <TextInput
+          aria-label="Flow name"
+          placeholder="Flow name"
+          value={name}
+          onChange={(e) => setName(e.currentTarget.value)}
+          style={{ flex: '1 1 140px', minWidth: 0 }}
+          size="sm"
+          fw={600}
+        />
+        {!isNew && workflowStatus && (
+          <Badge color={normalizeWorkflowStatus(workflowStatus).color} variant="light" size="lg" radius="sm">
+            {normalizeWorkflowStatus(workflowStatus).label}
+          </Badge>
+        )}
+        {dryRun && <Badge color="orange" variant="light" size="lg" radius="sm">Dry run</Badge>}
+      </Group>
+
+      <Group gap="xs" wrap="nowrap">
+        <Group gap={2} visibleFrom="sm">
+          <Tooltip label="Search steps to add (⌘⇧K)" withArrow>
+            <ActionIcon aria-label="Search steps" variant="subtle" color="gray" size="md" onClick={onSearch}><IconSearch size="1rem" /></ActionIcon>
+          </Tooltip>
+          <ActionIcon aria-label="Zoom out" variant="subtle" color="gray" size="md" onClick={zoomOut}><IconZoomOut size="1rem" /></ActionIcon>
+          <Text size="xs" fw={600} c="dimmed" w={36} ta="center">{Math.round(zoom * 100)}%</Text>
+          <ActionIcon aria-label="Zoom in" variant="subtle" color="gray" size="md" onClick={zoomIn}><IconZoomIn size="1rem" /></ActionIcon>
+          <Tooltip label="Fit to view" withArrow>
+            <ActionIcon aria-label="Fit to view" variant="subtle" color="gray" size="md" onClick={fitView}><IconFocus2 size="1rem" /></ActionIcon>
+          </Tooltip>
+          <Tooltip label="Tidy up the layout" withArrow>
+            <ActionIcon aria-label="Tidy up" variant="subtle" color="gray" size="md" onClick={() => onAutoLayout?.()}><IconLayoutDistributeHorizontal size="1rem" /></ActionIcon>
+          </Tooltip>
+          <Divider orientation="vertical" mx={4} />
         </Group>
 
-        <Group gap="xs">
-          <Tooltip label="Search components (Cmd+Shift+K)" position="bottom" withArrow>
-            <ActionIcon aria-label="Search" variant="light" color="blue" size="lg" onClick={onSearch}>
-              <IconSearch size="1.2rem" />
-            </ActionIcon>
-          </Tooltip>
-
-          <Group gap={4} mr="xs" visibleFrom="sm">
-             <ActionIcon aria-label="Zoom out" variant="subtle" size="sm" onClick={zoomOut}><IconZoomOut size="1rem" /></ActionIcon>
-             <Text size="xs" fw={700} w={35} ta="center">{Math.round(zoom * 100)}%</Text>
-             <ActionIcon aria-label="Zoom in" variant="subtle" size="sm" onClick={zoomIn}><IconZoomIn size="1rem" /></ActionIcon>
-             <ActionIcon aria-label="Fit to view" variant="subtle" size="sm" onClick={fitView}><IconFocus2 size="1rem" /></ActionIcon>
-          </Group>
-
-          <Divider orientation="vertical" visibleFrom="sm" />
-
+        <Group gap={0} wrap="nowrap">
+          <Button
+            variant="light"
+            size="sm"
+            leftSection={<IconPlayerPlay size="1rem" />}
+            onClick={() => onTest()}
+            loading={isTesting}
+            style={{ borderTopRightRadius: 0, borderBottomRightRadius: 0 }}
+          >
+            Test
+          </Button>
           <Menu position="bottom-end" withArrow shadow="md">
             <Menu.Target>
-              <Button 
+              <ActionIcon
+                aria-label="More test actions"
                 variant="light"
-                color="indigo"
-                size="sm"
-                leftSection={<IconSettings size="1rem" />}
-                rightSection={<IconChevronDown size="0.8rem" />}
+                size={36}
+                style={{ borderTopLeftRadius: 0, borderBottomLeftRadius: 0, borderLeft: '1px solid var(--mantine-color-default-border)' }}
               >
-                Tools
-              </Button>
+                <IconChevronDown size="1rem" />
+              </ActionIcon>
             </Menu.Target>
             <Menu.Dropdown>
-              <Menu.Item leftSection={<IconRefresh size="1rem" />} onClick={() => onAutoLayout?.()}>
-                Auto-Layout
-              </Menu.Item>
-              <Menu.Item leftSection={<IconDatabase size="1rem" />} onClick={() => setSchemaRegistryOpened(true)}>
-                Schema Registry
-              </Menu.Item>
-              <Menu.Item leftSection={<IconSparkles size="1rem" />} onClick={() => setAIGeneratorOpened(true)}>
-                AI Generator
-              </Menu.Item>
+              <Menu.Item leftSection={<IconPlayerPlay size="1rem" />} onClick={() => onTest()}>Run simulation</Menu.Item>
+              <Menu.Item leftSection={<IconSettings size="1rem" />} onClick={() => onConfigureTest()}>Configure &amp; run…</Menu.Item>
+              <Menu.Item leftSection={<IconRefresh size="1rem" />} onClick={onRebuild}>Rebuild projections</Menu.Item>
               <Menu.Divider />
-              <Menu.Item leftSection={<IconActivity size="1rem" />} onClick={() => setPulseEnabled(!pulseEnabled)}>
-                Data Pulse: {pulseEnabled ? 'On' : 'Off'}
+              {/* The real pipeline without writing to a sink. It is a saved setting of the flow, so it is also in Flow settings. */}
+              <Menu.Item
+                leftSection={<IconActivity size="1rem" />}
+                rightSection={dryRun ? <IconCheck size="1rem" aria-hidden /> : undefined}
+                onClick={() => setDryRun(!dryRun)}
+              >
+                Dry-run mode
               </Menu.Item>
+              {testResults && (
+                <>
+                  <Menu.Divider />
+                  <Menu.Item color="orange" leftSection={<IconEraser size="1rem" />} onClick={onClearTest}>Clear simulation</Menu.Item>
+                </>
+              )}
             </Menu.Dropdown>
           </Menu>
-
-          {testResults ? (
-            <Button 
-              variant="light" 
-              color="orange" 
-              size="sm" 
-              leftSection={<IconEraser size="1rem" />} 
-              onClick={onClearTest}
-            >
-              Clear Simulation
-            </Button>
-          ) : (
-            <Group gap={0}>
-              <Button 
-                variant="light" 
-                color="blue" 
-                size="sm" 
-                leftSection={<IconPlayerPlay size="1rem" />} 
-                onClick={() => onTest()}
-                loading={isTesting}
-                style={{ borderTopRightRadius: 0, borderBottomRightRadius: 0 }}
-              >
-                Test
-              </Button>
-              <Menu position="bottom-end" withArrow>
-                <Menu.Target>
-                  <ActionIcon 
-                    aria-label="More test actions"
-                    variant="light" 
-                    color="blue" 
-                    size={36} 
-                    style={{ borderTopLeftRadius: 0, borderBottomLeftRadius: 0, borderLeft: '1px solid rgba(0,0,0,0.1)' }}
-                  >
-                    <IconChevronDown size="1rem" />
-                  </ActionIcon>
-                </Menu.Target>
-                <Menu.Dropdown>
-                  {/* There was a second item here, "Dry-run (Full Execute)",
-                      which sent dry_run: true to /api/workflows/test. That
-                      handler decodes only `workflow` and `message`, and the
-                      simulation never writes to a sink in the first place, so
-                      the two items did exactly the same thing and one of them
-                      promised an execution that never happened. Running the
-                      real pipeline without writing is the workflow's Dry-Run
-                      Mode setting, in the Settings tab. */}
-                  <Menu.Item leftSection={<IconPlayerPlay size="1rem" />} onClick={() => onTest()}>
-                    Run Simulation (Auto)
-                  </Menu.Item>
-                  <Menu.Item leftSection={<IconSettings size="1rem" />} onClick={() => onConfigureTest()}>
-                    Configure & Run...
-                  </Menu.Item>
-                  <Menu.Divider />
-                  <Menu.Item leftSection={<IconRefresh size="1rem" />} color="blue" onClick={onRebuild}>
-                    Rebuild Projections
-                  </Menu.Item>
-                </Menu.Dropdown>
-              </Menu>
-            </Group>
-          )}
-
-          {!isNew && (
-            <Menu position="bottom-end" withArrow shadow="md">
-              <Menu.Target>
-                <Button 
-                  variant="light"
-                  color="blue"
-                  size="sm"
-                  leftSection={<IconTerminal2 size="1rem" />}
-                  rightSection={<IconChevronDown size="0.8rem" />}
-                >
-                  Inspect
-                </Button>
-              </Menu.Target>
-              <Menu.Dropdown>
-                <Menu.Item leftSection={<IconTerminal2 size="1rem" />} onClick={() => setLiveStreamOpened(true)}>
-                  Live Stream
-                </Menu.Item>
-                <Menu.Item leftSection={<IconTimeline size="1rem" />} onClick={() => setTraceInspectorOpened(true)}>
-                  Trace Analysis
-                </Menu.Item>
-                <Menu.Item leftSection={<IconShieldLock size="1rem" />} onClick={() => setComplianceReportOpened(true)}>
-                  Compliance Report
-                </Menu.Item>
-                <Menu.Item leftSection={<IconHistory size="1rem" />} onClick={() => setHistoryOpened(true)}>
-                  Version History
-                </Menu.Item>
-              </Menu.Dropdown>
-            </Menu>
-          )}
-
-          {!isNew && (
-            <Button 
-              color={active ? 'red' : 'green'} 
-              variant="light"
-              size="sm" 
-              leftSection={active ? <IconPlayerPause size="1rem" /> : <IconPlayerPlay size="1rem" />} 
-              onClick={onToggle}
-              loading={isToggling}
-            >
-              {active ? 'Stop' : 'Start'}
-            </Button>
-          )}
-
-          <Button 
-            leftSection={<IconDeviceFloppy size="1rem" />} 
-            onClick={onSave}
-            loading={isSaving}
-            size="sm"
-          >
-            Save
-          </Button>
-
-          <ActionIcon 
-            aria-label="Workflow panel"
-            variant="filled" 
-            color="blue"
-            size="lg" 
-            onClick={() => {
-              setDrawerOpened(true);
-              setQuickAddSource(null);
-            }}
-          >
-            <IconLayoutSidebarRight size="1.2rem" />
-          </ActionIcon>
         </Group>
-      </Flex>
-    </Paper>
+
+        {!isNew && (
+          <Button
+            color={active ? 'orange' : 'green'}
+            variant="light"
+            size="sm"
+            onClick={onToggle}
+            loading={isToggling}
+          >
+            {active ? 'Turn off' : 'Turn on'}
+          </Button>
+        )}
+
+        <Button onClick={onSave} loading={isSaving} size="sm">Save</Button>
+
+        <Menu position="bottom-end" withArrow shadow="md">
+          <Menu.Target>
+            <ActionIcon aria-label="More" variant="default" size={36}><IconDots size="1rem" /></ActionIcon>
+          </Menu.Target>
+          <Menu.Dropdown>
+            <Menu.Item leftSection={<IconDatabase size="1rem" />} onClick={() => setSchemaRegistryOpened(true)}>Schema registry</Menu.Item>
+            <Menu.Item leftSection={<IconSparkles size="1rem" />} onClick={() => setAIGeneratorOpened(true)}>AI generator</Menu.Item>
+            <Menu.Item
+              leftSection={<IconActivity size="1rem" />}
+              rightSection={<Text size="xs" c="dimmed">{pulseEnabled ? 'On' : 'Off'}</Text>}
+              onClick={() => setPulseEnabled(!pulseEnabled)}
+            >
+              Data pulse
+            </Menu.Item>
+            {!isNew && (
+              <>
+                <Menu.Divider />
+                <Menu.Item leftSection={<IconTerminal2 size="1rem" />} onClick={() => setLiveStreamOpened(true)}>Live stream</Menu.Item>
+                <Menu.Item leftSection={<IconTimeline size="1rem" />} onClick={() => setTraceInspectorOpened(true)}>Trace analysis</Menu.Item>
+                <Menu.Item leftSection={<IconShieldLock size="1rem" />} onClick={() => setComplianceReportOpened(true)}>Compliance report</Menu.Item>
+                <Menu.Item leftSection={<IconHistory size="1rem" />} onClick={() => setHistoryOpened(true)}>Version history</Menu.Item>
+              </>
+            )}
+            <Menu.Divider />
+            <Menu.Item leftSection={<IconSettings size="1rem" />} onClick={openSettings}>Flow settings…</Menu.Item>
+            {!isNew && (
+              <>
+                <Menu.Divider />
+                <Menu.Item leftSection={<IconDownload size="1rem" />} onClick={onExport}>Export JSON</Menu.Item>
+                <Menu.Item leftSection={<IconCopy size="1rem" />} onClick={onClone}>Clone</Menu.Item>
+                <Menu.Item color="red" leftSection={<IconTrash size="1rem" />} onClick={onDelete}>Delete flow</Menu.Item>
+              </>
+            )}
+          </Menu.Dropdown>
+        </Menu>
+      </Group>
+    </Flex>
   );
 }
-
-

@@ -1,13 +1,14 @@
 import { 
-  Alert, Button, Group, JsonInput, Modal, Stack, Text, Tabs, PasswordInput, ScrollArea, Badge, Loader, TextInput, ThemeIcon, Code, Box, Paper, Tooltip
+  Alert, Button, Group, JsonInput, Modal, Stack, Text, Tabs, PasswordInput, ScrollArea, Badge, Loader, TextInput, ThemeIcon, Code, Box, Tooltip
 } from '@mantine/core';
 import { useShallow } from 'zustand/react/shallow';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
 import { useState, useEffect, useCallback } from 'react';
 import { useParams } from '@tanstack/react-router';
 import { apiFetch } from '../../../../api';
+import { ComplianceReportModal } from '../../ComplianceReportModal';
 import { formatDateTime } from '../../../../utils/dateUtils';
-import { IconAlertCircle, IconBraces, IconCircleCheck, IconCircleX, IconClock, IconEye, IconInfoCircle, IconPlayerPlay, IconSearch, IconShieldLock, IconTimeline } from '@tabler/icons-react';
+import { IconAlertCircle, IconBraces, IconCircleCheck, IconCircleX, IconClock, IconEye, IconInfoCircle, IconPlayerPlay, IconSearch, IconTimeline } from '@tabler/icons-react';
 interface ModalsProps {
   onRunSimulation: (input?: any) => void;
   isTesting: boolean;
@@ -50,48 +51,6 @@ export function Modals({ onRunSimulation, isTesting }: ModalsProps) {
   const [isLoadingTrace, setIsLoadingTrace] = useState(false);
   const [traceError, setTraceError] = useState<string | null>(null);
   const [searchID, setSearchID] = useState(traceMessageID);
-
-  // Compliance Report state
-  const [reportText, setReportText] = useState('');
-  const [isLoadingReport, setIsLoadingReport] = useState(false);
-  const [reportError, setReportError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (complianceReportOpened && workflowID) {
-      setIsLoadingReport(true);
-      setReportError(null);
-      apiFetch(`/api/workflows/${workflowID}/report`)
-        .then(async res => {
-          if (res.ok) {
-            const text = await res.text();
-            setReportText(text);
-          } else {
-            const err = await res.json();
-            setReportError(err.error || 'Failed to load report');
-          }
-        })
-        .catch(e => setReportError(e.message))
-        .finally(() => setIsLoadingReport(false));
-    }
-  }, [complianceReportOpened, workflowID]);
-
-  const downloadReport = async (format: 'pdf' | 'text') => {
-    try {
-      const res = await apiFetch(`/api/workflows/${workflowID}/report?format=${format}`);
-      if (res.ok) {
-        const blob = await res.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `compliance_report_${workflowID}.${format === 'pdf' ? 'pdf' : 'txt'}`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-      }
-    } catch (e) {
-      console.error('Failed to download report', e);
-    }
-  };
 
   useEffect(() => {
     setSearchID(traceMessageID);
@@ -399,49 +358,7 @@ export function Modals({ onRunSimulation, isTesting }: ModalsProps) {
         </Stack>
       </Modal>
 
-      {/* Compliance Report Modal */}
-      <Modal
-        opened={complianceReportOpened}
-        onClose={() => setComplianceReportOpened(false)}
-        title={
-          <Group gap="xs">
-            <IconShieldLock size="1.2rem" color="var(--mantine-color-orange-6)" />
-            <Text fw={700}>Workflow Compliance Report</Text>
-          </Group>
-        }
-        size="lg"
-      >
-        <Stack gap="md">
-          <Alert color="orange" icon={<IconShieldLock size="1.2rem" />} title="Security Certification">
-            This report summarizes the security, privacy, and integrity status of the current workflow.
-          </Alert>
-
-          {isLoadingReport ? (
-            <Group justify="center" py="xl"><Loader size="md" /></Group>
-          ) : reportError ? (
-            <Alert color="red" icon={<IconAlertCircle size="1rem" />}>{reportError}</Alert>
-          ) : (
-            <>
-              <Paper withBorder p="md" bg="var(--mantine-color-body)">
-                <ScrollArea.Autosize mah={400}>
-                  <Text style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '13px' }}>
-                    {reportText}
-                  </Text>
-                </ScrollArea.Autosize>
-              </Paper>
-
-              <Group justify="flex-end">
-                <Button variant="light" color="blue" onClick={() => downloadReport('text')}>
-                  Download Text
-                </Button>
-                <Button color="orange" onClick={() => downloadReport('pdf')}>
-                  Download PDF Report
-                </Button>
-              </Group>
-            </>
-          )}
-        </Stack>
-      </Modal>
+      <ComplianceReportModal workflowId={workflowID} opened={complianceReportOpened} onClose={() => setComplianceReportOpened(false)} />
     </>
   );
 }

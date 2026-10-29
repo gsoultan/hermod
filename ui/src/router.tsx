@@ -362,6 +362,7 @@ const workflowsRoute = createRoute({
 const workflowDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/workflows/$id',
+  validateSearch: hubSearch,
   component: () => (
     <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
       <WorkflowDetailPage />

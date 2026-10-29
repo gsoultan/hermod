@@ -33,7 +33,7 @@ export function SidebarDrawer({
     drawerOpened, drawerTab, deadLetters, dlqThreshold, prioritizeDLQ, dryRun, 
     maxRetries, retryInterval, reconnectInterval, workspaceID, schemaType, schema, tags,
     cpuRequest, memoryRequest, throughputRequest,
-    cron,
+    cron, vhost, workerID, setVHost, setWorkerID,
     setDrawerOpened, setDrawerTab, setDeadLetters, setDlqThreshold, setPrioritizeDLQ, 
     setDryRun, setMaxRetries, setRetryInterval, setReconnectInterval, 
     setWorkspaceID, setSchemaType, setSchema, setTags, 
@@ -42,6 +42,10 @@ export function SidebarDrawer({
   } = useWorkflowStore(useShallow(state => ({
     drawerOpened: state.drawerOpened,
     drawerTab: state.drawerTab,
+    vhost: state.vhost,
+    workerID: state.workerID,
+    setVHost: state.setVHost,
+    setWorkerID: state.setWorkerID,
     deadLetters: state.deadLetters,
     dlqThreshold: state.dlqThreshold,
     prioritizeDLQ: state.prioritizeDLQ,
@@ -77,6 +81,10 @@ export function SidebarDrawer({
     setCron: state.setCron,
     
   })));
+  // Same keys as the editor page, so the lists are already in the cache when the panel opens.
+  const { data: vhostList } = useQuery({ queryKey: ['vhosts'], queryFn: async () => (await apiFetch('/api/vhosts')).json() });
+  const { data: workerList } = useQuery({ queryKey: ['workers'], queryFn: async () => (await apiFetch('/api/workers')).json() });
+
 
   const nodeCategories = NODE_CATEGORIES;
 
@@ -451,6 +459,30 @@ export function SidebarDrawer({
             <Tabs.Panel value="settings" h="100%">
               <ScrollArea h="100%" offsetScrollbars type="always" px="xs">
                 <Stack gap="lg" py="xs">
+                  {/* Where the flow runs. These two were selects in the editor's header; they are saved with the flow, so they live with its other settings. */}
+                  <Paper withBorder p="md" radius="md">
+                    <Text fw={700} size="sm" mb="md">Where it runs</Text>
+                    <Stack gap="sm">
+                      <Select
+                        label="Virtual host"
+                        data={(Array.isArray(vhostList?.data) ? vhostList.data : []).map((vh: any) => ({ value: vh.name, label: vh.name }))}
+                        value={vhost}
+                        onChange={(val) => setVHost(val || 'default')}
+                        size="xs"
+                        allowDeselect={false}
+                      />
+                      <Select
+                        label="Worker"
+                        description="Leave empty to let the platform run it."
+                        placeholder="Any"
+                        data={(Array.isArray(workerList?.data) ? workerList.data : []).map((w: any) => ({ value: w.id, label: w.name || w.id }))}
+                        value={workerID || null}
+                        onChange={(val) => setWorkerID(val || '')}
+                        size="xs"
+                        clearable
+                      />
+                    </Stack>
+                  </Paper>
                   <Paper withBorder p="md" radius="md" bg={isDark ? 'dark.7' : 'blue.0'}>
                     <Group gap="xs" mb="md">
                       <ThemeIcon variant="light" color="blue" size="sm">

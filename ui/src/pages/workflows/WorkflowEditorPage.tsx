@@ -9,13 +9,13 @@ import {
 import '@xyflow/react/dist/style.css';
 import { 
   Paper,
-  Box, Flex, Text
+  Box, Button, Flex, Tabs, Text
 } from '@mantine/core';
 import { Spotlight, spotlight } from '@mantine/spotlight';
 import '@mantine/spotlight/styles.css';
 import { NODE_CATEGORIES, paletteItemData } from './WorkflowEditor/constants/nodeCategories';
-import { IconSearch } from '@tabler/icons-react';
-import { useParams } from '@tanstack/react-router';
+import { IconPlus, IconSearch } from '@tabler/icons-react';
+import { useNavigate, useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import type { Source, Sink } from '@/types';
 import { apiFetch } from '@/api';
@@ -25,6 +25,8 @@ import { notifications } from '@mantine/notifications';
 // Refactored Components & Hooks
 import { useWorkflowStore } from './WorkflowEditor/store/useWorkflowStore';
 import { EditorToolbar } from './WorkflowEditor/components/EditorToolbar';
+import { FLOW_TABS } from './flowTabs';
+import { useFlowActions } from './useFlowActions';
 import { FlowCanvas } from './WorkflowEditor/components/FlowCanvas';
 import { LiveLogPanel } from './WorkflowEditor/components/LiveLogPanel';
 import { SidebarDrawer } from './WorkflowEditor/components/SidebarDrawer';
@@ -59,9 +61,11 @@ function EditorInner() {
     workflowStatus, settingsOpened,
     updateNodeConfig, setTestModalOpened,
     setTraceInspectorOpened, setTraceMessageID,
-    setQuickAddSource, setDrawerOpened,
-    setTestResults, setSelectedNode, setSettingsOpened
+    setQuickAddSource, setDrawerOpened, setDrawerTab,
+    setTestResults, setSelectedNode, setSettingsOpened, name
   } = useWorkflowStore(useShallow(state => ({
+    name: state.name,
+    setDrawerTab: state.setDrawerTab,
     vhost: state.vhost,
     selectedNode: state.selectedNode,
     active: state.active,
@@ -82,6 +86,8 @@ function EditorInner() {
     setSettingsOpened: state.setSettingsOpened,
   })));
 
+  const navigate = useNavigate();
+  const flowActions = useFlowActions(id, name);
   const [configModalOpen, setConfigModalOpen] = useState(false);
   const [aiFixModalData, setAIFixModalData] = useState<any>(null);
   const [saveConfirmOpened, setSaveConfirmOpened] = useState(false);
@@ -265,6 +271,9 @@ function EditorInner() {
           }}
           onRebuild={() => rebuildMutation.mutate(0)}
           onClearTest={() => setTestResults(null)}
+          onExport={flowActions.exportJson}
+          onClone={flowActions.clone}
+          onDelete={flowActions.remove}
           onAutoLayout={() => {
             try {
               onLayout('LR');
@@ -285,12 +294,34 @@ function EditorInner() {
           workers={workers?.data || []}
         />
 
+        {/* The same seven tabs as the read-only view. Build is this page; the others open the view on that tab. */}
+        {!isNew && (
+          <Tabs
+            value="build"
+            mb="sm"
+            onChange={(t) => { if (t && t !== 'build') navigate({ to: '/workflows/$id', params: { id }, search: { tab: t } } as any); }}
+          >
+            <Tabs.List>
+              {FLOW_TABS.map((t) => <Tabs.Tab key={t.value} value={t.value}>{t.label}</Tabs.Tab>)}
+            </Tabs.List>
+          </Tabs>
+        )}
+
         {/* position: relative makes this the containing block for the
             SidebarDrawer, which floats over the canvas instead of consuming
             400px of it as an inline sibling. */}
         <Flex style={{ flex: 1, overflow: 'hidden', position: 'relative' }} gap="md">
           <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', gap: 'var(--mantine-spacing-md)' }}>
             <Paper withBorder radius="md" style={{ flex: 1, position: 'relative' }} ref={reactFlowWrapper}>
+              {/* The one way in to the step palette, on the canvas where the steps go. */}
+              <Button
+                leftSection={<IconPlus size="1rem" />}
+                size="sm"
+                style={{ position: 'absolute', top: 12, right: 12, zIndex: 5 }}
+                onClick={() => { setQuickAddSource(null); setDrawerTab('nodes'); setDrawerOpened(true); }}
+              >
+                Add step
+              </Button>
               <FlowCanvas 
                 onNodeClick={onNodeClick}
                 onEdgeClick={onEdgeClick}

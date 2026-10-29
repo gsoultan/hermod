@@ -14,6 +14,7 @@ vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, to: _to, params: _params, ...rest }: any) => <a {...rest}>{children}</a>,
   useParams: () => ({ id: 'wf-1' }),
   useNavigate: () => () => {},
+  useSearch: () => ({}),
   useRouterState: () => ({ location: { pathname: '/' }, isLoading: false }),
 }))
 vi.mock('@/pages/workflows/WorkflowEditor/components/DetailFlowCanvas', () => ({ DetailFlowCanvas: () => null }))

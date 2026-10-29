@@ -29,7 +29,7 @@ export function PageHeader({ title, lede, actions, back, meta }: PageHeaderProps
           {lede && <Text c="dimmed" size="sm" mt={4}>{lede}</Text>}
           {meta && <Box mt={6}>{meta}</Box>}
         </Box>
-        {actions && <Group gap="xs" wrap="nowrap">{actions}</Group>}
+        {actions && <Group gap="xs" wrap="wrap">{actions}</Group>}
       </Group>
     </Stack>
   );

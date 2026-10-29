@@ -38,7 +38,7 @@ test('typing in a set field leaves it where it is', async ({ page }) => {
   await page.waitForTimeout(2000);
 
   if (!(await page.getByText('Workflow Panel').isVisible().catch(() => false))) {
-    await page.getByRole('button', { name: 'Workflow panel' }).click();
+    await page.getByRole('button', { name: 'Add step' }).click();
   }
   await expect(page.getByText('Workflow Panel')).toBeVisible();
 

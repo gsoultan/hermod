@@ -45,7 +45,7 @@ test('node config drawers size to their content', async ({ page }) => {
   // Selectors by role and label now, and every step that must happen is
   // asserted. A layout change should break this loudly or not at all.
   if (!(await page.getByText('Workflow Panel').isVisible().catch(() => false))) {
-    await page.getByRole('button', { name: 'Workflow panel' }).click();
+    await page.getByRole('button', { name: 'Add step' }).click();
   }
   await expect(page.getByText('Workflow Panel')).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/panel-open.png` });
