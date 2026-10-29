@@ -62,6 +62,9 @@ type Worker struct {
 	draining         atomic.Bool
 	healthChecking   atomic.Bool
 	shutdownFunc     context.CancelFunc
+
+	// relaySource is what the live status relay reads; nil means the registry.
+	relaySource liveStatusSource
 }
 
 // NewWorker creates a new worker.
@@ -279,6 +282,11 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 	if w.workerGUID != "" {
 		_ = w.SelfRegister(ctx)
 	}
+
+	// Ends with this Start, so a restarted worker does not run two relays.
+	relayCtx, stopRelay := context.WithCancel(ctx)
+	defer stopRelay()
+	w.startLiveStatusRelay(relayCtx)
 
 	ticker := time.NewTicker(w.interval)
 	defer ticker.Stop()

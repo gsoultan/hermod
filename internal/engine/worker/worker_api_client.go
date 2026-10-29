@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/pkg/engine/telemetry"
 )
 
 // ErrPlatformConfig marks errors that stem from a misconfigured platform-url
@@ -471,4 +472,25 @@ func (c *WorkerAPIClient) doRequest(ctx context.Context, method, path string, bo
 	}
 
 	return c.HTTPClient.Do(req)
+}
+
+// ReportLiveStatus sends the platform the live status of this worker's watched
+// workflows, and returns which of its workflows someone has open there.
+func (c *WorkerAPIClient) ReportLiveStatus(ctx context.Context, workerID string, report telemetry.LiveStatusReport) (telemetry.LiveStatusReply, error) {
+	var reply telemetry.LiveStatusReply
+	resp, err := c.doRequest(ctx, "POST", "/api/workers/"+url.PathEscape(workerID)+"/live-status", report)
+	if err != nil {
+		return reply, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		err := json.NewDecoder(resp.Body).Decode(&reply)
+		return reply, err
+	case http.StatusNotFound, http.StatusMethodNotAllowed:
+		return reply, ErrLiveStatusUnsupported
+	default:
+		return reply, fmt.Errorf("API error reporting live status: %s", resp.Status)
+	}
 }

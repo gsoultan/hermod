@@ -171,6 +171,9 @@ You can download the latest binaries and packages (`.deb`, `.rpm`, `.apk`) from 
 
    If you prefer, the worker can self‑register with `--worker-host/--worker-port`, but you still need to provide the `--worker-token` obtained at creation time for authenticated API calls.
 
+   #### Live edges for workflows on a worker
+   A worker started with `--platform-url` and `--worker-guid` sends the platform the live status of the workflows someone has open in the editor, so their edges animate as they do for a workflow running on the platform. It checks in every 5 seconds and, while one of its workflows is open, reports every second. A worker on a shared database (no `--platform-url`) has no way to reach the platform, and its workflows' edges say "no data".
+
    #### Worker CLI via Environment Variables
    To simplify production deployments (containers, systemd), Hermod supports environment variables as fallbacks when flags are not provided (or left at defaults):
 
