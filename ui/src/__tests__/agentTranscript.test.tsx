@@ -129,7 +129,7 @@ describe('where an agent run is shown', () => {
         </QueryClientProvider>
       </MantineProvider>,
     )
-    await user.click(await screen.findByText('ap-12345'))
+    await user.click(await screen.findByText(/ap-12345/))
     expect(await screen.findByText(/wants to call a tool/i)).toBeInTheDocument()
     expect(screen.getByText('Awaiting approval')).toBeInTheDocument()
   })
