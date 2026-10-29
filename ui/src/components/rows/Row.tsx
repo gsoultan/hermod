@@ -41,8 +41,8 @@ export function Row({ icon: Icon, iconTone = 'default', title, detail, state, ac
         </ThemeIcon>
       )}
       <Box style={{ minWidth: 0 }}>
-        <Text fw={600} truncate="end">{title}</Text>
-        {detail && <Text size="sm" c="dimmed" truncate="end">{detail}</Text>}
+        <Text fw={600} truncate="end" className="hermod-row-text">{title}</Text>
+        {detail && <Text size="sm" c="dimmed" truncate="end" className="hermod-row-text">{detail}</Text>}
       </Box>
     </Group>
   );
@@ -62,9 +62,9 @@ export function Row({ icon: Icon, iconTone = 'default', title, detail, state, ac
       component="li"
       px="md"
       style={{
-        display: 'flex',
+        display: 'grid',
         alignItems: 'center',
-        gap: 'var(--mantine-spacing-md)',
+        columnGap: 'var(--mantine-spacing-md)',
         minHeight: 64,
         paddingTop: 'var(--mantine-spacing-sm)',
         paddingBottom: 'var(--mantine-spacing-sm)',
@@ -72,9 +72,10 @@ export function Row({ icon: Icon, iconTone = 'default', title, detail, state, ac
       }}
       className="hermod-row"
     >
-      {main}
-      <Group gap="md" wrap="nowrap" style={{ flex: 'none' }}>
-        {state}
+      <Box className="hermod-row-main" style={{ display: 'flex', minWidth: 0, alignSelf: 'stretch' }}>{main}</Box>
+      {/* Its own grid cell: beside the name on a desktop, under it on a phone, where the name needs the width. */}
+      {state && <Box className="hermod-row-state">{state}</Box>}
+      <Group gap="md" wrap="nowrap" className="hermod-row-tail">
         {action && <Box onClick={(e) => e.stopPropagation()}>{action}</Box>}
         {opens && <IconChevronRight size="1rem" aria-hidden style={{ color: 'var(--mantine-color-dimmed)' }} />}
       </Group>
