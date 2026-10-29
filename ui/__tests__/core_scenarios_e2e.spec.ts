@@ -25,8 +25,10 @@ test.describe('Hermod Core Scenarios E2E', () => {
     const username = `u_${Date.now()}`;
     const fullName = `Test User ${username}`;
     
-    // 1. Navigate to Users
-    await page.getByText('Users', { exact: true }).click();
+    // 1. Navigate to Users: the sidebar has five places, People sits under Settings.
+    await page.getByRole('navigation', { name: 'Main' }).getByText('Settings', { exact: true }).click();
+    await page.waitForURL(/\/settings/);
+    await page.getByText('People', { exact: true }).click();
     await page.waitForURL(/\/users/);
     
     // 2. Add User
@@ -73,9 +75,11 @@ test.describe('Hermod Core Scenarios E2E', () => {
     const vhostName = `v_${Date.now()}`;
     const description = 'Test VHost Description';
 
-    // 1. Navigate to VHosts
-    await page.getByText('Virtual Hosts', { exact: true }).click();
-    await page.waitForURL(/\/vhosts/);
+    // 1. Navigate to VHosts: Settings › Workspace opens the Virtual hosts tab.
+    await page.getByRole('navigation', { name: 'Main' }).getByText('Settings', { exact: true }).click();
+    await page.waitForURL(/\/settings/);
+    await page.getByText('Workspace', { exact: true }).click();
+    await page.waitForURL(/tab=vhosts/);
 
     // 2. Add VHost
     await page.getByRole('button', { name: /Add VHost/i }).click();
@@ -100,12 +104,14 @@ test.describe('Hermod Core Scenarios E2E', () => {
   });
 
   test('Settings: Update SMTP settings', async ({ page }) => {
-    // Navigate via Account Menu
+    // Navigate via Account Menu, then into Workspace, which holds the platform tabs
     await page.getByTitle('Account').click();
-    await page.getByRole('menuitem', { name: /System Settings/i }).click();
+    await page.getByRole('menuitem', { name: /^Settings$/ }).click();
     await page.waitForURL(/\/settings/);
+    await page.getByText('Workspace', { exact: true }).click();
+    await page.waitForURL(/tab=vhosts/);
 
-    // Click Connectivity tab (the first one)
+    // Click Connectivity tab
     await page.locator('button:has-text("Connectivity")').first().click();
     
     const smtpHost = `smtp.${Date.now()}.com`;
@@ -121,17 +127,21 @@ test.describe('Hermod Core Scenarios E2E', () => {
   test('Audit Logs: Display and Filter', async ({ page }) => {
     // Perform an action to generate a log
     const vhostName = `a_${Date.now()}`;
-    await page.getByText('Virtual Hosts', { exact: true }).click();
-    await page.waitForURL(/\/vhosts/);
+    await page.getByRole('navigation', { name: 'Main' }).getByText('Settings', { exact: true }).click();
+    await page.waitForURL(/\/settings/);
+    await page.getByText('Workspace', { exact: true }).click();
+    await page.waitForURL(/tab=vhosts/);
     await page.getByRole('button', { name: /Add VHost/i }).click();
     await page.getByLabel(/Name/i).fill(vhostName);
     await page.getByRole('button', { name: /Create VHost/i }).click();
     await page.waitForURL(/\/vhosts/);
     await expect(page.getByRole('cell', { name: vhostName, exact: true })).toBeVisible();
 
-    // Check Audit Logs
-    await page.getByText('Audit Logs', { exact: true }).click();
-    await page.waitForURL(/\/audit-logs/);
+    // Check Audit Logs: a tab of Activity
+    await page.getByRole('navigation', { name: 'Main' }).getByText('Activity', { exact: true }).click();
+    await page.waitForURL(/\/activity/);
+    await page.getByRole('tab', { name: 'Audit log' }).click();
+    await page.waitForURL(/tab=audit/);
     
     // Case-insensitive check for create/CREATE
     await expect(page.locator('table')).toContainText(/create/i, { timeout: 30000 });
