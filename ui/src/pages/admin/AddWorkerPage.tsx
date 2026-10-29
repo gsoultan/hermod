@@ -1,15 +1,14 @@
-import { Paper, Title, Container, Box } from '@mantine/core';
+import { Paper } from '@mantine/core';
 import { WorkerForm } from '@/components/forms/WorkerForm';
+import { PageHeader } from '@/components/rows';
 
 export function AddWorkerPage() {
   return (
-    <Container size="sm" py="xl">
-      <Box className="page-enter">
-        <Paper p="xl" withBorder radius="md">
-          <Title order={2} mb="xl">Register New Worker</Title>
-          <WorkerForm />
-        </Paper>
-      </Box>
-    </Container>
+    <>
+      <PageHeader title="Register worker" lede="Register the machine here, then start Hermod on it with the command you get" back={{ to: '/settings', label: 'Back to settings', search: { tab: 'workers' } }} />
+      <Paper p="xl" withBorder radius="md" maw={720}>
+        <WorkerForm />
+      </Paper>
+    </>
   );
 }

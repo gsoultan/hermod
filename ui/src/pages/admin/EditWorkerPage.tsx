@@ -1,4 +1,5 @@
-import { Paper, Title, Container, Box } from '@mantine/core';
+import { Paper } from '@mantine/core';
+import { PageHeader } from '@/components/rows';
 import { WorkerForm } from '@/components/forms/WorkerForm';
 import { useParams } from '@tanstack/react-router';
 import { useSuspenseQuery } from '@tanstack/react-query';
@@ -17,13 +18,11 @@ export function EditWorkerPage() {
   });
 
   return (
-    <Container size="sm" py="xl">
-      <Box className="page-enter">
-        <Paper p="xl" withBorder radius="md">
-          <Title order={2} mb="xl">Edit Worker</Title>
-          <WorkerForm initialData={worker} isEditing />
-        </Paper>
-      </Box>
-    </Container>
+    <>
+      <PageHeader title={worker?.name || 'Worker'} lede="Worker" back={{ to: '/settings', label: 'Back to settings', search: { tab: 'workers' } }} />
+      <Paper p="xl" withBorder radius="md" maw={720}>
+        <WorkerForm initialData={worker} isEditing />
+      </Paper>
+    </>
   );
 }

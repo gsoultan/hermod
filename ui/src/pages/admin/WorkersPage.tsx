@@ -1,16 +1,19 @@
-import { IconAlertTriangle, IconEdit, IconInfoCircle, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconServer, IconTerminal2, IconTrash } from '@tabler/icons-react';
+import { IconAlertTriangle, IconDots, IconEdit, IconInfoCircle, IconPlayerPlay, IconPlayerStop, IconPlus, IconServerBolt, IconTerminal2, IconTrash } from '@tabler/icons-react';
 import { useState } from 'react'
-import { Title, Table, Button, Group, Paper, Text, Box, Stack, Badge, TextInput, Pagination, ActionIcon, Tooltip, Alert, Modal, Code, CopyButton } from '@mantine/core'
+import { ActionIcon, Alert, Box, Button, Code, CopyButton, Group, Menu, Modal, Pagination, Paper, Stack, Text } from '@mantine/core'
 import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/api'
-import { useNavigate } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import type { Worker } from '@/types'
 import { useConfirm } from '@/components/common/ConfirmProvider';
 import { ResourceGauge } from '@/components/common/ResourceGauge';
 import { NO_READING, formatCapacity, usageFraction } from '@/utils/metricFormat';
-export function WorkersPage() {
+import { EmptyState, FilterBar, Row, RowList, StatePill } from '@/components/rows';
+import { AdminListHeader } from './AdminListHeader';
+
+export function WorkersPage({ embedded = false }: { embedded?: boolean }) {
   const confirm = useConfirm();
   const queryClient = useQueryClient()
   const navigate = useNavigate()
@@ -23,7 +26,7 @@ export function WorkersPage() {
   const { data: workersResponse } = useSuspenseQuery<any>({
     queryKey: ['workers', activePage, search],
     queryFn: async () => {
-      const res = await apiFetch(`/api/workers?page=${activePage}&limit=${itemsPerPage}&search=${search}`)
+      const res = await apiFetch(`/api/workers?page=${activePage}&limit=${itemsPerPage}&search=${encodeURIComponent(search)}`)
       if (!res.ok) throw new Error('Failed to fetch workers')
       return res.json()
     },
@@ -116,180 +119,110 @@ export function WorkersPage() {
     return date.toLocaleDateString();
   };
 
-  const rows = workers.map((worker: Worker) => {
-    const online = isOnline(worker.last_seen);
-    return (
-      <Table.Tr key={worker.id}>
-        <Table.Td>
-          <Stack gap={0}>
-            <Text fw={500}>{worker.name}</Text>
-            <Text size="xs" c="dimmed">{worker.id}</Text>
-          </Stack>
-        </Table.Td>
-        <Table.Td>
-          <Stack gap={0}>
-            <Badge variant="dot" color={worker.draining ? 'orange' : online ? 'green' : 'red'}>
-              {worker.draining ? 'Draining' : online ? 'Online' : 'Offline'}
-            </Badge>
-            {!online && (
-              <Text size="xs" c="dimmed" mt={4}>
-                Last seen: {formatLastSeen(worker.last_seen)}
-              </Text>
-            )}
-          </Stack>
-        </Table.Td>
-        <Table.Td>
-          {online ? (
-            <ResourceGauge
-              fraction={worker.cpu_usage ?? null}
-              caption={worker.cpu_cores ? `${worker.cpu_cores} core${worker.cpu_cores === 1 ? '' : 's'}` : NO_READING}
-              tooltip="CPU"
-            />
-          ) : '-'}
-        </Table.Td>
-        <Table.Td>
-          {online ? (
-            <ResourceGauge
-              fraction={
-                usageFraction(worker.memory_used_bytes ?? 0, worker.memory_total_bytes ?? 0)
-                ?? worker.memory_usage
-                ?? null
-              }
-              caption={formatCapacity(worker.memory_used_bytes ?? 0, worker.memory_total_bytes ?? 0)}
-              tooltip="Memory"
-            />
-          ) : '-'}
-        </Table.Td>
-        <Table.Td>
-          {online ? (
-            <ResourceGauge
-              fraction={usageFraction(worker.storage_used_bytes ?? 0, worker.storage_total_bytes ?? 0)}
-              caption={formatCapacity(worker.storage_used_bytes ?? 0, worker.storage_total_bytes ?? 0)}
-              tooltip="Storage (data directory)"
-            />
-          ) : '-'}
-        </Table.Td>
-        <Table.Td>
-          {worker.host ? (
-            <Badge variant="light">
-              {worker.host}:{worker.port}
-            </Badge>
-          ) : '-'}
-        </Table.Td>
-        <Table.Td>{worker.description || '-'}</Table.Td>
-        <Table.Td>
-          <Group justify="flex-end">
-            {online && (
-              <Tooltip label="Gracefully shut down this worker (its workflows move to other workers)">
-                <ActionIcon variant="light" color="orange" onClick={async () => {
-                  if (await confirm({ title: 'Shut down worker', message: `Gracefully shut down ${worker.name || worker.id}?`, consequence: 'Its running workflows are handed off to other available workers.', confirmLabel: 'Shut down' })) {
-                    shutdownMutation.mutate(worker.id);
-                  }
-                }} loading={shutdownMutation.isPending && shutdownMutation.variables === worker.id} radius="md" aria-label="Shut down worker">
-                  <IconPlayerStop size="1.2rem" />
-                </ActionIcon>
-              </Tooltip>
-            )}
-            {!online && (
-              <Tooltip label="Start this worker">
-                <ActionIcon variant="light" color="green" onClick={() => startMutation.mutate(worker.id)} loading={startMutation.isPending && startMutation.variables === worker.id} radius="md" aria-label="Start worker">
-                  <IconPlayerPlay size="1.2rem" />
-                </ActionIcon>
-              </Tooltip>
-            )}
-            {!online && (
-              <Tooltip label="How to start this worker manually">
-                <ActionIcon variant="light" color="orange" onClick={() => { setSelectedWorker(worker); open(); }} radius="md" aria-label="Worker start instructions">
-                  <IconTerminal2 size="1.2rem" />
-                </ActionIcon>
-              </Tooltip>
-            )}
-            <ActionIcon variant="light" color="blue" onClick={() => navigate({ to: `/workers/${worker.id}/edit` })} radius="md" aria-label="Edit worker">
-              <IconEdit size="1.2rem" stroke={1.5} />
-            </ActionIcon>
-            <ActionIcon color="red" variant="light" onClick={async () => {
-              if (await confirm({ title: 'Unregister worker', message: `Unregister ${worker.name || worker.id}?`, consequence: 'Workflows pinned to this worker will stop until it is re-registered.', confirmLabel: 'Unregister', danger: true })) {
-                deleteMutation.mutate(worker.id);
-              }
-            }} radius="md" aria-label="Unregister worker">
-              <IconTrash size="1.2rem" />
-            </ActionIcon>
-          </Group>
-        </Table.Td>
-      </Table.Tr>
-    );
-  })
+  const shutDown = async (worker: Worker) => {
+    if (await confirm({ title: 'Shut down worker', message: `Gracefully shut down ${worker.name || worker.id}?`, consequence: 'Its running workflows are handed off to other available workers.', confirmLabel: 'Shut down' })) {
+      shutdownMutation.mutate(worker.id);
+    }
+  }
+  const unregister = async (worker: Worker) => {
+    if (await confirm({ title: 'Unregister worker', message: `Unregister ${worker.name || worker.id}?`, consequence: 'Workflows pinned to this worker will stop until it is re-registered.', confirmLabel: 'Unregister', danger: true })) {
+      deleteMutation.mutate(worker.id);
+    }
+  }
 
   return (
-    <Box p="md" className="page-enter">
-      <Stack gap="lg">
-        {workers.length > 0 && workers.every(w => !isOnline(w.last_seen)) && (
-          <Alert icon={<IconAlertTriangle size="1rem" />} title="All Workers Offline" color="red" radius="md" variant="filled">
-            Hermod cannot process any workflows because all registered workers are currently offline. Please start at least one worker to resume processing.
-          </Alert>
-        )}
-        <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
-          <Stack gap="md">
-            <Group gap="sm">
-              <IconServer size="2rem" color="var(--mantine-color-blue-filled)" />
-              <Box style={{ flex: 1 }}>
-                <Title order={2} fw={800}>Workers</Title>
-                <Text size="sm" c="dimmed">
-                  Manage your Hermod workers. Register workers running on different servers to explicitly assign tasks to them.
-                </Text>
-              </Box>
-              <Button leftSection={<IconPlus size="1.2rem" />} onClick={() => navigate({ to: '/workers/new' })}>
-                Register Worker
-              </Button>
-            </Group>
-            <TextInput
-              placeholder="Search workers by name, ID, host or description..."
-              leftSection={<IconSearch size="1rem" stroke={1.5} />}
-              value={search}
-              onChange={(event) => {
-                setSearch(event.currentTarget.value)
-                setPage(1)
-              }}
-              radius="md"
-            />
-          </Stack>
-        </Paper>
+    <Box className="page-enter">
+      {workers.length > 0 && workers.every(w => !isOnline(w.last_seen)) && (
+        <Alert icon={<IconAlertTriangle size="1rem" />} title="All workers are offline" color="red" radius="md" variant="filled" mb="md">
+          Hermod cannot run any flows while every registered worker is offline. Start at least one worker to resume.
+        </Alert>
+      )}
+      <AdminListHeader
+        embedded={embedded}
+        title="Workers"
+        lede="The machines that run your flows. Register one per server to assign flows to it."
+        back={{ to: '/settings', label: 'Back to settings', search: { tab: 'workers' } }}
+        actions={<Button leftSection={<IconPlus size="1rem" />} onClick={() => navigate({ to: '/workers/new' })}>Register worker</Button>}
+      />
+      <FilterBar search={{ value: search, onChange: (v) => { setSearch(v); setPage(1) }, placeholder: 'Search workers by name, ID, host or description' }} />
 
-        <Paper radius="md" style={{ border: '1px solid var(--mantine-color-gray-1)', overflow: 'hidden' }}>
-          <Table.ScrollContainer minWidth={1400}>
-            <Table verticalSpacing="md" horizontalSpacing="xl">
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Name / ID</Table.Th>
-                <Table.Th>Status</Table.Th>
-                <Table.Th>CPU</Table.Th>
-                <Table.Th>Memory</Table.Th>
-                <Table.Th>Storage</Table.Th>
-                <Table.Th>Address</Table.Th>
-                <Table.Th>Description</Table.Th>
-                <Table.Th style={{ textAlign: 'right' }}>Actions</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {rows}
-              {workers.length === 0 && (
-                <Table.Tr>
-                  <Table.Td colSpan={8} py="xl">
-                    <Text c="dimmed" ta="center">{search ? 'No workers match your search' : 'No workers registered yet'}</Text>
-                  </Table.Td>
-                </Table.Tr>
-              )}
-            </Table.Tbody>
-          </Table>
-          </Table.ScrollContainer>
-          {totalPages > 1 && (
-            <Group justify="center" p="md" bg="var(--mantine-color-body)" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
-              <Pagination total={totalPages} value={activePage} onChange={setPage} radius="md" />
-            </Group>
-          )}
+      {workers.length === 0 ? (
+        <Paper withBorder radius={12}>
+          <EmptyState title={search ? 'No workers match' : 'No workers registered yet'} detail={search ? 'Try a name, an ID, a host or a word from the description.' : 'Register a worker, then start Hermod on that machine with the command it gives you.'} />
         </Paper>
-      </Stack>
-      
+      ) : (
+        <RowList aria-label="Workers">
+          {workers.map((worker) => {
+            const online = isOnline(worker.last_seen);
+            const name = worker.name || worker.id;
+            return (
+              <Row
+                key={worker.id}
+                icon={IconServerBolt}
+                iconTone={online ? 'default' : 'err'}
+                title={name}
+                detail={[worker.host ? `${worker.host}:${worker.port}` : '', worker.description, worker.id].filter(Boolean).join(' · ')}
+                to="/workers/$workerId/edit"
+                params={{ workerId: worker.id }}
+                state={
+                  <Group gap="md" wrap="wrap">
+                    <StatePill tone={worker.draining ? 'warn' : online ? 'ok' : 'err'}>
+                      {worker.draining ? 'Draining' : online ? 'Online' : 'Offline'}
+                    </StatePill>
+                    {!online && <Text size="sm" c="dimmed">Last seen {formatLastSeen(worker.last_seen).toLowerCase()}</Text>}
+                    {online && (
+                      <>
+                        <ResourceGauge
+                          fraction={worker.cpu_usage ?? null}
+                          caption={worker.cpu_cores ? `${worker.cpu_cores} core${worker.cpu_cores === 1 ? '' : 's'}` : NO_READING}
+                          tooltip="CPU"
+                        />
+                        <ResourceGauge
+                          fraction={usageFraction(worker.memory_used_bytes ?? 0, worker.memory_total_bytes ?? 0) ?? worker.memory_usage ?? null}
+                          caption={formatCapacity(worker.memory_used_bytes ?? 0, worker.memory_total_bytes ?? 0)}
+                          tooltip="Memory"
+                        />
+                        <ResourceGauge
+                          fraction={usageFraction(worker.storage_used_bytes ?? 0, worker.storage_total_bytes ?? 0)}
+                          caption={formatCapacity(worker.storage_used_bytes ?? 0, worker.storage_total_bytes ?? 0)}
+                          tooltip="Storage (data directory)"
+                        />
+                      </>
+                    )}
+                  </Group>
+                }
+                action={
+                  <Group gap="xs" wrap="nowrap">
+                    {!online && (
+                      <Button size="xs" variant="default" leftSection={<IconPlayerPlay size="0.9rem" />} aria-label={`Start ${name}`}
+                        onClick={() => startMutation.mutate(worker.id)} loading={startMutation.isPending && startMutation.variables === worker.id}>
+                        Start
+                      </Button>
+                    )}
+                    <Menu position="bottom-end" withArrow shadow="md">
+                      <Menu.Target>
+                        <ActionIcon aria-label={`More for ${name}`} variant="subtle" color="gray"><IconDots size="1rem" /></ActionIcon>
+                      </Menu.Target>
+                      <Menu.Dropdown>
+                        <Menu.Item component={Link} to="/workers/$workerId/edit" params={{ workerId: worker.id } as any} leftSection={<IconEdit size="1rem" />}>Edit</Menu.Item>
+                        {online && <Menu.Item leftSection={<IconPlayerStop size="1rem" />} onClick={() => shutDown(worker)}>Shut down</Menu.Item>}
+                        {!online && <Menu.Item leftSection={<IconTerminal2 size="1rem" />} onClick={() => { setSelectedWorker(worker); open(); }}>How to start it</Menu.Item>}
+                        <Menu.Item color="red" leftSection={<IconTrash size="1rem" />} onClick={() => unregister(worker)}>Unregister</Menu.Item>
+                      </Menu.Dropdown>
+                    </Menu>
+                  </Group>
+                }
+              />
+            );
+          })}
+        </RowList>
+      )}
+      {totalPages > 1 && (
+        <Group justify="center" mt="md">
+          <Pagination total={totalPages} value={activePage} onChange={setPage} radius="md" />
+        </Group>
+      )}
+
       <Modal opened={opened} onClose={close} title="How to Start Worker" size="lg" radius="md">
         {selectedWorker && (
           <Stack gap="md">
