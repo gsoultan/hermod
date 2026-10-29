@@ -110,8 +110,9 @@ test.describe('node drawer forms: Cancel must dismiss without saving', () => {
    * SinkForm components and the same wizard footer that hosts Cancel.
    */
   for (const [name, route, back] of [
-    ['source', '/sources/new', /\/sources$/],
-    ['sink', '/sinks/new', /\/sinks$/],
+    // Cancel leaves for /sources or /sinks, which now redirect into Connections.
+    ['source', '/sources/new', /\/connections\?tab=sources$/],
+    ['sink', '/sinks/new', /\/connections\?tab=sinks$/],
   ] as const) {
     test(`${name} form: Cancel navigates away and creates nothing`, async ({ page }) => {
       test.setTimeout(90000);
