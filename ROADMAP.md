@@ -49,8 +49,10 @@ This document outlines the planned features, development directions, and future 
   `franz-go`, and a Kafka sink with a `transactional_id` writes each batch as one transaction that
   also commits the source consumer group's offsets, fenced by the group generation. A live-broker
   test kills the pipeline before a commit and after a rebalance and reads the output back
-  read_committed: each record once. What remains open is the multi-sink case: the offsets commit
-  with the Kafka sink's output, so a workflow with a second sink should not turn it on.
+  read_committed: each record once. Because the offsets commit with the Kafka sink's output, a
+  workflow that reads Kafka and has any other sink next to a transactional Kafka sink is refused,
+  both when it is saved and when it starts. Exactly-once across Kafka and a second sink is not
+  offered: it would need that sink to commit inside the same Kafka transaction.
 
   **Kafka as a member of a transactional sink group** is *not* reachable, and no client library
   changes that. The coordinator's recovery path has to be able to commit a transaction that a

@@ -2217,7 +2217,12 @@ func (r *Registry) ValidateWorkflow(ctx context.Context, wf storage.Workflow) er
 		return err
 	}
 
-	// 7. DLQ Prioritization requirements
+	// 7. A transactional Kafka sink fed by a Kafka source must be the only sink.
+	if err := r.checkKafkaExactlyOnce(ctx, wf); err != nil {
+		return err
+	}
+
+	// 8. DLQ Prioritization requirements
 	return r.checkDLQPrioritization(ctx, wf)
 }
 
