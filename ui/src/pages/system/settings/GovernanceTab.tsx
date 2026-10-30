@@ -105,7 +105,7 @@ export function GovernanceTab({ ctx }: { ctx: SettingsController }) {
                 </Table.Tbody>
               </Table>
               </Table.ScrollContainer>
-              <Text size="xs" c="dimmed" mt="sm">
+              <Text component="div" size="xs" c="dimmed" mt="sm">
                 <Badge size="xs" variant="light" color="gray" mr={6}>∞</Badge>
                 means no limit. Deleting a workspace moves its members out rather than deleting them.
               </Text>

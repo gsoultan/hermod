@@ -34,8 +34,45 @@ type ProposalHandler struct {
 func NewProposalHandler(h *handlers.Handler) *ProposalHandler {
 	return &ProposalHandler{
 		Handler: h,
-		svc:     selfheal.NewService(h.Storage, workflowhttp.NewWorkflowHandler(h)),
+		svc:     selfheal.NewService(liveStore{h}, workflowhttp.NewWorkflowHandler(h)),
 	}
+}
+
+// liveStore is selfheal.Store over whatever storage the handler holds now.
+// First-run setup and a database switch replace h.Storage after the handler
+// is built, so capturing it once would leave the service on a nil or closed
+// store.
+type liveStore struct{ h *handlers.Handler }
+
+func (l liveStore) st() (storage.Storage, error) {
+	if l.h.Storage == nil {
+		return nil, errors.New("storage is not configured yet")
+	}
+	return l.h.Storage, nil
+}
+
+func (l liveStore) GetSetting(ctx context.Context, key string) (string, error) {
+	st, err := l.st()
+	if err != nil {
+		return "", err
+	}
+	return st.GetSetting(ctx, key)
+}
+
+func (l liveStore) SaveSetting(ctx context.Context, key, value string) error {
+	st, err := l.st()
+	if err != nil {
+		return err
+	}
+	return st.SaveSetting(ctx, key, value)
+}
+
+func (l liveStore) GetWorkflow(ctx context.Context, id string) (storage.Workflow, error) {
+	st, err := l.st()
+	if err != nil {
+		return storage.Workflow{}, err
+	}
+	return st.GetWorkflow(ctx, id)
 }
 
 // Service is the proposal service the handler uses.

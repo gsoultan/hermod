@@ -241,3 +241,38 @@ func TestRejectingAndRoleAndTenantChecks(t *testing.T) {
 		t.Fatalf("status = %s", got[0].Status)
 	}
 }
+
+// A first run builds the handler before setup provides a database, and a
+// database switch replaces it later. Proposals must follow the storage the
+// handler holds now, not the one it held when it was built.
+func TestProposalsFollowStorageSetAfterTheHandlerIsBuilt(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "db_config.yaml"),
+		[]byte("type: sqlite\nconn: \"file::memory:\"\njwt_secret: x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HERMOD_CONFIG_DIR", dir)
+
+	h := &handlers.Handler{}
+	ph := NewProposalHandler(h)
+	mux := http.NewServeMux()
+	ph.RegisterProposalRoutes(mux)
+
+	st := &store{settings: map[string]string{}, workflows: map[string]storage.Workflow{"wf": orders()}}
+	h.StoreMu.Lock()
+	h.Storage, h.LogStorage = st, st
+	h.StoreMu.Unlock()
+
+	f := fixture{st: st, mux: mux, svc: ph.Service()}
+	if got := f.list(t, viewerA); len(got) != 0 {
+		t.Fatalf("proposals = %+v", got)
+	}
+	if err := ph.Service().Propose(t.Context(), optimizer.Suggestion{
+		WorkflowID: "wf", NodeID: "n2", Action: optimizer.ActionIncreaseRetry, Reason: "n2 fails",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.list(t, viewerA); len(got) != 1 {
+		t.Fatalf("proposals = %+v", got)
+	}
+}
