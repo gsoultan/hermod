@@ -1,4 +1,4 @@
-import { SimpleGrid } from '@mantine/core';
+import { FormRow } from '@/components/common/FormRow';
 import { TextInput } from '@/components/shared/ReferenceInputs';
 
 interface RetryPolicyFieldsProps {
@@ -20,7 +20,7 @@ export function RetryPolicyFields({
   onChangeRetryInterval,
 }: RetryPolicyFieldsProps) {
   return (
-    <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+    <FormRow>
       <TextInput
         label="Max Retries"
         placeholder="3"
@@ -39,6 +39,6 @@ export function RetryPolicyFields({
         description="Delay between retries"
         mih={80}
       />
-    </SimpleGrid>
+    </FormRow>
   );
 }

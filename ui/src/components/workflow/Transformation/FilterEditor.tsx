@@ -88,8 +88,11 @@ export function FilterEditor({
         <Stack gap="xs">
           {conditions.map((cond, index) => (
             <Paper key={index} withBorder p="xs" radius="md" className="hover:border-indigo-200 transition-colors">
-              <Group grow gap="xs" align="flex-end">
-                <Box style={{ flex: 2 }}>
+              {/* Not `grow`: that caps every child, the delete button included, at a
+                  quarter of the row. Flex bases let field and value take the
+                  room and wrap the row once it is too narrow for all three. */}
+              <Group gap="xs" align="flex-end" wrap="wrap">
+                <Box style={{ flex: '2 1 12rem', minWidth: 0 }}>
                   <Group gap={4} mb={2}>
                     <Text size="xs" fw={700} c="dimmed" tt="uppercase" ml={2}>
                       Field
@@ -118,7 +121,7 @@ export function FilterEditor({
                     rightSectionPointerEvents="all"
                   />
                 </Box>
-                <Box style={{ flex: 1.5 }}>
+                <Box style={{ flex: '1 1 8rem', minWidth: 0 }}>
                   <Text size="xs" fw={700} c="dimmed" mb={2} tt="uppercase" ml={2}>
                     Operator
                   </Text>
@@ -140,7 +143,7 @@ export function FilterEditor({
                     onChange={(val) => updateCondition(index, 'operator', val || '=')}
                   />
                 </Box>
-                <Box style={{ flex: 2 }}>
+                <Box style={{ flex: '2 1 12rem', minWidth: 0 }}>
                   <Text size="xs" fw={700} c="dimmed" mb={2} tt="uppercase" ml={2}>
                     Value
                   </Text>

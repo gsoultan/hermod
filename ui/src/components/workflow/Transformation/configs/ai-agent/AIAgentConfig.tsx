@@ -1,5 +1,6 @@
+import { FormRow } from '@/components/common/FormRow'
 import { useMemo } from 'react'
-import { Alert, Button, Divider, Group, NumberInput, Stack, Text, Textarea } from '@mantine/core'
+import { Alert, Button, Divider, NumberInput, Stack, Text, Textarea } from '@mantine/core'
 import { TextInput } from '@/components/shared/ReferenceInputs'
 import { IconAlertTriangle, IconInfoCircle, IconPlus } from '@tabler/icons-react'
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore'
@@ -112,7 +113,7 @@ export function AIAgentConfig({ config, nodeId, updateNodeConfig }: AISectionPro
       </Button>
 
       <Divider label="Limits" labelPosition="center" />
-      <Group grow align="flex-start" gap="sm">
+      <FormRow>
         <NumberInput
           label="Max steps"
           placeholder={String(AGENT_LIMITS.maxSteps.default)}
@@ -133,10 +134,10 @@ export function AIAgentConfig({ config, nodeId, updateNodeConfig }: AISectionPro
           error={capNote(config.maxTotalTokens, AGENT_LIMITS.maxTotalTokens.cap)}
           description="Across every step of one record. Max tokens above limits each answer."
         />
-      </Group>
+      </FormRow>
 
       <Divider label="Output" labelPosition="center" />
-      <Group grow align="flex-start" gap="sm">
+      <FormRow>
         <TextInput
           label="Answer field"
           placeholder={AGENT_FIELDS.target}
@@ -151,7 +152,7 @@ export function AIAgentConfig({ config, nodeId, updateNodeConfig }: AISectionPro
           onChange={(e) => set({ transcriptField: e.currentTarget.value })}
           description="Receives every step, tool call and token count."
         />
-      </Group>
+      </FormRow>
 
       <AIDataSection config={config} nodeId={nodeId} updateNodeConfig={updateNodeConfig} />
     </Stack>

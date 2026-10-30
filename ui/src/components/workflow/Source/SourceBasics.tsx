@@ -1,7 +1,8 @@
+import { FormRow } from '@/components/common/FormRow';
 import { toGroupedSelectData } from '@/utils/selectData';
 import { useState } from 'react';
 import { validateName, validateType, validateVHost } from '@/hooks/useEntityBasicsForm';
-import { Group, Select, Button, Stack, Fieldset, SimpleGrid } from '@mantine/core';
+import { Group, Select, Button, Stack, Fieldset } from '@mantine/core';
 import { TextInput } from '@/components/shared/ReferenceInputs';
 import type { Worker, Source, Workspace } from '@/types';
 import type { FC } from 'react';
@@ -51,7 +52,7 @@ export const SourceBasics: FC<SourceBasicsProps> = ({
           required
         />
         {!embedded && (
-          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+          <FormRow>
             <Select 
               label="Virtual host" 
               placeholder="Select a virtual host" 
@@ -80,7 +81,7 @@ export const SourceBasics: FC<SourceBasicsProps> = ({
               workspaces={workspaces}
               onChange={(workspace_id) => handleSourceChange({ workspace_id })}
             />
-          </SimpleGrid>
+          </FormRow>
         )}
         {/* A field beside an action, not a field row: `grow` would have given
             the button half the width. The field takes the space; the button

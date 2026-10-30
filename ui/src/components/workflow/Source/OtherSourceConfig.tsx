@@ -1,4 +1,5 @@
-import { Stack, Group, Select, JsonInput, Text, Divider, Button, Badge, List, Paper, Box, Fieldset, SimpleGrid, Code } from '@mantine/core';
+import { FormRow } from '@/components/common/FormRow';
+import { Stack, Group, Select, JsonInput, Text, Divider, Button, Badge, List, Paper, Box, Fieldset, Code } from '@mantine/core';
 import { PasswordInput, TextInput } from '@/components/shared/ReferenceInputs';
 import { CronInput } from '../../shared/CronInput';
 import { GenerateToken } from '../../shared/GenerateToken';
@@ -365,7 +366,7 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
           value={config.subprotocols} 
           onChange={(e) => updateConfig('subprotocols', e.target.value)} 
         />
-        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+        <FormRow>
           <TextInput 
             label="Connect Timeout" 
             placeholder="10s" 
@@ -382,8 +383,8 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
             description="Message read timeout"
             mih={80}
           />
-        </SimpleGrid>
-        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+        </FormRow>
+        <FormRow>
           <TextInput 
             label="Heartbeat Interval" 
             placeholder="30s" 
@@ -400,8 +401,8 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
             description="Initial backoff delay"
             mih={80}
           />
-        </SimpleGrid>
-        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+        </FormRow>
+        <FormRow>
           <TextInput 
             label="Reconnect Max" 
             placeholder="30s" 
@@ -418,7 +419,7 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
             description="Maximum message size"
             mih={80}
           />
-        </SimpleGrid>
+        </FormRow>
         <Divider my="xs" />
         <ResponseModeFields
           config={config}

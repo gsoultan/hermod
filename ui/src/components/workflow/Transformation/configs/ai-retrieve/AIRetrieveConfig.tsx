@@ -1,10 +1,10 @@
+import { FormRow } from '@/components/common/FormRow'
 import { useMemo, useState } from 'react'
 import {
   Alert,
   Autocomplete,
   Code,
   Divider,
-  Group,
   Input,
   NumberInput,
   SegmentedControl,
@@ -127,7 +127,7 @@ export function AIRetrieveConfig({ config, nodeId, updateNodeConfig, availableFi
               save it as a vhost secret and use {'{{secret.NAME}}'}.
             </Text>
           )}
-          <Group grow align="flex-start" gap="sm">
+          <FormRow>
             <TextInput
               label="Table"
               placeholder="e.g. documents"
@@ -145,8 +145,8 @@ export function AIRetrieveConfig({ config, nodeId, updateNodeConfig, availableFi
               clearable
               description="The one the table's index uses."
             />
-          </Group>
-          <Group grow align="flex-start" gap="sm">
+          </FormRow>
+          <FormRow>
             <TextInput
               label="Vector column"
               placeholder={RETRIEVE_DEFAULTS.vectorColumn}
@@ -159,8 +159,8 @@ export function AIRetrieveConfig({ config, nodeId, updateNodeConfig, availableFi
               value={str(config.idColumn)}
               onChange={(e) => set({ idColumn: e.currentTarget.value })}
             />
-          </Group>
-          <Group grow align="flex-start" gap="sm">
+          </FormRow>
+          <FormRow>
             <TextInput
               label="Content column"
               placeholder="Not returned"
@@ -174,7 +174,7 @@ export function AIRetrieveConfig({ config, nodeId, updateNodeConfig, availableFi
               value={str(config.metadataColumn)}
               onChange={(e) => set({ metadataColumn: e.currentTarget.value })}
             />
-          </Group>
+          </FormRow>
         </>
       )}
 
@@ -251,7 +251,7 @@ export function AIRetrieveConfig({ config, nodeId, updateNodeConfig, availableFi
       )}
 
       <Divider label="Results" labelPosition="center" />
-      <Group grow align="flex-start" gap="sm">
+      <FormRow>
         <NumberInput
           label="Number of documents"
           placeholder={String(RETRIEVE_DEFAULTS.topK)}
@@ -271,7 +271,7 @@ export function AIRetrieveConfig({ config, nodeId, updateNodeConfig, availableFi
           onChange={(v) => set({ minScore: asText(v) })}
           description="Documents scoring lower are left out. Higher is closer."
         />
-      </Group>
+      </FormRow>
       <TextInput
         label="Target field"
         placeholder={RETRIEVE_DEFAULTS.targetField}

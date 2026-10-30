@@ -1,3 +1,4 @@
+import { FormRow } from '@/components/common/FormRow'
 import {
   Stack,
   Alert,
@@ -93,7 +94,7 @@ export function AggregateConfig({ config, updateNodeConfig, nodeId, availableFie
 
                 <Divider variant="dashed" />
 
-                <Group grow align="flex-start">
+                <FormRow>
                   <Select
                     label="Aggregation Type"
                     data={[
@@ -118,7 +119,7 @@ export function AggregateConfig({ config, updateNodeConfig, nodeId, availableFie
                     leftSection={<IconClock size={rem(16)} />}
                     description="Time window for aggregation."
                   />
-                </Group>
+                </FormRow>
 
                 {config.type !== 'count' && (
                   <Autocomplete

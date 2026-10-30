@@ -1,4 +1,5 @@
-import { Divider, Group, Input, SegmentedControl, Stack } from '@mantine/core'
+import { FormRow } from '@/components/common/FormRow'
+import { Divider, Input, SegmentedControl, Stack } from '@mantine/core'
 import { TextInput } from '@/components/shared/ReferenceInputs'
 import { TemplateField } from '@/components/shared/TemplateField'
 import { AIConnectionSection, type AISectionProps } from './AIConnectionSection'
@@ -60,7 +61,7 @@ export function AIPromptConfig({ config, nodeId, updateNodeConfig, fieldPaths = 
           ]}
         />
       </Input.Wrapper>
-      <Group grow align="flex-start" gap="sm">
+      <FormRow>
         <TextInput
           label="Target field"
           placeholder={json ? 'Empty: merge into the record' : DEFAULT_TEXT_FIELD}
@@ -79,7 +80,7 @@ export function AIPromptConfig({ config, nodeId, updateNodeConfig, fieldPaths = 
           onChange={(e) => set({ usageField: e.currentTarget.value })}
           description="Optional. Records provider, model and token counts."
         />
-      </Group>
+      </FormRow>
 
       <AIDataSection config={config} nodeId={nodeId} updateNodeConfig={updateNodeConfig} withIncludeData />
     </Stack>

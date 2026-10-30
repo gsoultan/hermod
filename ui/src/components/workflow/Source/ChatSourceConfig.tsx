@@ -1,4 +1,5 @@
-import { Code, Divider, Input, SegmentedControl, SimpleGrid, Stack, Text } from '@mantine/core';
+import { FormRow } from '@/components/common/FormRow';
+import { Code, Divider, Input, SegmentedControl, Stack, Text } from '@mantine/core';
 import { PasswordInput, TextInput } from '@/components/shared/ReferenceInputs';
 import { GenerateToken } from '../../shared/GenerateToken';
 
@@ -135,7 +136,7 @@ export function ChatSourceConfig({ config, updateConfig }: ChatSourceConfigProps
       )}
 
       <Divider my="xs" />
-      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+      <FormRow>
         <TextInput
           label="Reply field"
           placeholder="ai_output"
@@ -150,7 +151,7 @@ export function ChatSourceConfig({ config, updateConfig }: ChatSourceConfigProps
           onChange={(e) => updateConfig('response_timeout', e.target.value)}
           description="How long to wait for the workflow. At most 5m."
         />
-      </SimpleGrid>
+      </FormRow>
     </Stack>
   );
 }

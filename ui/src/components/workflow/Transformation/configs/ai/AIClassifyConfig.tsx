@@ -1,3 +1,4 @@
+import { FormRow } from '@/components/common/FormRow'
 import { useMemo } from 'react'
 import {
   ActionIcon,
@@ -147,7 +148,7 @@ export function AIClassifyConfig({ config, nodeId, updateNodeConfig }: AISection
         onChange={(v) => set({ threshold: v === '' ? '' : String(v) })}
         description="0 to 1. Below it, the record goes down unsure."
       />
-      <Group grow align="flex-start" gap="sm">
+      <FormRow>
         <TextInput
           label="Label field"
           placeholder="ai_label"
@@ -162,7 +163,7 @@ export function AIClassifyConfig({ config, nodeId, updateNodeConfig }: AISection
           onChange={(e) => set({ confidenceField: e.currentTarget.value })}
           description="Receives the model's confidence, 0 to 1."
         />
-      </Group>
+      </FormRow>
 
       <AIDataSection config={config} nodeId={nodeId} updateNodeConfig={updateNodeConfig} />
     </Stack>

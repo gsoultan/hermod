@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense, useMemo } from 'react';
 import { FormRow } from '@/components/common/FormRow';
-import { TextInput, Select, Stack, Alert, Divider, Text, Group, ActionIcon, Button, Code, Badge, Grid, SimpleGrid, Card, ScrollArea, Box, Modal, Loader, Tooltip as MantineTooltip } from '@mantine/core';
+import { TextInput, Select, Stack, Alert, Divider, Text, Group, ActionIcon, Button, Code, Badge, Grid, Card, ScrollArea, Box, Modal, Loader, Tooltip as MantineTooltip } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { apiFetch } from '@/api';
 import { usePreviewTransformation } from '../../pages/workflows/WorkflowEditor/hooks/usePreviewTransformation';
@@ -12,6 +12,11 @@ import { resolveConfigComponent } from '../workflow/Transformation/configs/regis
 import { nextColumnFieldName } from '../workflow/Transformation/fieldMappings/columnFields';
 import { FunctionLibrary } from '../workflow/Transformation/FunctionLibrary';
 // Lazy-load heavy UI components to reduce initial bundle size (Junie compliance)
+// Measured against the drawer's content box. Below md the three panels stack;
+// from md the settings get two thirds beside the source data (room for a
+// two-field row); from lg the live preview joins them as a third column.
+const DRAWER_BREAKPOINTS = { xs: '360px', sm: '560px', md: '760px', lg: '1060px', xl: '1400px' };
+
 const PreviewPanel = lazy(() =>
   import('../workflow/Transformation/PreviewPanel').then((m) => ({ default: m.PreviewPanel }))
 );
@@ -422,7 +427,11 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
 
   return (
     <>
-    <Grid gap="lg" style={{ minHeight: 'calc(100vh - 180px)' }}>
+    {/* Container breakpoints: the columns follow the drawer's width, not the
+        screen's. With media queries a 1280px laptop got the three-column split
+        meant for a wide monitor inside a ~970px drawer, leaving the settings
+        ~400px and every two-field row squeezed. */}
+    <Grid type="container" breakpoints={DRAWER_BREAKPOINTS} gap="lg" style={{ minHeight: 'calc(100vh - 180px)' }}>
       {/* Column 1: Source Data */}
       {!focus && (
       <Grid.Col span={{ base: 12, md: 4, lg: 3 }}>
@@ -616,7 +625,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
           */}
 
           <Divider label="Error Handling" labelPosition="center" mt="xl" mb="md" />
-          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+          <FormRow>
             <Select 
               label="On Error"
               description="Action to take when an error occurs during transformation."
@@ -631,7 +640,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
               onChange={(e) => updateNodeConfig(selectedNode.id, { statusField: e.target.value })}
               description="Field to store success/error status."
             />
-          </SimpleGrid>
+          </FormRow>
         </Stack>
             </ScrollArea>
           </Box>

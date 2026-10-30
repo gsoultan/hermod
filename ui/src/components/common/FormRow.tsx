@@ -32,7 +32,7 @@ export function FormRow({
   align = 'end',
 }: {
   children: ReactNode;
-  /** Fields per row at the widest breakpoint. Always 1 on mobile. */
+  /** Fields per row when there is room for them. Always 1 in a narrow space. */
   cols?: 1 | 2 | 3;
   /**
    * `end` bottom-aligns the fields so their inputs line up regardless of
@@ -45,9 +45,15 @@ export function FormRow({
     return <>{children}</>;
   }
 
+  // Container queries, not media queries: the column count follows the width
+  // the row actually has. A node's settings sit in one column of a drawer, so
+  // on a 1440px screen `lg: 3` used to split ~420px three ways and leave each
+  // field ~130px wide. Each breakpoint below is where every field still gets
+  // at least ~14rem.
   return (
     <SimpleGrid
-      cols={cols === 3 ? { base: 1, sm: 2, lg: 3 } : { base: 1, sm: 2 }}
+      type="container"
+      cols={cols === 3 ? { base: 1, '30rem': 2, '46rem': 3 } : { base: 1, '30rem': 2 }}
       spacing="md"
       verticalSpacing="sm"
       className="hermod-form-row"

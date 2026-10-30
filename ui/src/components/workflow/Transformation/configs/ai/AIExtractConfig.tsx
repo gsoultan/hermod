@@ -1,3 +1,4 @@
+import { FormRow } from '@/components/common/FormRow'
 import { useState } from 'react'
 import { Button, Divider, Group, Stack, Textarea } from '@mantine/core'
 import { TextInput } from '@/components/shared/ReferenceInputs'
@@ -82,7 +83,7 @@ export function AIExtractConfig({ config, nodeId, updateNodeConfig }: AISectionP
         minRows={2}
         description="Optional. Anything the model should know about the input."
       />
-      <Group grow align="flex-start" gap="sm">
+      <FormRow>
         <TextInput
           label="Target field"
           placeholder="Empty: merge into the record"
@@ -97,7 +98,7 @@ export function AIExtractConfig({ config, nodeId, updateNodeConfig }: AISectionP
           onChange={(e) => set({ usageField: e.currentTarget.value })}
           description="Optional. Records provider, model and token counts."
         />
-      </Group>
+      </FormRow>
 
       <AIDataSection config={config} nodeId={nodeId} updateNodeConfig={updateNodeConfig} />
     </Stack>

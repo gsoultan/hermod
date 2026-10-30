@@ -1,3 +1,4 @@
+import { FormRow } from '@/components/common/FormRow'
 import { ActionIcon, Alert, Badge, Box, Group, Select, Stack, Switch, Text, Textarea } from '@mantine/core'
 import { TextInput } from '@/components/shared/ReferenceInputs'
 import { IconAlertTriangle, IconHandStop, IconTrash } from '@tabler/icons-react'
@@ -89,7 +90,7 @@ export function AgentToolCard({ index, tool, issues, sinks, onChange, onRemove }
           </ActionIcon>
         </Group>
 
-        <Group grow align="flex-start" gap="sm">
+        <FormRow>
           <TextInput
             label="Name"
             placeholder="e.g. find_customer"
@@ -108,7 +109,7 @@ export function AgentToolCard({ index, tool, issues, sinks, onChange, onRemove }
             required
             error={errorFor('kind')}
           />
-        </Group>
+        </FormRow>
         <Textarea
           label="Description"
           placeholder="e.g. Looks a customer up by email and returns their plan and open orders."
