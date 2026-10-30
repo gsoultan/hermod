@@ -15,7 +15,7 @@ import type { Workflow } from '@/types';
 import { ErrorBoundary } from './ErrorBoundary';
 import { useConfirm } from '@/components/common/ConfirmProvider';
 import { EnvironmentBadge } from './EnvironmentBadge';
-import { BOTTOM_TABS_HEIGHT, PRIMARY_NAV, collapsesSidebar, isCanvasRoute as canvasRoute, sectionOf, type Section } from './nav';
+import { BOTTOM_TABS_HEIGHT, FLOW_ACTIONS_HEIGHT, PRIMARY_NAV, collapsesSidebar, isCanvasRoute as canvasRoute, isFlowPage as flowPage, sectionOf, type Section } from './nav';
 
 interface LayoutProps {
   children: ReactNode;
@@ -101,6 +101,8 @@ export function Layout({ children }: LayoutProps) {
   // full-bleed shell: the surrounding card, padding and border are dropped so
   // the canvas gets the viewport instead of ~34px of chrome per axis.
   const isCanvasRoute = canvasRoute(activePage);
+  // A flow's pages bring their own gutter and canvas card; see FlowHeader.
+  const isFlowPage = flowPage(activePage);
   // Whenever a flow is open, read only or in the editor, the sidebar folds to
   // its icon rail so the diagram gets the width.
   const foldsSidebar = collapsesSidebar(activePage);
@@ -598,7 +600,7 @@ export function Layout({ children }: LayoutProps) {
         // Phones get the bottom tabs instead of a drawer.
         collapsed: { mobile: true },
       }}
-      padding={isCanvasRoute ? 0 : 'md'}
+      padding={isFlowPage ? 0 : 'md'}
     >
       <AppShell.Navbar p={navOpen ? 'sm' : 'xs'} withBorder bg={dark ? 'var(--mantine-color-dark-7)' : 'white'}>
         <AppShell.Section>
@@ -679,24 +681,22 @@ export function Layout({ children }: LayoutProps) {
 
       <AppShell.Main bg={dark ? 'var(--mantine-color-dark-7)' : 'var(--mantine-color-gray-0)'}>
         <Box
-          p={isCanvasRoute ? 0 : 'md'}
+          p={isFlowPage ? 0 : 'md'}
           h="100%"
-          style={{
-            backgroundColor: dark ? 'var(--mantine-color-dark-6)' : 'var(--mantine-color-white)',
-            // The workflow editor is a canvas, not a document. Wrapping an
-            // infinite canvas in a rounded, bordered card costs ~34px of width
-            // and height and frames the workspace as a content block sitting on
-            // a page. Full-bleed on that route only.
-            borderRadius: isCanvasRoute ? 0 : '16px',
-            border: isCanvasRoute
-              ? 'none'
-              : `1px solid ${dark ? 'var(--mantine-color-dark-5)' : 'var(--mantine-color-gray-2)'}`,
-            boxShadow: isCanvasRoute ? 'none' : '0 1px 3px rgba(0,0,0,0.05)',
-            // The canvas route sizes itself from the viewport (see
+          style={isFlowPage ? {
+            // A flow page sits straight on the page background with its own
+            // gutter, header and canvas card, the same in the view and the
+            // editor. The editor sizes itself from the viewport (see
             // WorkflowEditorPage), so this wrapper must not impose or clip a
             // height of its own.
-            minHeight: isCanvasRoute ? 0 : 'calc(100vh - 100px)',
+            minHeight: 0,
             overflow: isCanvasRoute ? 'hidden' : undefined,
+          } : {
+            backgroundColor: dark ? 'var(--mantine-color-dark-6)' : 'var(--mantine-color-white)',
+            borderRadius: '16px',
+            border: `1px solid ${dark ? 'var(--mantine-color-dark-5)' : 'var(--mantine-color-gray-2)'}`,
+            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+            minHeight: 'calc(100vh - 100px)',
           }}
         >
           <LoadingOverlay
@@ -713,44 +713,47 @@ export function Layout({ children }: LayoutProps) {
             {children}
           </ErrorBoundary>
         </Box>
-        {/* Room for the bottom tabs on a phone; nothing on wider screens. */}
-        <Box hiddenFrom="sm" h={BOTTOM_TABS_HEIGHT} />
+        {/* Room for the bottom tabs, or a flow page's action bar, on a phone; nothing on wider screens. */}
+        <Box hiddenFrom="sm" h={isFlowPage ? FLOW_ACTIONS_HEIGHT : BOTTOM_TABS_HEIGHT} />
       </AppShell.Main>
 
-      <Box
-        component="nav"
-        aria-label="Bottom tabs"
-        hiddenFrom="sm"
-        style={{
-          position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 200,
-          height: BOTTOM_TABS_HEIGHT, boxSizing: 'border-box',
-          display: 'grid', gridTemplateColumns: `repeat(${PRIMARY_NAV.length}, 1fr)`,
-          borderTop: `1px solid ${dark ? 'var(--mantine-color-dark-5)' : 'var(--mantine-color-gray-3)'}`,
-          background: dark ? 'var(--mantine-color-dark-7)' : 'white',
-          paddingBottom: 'env(safe-area-inset-bottom)',
-        }}
-      >
-        {PRIMARY_NAV.map((item) => {
-          const Icon = NAV_ICONS[item.key];
-          const active = section === item.key;
-          return (
-            <UnstyledButton
-              key={item.key}
-              component={Link}
-              to={item.to}
-              aria-current={active ? 'page' : undefined}
-              style={{
-                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
-                minHeight: rem(56), fontSize: rem(11), fontWeight: 500,
-                color: active ? 'var(--mantine-color-indigo-6)' : 'var(--mantine-color-dimmed)',
-              }}
-            >
-              <Icon size="1.4rem" stroke={1.6} />
-              {item.label}
-            </UnstyledButton>
-          );
-        })}
-      </Box>
+      {/* A flow page puts its own actions along the bottom instead. */}
+      {!isFlowPage && (
+        <Box
+          component="nav"
+          aria-label="Bottom tabs"
+          hiddenFrom="sm"
+          style={{
+            position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 200,
+            height: BOTTOM_TABS_HEIGHT, boxSizing: 'border-box',
+            display: 'grid', gridTemplateColumns: `repeat(${PRIMARY_NAV.length}, 1fr)`,
+            borderTop: `1px solid ${dark ? 'var(--mantine-color-dark-5)' : 'var(--mantine-color-gray-3)'}`,
+            background: dark ? 'var(--mantine-color-dark-7)' : 'white',
+            paddingBottom: 'env(safe-area-inset-bottom)',
+          }}
+        >
+          {PRIMARY_NAV.map((item) => {
+            const Icon = NAV_ICONS[item.key];
+            const active = section === item.key;
+            return (
+              <UnstyledButton
+                key={item.key}
+                component={Link}
+                to={item.to}
+                aria-current={active ? 'page' : undefined}
+                style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
+                  minHeight: rem(56), fontSize: rem(11), fontWeight: 500,
+                  color: active ? 'var(--mantine-color-indigo-6)' : 'var(--mantine-color-dimmed)',
+                }}
+              >
+                <Icon size="1.4rem" stroke={1.6} />
+                {item.label}
+              </UnstyledButton>
+            );
+          })}
+        </Box>
+      )}
     </AppShell>
     </>
   );

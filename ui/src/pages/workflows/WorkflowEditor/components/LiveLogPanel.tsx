@@ -79,8 +79,9 @@ export const LiveLogPanel = ({ active, onTraceClick, onErrorClick }: LiveLogPane
           <UnstyledButton aria-expanded={logsOpened}>
             <Group gap="xs">
                {logsOpened ? <IconChevronDown size="1rem" /> : <IconChevronUp size="1rem" />}
-               <Text size="sm" fw={600}>Live Workflow Logs</Text>
+               <Text size="sm" fw={600}>Live logs</Text>
                {active && <Badge size="xs" color="green" variant="dot">Streaming</Badge>}
+               {!active && !logsOpened && <Text size="sm" c="dimmed" visibleFrom="sm">Turn the flow on to see events here.</Text>}
             </Group>
           </UnstyledButton>
           <Group gap="xs">

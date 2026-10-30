@@ -56,6 +56,13 @@ function startsWithPath(pathname: string, prefix: string): boolean {
  */
 export const BOTTOM_TABS_HEIGHT = 'calc(3.5rem + 1px + env(safe-area-inset-bottom))'
 
+/**
+ * How tall a flow page's action bar is on a phone, where it takes the place of
+ * the bottom tabs: 44px buttons with 12px above and below, the 1px border and
+ * the home-indicator inset. .hermod-flow-actions draws it to this height.
+ */
+export const FLOW_ACTIONS_HEIGHT = 'calc(4.25rem + 1px + env(safe-area-inset-bottom))'
+
 export function sectionOf(pathname: string): Section | null {
   if (PUBLIC_PATHS.has(pathname)) return null
   if (pathname === '/') return 'home'
@@ -68,6 +75,15 @@ export function sectionOf(pathname: string): Section | null {
 /** The editor canvas: no page padding, no card around the content. */
 export function isCanvasRoute(pathname: string): boolean {
   return /^\/workflows\/(new|[^/]+\/edit)$/.test(pathname)
+}
+
+/**
+ * Every page of one flow, read only or editing: the page brings its own
+ * gutter and canvas card instead of sitting in the content card, so the
+ * view and the editor share one frame.
+ */
+export function isFlowPage(pathname: string): boolean {
+  return /^\/workflows\/[^/]+(\/edit)?$/.test(pathname)
 }
 
 /**

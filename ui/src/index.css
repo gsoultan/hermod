@@ -273,3 +273,196 @@
   }
   .hermod-settings-tabs > .mantine-Tabs-list > .mantine-Tabs-tab { flex: none; }
 }
+
+/* Flow pages, read only and editing, share one frame: a gutter, the header,
+   the tabs and a canvas card. See FlowHeader and CanvasControls. */
+.hermod-flow-page {
+  padding: 20px 32px 24px;
+}
+.hermod-flow-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: var(--mantine-font-size-sm);
+  color: var(--mantine-color-dimmed);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.hermod-flow-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The editor's name reads as the title and shows a field only when pointed
+   at or edited. */
+.hermod-flow-name {
+  height: 34px;
+  min-height: 34px;
+  padding: 0 8px !important;
+  margin-left: -9px;
+  font-size: 22px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  border: 1px solid transparent !important;
+  border-radius: var(--mantine-radius-md);
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+.hermod-flow-name:hover { background: var(--mantine-color-default-hover); }
+.hermod-flow-name:focus {
+  background: var(--mantine-color-body);
+  border-color: var(--mantine-primary-color-filled) !important;
+}
+.hermod-flow-tabs {
+  margin-top: 14px;
+}
+.hermod-flow-canvas {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  margin-top: 16px;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--mantine-color-body);
+}
+.hermod-canvas-controls {
+  border-radius: var(--mantine-radius-md);
+  box-shadow: var(--mantine-shadow-xs);
+}
+.hermod-canvas-controls .mantine-Button-root,
+.hermod-canvas-controls .mantine-Button-groupSection { font-weight: 500; }
+/* On a phone the page's actions are a bar along the bottom, in place of the
+   app's bottom tabs. */
+.hermod-flow-actions {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 200;
+  display: flex;
+  gap: 8px;
+  box-sizing: border-box;
+  height: calc(4.25rem + 1px + env(safe-area-inset-bottom)); /* FLOW_ACTIONS_HEIGHT */
+  padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--mantine-color-default-border);
+  background: var(--mantine-color-body);
+}
+.hermod-flow-actions > * {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 44px;
+}
+@media (max-width: 47.99em) {
+  .hermod-flow-page { padding: 12px 12px 0; }
+  .hermod-flow-title, .hermod-flow-name { font-size: 18px; }
+  .hermod-flow-meta { font-size: var(--mantine-font-size-xs); }
+  .hermod-flow-tabs { margin-top: 10px; }
+  .hermod-flow-tabs .mantine-Tabs-list { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .hermod-flow-tabs .mantine-Tabs-tab { flex: none; min-height: 44px; }
+  .hermod-flow-canvas { margin-top: 12px; border-radius: 14px; }
+  .hermod-canvas-controls .mantine-Button-root { height: 40px; }
+}
+.hermod-flow-actions .mantine-Button-group > :first-child { flex: 1; }
+.hermod-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--mantine-color-green-7);
+}
+.hermod-dot[data-tone='warn'] { background: var(--mantine-color-orange-7); }
+/* A flow page is a column whose canvas takes the space left under the
+   header and tabs. The page's height (the screen less the action bar on a
+   phone) is set on the element, from FLOW_ACTIONS_HEIGHT in nav.ts. */
+.hermod-editor-page {
+  min-height: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+.hermod-canvas-top {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 5;
+}
+.hermod-search-steps { width: 240px; }
+.hermod-canvas-bottom-left {
+  position: absolute;
+  left: 12px;
+  bottom: 52px;
+  z-index: 5;
+}
+@media (max-width: 47.99em) {
+  /* Search spans the top of the canvas; Add step becomes a square button in
+     its bottom-right corner, clear of the Live logs bar. */
+  .hermod-canvas-top { position: static; }
+  .hermod-search-steps {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    right: 12px;
+    z-index: 5;
+    width: auto;
+    min-height: 40px;
+  }
+  .hermod-add-step {
+    position: absolute;
+    right: 12px;
+    bottom: 52px;
+    z-index: 5;
+    height: 48px;
+    border-radius: 14px;
+    background: var(--mantine-primary-color-filled);
+    color: var(--mantine-color-white);
+    box-shadow: var(--mantine-shadow-md);
+  }
+  .hermod-canvas-bottom-left { bottom: 52px; }
+  .react-flow__minimap { display: none; }
+}
+/* One step card on every flow canvas: kind, name and one detail line. */
+.hermod-step {
+  position: relative;
+  min-width: 224px;
+  max-width: 280px;
+  overflow: visible;
+  background: var(--mantine-color-body);
+  border: 1px solid var(--mantine-color-default-border);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.hermod-step:hover { border-color: var(--mantine-color-gray-5); }
+[data-mantine-color-scheme='dark'] .hermod-step { box-shadow: none; }
+[data-mantine-color-scheme='dark'] .hermod-step:hover { border-color: var(--mantine-color-dark-3); }
+.hermod-step[data-selected] {
+  border-color: var(--mantine-primary-color-filled);
+  box-shadow: 0 0 0 3px var(--mantine-primary-color-light);
+}
+.hermod-canvas-note {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 5;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  background: var(--mantine-color-body);
+  color: var(--mantine-color-dimmed);
+}
+@media (max-width: 47.99em) {
+  .hermod-canvas-note { right: 12px; }
+}
+@media (max-width: 47.99em) {
+  .hermod-hide-phone { display: none; }
+  .hermod-flow-actions .mantine-Button-group { display: flex; }
+  .hermod-flow-actions .mantine-Button-root { padding-inline: 10px; }
+}
+.hermod-search-steps .mantine-Button-inner { justify-content: flex-start; width: 100%; }
+.hermod-search-steps .mantine-Button-label { flex: 1; text-align: left; }
+.hermod-flow-title { line-height: 34px; }

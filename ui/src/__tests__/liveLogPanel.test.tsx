@@ -73,11 +73,11 @@ describe('live log panel', () => {
     const user = userEvent.setup()
     renderPanel()
 
-    const header = screen.getByRole('button', { name: /live workflow logs/i })
+    const header = screen.getByRole('button', { name: /live logs/i })
     expect(header).toHaveAttribute('aria-expanded', 'true')
     header.focus()
     await user.keyboard('{Enter}')
     expect(useWorkflowStore.getState().logsOpened).toBe(false)
-    expect(screen.getByRole('button', { name: /live workflow logs/i })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('button', { name: /live logs/i })).toHaveAttribute('aria-expanded', 'false')
   })
 })

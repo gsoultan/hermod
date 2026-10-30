@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MantineProvider } from '@mantine/core'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -13,10 +13,9 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => () => {},
 }))
 
-const noop = () => {}
 const handlers = {
   onSave: vi.fn(), onTest: vi.fn(), onConfigureTest: vi.fn(), onToggle: vi.fn(), onRebuild: vi.fn(), onClearTest: vi.fn(),
-  onAutoLayout: vi.fn(), onSearch: vi.fn(), onExport: vi.fn(), onClone: vi.fn(), onDelete: vi.fn(),
+  onExport: vi.fn(), onClone: vi.fn(), onDelete: vi.fn(),
 }
 
 function renderToolbar(over: Partial<React.ComponentProps<typeof EditorToolbar>> = {}) {
@@ -29,10 +28,6 @@ function renderToolbar(over: Partial<React.ComponentProps<typeof EditorToolbar>>
         isSaving={false}
         isTesting={false}
         isToggling={false}
-        zoom={1}
-        zoomIn={noop}
-        zoomOut={noop}
-        fitView={noop}
         vhosts={[{ name: 'prod' }]}
         workers={[]}
         workflowStatus="running"
@@ -48,10 +43,10 @@ beforeEach(() => {
 
 describe('the editor toolbar', () => {
   it('is back, the name, its state, Test ▾, Turn on and ⋯, and nothing else', async () => {
-    renderToolbar()
+    renderToolbar({ workflowStatus: 'stopped' })
     expect(screen.getByRole('link', { name: 'Back to the flow' })).toHaveAttribute('href', '/workflows/wf-1')
     expect(screen.getByRole('textbox', { name: 'Flow name' })).toHaveValue('Orders')
-    expect(screen.getByText('Running')).toBeInTheDocument()
+    expect(screen.getByText('Off')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Test' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Turn on' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
@@ -88,5 +83,25 @@ describe('the editor toolbar', () => {
     useWorkflowStore.setState({ active: true })
     renderToolbar()
     expect(screen.getByRole('button', { name: 'Turn off' })).toBeInTheDocument()
+  })
+
+  it('says what the flows list and the read-only view say about its state, as the shared state pill', () => {
+    useWorkflowStore.setState({ active: true })
+    renderToolbar({ workflowStatus: 'running' })
+    expect(screen.getByText('Running').closest('[data-tone]')).toHaveAttribute('data-tone', 'ok')
+  })
+
+  it('leaves search, zoom and layout to the canvas, so the header holds only the page actions', () => {
+    renderToolbar()
+    for (const name of ['Search steps', 'Zoom in', 'Zoom out', 'Fit to view', 'Tidy up']) {
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
+    }
+  })
+
+  it('joins Test and its menu into one control', () => {
+    renderToolbar()
+    const test = screen.getByRole('group', { name: 'Test' })
+    expect(within(test).getByRole('button', { name: 'Test' })).toBeInTheDocument()
+    expect(within(test).getByRole('button', { name: 'More test actions' })).toBeInTheDocument()
   })
 })

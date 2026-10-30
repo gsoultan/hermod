@@ -190,7 +190,7 @@ test.describe('workflow editor: node forms and simulation', () => {
     test.setTimeout(120000);
 
     await page.goto(`/workflows/${workflowID}/edit`);
-    const header = page.getByText(/live workflow logs/i).first();
+    const header = page.getByText(/^live logs$/i).first();
     await expect(header).toBeVisible({ timeout: 30000 });
 
     await header.click();

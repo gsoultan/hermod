@@ -6,6 +6,7 @@ import {
   connectionsTabs,
   developerTabs,
   isCanvasRoute,
+  isFlowPage,
   legacyRedirect,
   sectionOf,
   settingsRows,
@@ -62,6 +63,14 @@ describe('sidebar on a flow', () => {
     expect(isCanvasRoute('/workflows/new')).toBe(true)
     expect(isCanvasRoute('/workflows/abc/edit')).toBe(true)
     expect(isCanvasRoute('/workflows/abc')).toBe(false)
+  })
+
+  it('gives every flow page, read only or editing, the same frame instead of the content card', () => {
+    expect(isFlowPage('/workflows/new')).toBe(true)
+    expect(isFlowPage('/workflows/abc')).toBe(true)
+    expect(isFlowPage('/workflows/abc/edit')).toBe(true)
+    expect(isFlowPage('/workflows')).toBe(false)
+    expect(isFlowPage('/workflows/abc/runs')).toBe(false)
   })
 })
 

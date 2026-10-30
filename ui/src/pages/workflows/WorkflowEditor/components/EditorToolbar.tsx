@@ -1,15 +1,15 @@
-import {
-  ActionIcon, Anchor, Badge, Button, Divider, Flex, Group, Menu, Text, TextInput, Tooltip
-} from '@mantine/core';
-import { Link } from '@tanstack/react-router';
+import { ActionIcon, Badge, Box, Button, Menu, Text, TextInput } from '@mantine/core';
 import { useShallow } from 'zustand/react/shallow';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
 import {
-  IconActivity, IconCheck, IconChevronDown, IconChevronLeft, IconCopy, IconDatabase, IconDots, IconDownload, IconEraser,
-  IconFocus2, IconHistory, IconLayoutDistributeHorizontal, IconPlayerPlay, IconRefresh, IconSearch, IconSettings,
-  IconShieldLock, IconSparkles, IconTerminal2, IconTimeline, IconTrash, IconZoomIn, IconZoomOut
+  IconActivity, IconCheck, IconChevronDown, IconCopy, IconDatabase, IconDots, IconDownload, IconEraser,
+  IconHistory, IconPlayerPlay, IconRefresh, IconSettings,
+  IconShieldLock, IconSparkles, IconTerminal2, IconTimeline, IconTrash
 } from '@tabler/icons-react';
-import { normalizeWorkflowStatus } from '@/utils/workflowStatus';
+import { StatePill } from '@/components/rows';
+import { flowState } from '@/components/flows/FlowRow';
+import { FlowHeader } from '@/components/flows/FlowHeader';
+
 
 interface EditorToolbarProps {
   id: string;
@@ -23,15 +23,9 @@ interface EditorToolbarProps {
   onExport: () => void;
   onClone: () => void;
   onDelete: () => void;
-  onAutoLayout?: () => void;
-  onSearch?: () => void;
   isSaving: boolean;
   isTesting: boolean;
   isToggling: boolean;
-  zoom: number;
-  zoomIn: () => void;
-  zoomOut: () => void;
-  fitView: () => void;
   /** Kept for the page that passes them; the virtual host and worker are chosen in Flow settings now. */
   vhosts?: any[];
   workers?: any[];
@@ -40,25 +34,26 @@ interface EditorToolbarProps {
 }
 
 /**
- * The editor's one header: back, the name and its state on the left; Test ▾,
- * Turn on, Save and ⋯ on the right. Everything the old Tools and Inspect
+ * The editor's one header, the same frame as the read-only view's: back, the
+ * name and its state on the left; Test ▾, Turn on, Save and ⋯ on the right.
+ * Zoom, Fit and Tidy up live on the canvas itself (CanvasControls). Everything the old Tools and Inspect
  * menus held is behind ⋯, and the virtual host and worker moved into Flow
  * settings, so nothing competes with the canvas.
  */
 export function EditorToolbar({
   id, isNew, onSave, onTest, onConfigureTest, onToggle, onRebuild, onClearTest,
-  onExport, onClone, onDelete, onAutoLayout, onSearch,
+  onExport, onClone, onDelete,
   isSaving, isTesting, isToggling,
-  zoom, zoomIn, zoomOut, fitView,
   workflowStatus,
 }: EditorToolbarProps) {
   const {
-    name, dryRun, testResults, active,
+    name, vhost, dryRun, testResults, active,
     setName, setDryRun, setDrawerOpened, setDrawerTab, setQuickAddSource,
     setTraceInspectorOpened, setSchemaRegistryOpened, setHistoryOpened, setLiveStreamOpened,
     setAIGeneratorOpened, setComplianceReportOpened, pulseEnabled, setPulseEnabled
   } = useWorkflowStore(useShallow(state => ({
     name: state.name,
+    vhost: state.vhost,
     dryRun: state.dryRun,
     testResults: state.testResults,
     active: state.active,
@@ -83,114 +78,91 @@ export function EditorToolbar({
     setDrawerOpened(true);
   };
 
-  return (
-    <Flex justify="space-between" align="center" gap="sm" wrap="wrap" mb="sm">
-      <Group gap="sm" wrap="wrap" preventGrowOverflow={false} style={{ flex: '1 1 260px', maxWidth: 720, minWidth: 0 }}>
-        {isNew ? (
-          <Anchor component={Link} to="/workflows" size="sm" c="dimmed" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, whiteSpace: 'nowrap' }}>
-            <IconChevronLeft size="0.9rem" aria-hidden /> Back to flows
-          </Anchor>
-        ) : (
-          <Anchor component={Link} to="/workflows/$id" params={{ id } as any} size="sm" c="dimmed" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, whiteSpace: 'nowrap' }}>
-            <IconChevronLeft size="0.9rem" aria-hidden /> Back to the flow
-          </Anchor>
-        )}
-        <TextInput
-          aria-label="Flow name"
-          placeholder="Flow name"
-          value={name}
-          onChange={(e) => setName(e.currentTarget.value)}
-          style={{ flex: '1 1 140px', minWidth: 0 }}
-          size="sm"
-          fw={600}
-        />
-        {!isNew && workflowStatus && (
-          <Badge color={normalizeWorkflowStatus(workflowStatus).color} variant="light" size="lg" radius="sm">
-            {normalizeWorkflowStatus(workflowStatus).label}
-          </Badge>
-        )}
-        {dryRun && <Badge color="orange" variant="light" size="lg" radius="sm">Dry run</Badge>}
-      </Group>
+  const backTo = isNew
+    ? { to: '/workflows', label: 'Back to flows' }
+    : { to: '/workflows/$id', params: { id }, label: 'Back to the flow' };
+  // The same words as the read-only view and the flows list: Off, Stopped, Running.
+  const state = isNew ? null : flowState({ active, status: workflowStatus ?? '' });
 
-      <Group gap="xs" wrap="nowrap">
-        <Group gap={2} visibleFrom="sm">
-          <Tooltip label="Search steps to add (⌘⇧K)" withArrow>
-            <ActionIcon aria-label="Search steps" variant="subtle" color="gray" size="md" onClick={onSearch}><IconSearch size="1rem" /></ActionIcon>
-          </Tooltip>
-          <ActionIcon aria-label="Zoom out" variant="subtle" color="gray" size="md" onClick={zoomOut}><IconZoomOut size="1rem" /></ActionIcon>
-          <Text size="xs" fw={600} c="dimmed" w={36} ta="center">{Math.round(zoom * 100)}%</Text>
-          <ActionIcon aria-label="Zoom in" variant="subtle" color="gray" size="md" onClick={zoomIn}><IconZoomIn size="1rem" /></ActionIcon>
-          <Tooltip label="Fit to view" withArrow>
-            <ActionIcon aria-label="Fit to view" variant="subtle" color="gray" size="md" onClick={fitView}><IconFocus2 size="1rem" /></ActionIcon>
-          </Tooltip>
-          <Tooltip label="Tidy up the layout" withArrow>
-            <ActionIcon aria-label="Tidy up" variant="subtle" color="gray" size="md" onClick={() => onAutoLayout?.()}><IconLayoutDistributeHorizontal size="1rem" /></ActionIcon>
-          </Tooltip>
-          <Divider orientation="vertical" mx={4} />
-        </Group>
-
-        <Group gap={0} wrap="nowrap">
-          <Button
-            variant="light"
-            size="sm"
-            leftSection={<IconPlayerPlay size="1rem" />}
-            onClick={() => onTest()}
-            loading={isTesting}
-            style={{ borderTopRightRadius: 0, borderBottomRightRadius: 0 }}
-          >
-            Test
-          </Button>
-          <Menu position="bottom-end" withArrow shadow="md">
-            <Menu.Target>
-              <ActionIcon
-                aria-label="More test actions"
-                variant="light"
-                size={36}
-                style={{ borderTopLeftRadius: 0, borderBottomLeftRadius: 0, borderLeft: '1px solid var(--mantine-color-default-border)' }}
-              >
-                <IconChevronDown size="1rem" />
-              </ActionIcon>
-            </Menu.Target>
-            <Menu.Dropdown>
-              <Menu.Item leftSection={<IconPlayerPlay size="1rem" />} onClick={() => onTest()}>Run simulation</Menu.Item>
-              <Menu.Item leftSection={<IconSettings size="1rem" />} onClick={() => onConfigureTest()}>Configure &amp; run…</Menu.Item>
-              <Menu.Item leftSection={<IconRefresh size="1rem" />} onClick={onRebuild}>Rebuild projections</Menu.Item>
-              <Menu.Divider />
-              {/* The real pipeline without writing to a sink. It is a saved setting of the flow, so it is also in Flow settings. */}
-              <Menu.Item
-                leftSection={<IconActivity size="1rem" />}
-                rightSection={dryRun ? <IconCheck size="1rem" aria-hidden /> : undefined}
-                onClick={() => setDryRun(!dryRun)}
-              >
-                Dry-run mode
-              </Menu.Item>
-              {testResults && (
-                <>
-                  <Menu.Divider />
-                  <Menu.Item color="orange" leftSection={<IconEraser size="1rem" />} onClick={onClearTest}>Clear simulation</Menu.Item>
-                </>
-              )}
-            </Menu.Dropdown>
-          </Menu>
-        </Group>
-
-        {!isNew && (
-          <Button
-            color={active ? 'orange' : 'green'}
-            variant="light"
-            size="sm"
-            onClick={onToggle}
-            loading={isToggling}
-          >
-            {active ? 'Turn off' : 'Turn on'}
-          </Button>
-        )}
-
-        <Button onClick={onSave} loading={isSaving} size="sm">Save</Button>
-
+  const actions = (
+    <>
+      <Button.Group aria-label="Test">
+        <Button
+          variant="default"
+          leftSection={<IconPlayerPlay size="1rem" />}
+          onClick={() => onTest()}
+          loading={isTesting}
+        >
+          Test
+        </Button>
         <Menu position="bottom-end" withArrow shadow="md">
           <Menu.Target>
-            <ActionIcon aria-label="More" variant="default" size={36}><IconDots size="1rem" /></ActionIcon>
+            <Button aria-label="More test actions" variant="default" px={10}>
+              <IconChevronDown size="1rem" />
+            </Button>
+          </Menu.Target>
+          <Menu.Dropdown>
+            <Menu.Item leftSection={<IconPlayerPlay size="1rem" />} onClick={() => onTest()}>Run simulation</Menu.Item>
+            <Menu.Item leftSection={<IconSettings size="1rem" />} onClick={() => onConfigureTest()}>Configure &amp; run…</Menu.Item>
+            <Menu.Item leftSection={<IconRefresh size="1rem" />} onClick={onRebuild}>Rebuild projections</Menu.Item>
+            <Menu.Divider />
+            {/* The real pipeline without writing to a sink. It is a saved setting of the flow, so it is also in Flow settings. */}
+            <Menu.Item
+              leftSection={<IconActivity size="1rem" />}
+              rightSection={dryRun ? <IconCheck size="1rem" aria-hidden /> : undefined}
+              onClick={() => setDryRun(!dryRun)}
+            >
+              Dry-run mode
+            </Menu.Item>
+            {testResults && (
+              <>
+                <Menu.Divider />
+                <Menu.Item color="orange" leftSection={<IconEraser size="1rem" />} onClick={onClearTest}>Clear simulation</Menu.Item>
+              </>
+            )}
+          </Menu.Dropdown>
+        </Menu>
+      </Button.Group>
+      {!isNew && (
+        <Button
+          variant="default"
+          leftSection={<Box component="i" aria-hidden className="hermod-dot" data-tone={active ? 'warn' : 'ok'} />}
+          onClick={onToggle}
+          loading={isToggling}
+        >
+          {active ? 'Turn off' : 'Turn on'}
+        </Button>
+      )}
+      <Button onClick={onSave} loading={isSaving}>Save</Button>
+    </>
+  );
+
+  return (
+    <FlowHeader
+      back={backTo}
+      title={(
+        <TextInput
+          aria-label="Flow name"
+          placeholder="Untitled flow"
+          value={name}
+          onChange={(e) => setName(e.currentTarget.value)}
+          variant="unstyled"
+          classNames={{ input: 'hermod-flow-name' }}
+        />
+      )}
+      meta={(
+        <>
+          {state ? <StatePill tone={state.tone} fz="inherit">{state.label}</StatePill> : <span>Draft</span>}
+          <span aria-hidden>·</span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>Virtual host {vhost || 'default'}</span>
+          {dryRun && <Badge color="orange" variant="light" size="sm" radius="sm" style={{ flex: 'none' }}>Dry run</Badge>}
+        </>
+      )}
+      actions={actions}
+      menu={(
+        <Menu position="bottom-end" withArrow shadow="md">
+          <Menu.Target>
+            <ActionIcon aria-label="More" variant="subtle" color="gray" size={36} radius="md"><IconDots size="1.1rem" /></ActionIcon>
           </Menu.Target>
           <Menu.Dropdown>
             <Menu.Item leftSection={<IconDatabase size="1rem" />} onClick={() => setSchemaRegistryOpened(true)}>Schema registry</Menu.Item>
@@ -223,7 +195,7 @@ export function EditorToolbar({
             )}
           </Menu.Dropdown>
         </Menu>
-      </Group>
-    </Flex>
+      )}
+    />
   );
 }

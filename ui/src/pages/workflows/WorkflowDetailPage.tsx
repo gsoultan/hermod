@@ -23,7 +23,10 @@ import {
   IconDownload, IconRocket
 } from '@tabler/icons-react';
 import { WorkflowDebugger } from './WorkflowDebugger';
-import { PageHeader, StatePill } from '@/components/rows';
+import { StatePill } from '@/components/rows';
+import { FLOW_ACTIONS_HEIGHT } from '@/components/layout/nav';
+import { FlowHeader } from '@/components/flows/FlowHeader';
+import { useConnectionNames } from '@/components/flows/useConnectionNames';
 import { flowState } from '@/components/flows/FlowRow';
 import { FLOW_TABS, flowTab, type FlowTab } from './flowTabs';
 import { useFlowActions } from './useFlowActions';
@@ -294,7 +297,7 @@ export function WorkflowDetailPage() {
         data: { 
           ...(node.config || {}), 
           ref_id: node.ref_id,
-          label: node.config?.label || node.id
+          label: node.config?.label || '',
         },
         draggable: false,
         selectable: true,
@@ -331,6 +334,8 @@ export function WorkflowDetailPage() {
     open();
   };
 
+  const connectionNames = useConnectionNames((workflow as any)?.vhost, Boolean(workflow));
+
   if (isWorkflowLoading) {
     return <Flex align="center" justify="center" h="100vh"><Text>Loading workflow details...</Text></Flex>;
   }
@@ -339,74 +344,79 @@ export function WorkflowDetailPage() {
     return <Flex align="center" justify="center" h="100vh"><Text color="red">Workflow not found</Text></Flex>;
   }
 
+  // Prefer the real-time engine status streamed over the status
+  // WebSocket, falling back to the persisted workflow status.
+  const state = flowState({ active: workflow.active, status: engineStatus?.engine_status || workflow.status });
+  const where = [
+    `Virtual host ${workflow.vhost || 'default'}`,
+    workflow.worker_id ? `worker ${workflow.worker_id}` : null,
+  ].filter(Boolean).join(' · ');
+
   return (
-    <Box p="md" style={{ height: 'calc(100vh - 80px)', display: 'flex', flexDirection: 'column' }}>
-      <Stack gap="md" style={{ flex: 1 }}>
-        {(() => {
-          // Prefer the real-time engine status streamed over the status
-          // WebSocket, falling back to the persisted workflow status.
-          const liveStatus = engineStatus?.engine_status || workflow.status;
-          const state = flowState({ active: workflow.active, status: liveStatus });
-          const where = [
-            `Virtual host ${workflow.vhost || 'default'}`,
-            workflow.worker_id ? `worker ${workflow.worker_id}` : null,
-          ].filter(Boolean).join(' · ');
-          return (
-            <PageHeader
-              title={workflow.name}
-              back={{ to: '/workflows', label: 'Back to flows' }}
-              lede={where}
-              meta={(
-                <Group gap="sm">
-                  <StatePill tone={state.tone}>{state.label}</StatePill>
-                  {workflow.cron && (
-                    <Badge color="indigo" variant="light" leftSection={<IconClock size="0.8rem" />}>{workflow.cron}</Badge>
-                  )}
-                </Group>
+    <Box
+      className="hermod-flow-page hermod-editor-page"
+      h={{
+        base: `calc(100dvh - var(--app-shell-header-offset, 0px) - ${FLOW_ACTIONS_HEIGHT})`,
+        sm: 'calc(100dvh - var(--app-shell-header-offset, 0px))',
+      }}
+    >
+        <FlowHeader
+          back={{ to: '/workflows', label: 'Back to flows' }}
+          title={<Title order={1} className="hermod-flow-title">{workflow.name}</Title>}
+          meta={(
+            <>
+              <StatePill tone={state.tone} fz="inherit">{state.label}</StatePill>
+              <span aria-hidden>·</span>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{where}</span>
+              {workflow.cron && (
+                <Badge color="indigo" variant="light" size="sm" leftSection={<IconClock size="0.8rem" />} style={{ flex: 'none' }}>{workflow.cron}</Badge>
               )}
-              actions={canEdit ? (
-                <>
-                  <Button variant="light" leftSection={<IconPlayerPlay size="1rem" />} onClick={() => setRunInputOpened(true)}>
-                    Run with input
-                  </Button>
-                  <Button
-                    variant="light"
-                    color={workflow.active ? 'orange' : 'green'}
-                    onClick={() => toggleMutation.mutate()}
-                    loading={toggleMutation.isPending}
-                  >
-                    {workflow.active ? 'Stop' : 'Turn on'}
-                  </Button>
-                  <Button leftSection={<IconPencil size="1rem" />} component={Link} to="/workflows/$id/edit" params={{ id } as any}>
-                    Edit flow
-                  </Button>
-                  <Menu position="bottom-end" withArrow shadow="md">
-                    <Menu.Target>
-                      <ActionIcon aria-label="More" variant="default" size={36}><IconDots size="1rem" /></ActionIcon>
-                    </Menu.Target>
-                    <Menu.Dropdown>
-                      <Menu.Item leftSection={<IconDownload size="1rem" />} onClick={flowActions.exportJson}>Export JSON</Menu.Item>
-                      <Menu.Item leftSection={<IconCopy size="1rem" />} onClick={flowActions.clone}>Clone</Menu.Item>
-                      {canPromote && (
-                        <Menu.Item leftSection={<IconRocket size="1rem" />} onClick={() => setPromoteOpened(true)}>Promote</Menu.Item>
-                      )}
-                      <Menu.Divider />
-                      <Menu.Item leftSection={<IconHistory size="1rem" />} onClick={() => openTab('history')}>Version history</Menu.Item>
-                      <Menu.Item leftSection={<IconShieldLock size="1rem" />} onClick={() => setComplianceOpened(true)}>Compliance report</Menu.Item>
-                      <Menu.Divider />
-                      <Menu.Item color="red" leftSection={<IconTrash size="1rem" />} onClick={flowActions.remove}>Delete flow</Menu.Item>
-                    </Menu.Dropdown>
-                  </Menu>
-                </>
-              ) : undefined}
-            />
-          );
-        })()}
+            </>
+          )}
+          actions={canEdit ? (
+            <>
+              <Button variant="default" leftSection={<IconPlayerPlay size="1rem" />} onClick={() => setRunInputOpened(true)}>
+                Run{' '}<span className="hermod-hide-phone">with input</span>
+              </Button>
+              <Button
+                variant="default"
+                leftSection={<Box component="i" aria-hidden className="hermod-dot" data-tone={workflow.active ? 'warn' : 'ok'} />}
+                onClick={() => toggleMutation.mutate()}
+                loading={toggleMutation.isPending}
+              >
+                {workflow.active ? 'Stop' : 'Turn on'}
+              </Button>
+              <Button leftSection={<IconPencil size="1rem" />} component={Link} to="/workflows/$id/edit" params={{ id } as any}>
+                Edit flow
+              </Button>
+            </>
+          ) : undefined}
+          menu={canEdit ? (
+            <Menu position="bottom-end" withArrow shadow="md">
+              <Menu.Target>
+                <ActionIcon aria-label="More" variant="subtle" color="gray" size={36} radius="md"><IconDots size="1.1rem" /></ActionIcon>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Item leftSection={<IconDownload size="1rem" />} onClick={flowActions.exportJson}>Export JSON</Menu.Item>
+                <Menu.Item leftSection={<IconCopy size="1rem" />} onClick={flowActions.clone}>Clone</Menu.Item>
+                {canPromote && (
+                  <Menu.Item leftSection={<IconRocket size="1rem" />} onClick={() => setPromoteOpened(true)}>Promote</Menu.Item>
+                )}
+                <Menu.Divider />
+                <Menu.Item leftSection={<IconHistory size="1rem" />} onClick={() => openTab('history')}>Version history</Menu.Item>
+                <Menu.Item leftSection={<IconShieldLock size="1rem" />} onClick={() => setComplianceOpened(true)}>Compliance report</Menu.Item>
+                <Menu.Divider />
+                <Menu.Item color="red" leftSection={<IconTrash size="1rem" />} onClick={flowActions.remove}>Delete flow</Menu.Item>
+              </Menu.Dropdown>
+            </Menu>
+          ) : undefined}
+        />
 
         <ComplianceReportModal workflowId={id} opened={complianceOpened} onClose={() => setComplianceOpened(false)} />
 
         {pendingProposals > 0 && activeTab !== 'tuning' && (
           <Alert
+            mt="md"
             color="blue"
             variant="light"
             icon={<IconFirstAidKit size="1rem" />}
@@ -442,9 +452,8 @@ export function WorkflowDetailPage() {
           />
         )}
 
-        <Paper withBorder radius="md" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <Tabs value={activeTab} onChange={openTab} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-            <Tabs.List px="md">
+        <Tabs value={activeTab} onChange={openTab} className="hermod-flow-tabs" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            <Tabs.List>
               {FLOW_TABS.map((t) => (
                 <Tabs.Tab
                   key={t.value}
@@ -458,9 +467,11 @@ export function WorkflowDetailPage() {
               ))}
             </Tabs.List>
 
+            <Box className="hermod-flow-canvas" style={{ display: 'flex', flexDirection: 'column' }}>
             <Tabs.Panel value="build" style={{ flex: 1, position: 'relative' }}>
               <ReactFlowProvider>
                 <DetailFlowCanvas 
+                  connectionNames={connectionNames}
                   nodes={nodes}
                   edges={edges}
                   onNodesChange={onNodesChange}
@@ -861,9 +872,8 @@ export function WorkflowDetailPage() {
                   )}
                </Stack>
             </Tabs.Panel>
-          </Tabs>
-        </Paper>
-      </Stack>
+            </Box>
+        </Tabs>
 
       <Modal opened={opened} onClose={close} title="Log Details" size="lg">
         {selectedLog && (

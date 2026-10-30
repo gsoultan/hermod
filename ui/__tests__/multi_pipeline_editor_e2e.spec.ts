@@ -63,7 +63,7 @@ test.describe('workflow editor: multi-source pipeline', () => {
     }
 
     // Live log preview is part of the editor chrome, collapsed by default.
-    await expect(page.getByText(/live workflow logs/i).first()).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/^live logs$/i).first()).toBeVisible({ timeout: 15000 });
   });
 
   test('live workflow log panel expands and collapses', async ({ page }) => {
@@ -72,7 +72,7 @@ test.describe('workflow editor: multi-source pipeline', () => {
     await page.goto('/workflows/new');
     await page.waitForLoadState('networkidle');
 
-    const header = page.getByText(/live workflow logs/i).first();
+    const header = page.getByText(/^live logs$/i).first();
     await expect(header).toBeVisible({ timeout: 30000 });
 
     // Toggling must not throw; a pageerror listener in beforeEach turns any

@@ -1,12 +1,13 @@
 import { createContext, useContext, type ReactNode, useState } from 'react';
 import { Handle, Position, type Node as FlowNode, type Edge as FlowEdge } from '@xyflow/react';
-import { Box, Text, useMantineColorScheme, ActionIcon, Tooltip, Paper, Group, Stack, ThemeIcon, rem, Badge } from '@mantine/core';
+import { Box, Text, ActionIcon, Tooltip, Paper, Group, Stack, ThemeIcon, rem, Badge } from '@mantine/core';
 import { useShallow } from 'zustand/react/shallow';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
 import { nodeSimulationResult } from '@/pages/workflows/WorkflowEditor/simulation/simulationPath';
 import { nodeLiveProblem } from '@/pages/workflows/WorkflowEditor/live/liveHealth';
 import { SIMULATION_STATUS_STYLE, SimulationStatusBadge } from '@/pages/workflows/WorkflowEditor/simulation/SimulationStatusBadge';
 import { IconEye, IconPlus, IconTrash } from '@tabler/icons-react';
+import { stepTitle } from '@/components/flows/stepTitle';
 function problemFields(p: ReturnType<typeof nodeLiveProblem>) {
   return {
     problemSeverity: p?.severity ?? null,
@@ -16,6 +17,8 @@ function problemFields(p: ReturnType<typeof nodeLiveProblem>) {
 
 export const WorkflowContext = createContext<{
   onPlusClick: (nodeId: string, handleId: string | null) => void;
+  /** Connection names by id, so a source or sink step without a label is called by the connection it uses. */
+  refNames?: Record<string, string>;
 } | null>(null);
 
 export const PlusHandle = ({ type, position, id, color, nodeId, style }: any) => {
@@ -83,8 +86,7 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
   /** Something the node wants said about itself on the canvas, under its description. */
   badge?: ReactNode
 }) => {
-  const { colorScheme } = useMantineColorScheme();
-  const isDark = colorScheme === 'dark';
+  const context = useContext(WorkflowContext);
 
   // Actions are stable for the store's lifetime, so one shallow selection costs
   // nothing to compare and replaces five separate subscriptions per node.
@@ -158,62 +160,69 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
     setSelectedNode(null);
   };
 
+  const title = stepTitle(data, type, data.ref_id ? context?.refNames?.[data.ref_id] : undefined);
+  const ringColor = cbOpen ? 'red' : (simulationColor ?? problemColor ?? (errorCount > 0 ? healthColor : null));
+
   return (
     <Paper
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      withBorder
       radius="md"
-      shadow={selected ? 'md' : 'sm'}
+      className="hermod-step"
+      data-selected={selected || undefined}
       style={{
-        background: isDark ? 'rgba(37, 38, 43, 0.8)' : 'rgba(255, 255, 255, 0.8)',
-        backdropFilter: 'blur(8px)',
-        border: `${problemColor ? '3px' : borderWidth} ${borderStyle} var(--mantine-color-${cbOpen ? 'red' : (selected ? 'blue' : (simulationColor ?? problemColor ?? healthColor))}-6)`,
-        boxShadow: reached ? `0 0 0 4px var(--mantine-color-${simulationColor}-light), var(--paper-shadow)` : undefined,
+        border: ringColor
+          ? `${problemColor ? '3px' : borderWidth} ${borderStyle} var(--mantine-color-${ringColor}-6)`
+          : undefined,
+        boxShadow: reached ? `0 0 0 4px var(--mantine-color-${simulationColor}-light)` : undefined,
         // Greyed rather than faded hard: its label has to stay readable, since
         // the node is still one the operator may want to open.
         opacity: faded ? 0.65 : 1,
         filter: faded ? 'grayscale(1)' : undefined,
-        minWidth: '200px',
-        overflow: 'visible',
-        transition: 'all 0.2s ease',
-        transform: hovered ? 'translateY(-2px)' : 'none',
       }}
     >
-      <Box 
-        style={{ 
-          background: `var(--mantine-color-${color}-6)`, 
-          height: '4px', 
-          width: '100%' 
-        }} 
-      />
-      
-      <Stack gap={0} p="xs">
-        <Group justify="space-between" mb="xs">
-          <Group gap="xs">
-            <ThemeIcon color={color} variant="light" size="sm">
-              <Icon size="0.9rem" />
+      <Stack gap={4} px={14} py={12}>
+        <Group justify="space-between" gap="xs" wrap="nowrap">
+          <Group gap={8} wrap="nowrap" style={{ minWidth: 0 }}>
+            <ThemeIcon color={color} variant="light" size={22} radius="sm">
+              <Icon size="0.85rem" />
             </ThemeIcon>
-            <Text size="xs" fw={700} c={isDark ? 'gray.3' : 'gray.7'} style={{ textTransform: 'uppercase', letterSpacing: rem(1) }}>
+            <Text size="xs" fw={600} c="dimmed" tt="uppercase" truncate style={{ letterSpacing: rem(0.6) }}>
               {type}
             </Text>
           </Group>
-          {nodeStatus && nodeStatus !== 'running' && (
-            <Badge 
-              size="xs" 
-              color={nodeStatus.startsWith('error') ? 'red' : 'blue'} 
-              variant="filled"
-            >
-              {nodeStatus}
-            </Badge>
-          )}
+          <Group gap={4} wrap="nowrap">
+            {nodeStatus && nodeStatus !== 'running' && (
+              <Badge 
+                size="xs" 
+                color={nodeStatus.startsWith('error') ? 'red' : 'blue'} 
+                variant="light"
+              >
+                {nodeStatus}
+              </Badge>
+            )}
+            {sample && (
+              <Tooltip label="Latest processed sample">
+                <ActionIcon aria-label="View" 
+                  size="xs" 
+                  variant="subtle" 
+                  color="blue" 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSampleNodeId(id);
+                    setSampleInspectorOpened(true);
+                  }}
+                >
+                  <IconEye size="1rem" />
+                </ActionIcon>
+              </Tooltip>
+            )}
+          </Group>
         </Group>
 
-        <Text fw={600} size="sm" mb={4}>{data.label || 'Unnamed Node'}</Text>
-        <Text size="xs" c="dimmed" mb="xs" lineClamp={1}>{data.description || 'No description'}</Text>
-        {badge && <Group gap={4} mb="xs">{badge}</Group>}
-
-        {children}
+        <Text fw={600} size="sm" lh={1.3} truncate>{title}</Text>
+        {data.description && <Text size="xs" c="dimmed" lineClamp={1}>{data.description}</Text>}
+        {badge && <Group gap={4}>{badge}</Group>}
       </Stack>
 
       {(hovered || selected) && (
@@ -225,8 +234,8 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
             radius="xl"
             style={{ 
               position: 'absolute', 
-              top: 8, 
-              right: 8, 
+              top: -10, 
+              right: -10, 
               zIndex: 110,
               boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
             }}
@@ -300,45 +309,6 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
           />
         </Box>
       )}
-      <Box style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-        <Box 
-          style={{ 
-            background: `var(--mantine-color-${color}-1)`, 
-            padding: '4px', 
-            borderRadius: '4px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}
-        >
-          <Icon size="1.2rem" color={`var(--mantine-color-${color}-6)`} />
-        </Box>
-        <Box style={{ flex: 1, overflow: 'hidden' }}>
-          <Text size="xs" fw={700} c="dimmed" style={{ textTransform: 'uppercase', letterSpacing: '0.5px', fontSize: 'var(--mantine-font-size-xs)' }}>
-            {type}
-          </Text>
-          <Text size="sm" fw={600} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {data.label || 'New Node'}
-          </Text>
-        </Box>
-        {sample && (
-          <Tooltip label="Latest processed sample">
-            <ActionIcon aria-label="View" 
-              size="xs" 
-              variant="subtle" 
-              color="blue" 
-              onClick={(e) => {
-                e.stopPropagation();
-                setSampleNodeId(id);
-                setSampleInspectorOpened(true);
-              }}
-            >
-              <IconEye size="1rem" />
-            </ActionIcon>
-          </Tooltip>
-        )}
-      </Box>
-
       {metric !== undefined && metric > 0 && (
         <Box style={{ position: 'absolute', bottom: -8, right: 10, background: 'var(--mantine-color-blue-6)', color: 'white', borderRadius: '10px', padding: '0 6px', fontSize: 'var(--mantine-font-size-xs)', fontWeight: 700, zIndex: 10 }}>
           {metric.toLocaleString()}
