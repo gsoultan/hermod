@@ -5,7 +5,7 @@
 #   ./scripts/dev.sh             start everything (Postgres + API/worker + UI)
 #   ./scripts/dev.sh --sqlite    use SQLite instead of Postgres (no container needed)
 #   ./scripts/dev.sh --reset     wipe the dev database and re-seed from scratch
-#   ./scripts/dev.sh --build-ui  refresh the UI bundle the API serves, then start
+#   ./scripts/dev.sh --build-ui  rebuild the API-served UI bundle even if it looks current
 #   ./scripts/dev.sh --detach    start, print the banner, then exit (for CI)
 #   ./scripts/dev.sh --stop      stop a running stack and exit
 #   ./scripts/dev.sh --print-ports  show the ports this run would use, then exit
@@ -24,8 +24,10 @@
 #
 # Work against the UI port (5175). It runs Vite, so edits to ui/src appear
 # immediately via hot reload. The API port (4005) also serves a UI, but that one
-# is a pre-built bundle in internal/api/static and will NOT show your edits until
-# you run --build-ui; it exists for testing what production actually ships.
+# is a pre-built bundle in internal/api/static. It is rebuilt on start whenever
+# anything under ui/ is newer than it (after a pull, say), but not while the stack
+# runs, so mid-run edits reach it only on the next start or with --build-ui. It
+# exists for testing what production actually ships.
 #
 # It keeps its state out of your way: config lives in .dev/ inside the repo
 # rather than ~/.hermod, so a dev run never overwrites the configuration of
@@ -101,6 +103,7 @@ DO_DETACH=0
 DO_PRINT_PORTS=0
 DO_PRINT_DSN=0
 DO_SYNC_CONFIG=0
+DO_PRINT_UI_STATE=0
 for arg in "$@"; do
   case "$arg" in
     --sqlite) USE_SQLITE=1 ;;
@@ -111,6 +114,7 @@ for arg in "$@"; do
     --print-ports) DO_PRINT_PORTS=1 ;;
     --print-dsn) DO_PRINT_DSN=1 ;;
     --sync-config) DO_SYNC_CONFIG=1 ;;
+    --print-ui-state) DO_PRINT_UI_STATE=1 ;;
     -h|--help) awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "unknown option: $arg (try --help)" >&2; exit 2 ;;
   esac
@@ -442,6 +446,27 @@ if [[ "$DO_STOP" == "1" ]]; then
   exit 0
 fi
 
+# The bundle the API port serves is generated into internal/api/static and not
+# committed, so a pull that changes ui/src leaves it behind. It is stale when it
+# is missing or any file it is built from is newer than it. git checkout and
+# pull stamp the files they write with the current time, so a pull that touches
+# the UI always lands newer than a bundle built before it.
+ui_bundle_stale() {
+  local bundle="$REPO_ROOT/internal/api/static/index.html"
+  [[ -f "$bundle" ]] || return 0
+  [[ -n "$(find "$REPO_ROOT/ui/src" "$REPO_ROOT/ui/public" \
+      "$REPO_ROOT/ui/index.html" "$REPO_ROOT/ui/package.json" \
+      "$REPO_ROOT/ui/bun.lock" "$REPO_ROOT/ui/vite.config.ts" \
+      -newer "$bundle" -print -quit 2>/dev/null)" ]]
+}
+
+# The staleness check on its own, so a test can run it against a scratch
+# repository without building anything.
+if [[ "$DO_PRINT_UI_STATE" == "1" ]]; then
+  if ui_bundle_stale; then echo stale; else echo fresh; fi
+  exit 0
+fi
+
 if [[ "$DO_PRINT_PORTS" == "1" ]]; then
   resolve_ports
   echo "api=$API_PORT"
@@ -589,6 +614,13 @@ if [[ ! -d "$REPO_ROOT/ui/node_modules" ]]; then
   say "Installing UI dependencies"
   (cd "$REPO_ROOT/ui" && bun install) || die "bun install failed"
   ok "dependencies installed"
+fi
+
+if [[ "$DO_BUILD_UI" == "0" ]] && ui_bundle_stale; then
+  # Without this the API port kept serving whatever was built last, however old,
+  # and nothing said so: a pulled redesign simply did not appear.
+  DO_BUILD_UI=1
+  warn "the UI bundle served by the API is older than ui/ — rebuilding it"
 fi
 
 if [[ "$DO_BUILD_UI" == "1" ]]; then
