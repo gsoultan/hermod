@@ -12,8 +12,8 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 Stopping a workflow could wait for ever. A message the buffer handed to the
 worker pool just as the workflow was stopping could land after the workers had
 left, and nothing then counted it out of the in-flight total that stopping waits
-on. That message is now handed back, and its caller, if one is waiting, is told
-the workflow stopped. A source that redelivers sends it again.
+on. Workers now stay until their queues are closed, so every message that was
+queued is still processed and the count always reaches zero.
 
 ### Fixed — The Failover Group form offers your sinks
 

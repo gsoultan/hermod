@@ -23,12 +23,12 @@ import (
 // keep the engine from stopping.
 //
 // The buffer-to-sink loop counts a message in flight once it is queued for a
-// worker, and the worker that processes it counts it out. Workers leave on
-// cancellation, so a message queued in that window — the buffer's handler
+// worker, and the worker that processes it counts it out. Workers used to leave
+// on cancellation, so a message queued in that window — the buffer's handler
 // races the cancelled context, and Go picks among ready cases at random — had
 // no worker left to count it out. Start then waited on the in-flight count for
 // ever. CI saw it as "the engine did not stop" in the gRPC source tests, a few
-// runs in a hundred under load.
+// runs in a hundred under load. Workers now leave when their queues close.
 
 // lateBuffer hands over one message only after the engine is stopping and its
 // workers have had time to leave.
