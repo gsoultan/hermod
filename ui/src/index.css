@@ -255,3 +255,21 @@
 
 /* The add-a-step picker: its choices and rows are plain buttons that light on hover. */
 .hermod-pick:hover:not(:disabled) { background: var(--mantine-color-default-hover); }
+
+/* Settings › Workspace: tabs down the side on a wide screen. On a phone a 220px
+   side column left the tab's content a sliver, so the tabs become one row that
+   scrolls sideways above the content. */
+.hermod-settings-tabs { display: flex; gap: 2rem; }
+.hermod-settings-tabs > .mantine-Tabs-list { width: 220px; flex-shrink: 0; }
+.hermod-settings-tabs > .mantine-Tabs-panel { flex: 1; min-width: 0; }
+@media (max-width: 48em) {
+  .hermod-settings-tabs { flex-direction: column; gap: var(--mantine-spacing-md); }
+  .hermod-settings-tabs > .mantine-Tabs-list {
+    width: auto;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .hermod-settings-tabs > .mantine-Tabs-list > .mantine-Tabs-tab { flex: none; }
+}

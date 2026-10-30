@@ -32,7 +32,7 @@ test.describe('Hermod Core Scenarios E2E', () => {
     await page.waitForURL(/\/users/);
     
     // 2. Add User
-    await page.getByRole('button', { name: /Add User/i }).click();
+    await page.getByRole('button', { name: 'Add person' }).click();
     
     await page.getByLabel(/Username/i).first().fill(username);
     await page.getByLabel(/Full Name/i).fill(fullName);
@@ -44,31 +44,34 @@ test.describe('Hermod Core Scenarios E2E', () => {
 
     // 3. Search, then assert. The list accumulates and paginates, so a freshly
     // created user is not necessarily rendered on the first page — asserting on
-    // the unfiltered table made this fail for a row that existed.
-    await page.getByPlaceholder(/Search users/i).fill(username);
-    await expect(page.locator('table')).toContainText(username);
-    await expect(page.getByRole('cell', { name: username, exact: true })).toBeVisible();
+    // the unfiltered list made this fail for a row that existed.
+    const people = page.getByRole('list', { name: 'People' });
+    const personRow = () => people.getByRole('listitem').filter({ hasText: username });
+    await page.getByPlaceholder(/Search people/i).fill(username);
+    await expect(personRow()).toBeVisible();
 
     // 4. Edit User (the search filter from step 3 is still applied here).
-    await page.locator('tr').filter({ has: page.getByRole('cell', { name: username, exact: true }) }).getByLabel(/Edit user/i).click();
+    await page.getByRole('button', { name: `More for ${username}` }).click();
+    await page.getByRole('menuitem', { name: 'Edit' }).click();
     await page.getByLabel(/Full Name/i).fill(fullName + ' Edited');
     await page.getByRole('button', { name: /Save Changes/i }).click();
     // A bare /users/ pattern also matches /users/<id>/edit, so navigate to the
     // list explicitly. The fresh load also sidesteps a stale cached list, which
     // makes this assert persistence rather than cache-invalidation timing.
     await page.goto('/users');
-    await page.getByPlaceholder(/Search users/i).fill(username);
-    await expect(page.locator('table')).toContainText(fullName + ' Edited');
+    await page.getByPlaceholder(/Search people/i).fill(username);
+    await expect(personRow()).toContainText(fullName + ' Edited');
 
     // 5. Delete User. Saving navigated back to the unfiltered list, so re-apply
     // the search or the row is not rendered to click.
-    await page.getByPlaceholder(/Search users/i).fill(username);
-    await expect(page.getByRole('cell', { name: username, exact: true })).toBeVisible();
+    await page.getByPlaceholder(/Search people/i).fill(username);
+    await expect(personRow()).toBeVisible();
     // Confirmation is the in-app ConfirmProvider modal, not window.confirm, so
     // it has to be accepted through the DOM.
-    await page.locator('tr').filter({ has: page.getByRole('cell', { name: username, exact: true }) }).getByLabel(/Delete user/i).click();
+    await page.getByRole('button', { name: `More for ${username}` }).click();
+    await page.getByRole('menuitem', { name: 'Delete' }).click();
     await acceptConfirm(page);
-    await expect(page.getByRole('cell', { name: username, exact: true })).not.toBeVisible({ timeout: 10000 });
+    await expect(personRow()).not.toBeVisible({ timeout: 10000 });
   });
 
   test('VHost Management: CRUD operations', async ({ page }) => {
@@ -82,25 +85,28 @@ test.describe('Hermod Core Scenarios E2E', () => {
     await page.waitForURL(/tab=vhosts/);
 
     // 2. Add VHost
-    await page.getByRole('button', { name: /Add VHost/i }).click();
+    await page.getByRole('button', { name: 'Add virtual host' }).click();
     await page.getByLabel(/Name/i).fill(vhostName);
     await page.getByLabel(/Description/i).fill(description);
     await page.getByRole('button', { name: /Create VHost/i }).click();
     
     await page.waitForURL(/\/vhosts/);
-    await expect(page.getByRole('cell', { name: vhostName, exact: true })).toBeVisible();
+    const vhostRow = page.getByRole('list', { name: 'Virtual hosts' }).getByRole('listitem').filter({ hasText: vhostName });
+    await expect(vhostRow).toBeVisible();
 
     // 3. Edit VHost
-    await page.locator('tr').filter({ has: page.getByRole('cell', { name: vhostName, exact: true }) }).getByLabel(/Edit vhost/i).click();
+    await page.getByRole('button', { name: `More for ${vhostName}` }).click();
+    await page.getByRole('menuitem', { name: 'Edit' }).click();
     await page.getByLabel(/Description/i).fill(description + ' Edited');
     await page.getByRole('button', { name: /Save Changes/i }).click();
     await page.waitForURL(/\/vhosts/);
     await expect(page.getByText(description + ' Edited', { exact: true })).toBeVisible();
 
     // 4. Delete VHost (same in-app confirmation modal as above).
-    await page.locator('tr').filter({ has: page.getByRole('cell', { name: vhostName, exact: true }) }).getByLabel(/Delete vhost/i).click();
+    await page.getByRole('button', { name: `More for ${vhostName}` }).click();
+    await page.getByRole('menuitem', { name: 'Delete' }).click();
     await acceptConfirm(page);
-    await expect(page.getByRole('cell', { name: vhostName, exact: true })).not.toBeVisible({ timeout: 10000 });
+    await expect(vhostRow).not.toBeVisible({ timeout: 10000 });
   });
 
   test('Settings: Update SMTP settings', async ({ page }) => {
@@ -131,11 +137,11 @@ test.describe('Hermod Core Scenarios E2E', () => {
     await page.waitForURL(/\/settings/);
     await page.getByText('Workspace', { exact: true }).click();
     await page.waitForURL(/tab=vhosts/);
-    await page.getByRole('button', { name: /Add VHost/i }).click();
+    await page.getByRole('button', { name: 'Add virtual host' }).click();
     await page.getByLabel(/Name/i).fill(vhostName);
     await page.getByRole('button', { name: /Create VHost/i }).click();
     await page.waitForURL(/\/vhosts/);
-    await expect(page.getByRole('cell', { name: vhostName, exact: true })).toBeVisible();
+    await expect(page.getByRole('list', { name: 'Virtual hosts' }).getByRole('listitem').filter({ hasText: vhostName })).toBeVisible();
 
     // Check Audit Logs: a tab of Activity
     await page.getByRole('navigation', { name: 'Main' }).getByText('Activity', { exact: true }).click();

@@ -1,26 +1,14 @@
-import { Title, Paper, Stack, Group, Box, Text } from '@mantine/core';
+import { Paper } from '@mantine/core';
 import { UserForm } from '@/components/forms/UserForm';
-import { IconUserPlus } from '@tabler/icons-react';
+import { PageHeader } from '@/components/rows';
+
 export function AddUserPage() {
   return (
-    <Box p="md">
-      <Stack gap="lg">
-        <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
-          <Group gap="sm">
-            <IconUserPlus size="2rem" color="var(--mantine-color-blue-filled)" />
-            <Box>
-              <Title order={2} fw={800}>Add New User</Title>
-              <Text size="sm" c="dimmed">Create a new user and assign roles and virtual hosts.</Text>
-            </Box>
-          </Group>
-        </Paper>
-
-        <Paper p="xl" withBorder radius="md">
-          <UserForm />
-        </Paper>
-      </Stack>
-    </Box>
+    <>
+      <PageHeader title="Add person" lede="Their sign-in, role and the virtual hosts they can work in" back={{ to: '/users', label: 'Back to people' }} />
+      <Paper p="xl" withBorder radius="md">
+        <UserForm />
+      </Paper>
+    </>
   );
 }
-
-

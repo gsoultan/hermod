@@ -19,6 +19,8 @@ interface RowProps {
   onOpen?: () => void;
   /** A checkbox for selecting the row, before the icon. */
   lead?: ReactNode;
+  /** A letter in a round tile instead of an icon, for a person. */
+  avatar?: string;
 }
 
 /**
@@ -26,11 +28,16 @@ interface RowProps {
  * arrow. The name and detail are the link; the action sits beside it so
  * pressing Retry never also opens the row.
  */
-export function Row({ icon: Icon, iconTone = 'default', title, detail, state, action, to, params, onOpen, lead }: RowProps) {
+export function Row({ icon: Icon, iconTone = 'default', title, detail, state, action, to, params, onOpen, lead, avatar }: RowProps) {
   const opens = Boolean(to || onOpen);
   const body = (
     <Group gap="md" wrap="nowrap" style={{ minWidth: 0, flex: 1 }}>
-      {Icon && (
+      {avatar && (
+        <ThemeIcon variant="light" color="indigo" radius="xl" size={36} aria-hidden className="hermod-row-icon" style={{ flex: 'none' }}>
+          <Text fw={700} size="sm">{avatar.slice(0, 1).toUpperCase()}</Text>
+        </ThemeIcon>
+      )}
+      {!avatar && Icon && (
         <ThemeIcon
           variant="light"
           color={iconTone === 'err' ? 'red' : 'gray'}

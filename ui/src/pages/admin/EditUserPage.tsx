@@ -1,11 +1,12 @@
-import { Title, Paper, Stack, Group, Box, Text, Button, Modal, PasswordInput } from '@mantine/core';
+import { Paper, Stack, Group, Button, Modal, PasswordInput } from '@mantine/core';
+import { PageHeader } from '@/components/rows';
 import { useDisclosure } from '@mantine/hooks';
 import { useState } from 'react';
 import { UserForm } from '@/components/forms/UserForm';
 import { useSuspenseQuery, useMutation } from '@tanstack/react-query';
 import { apiFetch } from '@/api';
 import { useParams } from '@tanstack/react-router';
-import { IconLock, IconUsers } from '@tabler/icons-react';
+import { IconLock } from '@tabler/icons-react';
 export function EditUserPage() {
   const { userId } = useParams({ from: '/users/$userId/edit' });
   const [opened, { open, close }] = useDisclosure(false);
@@ -40,27 +41,16 @@ export function EditUserPage() {
   });
 
   return (
-    <Box p="md">
-      <Stack gap="lg">
-        <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
-          <Group justify="space-between">
-            <Group gap="sm">
-              <IconUsers size="2rem" color="var(--mantine-color-blue-filled)" />
-              <Box>
-                <Title order={2} fw={800}>Edit User: {user?.username}</Title>
-                <Text size="sm" c="dimmed">Update user profile, role, and permissions.</Text>
-              </Box>
-            </Group>
-            <Button leftSection={<IconLock size={16} />} variant="light" color="orange" onClick={open}>
-              Change Password
-            </Button>
-          </Group>
-        </Paper>
-
-        <Paper p="xl" withBorder radius="md">
-          <UserForm initialData={user} isEditing />
-        </Paper>
-      </Stack>
+    <>
+      <PageHeader
+        title={user?.username || 'Person'}
+        lede="Profile, role and the virtual hosts they can work in"
+        back={{ to: '/users', label: 'Back to people' }}
+        actions={<Button leftSection={<IconLock size={16} />} variant="default" onClick={open}>Change password</Button>}
+      />
+      <Paper p="xl" withBorder radius="md">
+        <UserForm initialData={user} isEditing />
+      </Paper>
 
       <Modal opened={opened} onClose={close} title="Change Password" centered>
         <Stack gap="md">
@@ -84,7 +74,7 @@ export function EditUserPage() {
           </Group>
         </Stack>
       </Modal>
-    </Box>
+    </>
   );
 }
 
