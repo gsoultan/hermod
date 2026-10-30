@@ -1,6 +1,5 @@
 import { NumberInput, Select, Stack, Switch, Tabs, Text } from '@mantine/core';
 import { TextInput } from '@/components/shared/ReferenceInputs';
-import { FormRow } from '@/components/common/FormRow';
 import { TemplateField } from '@/components/shared/TemplateField';
 import { REDIS_SET_COMMANDS } from '@/components/workflow/Sink/RedisSetSinkConfig';
 
@@ -24,24 +23,22 @@ export function RedisSetConfig({ config, updateNodeConfig, nodeId, fieldPaths = 
 
   return (
     <Stack gap="md">
-      <FormRow>
-        <Select
-          label="Command"
-          data={REDIS_SET_COMMANDS}
-          value={command}
-          onChange={(val) => set({ command: val || 'set' })}
-          allowDeselect={false}
-        />
-        <TemplateField
-          label="Key"
-          placeholder="customer:{{.after.id}}"
-          value={config.key || ''}
-          onChange={(key) => set({ key })}
-          availableFields={fieldPaths}
-          functions="token"
-          mono
-        />
-      </FormRow>
+      <Select
+        label="Command"
+        data={REDIS_SET_COMMANDS}
+        value={command}
+        onChange={(val) => set({ command: val || 'set' })}
+        allowDeselect={false}
+      />
+      <TemplateField
+        label="Key"
+        placeholder="customer:{{.after.id}}"
+        value={config.key || ''}
+        onChange={(key) => set({ key })}
+        availableFields={fieldPaths}
+        functions="token"
+        mono
+      />
       {command === 'hset' && (
         <TemplateField
           label="Hash Field"
@@ -76,44 +73,40 @@ export function RedisSetConfig({ config, updateNodeConfig, nodeId, fieldPaths = 
 
         <Tabs.Panel value="connection" pt="md">
           <Stack gap="sm">
-            <FormRow>
-              <TemplateField
-                label="Address"
-                placeholder="redis:6379"
-                value={config.addr || ''}
-                onChange={(addr) => set({ addr })}
-                required
-                secretsOnly
-                mono
-                description="host:port. Record values are never read here; a secret or env value is."
-              />
-              <NumberInput
-                label="Database"
-                placeholder="0"
-                min={0}
-                allowDecimal={false}
-                value={config.db ?? ''}
-                onChange={(val) => set({ db: val === '' ? undefined : Number(val) })}
-              />
-            </FormRow>
-            <FormRow>
-              <TemplateField
-                label="Username"
-                placeholder="Optional, for an ACL user"
-                value={config.username || ''}
-                onChange={(username) => set({ username })}
-                secretsOnly
-              />
-              <TemplateField
-                label="Password"
-                placeholder="{{secret.REDIS_PASSWORD}}"
-                value={config.password || ''}
-                onChange={(password) => set({ password })}
-                secretsOnly
-                masked
-                description="Insert a secret rather than pasting the password."
-              />
-            </FormRow>
+            <TemplateField
+              label="Address"
+              placeholder="redis:6379"
+              value={config.addr || ''}
+              onChange={(addr) => set({ addr })}
+              required
+              secretsOnly
+              mono
+              description="host:port. Record values are never read here; a secret or env value is."
+            />
+            <NumberInput
+              label="Database"
+              placeholder="0"
+              min={0}
+              allowDecimal={false}
+              value={config.db ?? ''}
+              onChange={(val) => set({ db: val === '' ? undefined : Number(val) })}
+            />
+            <TemplateField
+              label="Username"
+              placeholder="Optional, for an ACL user"
+              value={config.username || ''}
+              onChange={(username) => set({ username })}
+              secretsOnly
+            />
+            <TemplateField
+              label="Password"
+              placeholder="{{secret.REDIS_PASSWORD}}"
+              value={config.password || ''}
+              onChange={(password) => set({ password })}
+              secretsOnly
+              masked
+              description="Insert a secret rather than pasting the password."
+            />
             <Switch
               label="Use TLS"
               checked={config.tls === true || config.tls === 'true'}
@@ -124,21 +117,19 @@ export function RedisSetConfig({ config, updateNodeConfig, nodeId, fieldPaths = 
 
         <Tabs.Panel value="settings" pt="md">
           <Stack gap="sm">
-            <FormRow>
-              <TextInput
-                label="Expire After (TTL)"
-                placeholder="e.g. 1h, 30m"
-                value={config.ttl || ''}
-                onChange={(e) => set({ ttl: e.currentTarget.value })}
-                description="Needs a unit. Empty keeps the key until it is overwritten."
-              />
-              <TextInput
-                label="Timeout"
-                placeholder="5s"
-                value={config.timeout || ''}
-                onChange={(e) => set({ timeout: e.currentTarget.value })}
-              />
-            </FormRow>
+            <TextInput
+              label="Expire After (TTL)"
+              placeholder="e.g. 1h, 30m"
+              value={config.ttl || ''}
+              onChange={(e) => set({ ttl: e.currentTarget.value })}
+              description="Needs a unit. Empty keeps the key until it is overwritten."
+            />
+            <TextInput
+              label="Timeout"
+              placeholder="5s"
+              value={config.timeout || ''}
+              onChange={(e) => set({ timeout: e.currentTarget.value })}
+            />
             {command === 'set' && (
               <Switch
                 label="Only if the key is absent"
