@@ -13,6 +13,7 @@ import { PageHeader, Row, RowList } from '@/components/rows';
 import { FlowRow } from '@/components/flows/FlowRow';
 import { useToggleFlow } from '@/components/flows/useToggleFlow';
 import { attentionItems, greeting, isFirstRun, statusLine } from './homeModel';
+import { fromTo } from '@/pages/workflows/flowsModel';
 import { ConnectionBadge, PlatformPanel } from './PlatformPanel';
 
 const FLOWS_ON_HOME = 5;
@@ -164,6 +165,7 @@ function YourFlows({ flows, total, canEdit, loading }: { flows: Workflow[]; tota
             <FlowRow
               key={flow.id}
               flow={flow}
+              detail={`${fromTo(flow)} · ${flow.vhost || 'default'}`}
               onToggle={canEdit ? (f) => toggle.mutate({ id: f.id, name: f.name, active: f.active }) : undefined}
               toggling={toggle.isPending && toggle.variables?.id === flow.id}
             />

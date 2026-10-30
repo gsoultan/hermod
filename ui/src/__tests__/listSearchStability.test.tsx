@@ -59,7 +59,7 @@ describe('list search does not blank the table', () => {
 
     await screen.findByText('Alpha Pipeline', undefined, { timeout: 3000 })
 
-    await user.type(screen.getByPlaceholderText('Search workflows...'), 'zzz')
+    await user.type(screen.getByPlaceholderText('Search flows'), 'zzz')
 
     // Mid-flight: the old row must still be rendered rather than replaced by an
     // empty table.

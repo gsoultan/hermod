@@ -49,7 +49,8 @@ describe('Sample library import', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByRole('button', { name: /sample library/i }))
+    await user.click(await screen.findByRole('button', { name: 'More ways to make a flow' }))
+    await user.click(await screen.findByRole('menuitem', { name: /templates/i, hidden: true }))
     await user.click(await screen.findByRole('button', { name: /use template/i }))
 
     expect(await screen.findByText('Import Failed', undefined, { timeout: 3000 })).toBeInTheDocument()
