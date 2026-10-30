@@ -6,6 +6,7 @@ import {
   ineligibleSinks,
   isValidPreparedAge,
   validateTxGroup,
+  setupNotesFor,
   type SinkOption,
 } from '@/utils/txgroup'
 
@@ -127,5 +128,14 @@ describe('validateTxGroup', () => {
   it('reports every problem at once rather than one per save', () => {
     const problems = validateTxGroup({ members: 'pg1', max_prepared_age: 'soon' }, sinks)
     expect(problems.map((p) => p.field).sort()).toEqual(['max_prepared_age', 'members'])
+  })
+})
+
+describe('setupNotesFor', () => {
+  it('names each kind of database among the members once', () => {
+    const all = [...sinks]
+    expect(setupNotesFor(['pg1', 'yb1'], all)).toEqual(['postgres'])
+    expect(setupNotesFor(['pg1', 'my1'], all)).toEqual(['postgres', 'mysql'])
+    expect(setupNotesFor([], all)).toEqual([])
   })
 })

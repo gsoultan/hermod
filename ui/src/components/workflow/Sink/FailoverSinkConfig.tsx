@@ -1,7 +1,11 @@
-import { Select, Stack, Text, MultiSelect, Alert } from '@mantine/core';import type { FC } from 'react';import { IconInfoCircle } from '@tabler/icons-react';
+import { Select, Stack, Text, MultiSelect, Alert } from '@mantine/core';
+import type { FC } from 'react';
+import { IconInfoCircle } from '@tabler/icons-react';
+import { useSinkOptions } from '@/hooks/useSinkOptions';
 export type FailoverSinkConfigProps = {
   config: any;
-  sinks: any[];
+  /** Sinks the caller already has. Without them the form asks for the list. */
+  sinks?: any[];
   currentSinkId?: string;
   updateConfig: (key: string, value: any) => void;
 }
@@ -12,8 +16,10 @@ export const FailoverSinkConfig: FC<FailoverSinkConfigProps> = ({
   currentSinkId,
   updateConfig,
 }) => {
+  const known = useSinkOptions(sinks);
+
   // Filter out the current sink to avoid self-reference and recursive failovers for simplicity
-  const availableSinks = (sinks || [])
+  const availableSinks = (known || [])
     .filter(s => s.id !== currentSinkId && s.type !== 'failover')
     .map(s => ({ value: s.id, label: `${s.name} (${s.type})` }));
 
@@ -28,7 +34,7 @@ export const FailoverSinkConfig: FC<FailoverSinkConfigProps> = ({
       
       <Select
         label="Primary Sink"
-        placeholder="Select primary sink"
+        placeholder={known === null ? 'Loading…' : 'Select primary sink'}
         data={availableSinks}
         value={config.primary_id || ''}
         onChange={(val) => updateConfig('primary_id', val || '')}

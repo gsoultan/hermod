@@ -17,7 +17,10 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/gsoultan/hermod/internal/api/handlers"
+	"github.com/gsoultan/hermod/internal/engine/registry"
 	"github.com/gsoultan/hermod/internal/factory"
+	"github.com/gsoultan/hermod/pkg/infra/state"
 )
 
 // ---------------------------------------------------------------------------
@@ -75,5 +78,46 @@ func TestTheCapabilityListIsNotEmpty(t *testing.T) {
 	_ = json.NewDecoder(rec.Body).Decode(&got)
 	if len(got.Types) == 0 {
 		t.Error("no sink type is offered, so a transactional group can never be assembled in the editor")
+	}
+}
+
+// The editor also needs to know whether a group could start at all. Without a
+// durable state store every group is refused when its workflow runs, which out
+// of the box is every group — so the form says so, and says where to fix it,
+// using the same rule the engine enforces.
+func TestTheCapabilityReportsWhetherTheTransactionLogIsReady(t *testing.T) {
+	decode := func(t *testing.T, h *SinkHandler) (ready bool, problem string) {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		h.ListTwoPhaseCapableSinkTypes(rec,
+			httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/sinks/capabilities/two-phase", nil))
+		var got struct {
+			LogReady   *bool  `json:"log_ready"`
+			LogProblem string `json:"log_problem"`
+		}
+		if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+			t.Fatalf("decoding: %v", err)
+		}
+		if got.LogReady == nil {
+			t.Fatal("the response does not say whether the transaction log is ready")
+		}
+		return *got.LogReady, got.LogProblem
+	}
+
+	reg := registry.NewRegistry(nil)
+	h := &SinkHandler{Handler: &handlers.Handler{Registry: reg}}
+
+	ready, problem := decode(t, h)
+	if ready || problem != reg.TxGroupLogProblem() || problem == "" {
+		t.Errorf("no state store: ready=%v problem=%q, want not ready with the engine's reason", ready, problem)
+	}
+
+	ss, err := state.NewStateStore(state.Config{Type: "sqlite", Path: t.TempDir() + "/state.db"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg.SetStateStore(ss)
+	if ready, problem := decode(t, h); !ready || problem != "" {
+		t.Errorf("SQLite state store: ready=%v problem=%q, want ready", ready, problem)
 	}
 }

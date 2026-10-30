@@ -15,6 +15,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	// modernc.org/sqlite registers the pure-Go "sqlite" database/sql driver via init().
 	"github.com/gsoultan/hermod"
@@ -23,6 +24,16 @@ import (
 
 type SQLiteStateStore struct {
 	db *sql.DB
+	// inMemory is set for ":memory:", the "memory" store type, whose contents
+	// end with the process.
+	inMemory bool
+}
+
+// Durable reports whether what is stored survives a restart. A transactional
+// sink group refuses a store that does not, because its coordinator's log is
+// what resolves a transaction a crash left in doubt.
+func (s *SQLiteStateStore) Durable() bool {
+	return !s.inMemory
 }
 
 func NewSQLiteStateStore(path string) (hermod.StateStore, error) {
@@ -38,7 +49,7 @@ func NewSQLiteStateStore(path string) (hermod.StateStore, error) {
 		return nil, fmt.Errorf("failed to create states table: %w", err)
 	}
 
-	return &SQLiteStateStore{db: db}, nil
+	return &SQLiteStateStore{db: db, inMemory: isSQLiteMemoryPath(path)}, nil
 }
 
 func (s *SQLiteStateStore) Get(ctx context.Context, key string) ([]byte, error) {
@@ -65,4 +76,10 @@ func (s *SQLiteStateStore) Delete(ctx context.Context, key string) error {
 
 func (s *SQLiteStateStore) Close() error {
 	return s.db.Close()
+}
+
+// isSQLiteMemoryPath reports whether a SQLite path names an in-memory database:
+// ":memory:" itself, or a URI that asks for one.
+func isSQLiteMemoryPath(path string) bool {
+	return path == ":memory:" || strings.HasPrefix(path, "file::memory:") || strings.Contains(path, "mode=memory")
 }
