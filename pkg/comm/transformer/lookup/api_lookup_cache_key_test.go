@@ -21,7 +21,6 @@ import (
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/message"
-	"golang.org/x/sync/singleflight"
 )
 
 // ---------------------------------------------------------------------------
@@ -80,7 +79,7 @@ func apiLookup(t *testing.T, tr *APILookupTransformer, reg *cachingFakeRegistry,
 }
 
 func newAPIFixture() (*APILookupTransformer, *cachingFakeRegistry) {
-	return &APILookupTransformer{sf: newSingleflightGroup()}, &cachingFakeRegistry{cache: map[string]any{}}
+	return &APILookupTransformer{calls: &sharedCalls{}}, &cachingFakeRegistry{cache: map[string]any{}}
 }
 
 // A templated header is per-message input that selects the response, so it
@@ -228,5 +227,3 @@ func TestAPILookupStillCachesIdenticalRequests(t *testing.T) {
 		t.Errorf("the endpoint was called %d times for 3 identical lookups; want 1", calls())
 	}
 }
-
-func newSingleflightGroup() *singleflight.Group { return &singleflight.Group{} }

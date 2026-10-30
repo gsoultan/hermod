@@ -77,7 +77,7 @@ func runPanmailProviders(t *testing.T, tr *PanmailProvidersTransformer, reg *cac
 }
 
 func newPanmailProvidersFixture() (*PanmailProvidersTransformer, *cachingFakeRegistry) {
-	return &PanmailProvidersTransformer{sf: newSingleflightGroup()}, &cachingFakeRegistry{cache: map[string]any{}}
+	return &PanmailProvidersTransformer{calls: &sharedCalls{}}, &cachingFakeRegistry{cache: map[string]any{}}
 }
 
 func TestPanmailProvidersIsRegistered(t *testing.T) {

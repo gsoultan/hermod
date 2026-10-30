@@ -31,17 +31,14 @@ import (
 	"github.com/gsoultan/hermod/pkg/comm/transformer/core"
 	"github.com/gsoultan/hermod/pkg/infra/evaluator"
 	"github.com/gsoultan/hermod/pkg/infra/httpclient"
-	"golang.org/x/sync/singleflight"
 )
 
 func init() {
-	transformer.Register("api_lookup", &APILookupTransformer{
-		sf: &singleflight.Group{},
-	})
+	transformer.Register("api_lookup", &APILookupTransformer{calls: &sharedCalls{}})
 }
 
 type APILookupTransformer struct {
-	sf *singleflight.Group
+	calls *sharedCalls
 }
 
 // configInt reads a whole number that the editor may have saved as a number or
@@ -366,8 +363,9 @@ func (t *APILookupTransformer) Transform(ctx context.Context, msg hermod.Message
 		}
 	}
 
-	// Execute API call with singleflight to avoid redundant concurrent requests
-	res, err, _ := t.sf.Do(cacheKey, func() (any, error) {
+	// Identical concurrent requests share one call, which outlives any one
+	// message's cancellation -- see sharedCalls.
+	res, err := t.calls.Do(ctx, cacheKey, func(ctx context.Context) (any, error) {
 		// Execute API call with retries
 		timeout := 10 * time.Second
 		if timeoutStr != "" {

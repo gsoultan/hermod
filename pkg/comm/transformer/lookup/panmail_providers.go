@@ -26,12 +26,11 @@ import (
 	"github.com/gsoultan/hermod/pkg/comm/transformer/core"
 	"github.com/gsoultan/hermod/pkg/infra/evaluator"
 	sdk "github.com/gsoultan/panmail-sdk"
-	"golang.org/x/sync/singleflight"
 )
 
 func init() {
 	transformer.Register("panmail_providers", &PanmailProvidersTransformer{
-		sf: &singleflight.Group{},
+		calls: &sharedCalls{},
 	})
 }
 
@@ -39,7 +38,7 @@ func init() {
 // into the message, through panmail-sdk's ListProviders. Its main use is
 // finding the provider id a panmail sink sends with.
 type PanmailProvidersTransformer struct {
-	sf *singleflight.Group
+	calls *sharedCalls
 }
 
 // defaultPanmailProvidersField is where the list goes when the node names no
@@ -249,7 +248,7 @@ func (t *PanmailProvidersTransformer) Transform(ctx context.Context, msg hermod.
 		}
 	}
 
-	res, err, _ := t.sf.Do(cacheKey, func() (any, error) { return req.fetch(ctx) })
+	res, err := t.calls.Do(ctx, cacheKey, func(ctx context.Context) (any, error) { return req.fetch(ctx) })
 	if err != nil {
 		return msg, fmt.Errorf("panmail_providers: %w", err)
 	}
