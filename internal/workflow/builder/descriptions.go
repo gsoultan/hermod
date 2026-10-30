@@ -129,8 +129,12 @@ var descriptions = map[string]string{
 		`"minEvents":10,"scoreField","flagField","persistent":false}. Writes <field>_anomaly_score and <field>_is_anomaly.`,
 	"transformation:ai_prompt": `Generates text or JSON with a language model. config: {"provider","model",` +
 		`"apiKey":"{{secret(\"NAME\")}}","prompt":"Summarise {{text}}","system","outputMode":"text|json","targetField"}.`,
-	"transformation:api_lookup":      "Fetches data from an HTTP API and merges it into the record.",
-	"transformation:audit":           "Adds execution metadata (workflow, time, node) to the record.",
+	"transformation:api_lookup": "Fetches data from an HTTP API and merges it into the record.",
+	"transformation:audit":      "Adds execution metadata (workflow, time, node) to the record.",
+	"transformation:redis_lookup": `Reads a key from Redis and merges the value into the record. config: ` +
+		`{"addr":"host:6379","password":"{{secret.REDIS_PASSWORD}}","db":0,"tls":false,"command":"get|hget|hgetall",` +
+		`"key":"customer:{{.after.customer_id}}","field":"{{.after.sku}}","valuePath","targetField","flattenInto",` +
+		`"ttl":"1m","onMiss":"passthrough|default|fail","defaultValue"}. A JSON object or array value is merged as one.`,
 	"transformation:char_map":        "String normalisation: upper, lower, trim.",
 	"transformation:data_conversion": "Explicit type casting of fields (string, number, date...).",
 	"transformation:db_lookup":       "Looks up rows in a database (a configured source) and merges them into the record.",
