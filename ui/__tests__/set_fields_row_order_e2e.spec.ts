@@ -37,10 +37,11 @@ test('typing in a set field leaves it where it is', async ({ page }) => {
   await page.goto('/workflows/new', { waitUntil: 'networkidle' });
   await page.waitForTimeout(2000);
 
-  if (!(await page.getByText('Workflow Panel').isVisible().catch(() => false))) {
-    await page.getByRole('button', { name: 'Workflow panel' }).click();
+  if (!(await page.getByText('Add a step', { exact: true }).isVisible().catch(() => false))) {
+    await page.getByRole('button', { name: 'Add step' }).click();
+    await page.getByRole('button', { name: 'Browse the full palette' }).click();
   }
-  await expect(page.getByText('Workflow Panel')).toBeVisible();
+  await expect(page.getByText('Add a step', { exact: true })).toBeVisible();
 
   // A source has to exist before the Transformations tab unlocks.
   await paletteItem(page, 'Sources', 'PostgreSQL').click();

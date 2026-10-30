@@ -68,16 +68,17 @@ describe('Workflows: toggle happy path', () => {
     )
 
     // Wait for initial list
-    const row = await screen.findByRole('row', { name: /Test Workflow/i })
-    expect(within(row).getByText(/Inactive/i)).toBeInTheDocument()
+    await screen.findByRole('list', { name: 'Flows' })
+    const row = screen.getByRole('listitem')
+    expect(within(row).getByText('Off')).toBeInTheDocument()
 
     // Click the Start workflow toggle
-    const toggleBtn = within(row).getByRole('button', { name: /Start workflow/i })
+    const toggleBtn = within(row).getByRole('switch', { name: 'Turn on Test Workflow' })
     fireEvent.click(toggleBtn)
 
     // After mutation and refetch, badge should read Active
     await waitFor(() => {
-      expect(within(row).getByText(/Active/i)).toBeInTheDocument()
+      expect(within(row).getByText('On')).toBeInTheDocument()
     })
 
     // Verify POST was issued exactly once

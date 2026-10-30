@@ -89,13 +89,16 @@ test.describe('workflow detail surface', () => {
     // Each tab is a distinct data path — traces, versions, logs, the debugger —
     // and any of them can throw on an empty workflow, which is exactly the
     // state a user sees right after creating one.
+    // The view and the editor share seven tabs; Build is the graph, Traces the
+    // message traces, and Tuning holds suggested fixes and optimization.
     for (const tab of [
-      /graph view/i,
-      /message traces/i,
-      /history/i,
-      /logs/i,
-      /debugger/i,
-      /optimization/i,
+      /^build$/i,
+      /^runs$/i,
+      /^traces$/i,
+      /^history$/i,
+      /^logs$/i,
+      /^debugger$/i,
+      /^tuning/i,
     ]) {
       const t = page.getByRole('tab', { name: tab });
       await expect(t, `tab ${tab} is missing`).toBeVisible({ timeout: 20000 });
@@ -110,7 +113,7 @@ test.describe('workflow detail surface', () => {
     test.setTimeout(120000);
 
     await page.goto(`/workflows/${workflowID}`);
-    await page.getByRole('tab', { name: /message traces/i }).click();
+    await page.getByRole('tab', { name: /^traces$/i }).click();
 
     // A workflow that has never run has no traces. That must be a designed
     // empty state, not a spinner that never resolves or a blank panel.
@@ -197,6 +200,11 @@ test.describe('workflow editor: node forms and simulation', () => {
   });
 });
 
+/** A flow's row in the Flows list: rows, not table cells, since the list redesign. */
+function flowRow(page: Page, name: string) {
+  return page.getByRole('list', { name: 'Flows' }).getByRole('listitem').filter({ hasText: name });
+}
+
 test.describe('workflow lifecycle from the list', () => {
   test.beforeEach(async ({ page }) => {
     await login(page);
@@ -212,23 +220,25 @@ test.describe('workflow lifecycle from the list', () => {
     await page.waitForLoadState('networkidle');
     // The list paginates and these specs keep adding to it, so a freshly
     // created workflow is not necessarily on the first page.
-    await page.getByPlaceholder(/search workflows/i).fill(name);
+    await page.getByPlaceholder(/search flows/i).fill(name);
 
-    const row = page.locator('tr').filter({ hasText: name });
+    const row = flowRow(page, name);
     await expect(row).toBeVisible({ timeout: 20000 });
 
     // The toggle is the single most-used control on this page: it is what
     // starts and stops data actually moving.
-    const toggle = row.getByRole('switch').or(row.getByRole('checkbox')).first();
-    if (await toggle.count()) {
-      await toggle.click();
-      await page.waitForTimeout(1500);
-      // Reload to prove the new state persisted rather than only rendering;
-      // the reload clears the filter, so re-apply it before looking for the row.
-      await page.reload();
-      await page.getByPlaceholder(/search workflows/i).fill(name);
-      await expect(page.locator('tr').filter({ hasText: name })).toBeVisible({ timeout: 20000 });
-    }
+    const toggle = row.getByRole('switch', { name: `Turn on ${name}` });
+    // Mantine draws the track over the input, so the click goes to the input
+    // itself. The switch is controlled: it flips when the server answers.
+    const toggled = page.waitForResponse((r) => r.url().includes('/toggle') && r.request().method() === 'POST');
+    await toggle.click({ force: true });
+    expect((await toggled).ok(), 'the toggle endpoint should accept the change').toBeTruthy();
+    await expect(row.getByRole('switch', { name: `Turn off ${name}` })).toBeVisible({ timeout: 15000 });
+    // Reload to prove the new state persisted rather than only rendering;
+    // the reload clears the filter, so re-apply it before looking for the row.
+    await page.reload();
+    await page.getByPlaceholder(/search flows/i).fill(name);
+    await expect(flowRow(page, name).getByRole('switch', { name: `Turn off ${name}` })).toBeVisible({ timeout: 20000 });
   });
 
   test('a workflow can be deleted', async ({ page }) => {
@@ -238,16 +248,16 @@ test.describe('workflow lifecycle from the list', () => {
     await createWorkflow(page, name);
 
     await page.goto('/workflows');
-    await page.getByPlaceholder(/search workflows/i).fill(name);
-    const row = page.locator('tr').filter({ hasText: name });
+    await page.getByPlaceholder(/search flows/i).fill(name);
+    const row = flowRow(page, name);
     await expect(row).toBeVisible({ timeout: 20000 });
 
-    // Use the exact aria-label: a loose /delete/i also matches the page-level
-    // "Delete Selected" action, which opens a different (batch) confirmation.
-    await row.getByLabel('Delete workflow').click();
+    // Delete is behind the row's ⋯ menu, named after the flow so the right one opens.
+    await row.getByRole('button', { name: `More for ${name}` }).click();
+    await page.getByRole('menuitem', { name: 'Delete' }).click();
     await acceptConfirm(page);
 
-    await expect(page.locator('tr').filter({ hasText: name })).toHaveCount(0, { timeout: 20000 });
+    await expect(flowRow(page, name)).toHaveCount(0, { timeout: 20000 });
   });
 });
 

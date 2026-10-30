@@ -212,7 +212,7 @@ describe('Settings › Environments', () => {
     expect(screen.getByText('into hr')).toBeInTheDocument()
 
     expect(screen.getByRole('button', { name: 'Create pairing code' })).toBeDisabled()
-    await user.type(screen.getByRole('combobox', { name: 'Into vhost' }), 'hr')
+    await user.type(screen.getByRole('combobox', { name: 'Into virtual host' }), 'hr')
     await user.click(screen.getByRole('button', { name: 'Create pairing code' }))
     expect(await screen.findByText('QRST-5678')).toBeInTheDocument()
     expect(codeBody).toEqual({ label: 'Created in Settings', vhost: 'hr' })
@@ -537,5 +537,15 @@ describe('the Environments page on production', () => {
     wrap(<EnvironmentsPage />)
     await screen.findByText('Recently live')
     expect(screen.getAllByRole('button', { name: 'Undo' })).toHaveLength(1)
+  })
+})
+
+describe('the Releases page', () => {
+  it('is titled as its Settings row, with the way back, and says where the role is set', async () => {
+    server.use(http.get('/api/environments/self', () => HttpResponse.json({ role: '', name: '' })))
+    wrap(<EnvironmentsPage />)
+    expect(screen.getByRole('heading', { level: 1, name: 'Releases' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /back to settings/i })).toHaveAttribute('href', '/settings')
+    expect(await screen.findByText(/Settings › Workspace › Environments/)).toBeInTheDocument()
   })
 })

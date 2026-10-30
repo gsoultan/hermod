@@ -3,9 +3,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/api'
 import { AgentRunDetails } from '@/components/workflow/AgentTranscript/AgentRunDetails'
 import { 
-  Alert, Badge, Box, Button, Group, Modal, Paper, Pagination, Select, Stack, Table, Text, Textarea, TextInput, Title 
+  ActionIcon, Alert, Badge, Box, Button, Group, Modal, Paper, Pagination, Select, Stack, Text, Textarea, TextInput, Tooltip 
 } from '@mantine/core'
-import { IconChevronsDown, IconCircleCheck, IconCircleX, IconRefresh, IconSearch } from '@tabler/icons-react'
+import { IconChevronsDown, IconCircleCheck, IconCircleX, IconHierarchy, IconRefresh } from '@tabler/icons-react'
+import { EmptyState, FilterBar, Row, RowList, StatePill } from '@/components/rows'
 
 type Approval = {
   id: string
@@ -46,7 +47,7 @@ export function ApprovalsPage() {
       const params = new URLSearchParams()
       params.set('page', String(page))
       params.set('limit', String(limit))
-      if (status) params.set('status', status)
+      if (status && status !== 'all') params.set('status', status)
       if (workflowId) params.set('workflow_id', workflowId)
       if (search) params.set('search', search)
       const res = await apiFetch(`/api/approvals?${params.toString()}`)
@@ -68,12 +69,13 @@ export function ApprovalsPage() {
     setFormData(details?.form_data || {})
   }, [details?.id, details?.form_data])
 
+  // From the row there are no notes and no form; from the review dialog there may be both.
   const approveMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const res = await apiFetch(`/api/approvals/${id}/approve`, {
+    mutationFn: async (vars: { id: string; inline?: boolean }) => {
+      const res = await apiFetch(`/api/approvals/${vars.id}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notes, form_data: formData })
+        body: JSON.stringify(vars.inline ? { notes: '', form_data: {} } : { notes, form_data: formData })
       })
       if (!res.ok) throw new Error('Failed to approve')
     },
@@ -84,11 +86,11 @@ export function ApprovalsPage() {
   })
 
   const rejectMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const res = await apiFetch(`/api/approvals/${id}/reject`, {
+    mutationFn: async (vars: { id: string; inline?: boolean }) => {
+      const res = await apiFetch(`/api/approvals/${vars.id}/reject`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notes, form_data: formData })
+        body: JSON.stringify(vars.inline ? { notes: '', form_data: {} } : { notes, form_data: formData })
       })
       if (!res.ok) throw new Error('Failed to reject')
     },
@@ -98,83 +100,71 @@ export function ApprovalsPage() {
     }
   })
 
-  const rows = approvals.map((a) => (
-    <Table.Tr key={a.id} onClick={() => setDetails(a)} style={{ cursor: 'pointer' }}>
-      <Table.Td><Text size="sm" c="dimmed">{a.id.slice(0,8)}</Text></Table.Td>
-      <Table.Td>{a.workflow_id}</Table.Td>
-      <Table.Td>{a.node_id}</Table.Td>
-      <Table.Td>{a.message_id}</Table.Td>
-      <Table.Td>
-        {a.status === 'pending' && <Badge color="yellow" variant="light">Pending</Badge>}
-        {a.status === 'approved' && <Badge color="green" variant="light" leftSection={<IconCircleCheck size="0.8rem" />}>Approved</Badge>}
-        {a.status === 'rejected' && <Badge color="red" variant="light" leftSection={<IconCircleX size="0.8rem" />}>Rejected</Badge>}
-      </Table.Td>
-      <Table.Td>
-        <Text size="sm" c="dimmed">{new Date(a.created_at).toLocaleString()}</Text>
-      </Table.Td>
-    </Table.Tr>
-  ))
-
   const workflowOptions = useMemo(() => {
     const arr = (workflows?.data || []).map((w: any) => ({ value: w.id, label: w.name || w.id }))
     return arr
   }, [workflows])
+  const flowName = (id: string) => (workflows?.data || []).find((w: any) => w.id === id)?.name || `Flow ${id.slice(0, 8)}`
+  const needsAnswers = (a: Approval) => Boolean(a.form_definition?.fields?.length)
 
   return (
-    <Box p="md">
-      <Stack gap="lg">
-        <Paper withBorder p="md" radius="md" bg="var(--mantine-color-body)">
-          <Group justify="space-between" align="flex-end">
-            <Stack gap={2} style={{ flex: 1 }}>
-              <Title order={2} fw={800}>Approvals</Title>
-              <Text size="sm" c="dimmed">Review and decide on messages paused at Approval nodes, and on tool calls AI Agent nodes are waiting to make.</Text>
-            </Stack>
-            <Group wrap="nowrap">
-              <Button variant="light" leftSection={<IconRefresh size="1rem" />} onClick={() => refetch()} loading={isFetching}>Refresh</Button>
-            </Group>
-          </Group>
-          <Group mt="md" wrap="wrap" gap="sm">
-            <TextInput placeholder="Search by ID/Message/Node" leftSection={<IconSearch size="1rem" />} value={search} onChange={(e)=>{ setSearch(e.currentTarget.value); setPage(1) }} w={280} />
-            <Select label={undefined} placeholder="Filter by status" data={[
-              { value: 'pending', label: 'Pending' },
+    <Box>
+      <Stack gap={0}>
+        <FilterBar
+          search={{ value: search, onChange: (v) => { setSearch(v); setPage(1) }, placeholder: 'Search by ID, message or step' }}
+          filter={{
+            value: status || 'all',
+            onChange: (v) => { setStatus(v); setPage(1) },
+            options: [
+              { value: 'pending', label: 'Waiting' },
               { value: 'approved', label: 'Approved' },
               { value: 'rejected', label: 'Rejected' },
-            ]} value={status} onChange={(v)=>{ setStatus(v); setPage(1) }} w={180} clearable />
-            <Select label={undefined} placeholder="Filter by workflow" data={workflowOptions} value={workflowId} onChange={(v)=>{ setWorkflowId(v); setPage(1) }} searchable clearable w={260} />
-          </Group>
-        </Paper>
+              { value: 'all', label: 'All' },
+            ],
+          }}
+        >
+          <Select aria-label="Filter by flow" placeholder="Any flow" data={workflowOptions} value={workflowId} onChange={(v)=>{ setWorkflowId(v); setPage(1) }} searchable clearable w={220} />
+          <Tooltip label="Refresh">
+            <ActionIcon aria-label="Refresh approvals" variant="default" size={36} onClick={() => refetch()} loading={isFetching}><IconRefresh size="1rem" /></ActionIcon>
+          </Tooltip>
+        </FilterBar>
 
-        <Paper radius="md" style={{ border: '1px solid var(--mantine-color-gray-1)', overflow: 'hidden' }}>
-          <Table.ScrollContainer minWidth={700}>
-            <Table verticalSpacing="md" horizontalSpacing="xl">
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>ID</Table.Th>
-                <Table.Th>Workflow</Table.Th>
-                <Table.Th>Node</Table.Th>
-                <Table.Th>Message</Table.Th>
-                <Table.Th>Status</Table.Th>
-                <Table.Th>Created</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {rows}
-              {approvals.length === 0 && (
-                <Table.Tr>
-                  <Table.Td colSpan={6} py="xl">
-                    <Text c="dimmed" ta="center">No approvals found</Text>
-                  </Table.Td>
-                </Table.Tr>
-              )}
-            </Table.Tbody>
-          </Table>
-          </Table.ScrollContainer>
-          {pages > 1 && (
-            <Group justify="center" p="md" bg="var(--mantine-color-body)" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
-              <Pagination total={pages} value={page} onChange={setPage} radius="md" />
-            </Group>
-          )}
-        </Paper>
+        {approvals.length === 0 ? (
+          <Paper withBorder radius={12}>
+            <EmptyState
+              title={status === 'pending' && !search && !workflowId ? 'Nothing is waiting for approval' : 'No approvals match'}
+              detail="Messages paused at an Approval step, and tool calls an AI agent step wants to make, wait here for a decision."
+            />
+          </Paper>
+        ) : (
+          <RowList aria-label="Approvals">
+            {approvals.map((a) => (
+              <Row
+                key={a.id}
+                icon={IconHierarchy}
+                title={flowName(a.workflow_id)}
+                detail={`Step ${a.node_id} · ${a.id.slice(0, 8)} · ${new Date(a.created_at).toLocaleString()}`}
+                state={a.status === 'approved'
+                  ? <StatePill tone="ok">Approved</StatePill>
+                  : a.status === 'rejected' ? <StatePill tone="err">Rejected</StatePill> : undefined}
+                onOpen={() => setDetails(a)}
+                action={a.status !== 'pending' ? undefined : needsAnswers(a) ? (
+                  <Button size="xs" variant="default" onClick={() => setDetails(a)}>Review</Button>
+                ) : (
+                  <Group gap="xs" wrap="nowrap">
+                    <Button size="xs" variant="default" onClick={() => rejectMutation.mutate({ id: a.id, inline: true })}>Reject</Button>
+                    <Button size="xs" onClick={() => approveMutation.mutate({ id: a.id, inline: true })}>Approve</Button>
+                  </Group>
+                )}
+              />
+            ))}
+          </RowList>
+        )}
+        {pages > 1 && (
+          <Group justify="center" mt="md">
+            <Pagination total={pages} value={page} onChange={setPage} />
+          </Group>
+        )}
 
         <Modal opened={!!details} onClose={()=>setDetails(null)} title={<Group gap={6}><IconChevronsDown size="1rem" /><Text fw={700}>Approval Details</Text></Group>} size="lg">
           {details && (
@@ -243,8 +233,8 @@ export function ApprovalsPage() {
                 <>
                   <Textarea label="Notes (optional)" placeholder="Reason or instructions..." value={notes} onChange={(e)=>setNotes(e.currentTarget.value)} autosize minRows={2} />
                   <Group justify="space-between">
-                    <Button leftSection={<IconCircleX size="1rem" />} color="red" variant="light" onClick={()=> rejectMutation.mutate(details.id)} loading={rejectMutation.isPending}>Reject</Button>
-                    <Button leftSection={<IconCircleCheck size="1rem" />} color="green" onClick={()=> approveMutation.mutate(details.id)} loading={approveMutation.isPending}>Approve</Button>
+                    <Button leftSection={<IconCircleX size="1rem" />} color="red" variant="light" onClick={()=> rejectMutation.mutate({ id: details.id })} loading={rejectMutation.isPending}>Reject</Button>
+                    <Button leftSection={<IconCircleCheck size="1rem" />} color="green" onClick={()=> approveMutation.mutate({ id: details.id })} loading={approveMutation.isPending}>Approve</Button>
                   </Group>
                 </>
               ) : (

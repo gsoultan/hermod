@@ -53,7 +53,7 @@ export const SourceBasics: FC<SourceBasicsProps> = ({
         {!embedded && (
           <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
             <Select 
-              label="VHost" 
+              label="Virtual host" 
               placeholder="Select a virtual host" 
               data={Array.isArray(availableVHostsList) ? availableVHostsList : []}
               value={source.vhost}

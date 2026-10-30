@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Title, Paper, Stack, Group, Box, Text, TextInput, Button, Divider, Alert, Badge, Card, Avatar, Tabs, PasswordInput, Modal, Image, Code } from '@mantine/core';
+import { Title, Paper, Stack, Group, Box, Text, TextInput, Button, Divider, Alert, Badge, Card, Tabs, PasswordInput, Modal, Image, Code } from '@mantine/core';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch, apiJson } from '@/api';
 import { notifications } from '@mantine/notifications';
 import { IconAlertCircle, IconCheck, IconDeviceFloppy, IconFingerprint, IconLock, IconMail, IconRefresh, IconShieldLock, IconTrash, IconUser, IconWorld, IconCopy } from '@tabler/icons-react';
 import { copyToClipboard } from '@/utils/cryptoUtils';
 import { useConfirm } from '@/components/common/ConfirmProvider';
+import { PageHeader } from '@/components/rows';
 interface User {
   id: string;
   username: string;
@@ -191,23 +192,17 @@ export function ProfilePage() {
   };
 
   return (
-    <Box p="md">
+    <Box>
       <Stack gap="lg">
-        <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
-          <Group gap="sm">
-            <Avatar size="lg" radius="xl" color="blue" variant="filled">
-              {user.full_name?.charAt(0) || user.username.charAt(0)}
-            </Avatar>
-            <Box style={{ flex: 1 }}>
-              <Title order={2} fw={800}>{user.full_name || user.username}</Title>
-              <Text size="sm" c="dimmed">@{user.username} • {user.role}</Text>
-            </Box>
-          </Group>
-        </Paper>
+        <PageHeader
+          title="My account"
+          lede={[user.full_name, `@${user.username}`, user.role].filter(Boolean).join(' · ')}
+          back={{ to: '/settings', label: 'Back to settings' }}
+        />
 
         <Tabs value={activeTab} onChange={setActiveTab} variant="outline" radius="md">
           <Tabs.List>
-            <Tabs.Tab value="info" leftSection={<IconUser size="1rem" />}>Profile Info</Tabs.Tab>
+            <Tabs.Tab value="info" leftSection={<IconUser size="1rem" />}>Profile</Tabs.Tab>
             <Tabs.Tab value="security" leftSection={<IconShieldLock size="1rem" />}>Security</Tabs.Tab>
           </Tabs.List>
 
@@ -216,7 +211,7 @@ export function ProfilePage() {
               <Paper withBorder p="xl" radius="md" style={{ flex: 1 }}>
                 <form onSubmit={handleUpdateProfile}>
                   <Stack gap="md">
-                    <Title order={4}>General Information</Title>
+                    <Title order={4}>About you</Title>
                     <TextInput
                       label="Username"
                       value={user.username}
@@ -224,14 +219,14 @@ export function ProfilePage() {
                       description="Username cannot be changed"
                     />
                     <TextInput
-                      label="Full Name"
+                      label="Full name"
                       placeholder="Enter your full name"
                       value={fullName}
                       onChange={(e) => setFullName(e.currentTarget.value)}
                       leftSection={<IconUser size="1rem" />}
                     />
                     <TextInput
-                      label="Email Address"
+                      label="Email address"
                       placeholder="your@email.com"
                       value={email}
                       onChange={(e) => setEmail(e.currentTarget.value)}
@@ -282,14 +277,14 @@ export function ProfilePage() {
             <Paper withBorder p="xl" radius="md" maw={500}>
               <form onSubmit={handleChangePassword}>
                 <Stack gap="md">
-                  <Title order={4}>Change Password</Title>
+                  <Title order={4}>Change password</Title>
                   <Text size="sm" c="dimmed">
                     Ensure your account is using a long, random password to stay secure.
                   </Text>
                   
                   <Group justify="space-between" align="flex-end">
                     <PasswordInput
-                      label="New Password"
+                      label="New password"
                       placeholder="Enter new password"
                       value={password}
                       onChange={(e) => setPassword(e.currentTarget.value)}
@@ -316,7 +311,7 @@ export function ProfilePage() {
                   </Group>
                   
                   <PasswordInput
-                    label="Confirm New Password"
+                    label="Confirm new password"
                     placeholder="Confirm new password"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.currentTarget.value)}
@@ -339,7 +334,7 @@ export function ProfilePage() {
               <Stack gap="md">
                 <Group justify="space-between">
                   <Stack gap={0}>
-                    <Title order={4}>Two-Factor Authentication (2FA)</Title>
+                    <Title order={4}>Two-factor sign-in</Title>
                     <Text size="sm" c="dimmed">
                       Add an extra layer of security to your account using TOTP.
                     </Text>

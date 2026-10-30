@@ -33,7 +33,7 @@ export function SidebarDrawer({
     drawerOpened, drawerTab, deadLetters, dlqThreshold, prioritizeDLQ, dryRun, 
     maxRetries, retryInterval, reconnectInterval, workspaceID, schemaType, schema, tags,
     cpuRequest, memoryRequest, throughputRequest,
-    cron,
+    cron, vhost, workerID, setVHost, setWorkerID,
     setDrawerOpened, setDrawerTab, setDeadLetters, setDlqThreshold, setPrioritizeDLQ, 
     setDryRun, setMaxRetries, setRetryInterval, setReconnectInterval, 
     setWorkspaceID, setSchemaType, setSchema, setTags, 
@@ -42,6 +42,10 @@ export function SidebarDrawer({
   } = useWorkflowStore(useShallow(state => ({
     drawerOpened: state.drawerOpened,
     drawerTab: state.drawerTab,
+    vhost: state.vhost,
+    workerID: state.workerID,
+    setVHost: state.setVHost,
+    setWorkerID: state.setWorkerID,
     deadLetters: state.deadLetters,
     dlqThreshold: state.dlqThreshold,
     prioritizeDLQ: state.prioritizeDLQ,
@@ -77,6 +81,10 @@ export function SidebarDrawer({
     setCron: state.setCron,
     
   })));
+  // Same keys as the editor page, so the lists are already in the cache when the panel opens.
+  const { data: vhostList } = useQuery({ queryKey: ['vhosts'], queryFn: async () => (await apiFetch('/api/vhosts')).json() });
+  const { data: workerList } = useQuery({ queryKey: ['workers'], queryFn: async () => (await apiFetch('/api/workers')).json() });
+
 
   const nodeCategories = NODE_CATEGORIES;
 
@@ -261,7 +269,7 @@ export function SidebarDrawer({
             <ThemeIcon variant="light" color="blue" size="md">
               <IconAdjustments size="1.2rem" />
             </ThemeIcon>
-            <Title order={4}>Workflow Panel</Title>
+            <Title order={4}>{coercedTab === 'settings' ? 'Flow settings' : coercedTab === 'copilot' ? 'AI copilot' : 'Add a step'}</Title>
           </Group>
           <ActionIcon aria-label="Close" variant="subtle" color="gray" onClick={() => setDrawerOpened(false)}>
             <IconX size="1.2rem" />
@@ -287,7 +295,7 @@ export function SidebarDrawer({
             <TextInput
               mb="sm"
               size="xs"
-              placeholder="Search sources, transformations and sinks..."
+              placeholder="Search sources, transformations and sinks"
               aria-label="Search the node palette"
               leftSection={<IconSearch size="0.9rem" />}
               value={paletteSearch}
@@ -319,7 +327,7 @@ export function SidebarDrawer({
                     <Paper withBorder p="xs" radius="md" bg={isDark ? 'dark.8' : 'indigo.0'}>
                       <Group gap="xs" px="xs" mb="xs">
                         <IconPuzzle size="1rem" color="var(--mantine-color-indigo-6)" />
-                        <Text size="xs" fw={800} c="indigo.7" style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>Installed Plugins</Text>
+                        <Text size="xs" fw={800} c="indigo.7" style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>Installed plugins</Text>
                       </Group>
                       <Stack gap={2}>
                         {(Array.isArray(plugins) ? plugins : [])
@@ -378,7 +386,7 @@ export function SidebarDrawer({
                       whole block goes rather than leaving the label stranded. */}
                   {(!searchActive || filterExisting(sources, 'source').length > 0) && (
                   <Box>
-                    <Text size="xs" fw={800} c="dimmed" mb="xs" px="xs" style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>Existing Sources</Text>
+                    <Text size="xs" fw={800} c="dimmed" mb="xs" px="xs" style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>Your sources</Text>
                     <Stack gap={2}>
                       {filterExisting(sources, 'source').map(s => renderDraggableItem({
                         type: 'source',
@@ -419,7 +427,7 @@ export function SidebarDrawer({
                       whole block goes rather than leaving the label stranded. */}
                   {(!searchActive || filterExisting(sinks, 'sink').length > 0) && (
                   <Box>
-                    <Text size="xs" fw={800} c="dimmed" mb="xs" px="xs" style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>Existing Sinks</Text>
+                    <Text size="xs" fw={800} c="dimmed" mb="xs" px="xs" style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>Your sinks</Text>
                     <Stack gap={2}>
                       {filterExisting(sinks, 'sink').map(s => renderDraggableItem({
                         type: 'sink',
@@ -451,6 +459,30 @@ export function SidebarDrawer({
             <Tabs.Panel value="settings" h="100%">
               <ScrollArea h="100%" offsetScrollbars type="always" px="xs">
                 <Stack gap="lg" py="xs">
+                  {/* Where the flow runs. These two were selects in the editor's header; they are saved with the flow, so they live with its other settings. */}
+                  <Paper withBorder p="md" radius="md">
+                    <Text fw={700} size="sm" mb="md">Where it runs</Text>
+                    <Stack gap="sm">
+                      <Select
+                        label="Virtual host"
+                        data={(Array.isArray(vhostList?.data) ? vhostList.data : []).map((vh: any) => ({ value: vh.name, label: vh.name }))}
+                        value={vhost}
+                        onChange={(val) => setVHost(val || 'default')}
+                        size="xs"
+                        allowDeselect={false}
+                      />
+                      <Select
+                        label="Worker"
+                        description="Leave empty to let the platform run it."
+                        placeholder="Any"
+                        data={(Array.isArray(workerList?.data) ? workerList.data : []).map((w: any) => ({ value: w.id, label: w.name || w.id }))}
+                        value={workerID || null}
+                        onChange={(val) => setWorkerID(val || '')}
+                        size="xs"
+                        clearable
+                      />
+                    </Stack>
+                  </Paper>
                   <Paper withBorder p="md" radius="md" bg={isDark ? 'dark.7' : 'blue.0'}>
                     <Group gap="xs" mb="md">
                       <ThemeIcon variant="light" color="blue" size="sm">

@@ -1,13 +1,15 @@
-import { IconEdit, IconPlus, IconSearch, IconServer, IconTrash } from '@tabler/icons-react';
+import { IconDots, IconEdit, IconHierarchy, IconPlus, IconTrash } from '@tabler/icons-react';
 import { useState } from 'react'
-import { Title, Table, Button, Group, ActionIcon, Paper, Text, Box, Stack, TextInput, Pagination } from '@mantine/core'
+import { ActionIcon, Box, Button, Group, Menu, Pagination, Paper } from '@mantine/core'
 import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/api'
-import { useNavigate } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import type { VHost } from '@/types'
 import { useConfirm } from '@/components/common/ConfirmProvider';
+import { EmptyState, FilterBar, Row, RowList } from '@/components/rows';
+import { AdminListHeader } from './AdminListHeader';
 
-export function VHostsPage() {
+export function VHostsPage({ embedded = false }: { embedded?: boolean }) {
   const confirm = useConfirm();
   const queryClient = useQueryClient()
   const navigate = useNavigate()
@@ -18,7 +20,7 @@ export function VHostsPage() {
   const { data: vhostsResponse } = useSuspenseQuery<any>({
     queryKey: ['vhosts', activePage, search],
     queryFn: async () => {
-      const res = await apiFetch(`/api/vhosts?page=${activePage}&limit=${itemsPerPage}&search=${search}`)
+      const res = await apiFetch(`/api/vhosts?page=${activePage}&limit=${itemsPerPage}&search=${encodeURIComponent(search)}`)
       if (!res.ok) throw new Error('Failed to fetch vhosts')
       return res.json()
     }
@@ -26,6 +28,7 @@ export function VHostsPage() {
 
   const vhosts = (vhostsResponse as any)?.data as VHost[] || []
   const totalItems = (vhostsResponse as any)?.total as number || 0
+  const totalPages = Math.ceil(totalItems / itemsPerPage)
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -37,91 +40,60 @@ export function VHostsPage() {
     }
   })
 
-  const totalPages = Math.ceil(totalItems / itemsPerPage)
-
-  const rows = vhosts.map((vhost: VHost) => (
-    <Table.Tr key={vhost.id}>
-      <Table.Td fw={500}>{vhost.name}</Table.Td>
-      <Table.Td>{vhost.description || '-'}</Table.Td>
-      <Table.Td>
-        <Group justify="flex-end">
-          <ActionIcon variant="light" color="blue" onClick={() => navigate({ to: `/vhosts/${vhost.id || vhost.name}/edit` })} radius="md" aria-label="Edit vhost">
-            <IconEdit size="1.2rem" stroke={1.5} />
-          </ActionIcon>
-          <ActionIcon color="red" variant="light" onClick={async () => {
-            if (await confirm({ title: 'Delete VHost', message: 'Permanently delete this virtual host?', consequence: 'Sources, sinks and workflows scoped to it may stop working.', confirmLabel: 'Delete VHost', danger: true })) {
-              deleteMutation.mutate(vhost.id || vhost.name);
-            }
-          }} radius="md" aria-label="Delete vhost">
-            <IconTrash size="1.2rem" />
-          </ActionIcon>
-        </Group>
-      </Table.Td>
-    </Table.Tr>
-  ))
+  const remove = async (vhost: VHost) => {
+    if (await confirm({ title: 'Delete virtual host', message: `Permanently delete ${vhost.name}?`, consequence: 'Sources, sinks and flows scoped to it may stop working.', confirmLabel: 'Delete virtual host', danger: true })) {
+      deleteMutation.mutate(vhost.id || vhost.name);
+    }
+  }
 
   return (
-    <Box p="md" className="page-enter">
-      <Stack gap="lg">
-        <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
-          <Stack gap="md">
-            <Group gap="sm">
-              <IconServer size="2rem" color="var(--mantine-color-blue-filled)" />
-              <Box style={{ flex: 1 }}>
-                <Title order={2} fw={800}>Virtual Hosts</Title>
-                <Text size="sm" c="dimmed">
-                  Virtual Hosts (VHosts) provide logical isolation for your data flows. 
-                  Use them to separate different environments, projects, or teams within a single Hermod instance.
-                </Text>
-              </Box>
-              <Button leftSection={<IconPlus size="1.2rem" />} onClick={() => navigate({ to: '/vhosts/new' })}>
-                Add VHost
-              </Button>
-            </Group>
-            <TextInput
-              placeholder="Search virtual hosts by name or description..."
-              leftSection={<IconSearch size="1rem" stroke={1.5} />}
-              value={search}
-              onChange={(event) => {
-                setSearch(event.currentTarget.value)
-                setPage(1)
-              }}
-              radius="md"
-            />
-          </Stack>
-        </Paper>
+    <Box className="page-enter">
+      <AdminListHeader
+        embedded={embedded}
+        title="Virtual hosts"
+        lede="Keep environments, projects or teams apart inside one Hermod"
+        back={{ to: '/settings', label: 'Back to settings', search: { tab: 'vhosts' } }}
+        actions={<Button leftSection={<IconPlus size="1rem" />} onClick={() => navigate({ to: '/vhosts/new' })}>Add virtual host</Button>}
+      />
+      <FilterBar search={{ value: search, onChange: (v) => { setSearch(v); setPage(1) }, placeholder: 'Search virtual hosts' }} />
 
-        <Paper radius="md" style={{ border: '1px solid var(--mantine-color-gray-1)', overflow: 'hidden' }}>
-          <Table.ScrollContainer minWidth={700}>
-            <Table verticalSpacing="md" horizontalSpacing="xl">
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Name</Table.Th>
-                <Table.Th>Description</Table.Th>
-                <Table.Th style={{ textAlign: 'right' }}>Actions</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {rows}
-              {vhosts.length === 0 && (
-                <Table.Tr>
-                  <Table.Td colSpan={3} py="xl">
-                    <Text c="dimmed" ta="center">{search ? 'No virtual hosts match your search' : 'No virtual hosts created yet'}</Text>
-                  </Table.Td>
-                </Table.Tr>
-              )}
-            </Table.Tbody>
-          </Table>
-          </Table.ScrollContainer>
-          {totalPages > 1 && (
-            <Group justify="center" p="md" bg="var(--mantine-color-body)" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
-              <Pagination total={totalPages} value={activePage} onChange={setPage} radius="md" />
-            </Group>
-          )}
+      {vhosts.length === 0 ? (
+        <Paper withBorder radius={12}>
+          <EmptyState title={search ? 'No virtual hosts match' : 'No virtual hosts yet'} detail={search ? 'Try a name or a word from the description.' : 'Add one to keep a group of flows and connections apart.'} />
         </Paper>
-      </Stack>
+      ) : (
+        <RowList aria-label="Virtual hosts">
+          {vhosts.map((vhost) => {
+            const id = vhost.id || vhost.name
+            return (
+              <Row
+                key={id}
+                icon={IconHierarchy}
+                title={vhost.name}
+                detail={vhost.description || 'No description'}
+                to="/vhosts/$vhostId/edit"
+                params={{ vhostId: id }}
+                action={
+                  <Menu position="bottom-end" withArrow shadow="md">
+                    <Menu.Target>
+                      <ActionIcon aria-label={`More for ${vhost.name}`} variant="subtle" color="gray"><IconDots size="1rem" /></ActionIcon>
+                    </Menu.Target>
+                    <Menu.Dropdown>
+                      <Menu.Item component={Link} to="/vhosts/$vhostId/edit" params={{ vhostId: id } as any} leftSection={<IconEdit size="1rem" />}>Edit</Menu.Item>
+                      <Menu.Item color="red" leftSection={<IconTrash size="1rem" />} onClick={() => remove(vhost)}>Delete</Menu.Item>
+                    </Menu.Dropdown>
+                  </Menu>
+                }
+              />
+            )
+          })}
+        </RowList>
+      )}
+      {totalPages > 1 && (
+        <Group justify="center" mt="md">
+          <Pagination total={totalPages} value={activePage} onChange={setPage} radius="md" />
+        </Group>
+      )}
     </Box>
   )
 }
-
-

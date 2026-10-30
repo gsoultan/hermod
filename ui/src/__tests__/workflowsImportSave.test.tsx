@@ -60,11 +60,12 @@ describe.skip('Workflows: import/save via modal', () => {
 
     // Initially no workflows
     await waitFor(() => {
-      expect(screen.getByText(/No workflows found/i)).toBeInTheDocument()
+      expect(screen.getByText('No flows yet')).toBeInTheDocument()
     })
 
     // Open Import modal
-    fireEvent.click(screen.getByRole('button', { name: /Import JSON/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'More ways to make a flow' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Import JSON/i, hidden: true }))
 
     // Paste minimal JSON
     const json = JSON.stringify({ name: 'Imported Workflow', nodes: [], edges: [] })
@@ -84,7 +85,7 @@ describe.skip('Workflows: import/save via modal', () => {
 
     // Expect the empty state to disappear and the new workflow to be listed
     await waitFor(() => {
-      expect(screen.queryByText(/No workflows found/i)).toBeNull()
+      expect(screen.queryByText('No flows yet')).toBeNull()
     }, { timeout: 10000 })
     const nameCell = await screen.findByText(/Imported Workflow/i, {}, { timeout: 10000 })
     expect(nameCell).toBeInTheDocument()

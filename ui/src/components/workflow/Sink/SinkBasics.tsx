@@ -76,7 +76,7 @@ export function SinkBasics({
 
       {!embedded && (
         <Select
-          label="VHost"
+          label="Virtual host"
           description="Project or environment namespace"
           placeholder="Select a virtual host"
           data={Array.isArray(vhostOptions) ? vhostOptions : []}

@@ -43,11 +43,11 @@ export function NodeConfigDrawer({
 
   const title = (() => {
     switch (type) {
-      case 'source': return `Configure Source`;
-      case 'sink': return `Configure Sink`;
-      case 'transformation': return `Configure Transformation`;
-      case 'validator': return `Configure Validator`;
-      default: return 'Configure Node';
+      case 'source': return 'Set up the source';
+      case 'sink': return 'Set up the sink';
+      case 'transformation': return 'Set up the step';
+      case 'validator': return 'Set up the validator';
+      default: return 'Set up the step';
     }
   })();
 

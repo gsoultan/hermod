@@ -68,7 +68,7 @@ describe('Run with input', () => {
     await waitFor(() => expect(body).toEqual({ message: { order_id: 'A-1' } }))
   })
 
-  it('runs from the chosen source and links the run in Executions', async () => {
+  it('runs from the chosen source and links the run in Runs', async () => {
     let body: any
     server.use(
       http.post('/api/workflows/wf-1/run', async ({ request }) => {
@@ -92,7 +92,7 @@ describe('Run with input', () => {
     expect(screen.getByText('run-42')).toBeInTheDocument()
     expect(screen.getByText(/connection refused/)).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /open in executions/i }))
+    await user.click(screen.getByRole('button', { name: /open in runs/i }))
     expect(onOpenRun).toHaveBeenCalledWith('run-42')
   })
 

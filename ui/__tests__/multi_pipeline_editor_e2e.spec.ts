@@ -55,7 +55,8 @@ test.describe('workflow editor: multi-source pipeline', () => {
 
     // Toolbar affordances the editor is unusable without.
     await expect(page.getByRole('textbox').first()).toBeVisible({ timeout: 15000 });
-    for (const label of [/^tools$/i, /^test$/i, /^save$/i]) {
+    // The old Tools and Inspect menus are one ⋯ menu named More.
+    for (const label of [/^more$/i, /^test$/i, /^save$/i]) {
       await expect(page.getByRole('button', { name: label }).first()).toBeVisible({
         timeout: 15000,
       });
@@ -170,9 +171,10 @@ test.describe('workflow list and detail', () => {
     test.setTimeout(90000);
     await page.goto('/workflows');
     await page.waitForLoadState('networkidle');
-    // Rendered as a link styled as a button, so match on text rather than role.
-    await expect(page.getByText(/create workflow/i).first()).toBeVisible({ timeout: 20000 });
-    await expect(page.getByText(/import json/i).first()).toBeVisible({ timeout: 20000 });
+    // New flow is a split button: the link, and a menu with the other ways in.
+    await expect(page.getByRole('link', { name: 'New flow' }).first()).toBeVisible({ timeout: 20000 });
+    await page.getByRole('button', { name: 'More ways to make a flow' }).click();
+    await expect(page.getByRole('menuitem', { name: 'Import JSON' })).toBeVisible({ timeout: 20000 });
   });
 
   test('sources and sinks pages render their create action', async ({ page }) => {

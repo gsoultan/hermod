@@ -1,11 +1,11 @@
-import { Title, Paper, Stack, Group, Box, Text } from '@mantine/core';
+import { Paper } from '@mantine/core';
+import { PageHeader } from '@/components/rows';
 import { Suspense } from 'react';
 import { FormSkeleton } from '@/components/common/FormSkeleton';
 import { SinkForm } from '@/components/forms/SinkForm';
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { apiFetch } from '@/api';
 import { useParams } from '@tanstack/react-router';
-import { IconExternalLink } from '@tabler/icons-react';
 export function EditSinkPage() {
   const { sinkId } = useParams({ from: '/sinks/$sinkId/edit' });
 
@@ -19,24 +19,17 @@ export function EditSinkPage() {
   });
 
   return (
-    <Box p="md">
-      <Stack gap="lg">
-        <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
-          <Group gap="sm">
-            <IconExternalLink size="2rem" color="var(--mantine-color-blue-filled)" />
-            <Box>
-              <Title order={2} fw={800}>Edit Sink: {sink?.name}</Title>
-              <Text size="sm" c="dimmed">Update your data sink configuration.</Text>
-            </Box>
-          </Group>
-        </Paper>
-
-        <Paper p="xl" withBorder radius="md">
-          <Suspense fallback={<FormSkeleton />}>
-            <SinkForm initialData={sink} isEditing />
-          </Suspense>
-        </Paper>
-      </Stack>
-    </Box>
+    <>
+      <PageHeader
+        title={sink?.name || 'Edit sink'}
+        lede="Change how Hermod connects to this sink. Flows that use it pick up the change when they next start."
+        back={{ to: '/connections', search: { tab: 'sinks' }, label: 'Back to connections' }}
+      />
+      <Paper p="xl" withBorder radius="md">
+        <Suspense fallback={<FormSkeleton />}>
+          <SinkForm initialData={sink} isEditing />
+        </Suspense>
+      </Paper>
+    </>
   );
 }

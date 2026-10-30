@@ -9,23 +9,25 @@ import {
 import '@xyflow/react/dist/style.css';
 import { 
   Title, Button, Group, Paper, Stack, Text, Box, Divider, Badge, ScrollArea, Flex,
-  ThemeIcon, Table, ActionIcon, Tooltip, Pagination, TextInput, Tabs, Modal, Code,
+  ThemeIcon, Table, ActionIcon, Tooltip, Pagination, TextInput, Tabs, Modal, Code, Menu,
   useMantineColorScheme, Grid, Loader, UnstyledButton, Alert, SimpleGrid
 } from '@mantine/core';
-import { Link, useParams } from '@tanstack/react-router';
+import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
-import { notifications } from '@mantine/notifications';
 import { apiFetch } from '@/api';
 import { useDisclosure, useDebouncedValue } from '@mantine/hooks';
 import { formatDateTime } from '@/utils/dateUtils';
-import { normalizeWorkflowStatus } from '@/utils/workflowStatus';
-import { downloadWorkflowExport } from '@/utils/workflowExport';
 import { 
-  IconArrowLeft, IconArrowsExchange, IconChartBar, IconChevronRight, IconCircleCheck, IconCircleX, IconClock, IconEye, IconHistory, IconInfoCircle, IconRefresh, IconRotateDot, IconSearch, IconTerminal2, IconTimeline,
-  IconBug, IconBrain, IconActivity, IconListDetails, IconPlayerPlay, IconFirstAidKit,
+  IconArrowLeft, IconArrowsExchange, IconBrain, IconRotateDot, IconChevronRight, IconCircleCheck, IconCircleX, IconClock, IconCopy, IconDots, IconEye, IconHistory, IconInfoCircle, IconPencil, IconRefresh, IconSearch, IconTimeline,
+  IconActivity, IconPlayerPlay, IconFirstAidKit, IconShieldLock, IconTrash,
   IconDownload, IconRocket
 } from '@tabler/icons-react';
 import { WorkflowDebugger } from './WorkflowDebugger';
+import { PageHeader, StatePill } from '@/components/rows';
+import { flowState } from '@/components/flows/FlowRow';
+import { FLOW_TABS, flowTab, type FlowTab } from './flowTabs';
+import { useFlowActions } from './useFlowActions';
+import { ComplianceReportModal } from './ComplianceReportModal';
 import { DetailFlowCanvas } from './WorkflowEditor/components/DetailFlowCanvas';
 import { useConfirm } from '@/components/common/ConfirmProvider';
 import { useSessionStore } from '@/auth/session';
@@ -42,7 +44,16 @@ export function WorkflowDetailPage() {
   const confirm = useConfirm();
   const { id } = useParams({ from: '/workflows/$id' }) as any;
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<string | null>('graph');
+  const navigate = useNavigate();
+  const urlSearch = useSearch({ strict: false }) as { tab?: string } | undefined;
+  const [activeTab, setActiveTab] = useState<FlowTab>(() => flowTab(urlSearch?.tab));
+  // The tab is in the URL so a link can open a flow on Runs or Tuning, and Back comes back to the same tab.
+  const openTab = useCallback((value: string | null) => {
+    const tab = flowTab(value);
+    setActiveTab(tab);
+    navigate({ to: '/workflows/$id', params: { id }, search: { tab }, replace: true } as any);
+  }, [id, navigate]);
+  const [complianceOpened, setComplianceOpened] = useState(false);
   const [selectedTraceID, setSelectedTraceID] = useState<string | null>(null);
   const [selectedRunID, setSelectedRunID] = useState<string | null>(null);
   // Running, replaying and deciding are Editor actions; the server enforces
@@ -58,8 +69,8 @@ export function WorkflowDetailPage() {
   const pendingProposals = (proposals ?? []).filter((p) => p.status === 'pending').length;
   const openRun = useCallback((runId: string) => {
     setSelectedRunID(runId);
-    setActiveTab('executions');
-  }, []);
+    openTab('runs');
+  }, [openTab]);
   // Paging by cursor rather than by offset. The server reads traces newest
   // first, so "the next page" is "older than the last row I saw" — one index
   // seek, whatever page you are on. An offset has to read and discard
@@ -102,7 +113,7 @@ export function WorkflowDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workflow', id] });
       queryClient.invalidateQueries({ queryKey: ['versions', id] });
-      setActiveTab('graph');
+      openTab('build');
     }
   });
 
@@ -112,21 +123,6 @@ export function WorkflowDetailPage() {
   const restoreVersion = async (version: number) => {
     if (!await confirm({ title: 'Roll back workflow', message: `Replace the current definition with version ${version}?`, consequence: 'The running definition is overwritten and unsaved edits are lost.', confirmLabel: 'Roll back', danger: true })) return;
     rollbackMutation.mutate(version);
-  };
-
-  const handleExport = async () => {
-    if (!workflow) return;
-    try {
-      const res = await apiFetch(`${API_BASE}/workflows/${id}/export`);
-      const { warning } = await downloadWorkflowExport(res, workflow.name);
-      if (warning) {
-        notifications.show({ title: 'Exported with missing dependencies', message: warning, color: 'yellow', autoClose: false });
-      } else {
-        notifications.show({ title: 'Success', message: 'Workflow exported successfully', color: 'green' });
-      }
-    } catch (err: any) {
-      notifications.show({ title: 'Export Failed', message: err.message, color: 'red' });
-    }
   };
 
   const toggleMutation = useMutation({
@@ -192,6 +188,7 @@ export function WorkflowDetailPage() {
       return data;
     },
   });
+  const flowActions = useFlowActions(id, workflow?.name);
 
   const wsActive = activeTab === 'logs' && activePage === 1 && !debouncedSearch;
   const { data: logsResponse, isFetching: isLogsFetching } = useQuery({
@@ -344,96 +341,70 @@ export function WorkflowDetailPage() {
   return (
     <Box p="md" style={{ height: 'calc(100vh - 80px)', display: 'flex', flexDirection: 'column' }}>
       <Stack gap="md" style={{ flex: 1 }}>
-        <Paper p="md" withBorder radius="md">
-          <Group justify="space-between">
-            <Group>
-              <Button 
-                variant="subtle" 
-                leftSection={<IconArrowLeft size="1rem" />} 
-                component={Link} 
-                to="/workflows"
-              >
-                Back
-              </Button>
-              <Divider orientation="vertical" />
-              <Box>
-                <Group gap="xs">
-                  <Title order={3}>{workflow.name}</Title>
-                  <Badge color={workflow.active ? 'green' : 'gray'}>
-                    {workflow.active ? 'Active' : 'Inactive'}
-                  </Badge>
-                  {(() => {
-                    // Prefer the real-time engine status streamed over the status
-                    // WebSocket, falling back to the persisted workflow status.
-                    const liveStatus = engineStatus?.engine_status || workflow.status;
-                    if (!liveStatus) return null;
-                    const { label, color } = normalizeWorkflowStatus(liveStatus);
-                    return (
-                      <Badge variant="outline" color={color}>
-                        {label}
-                      </Badge>
-                    );
-                  })()}
+        {(() => {
+          // Prefer the real-time engine status streamed over the status
+          // WebSocket, falling back to the persisted workflow status.
+          const liveStatus = engineStatus?.engine_status || workflow.status;
+          const state = flowState({ active: workflow.active, status: liveStatus });
+          const where = [
+            `Virtual host ${workflow.vhost || 'default'}`,
+            workflow.worker_id ? `worker ${workflow.worker_id}` : null,
+          ].filter(Boolean).join(' · ');
+          return (
+            <PageHeader
+              title={workflow.name}
+              back={{ to: '/workflows', label: 'Back to flows' }}
+              lede={where}
+              meta={(
+                <Group gap="sm">
+                  <StatePill tone={state.tone}>{state.label}</StatePill>
                   {workflow.cron && (
-                    <Badge color="indigo" leftSection={<IconClock size="0.8rem" />}>
-                      {workflow.cron}
-                    </Badge>
+                    <Badge color="indigo" variant="light" leftSection={<IconClock size="0.8rem" />}>{workflow.cron}</Badge>
                   )}
                 </Group>
-                <Text size="sm" c="dimmed">{workflow.vhost || 'Default VHost'}</Text>
-              </Box>
-            </Group>
-            <Group>
-              {canEdit && (
-                <Button
-                  variant="light"
-                  color="grape"
-                  leftSection={<IconPlayerPlay size="1rem" />}
-                  onClick={() => setRunInputOpened(true)}
-                >
-                  Run with input
-                </Button>
               )}
-              <Button
-                variant="light"
-                color={workflow.active ? 'orange' : 'green'}
-                leftSection={workflow.active ? <IconRotateDot size="1rem" /> : <IconCircleCheck size="1rem" />}
-                onClick={() => toggleMutation.mutate()}
-                loading={toggleMutation.isPending}
-              >
-                {workflow.active ? 'Stop' : 'Start'}
-              </Button>
-              <Button 
-                variant="light" 
-                leftSection={<IconArrowsExchange size="1rem" />}
-                component={Link}
-                to="/workflows/$id/edit"
-                params={{ id: id } as any}
-              >
-                Edit Workflow
-              </Button>
-              <Button 
-                variant="light" 
-                color="gray"
-                leftSection={<IconDownload size="1rem" />}
-                onClick={handleExport}
-              >
-                Export JSON
-              </Button>
-              {canPromote && (
-                <Button
-                  color="indigo"
-                  leftSection={<IconRocket size="1rem" />}
-                  onClick={() => setPromoteOpened(true)}
-                >
-                  Promote
-                </Button>
-              )}
-            </Group>
-          </Group>
-        </Paper>
+              actions={canEdit ? (
+                <>
+                  <Button variant="light" leftSection={<IconPlayerPlay size="1rem" />} onClick={() => setRunInputOpened(true)}>
+                    Run with input
+                  </Button>
+                  <Button
+                    variant="light"
+                    color={workflow.active ? 'orange' : 'green'}
+                    onClick={() => toggleMutation.mutate()}
+                    loading={toggleMutation.isPending}
+                  >
+                    {workflow.active ? 'Stop' : 'Turn on'}
+                  </Button>
+                  <Button leftSection={<IconPencil size="1rem" />} component={Link} to="/workflows/$id/edit" params={{ id } as any}>
+                    Edit flow
+                  </Button>
+                  <Menu position="bottom-end" withArrow shadow="md">
+                    <Menu.Target>
+                      <ActionIcon aria-label="More" variant="default" size={36}><IconDots size="1rem" /></ActionIcon>
+                    </Menu.Target>
+                    <Menu.Dropdown>
+                      <Menu.Item leftSection={<IconDownload size="1rem" />} onClick={flowActions.exportJson}>Export JSON</Menu.Item>
+                      <Menu.Item leftSection={<IconCopy size="1rem" />} onClick={flowActions.clone}>Clone</Menu.Item>
+                      {canPromote && (
+                        <Menu.Item leftSection={<IconRocket size="1rem" />} onClick={() => setPromoteOpened(true)}>Promote</Menu.Item>
+                      )}
+                      <Menu.Divider />
+                      <Menu.Item leftSection={<IconHistory size="1rem" />} onClick={() => openTab('history')}>Version history</Menu.Item>
+                      <Menu.Item leftSection={<IconShieldLock size="1rem" />} onClick={() => setComplianceOpened(true)}>Compliance report</Menu.Item>
+                      <Menu.Divider />
+                      <Menu.Item color="red" leftSection={<IconTrash size="1rem" />} onClick={flowActions.remove}>Delete flow</Menu.Item>
+                    </Menu.Dropdown>
+                  </Menu>
+                </>
+              ) : undefined}
+            />
+          );
+        })()}
 
-        {pendingProposals > 0 && activeTab !== 'proposals' && (
+        <ComplianceReportModal workflowId={id} opened={complianceOpened} onClose={() => setComplianceOpened(false)} />
+
+        {pendingProposals > 0 && activeTab !== 'tuning' && (
           <Alert
             color="blue"
             variant="light"
@@ -444,7 +415,7 @@ export function WorkflowDetailPage() {
               <Text size="sm">
                 Hermod noticed repeated failures and proposed settings changes. Nothing changes until an editor approves one.
               </Text>
-              <Button size="xs" variant="light" onClick={() => setActiveTab('proposals')}>
+              <Button size="xs" variant="light" onClick={() => openTab('tuning')}>
                 Review fixes
               </Button>
             </Group>
@@ -471,27 +442,22 @@ export function WorkflowDetailPage() {
         )}
 
         <Paper withBorder radius="md" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <Tabs value={activeTab} onChange={setActiveTab} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <Tabs value={activeTab} onChange={openTab} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
             <Tabs.List px="md">
-              <Tabs.Tab value="graph" leftSection={<IconChartBar size="1rem" />}>Graph View</Tabs.Tab>
-              <Tabs.Tab value="executions" leftSection={<IconListDetails size="1rem" />}>Executions</Tabs.Tab>
-              <Tabs.Tab
-                value="proposals"
-                leftSection={<IconFirstAidKit size="1rem" />}
-                rightSection={pendingProposals > 0 ? (
-                  <Badge size="xs" circle color="blue" aria-label={`${pendingProposals} pending`}>{pendingProposals}</Badge>
-                ) : undefined}
-              >
-                Proposals
-              </Tabs.Tab>
-              <Tabs.Tab value="traces" leftSection={<IconTimeline size="1rem" />}>Message Traces</Tabs.Tab>
-              <Tabs.Tab value="history" leftSection={<IconHistory size="1rem" />}>History</Tabs.Tab>
-              <Tabs.Tab value="logs" leftSection={<IconTerminal2 size="1rem" />}>Logs</Tabs.Tab>
-              <Tabs.Tab value="debug" leftSection={<IconBug size="1rem" />}>Debugger</Tabs.Tab>
-              <Tabs.Tab value="opt" leftSection={<IconBrain size="1rem" />}>Optimization</Tabs.Tab>
+              {FLOW_TABS.map((t) => (
+                <Tabs.Tab
+                  key={t.value}
+                  value={t.value}
+                  rightSection={t.value === 'tuning' && pendingProposals > 0 ? (
+                    <Badge size="xs" circle color="blue" aria-label={`${pendingProposals} pending`}>{pendingProposals}</Badge>
+                  ) : undefined}
+                >
+                  {t.label}
+                </Tabs.Tab>
+              ))}
             </Tabs.List>
 
-            <Tabs.Panel value="graph" style={{ flex: 1, position: 'relative' }}>
+            <Tabs.Panel value="build" style={{ flex: 1, position: 'relative' }}>
               <ReactFlowProvider>
                 <DetailFlowCanvas 
                   nodes={nodes}
@@ -503,8 +469,8 @@ export function WorkflowDetailPage() {
               </ReactFlowProvider>
             </Tabs.Panel>
 
-            <Tabs.Panel value="executions" style={{ flex: 1, overflow: 'hidden' }}>
-              {activeTab === 'executions' && (
+            <Tabs.Panel value="runs" style={{ flex: 1, overflow: 'hidden' }}>
+              {activeTab === 'runs' && (
                 <ScrollArea h="100%">
                   <ExecutionsPanel
                     workflowId={id}
@@ -512,16 +478,6 @@ export function WorkflowDetailPage() {
                     selectedRunId={selectedRunID}
                     onSelectRun={setSelectedRunID}
                   />
-                </ScrollArea>
-              )}
-            </Tabs.Panel>
-
-            <Tabs.Panel value="proposals" style={{ flex: 1, overflow: 'hidden' }}>
-              {activeTab === 'proposals' && (
-                <ScrollArea h="100%">
-                  <Box p="md">
-                    <ProposalsPanel workflowId={id} canDecide={canEdit} />
-                  </Box>
                 </ScrollArea>
               )}
             </Tabs.Panel>
@@ -742,15 +698,22 @@ export function WorkflowDetailPage() {
               </ScrollArea>
             </Tabs.Panel>
 
-            <Tabs.Panel value="debug" style={{ flex: 1, overflow: 'hidden' }}>
+            <Tabs.Panel value="debugger" style={{ flex: 1, overflow: 'hidden' }}>
               <WorkflowDebugger workflowId={id} />
             </Tabs.Panel>
 
-            <Tabs.Panel value="opt" p="md" style={{ flex: 1, overflow: 'hidden' }}>
+            <Tabs.Panel value="tuning" p="md" style={{ flex: 1, overflow: 'hidden' }}>
               <ScrollArea h="100%">
                 <Stack gap="xl">
+                  {/* Proposals and Optimization were two tabs; both are Hermod suggesting how the flow could run better, so they are one. */}
                   <Box>
-                    <Title order={4} mb="xs">AI Stability & Optimization</Title>
+                    <Title order={4} mb="xs">Suggested fixes</Title>
+                    <Text size="sm" c="dimmed" mb="md">Settings changes Hermod proposes after repeated failures. Nothing changes until an editor approves one.</Text>
+                    {activeTab === 'tuning' && <ProposalsPanel workflowId={id} canDecide={canEdit} />}
+                  </Box>
+                  <Divider />
+                  <Box>
+                    <Title order={4} mb="xs">Stability and optimization</Title>
                     <Text size="sm" c="dimmed">Real-time performance metrics and AI-driven runtime tunings.</Text>
                   </Box>
 

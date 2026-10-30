@@ -88,7 +88,7 @@ function ReferenceMenu({ onInsert }: { onInsert: (token: string) => void }) {
           <Stack gap={4}>
             <Text size="xs" fw={600} c="dimmed">Secrets</Text>
             {secretNames.length === 0 ? (
-              <Text size="xs" c="dimmed">No secrets saved in this vhost yet.</Text>
+              <Text size="xs" c="dimmed">No secrets saved in this virtual host yet.</Text>
             ) : (
               <ScrollArea.Autosize mah={180}>
                 <Stack gap={2}>

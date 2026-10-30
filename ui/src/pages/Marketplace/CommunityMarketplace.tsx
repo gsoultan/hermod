@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { 
-  Title, Text, SimpleGrid, Card, Group, Badge, Button, 
-  TextInput, Stack, Box, ThemeIcon, Tabs, Paper, Tooltip, Divider, Loader, Center
+  Text, SimpleGrid, Card, Group, Badge, Button, 
+  TextInput, Stack, Box, ThemeIcon, Tabs, Tooltip, Divider, Loader, Center
 } from '@mantine/core';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { notifications } from '@mantine/notifications';
-import { IconCheck, IconCloudDownload, IconExternalLink, IconPuzzle, IconSearch, IconShieldCheck, IconStar, IconTrash, IconUser } from '@tabler/icons-react';
+import { IconCheck, IconCloudDownload, IconExternalLink, IconSearch, IconShieldCheck, IconStar, IconTrash, IconUser } from '@tabler/icons-react';
 import { apiFetch } from '@/api';
+import { SectionHeader } from '@/components/rows';
 interface Plugin {
     id: string;
     name: string;
@@ -115,22 +116,17 @@ export function CommunityMarketplace() {
   }
 
   return (
-    <Box p="md">
+    <Box>
       <Stack gap="lg">
-        <Paper p="md" withBorder radius="md" bg="indigo.0">
-          <Group gap="sm">
-            <IconPuzzle size="2rem" color="var(--mantine-color-indigo-6)" />
-            <Box style={{ flex: 1 }}>
-              <Title order={2} fw={800}>Community Marketplace</Title>
-              <Text size="sm" c="dimmed">
-                Extend Hermod with custom WASM transformers, sinks, and sources from the community.
-              </Text>
-            </Box>
-            <Button variant="filled" color="indigo" leftSection={<IconExternalLink size="1rem" />}>
-              Publish Plugin
+        <SectionHeader
+          title="Community"
+          lede="Transformers, sinks and sources others have built, packaged as WASM plugins you can install."
+          actions={
+            <Button variant="default" leftSection={<IconExternalLink size="1rem" />}>
+              Publish plugin
             </Button>
-          </Group>
-        </Paper>
+          }
+        />
 
         <Group justify="space-between">
           <TextInput

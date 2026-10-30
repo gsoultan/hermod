@@ -286,67 +286,67 @@ export function Layout({ children }: LayoutProps) {
     },
     ...workflows.slice(0, 10).map((wf: Workflow) => ({
       id: `wf-${wf.id}`,
-      label: `Workflow: ${wf.name}`,
-      description: `VHost: ${wf.vhost} | Status: ${wf.active ? 'Active' : 'Inactive'}`,
+      label: `Flow: ${wf.name}`,
+      description: `Virtual host ${wf.vhost} · ${wf.active ? 'On' : 'Off'}`,
       onClick: () => navigate({ to: `/workflows/$id`, params: { id: wf.id } as any }),
       leftSection: <IconGitBranch size="1.2rem" color={wf.active ? 'var(--mantine-color-green-6)' : 'var(--mantine-color-gray-6)'} />,
     })),
     {
       id: 'create-workflow',
-      label: 'Create Workflow',
-      description: 'Create a new data pipeline',
+      label: 'New flow',
+      description: 'Start a flow from a blank canvas',
       onClick: () => navigate({ to: '/workflows/new' }),
       leftSection: <IconPlus size="1.2rem" />,
     },
     // Action-oriented commands
     ...(canEdit ? [{
       id: 'start-all-vhost',
-      label: 'Start all workflows in current VHost',
-      description: selectedVHost && selectedVHost !== 'all' ? `VHost: ${selectedVHost}` : 'Select a VHost first',
+      label: 'Start every flow in this virtual host',
+      description: selectedVHost && selectedVHost !== 'all' ? `Virtual host ${selectedVHost}` : 'Pick a virtual host first',
       onClick: async () => {
         if (!selectedVHost || selectedVHost === 'all') {
-          notifications.show({ title: 'Select VHost', message: 'Please select a specific VHost to start all workflows.', color: 'orange' });
+          notifications.show({ title: 'Pick a virtual host', message: 'Pick one virtual host to start all of its flows.', color: 'orange' });
           return;
         }
-        if (!await confirm({ title: 'Start all workflows', message: `Start every workflow in VHost "${selectedVHost}"?`, confirmLabel: 'Start all' })) return;
+        if (!await confirm({ title: 'Start all flows', message: `Start every flow in virtual host "${selectedVHost}"?`, confirmLabel: 'Start all' })) return;
         try {
           const res = await apiFetch(`/api/workflows?vhost=${encodeURIComponent(selectedVHost)}`, { silent: true });
           const data = await res.json();
           const ids = (data.data || []).map((w: any) => w.id);
           if (ids.length === 0) {
-            notifications.show({ id: 'start-all-no-workflows', title: 'No Workflows', message: `No workflows found in VHost ${selectedVHost}.`, color: 'gray' });
+            notifications.show({ id: 'start-all-no-workflows', title: 'No flows', message: `Virtual host ${selectedVHost} has no flows.`, color: 'gray' });
             return;
           }
           await apiFetch('/api/workflows/batch/toggle', { method: 'POST', body: JSON.stringify({ ids, active: true }), silent: true });
-          notifications.show({ id: 'start-all-success', title: 'Started', message: `Requested start for ${ids.length} workflows in ${selectedVHost}.`, color: 'green' });
+          notifications.show({ id: 'start-all-success', title: 'Started', message: `Asked ${ids.length} flows in ${selectedVHost} to start.`, color: 'green' });
         } catch (e: any) {
-          notifications.show({ id: 'start-all-error', title: 'Error', message: e.message || 'Failed to start workflows', color: 'red' });
+          notifications.show({ id: 'start-all-error', title: 'Error', message: e.message || 'The flows did not start', color: 'red' });
         }
       },
       leftSection: <IconRocket size="1.2rem" />,
     }] : []),
     ...(canEdit ? [{
       id: 'stop-all-vhost',
-      label: 'Stop all workflows in current VHost',
-      description: selectedVHost && selectedVHost !== 'all' ? `VHost: ${selectedVHost}` : 'Select a VHost first',
+      label: 'Stop every flow in this virtual host',
+      description: selectedVHost && selectedVHost !== 'all' ? `Virtual host ${selectedVHost}` : 'Pick a virtual host first',
       onClick: async () => {
         if (!selectedVHost || selectedVHost === 'all') {
-          notifications.show({ title: 'Select VHost', message: 'Please select a specific VHost to stop all workflows.', color: 'orange' });
+          notifications.show({ title: 'Pick a virtual host', message: 'Pick one virtual host to stop all of its flows.', color: 'orange' });
           return;
         }
-        if (!await confirm({ title: 'Stop all workflows', message: `Stop every workflow in VHost "${selectedVHost}"?`, consequence: 'In-flight messages are drained, but ingestion stops immediately.', confirmLabel: 'Stop all', danger: true })) return;
+        if (!await confirm({ title: 'Stop all flows', message: `Stop every flow in virtual host "${selectedVHost}"?`, consequence: 'In-flight messages are drained, but ingestion stops immediately.', confirmLabel: 'Stop all', danger: true })) return;
         try {
           const res = await apiFetch(`/api/workflows?vhost=${encodeURIComponent(selectedVHost)}`, { silent: true });
           const data = await res.json();
           const ids = (data.data || []).map((w: any) => w.id);
           if (ids.length === 0) {
-            notifications.show({ id: 'stop-all-no-workflows', title: 'No Workflows', message: `No workflows found in VHost ${selectedVHost}.`, color: 'gray' });
+            notifications.show({ id: 'stop-all-no-workflows', title: 'No flows', message: `Virtual host ${selectedVHost} has no flows.`, color: 'gray' });
             return;
           }
           await apiFetch('/api/workflows/batch/toggle', { method: 'POST', body: JSON.stringify({ ids, active: false }), silent: true });
-          notifications.show({ id: 'stop-all-success', title: 'Stopped', message: `Requested stop for ${ids.length} workflows in ${selectedVHost}.`, color: 'green' });
+          notifications.show({ id: 'stop-all-success', title: 'Stopped', message: `Asked ${ids.length} flows in ${selectedVHost} to stop.`, color: 'green' });
         } catch (e: any) {
-          notifications.show({ id: 'stop-all-error', title: 'Error', message: e.message || 'Failed to stop workflows', color: 'red' });
+          notifications.show({ id: 'stop-all-error', title: 'Error', message: e.message || 'The flows did not stop', color: 'red' });
         }
       },
       leftSection: <IconActivity size="1.2rem" />,
@@ -356,13 +356,13 @@ export function Layout({ children }: LayoutProps) {
       {
         id: `start-${wf.id}`,
         label: `Start: ${wf.name}`,
-        description: `VHost: ${wf.vhost}`,
+        description: `Virtual host ${wf.vhost}`,
         onClick: async () => {
           try {
             await apiFetch(`/api/workflows/${wf.id}/toggle`, { method: 'POST', silent: true });
-            notifications.show({ id: `wf-start-${wf.id}`, title: 'Workflow', message: `Toggled start for "${wf.name}"`, color: 'green' });
+            notifications.show({ id: `wf-start-${wf.id}`, title: 'Flow', message: `Asked "${wf.name}" to start`, color: 'green' });
           } catch (e: any) {
-            notifications.show({ id: `wf-start-error-${wf.id}`, title: 'Error', message: e.message || 'Failed to start workflow', color: 'red' });
+            notifications.show({ id: `wf-start-error-${wf.id}`, title: 'Error', message: e.message || 'The flow did not start', color: 'red' });
           }
         },
         leftSection: <IconRocket size="1.2rem" />,
@@ -370,14 +370,14 @@ export function Layout({ children }: LayoutProps) {
       {
         id: `stop-${wf.id}`,
         label: `Stop: ${wf.name}`,
-        description: `VHost: ${wf.vhost}`,
+        description: `Virtual host ${wf.vhost}`,
         onClick: async () => {
-          if (!await confirm({ title: 'Stop workflow', message: `Stop "${wf.name}"?`, confirmLabel: 'Stop', danger: true })) return;
+          if (!await confirm({ title: 'Stop flow', message: `Stop "${wf.name}"?`, confirmLabel: 'Stop', danger: true })) return;
           try {
             await apiFetch(`/api/workflows/${wf.id}/toggle`, { method: 'POST', silent: true });
-            notifications.show({ id: `wf-stop-${wf.id}`, title: 'Workflow', message: `Toggled stop for "${wf.name}"`, color: 'green' });
+            notifications.show({ id: `wf-stop-${wf.id}`, title: 'Flow', message: `Asked "${wf.name}" to stop`, color: 'green' });
           } catch (e: any) {
-            notifications.show({ id: `wf-stop-error-${wf.id}`, title: 'Error', message: e.message || 'Failed to stop workflow', color: 'red' });
+            notifications.show({ id: `wf-stop-error-${wf.id}`, title: 'Error', message: e.message || 'The flow did not stop', color: 'red' });
           }
         },
         leftSection: <IconActivity size="1.2rem" />,

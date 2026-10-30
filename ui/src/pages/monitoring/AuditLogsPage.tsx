@@ -1,11 +1,12 @@
-import { Title, Table, Group, Stack, Badge, Paper, Text, Box, ActionIcon, Tooltip, TextInput, Pagination, Modal, ScrollArea, Code, Divider, Button } from '@mantine/core';
+import { Table, Group, Stack, Badge, Paper, Text, Box, ActionIcon, Tooltip, TextInput, Pagination, Modal, ScrollArea, Code, Divider, Button } from '@mantine/core';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api';
 import { useState } from 'react';
 import { useDisclosure } from '@mantine/hooks';
 
 import { formatDateTime } from '@/utils/dateUtils';
-import { IconEye, IconHistory, IconRefresh } from '@tabler/icons-react';
+import { IconEye, IconRefresh } from '@tabler/icons-react';
+import { SectionHeader } from '@/components/rows';
 const API_BASE = '/api';
 
 export function AuditLogsPage() {
@@ -53,29 +54,24 @@ export function AuditLogsPage() {
   };
 
   return (
-    <Box p="md" className="page-enter">
+    <Box className="page-enter">
       <Stack gap="lg">
-        <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
-          <Group gap="sm">
-            <IconHistory size="2rem" color="var(--mantine-color-blue-filled)" />
-            <Box style={{ flex: 1 }}>
-              <Title order={2} fw={800}>Audit Logs</Title>
-              <Text size="sm" c="dimmed">
-                Track administrative changes, workflow lifecycle events, and user actions for security and compliance.
-              </Text>
-            </Box>
+        <SectionHeader
+          title="Audit log"
+          lede="Who changed what: settings, flows starting and stopping, and sign-ins."
+          actions={
             <Tooltip label="Refresh">
-              <ActionIcon aria-label="Refresh logs" variant="light" onClick={() => queryClient.invalidateQueries({ queryKey: ['audit-logs'] })} loading={isFetching}>
-                <IconRefresh size="1.2rem" />
+              <ActionIcon aria-label="Refresh logs" variant="default" size={36} onClick={() => queryClient.invalidateQueries({ queryKey: ['audit-logs'] })} loading={isFetching}>
+                <IconRefresh size="1rem" />
               </ActionIcon>
             </Tooltip>
-          </Group>
-        </Paper>
+          }
+        />
 
         <Paper p="md" withBorder radius="md">
           <Group align="flex-end" gap="md">
             <TextInput 
-              label="Entity Type" 
+              label="Entity type" 
               placeholder="e.g. workflow, source" 
               value={entityType} 
               onChange={(e) => {

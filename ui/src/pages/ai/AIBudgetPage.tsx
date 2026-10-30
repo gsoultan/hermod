@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react'
 import {
-  Alert, Badge, Box, Group, Loader, Paper, Select, Stack, Switch, Text, Title,
+  Alert, Badge, Box, Group, Loader, Paper, Select, Stack, Switch, Text,
 } from '@mantine/core'
 import { IconAlertCircle, IconCoin, IconPlugConnectedX } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useVHost } from '@/context/VHostContext'
 import { useConfirm } from '@/components/common/ConfirmProvider'
 import { EmptyState } from '@/components/common/EmptyState'
+import { SectionHeader } from '@/components/rows'
 import { getSessionRole } from '@/auth/session'
 import { isModelVHost } from '@/lib/mlModels'
 import {
@@ -49,7 +50,7 @@ export function AIBudgetPage() {
       const ok = await confirm({
         title: 'Switch AI calls off',
         message: `Stop every AI call in ${vhost}?`,
-        consequence: 'AI nodes and agents in this vhost fail at once and their messages take the error branch, until the switch is turned back on. Budgets and usage are kept.',
+        consequence: 'AI steps and agents in this virtual host fail at once and their messages take the error branch, until the switch is turned back on. Budgets and usage are kept.',
         confirmLabel: 'Switch AI off',
         danger: true,
       })
@@ -61,33 +62,23 @@ export function AIBudgetPage() {
   const disabled = report?.budget.disabled ?? false
 
   return (
-    <Box p="md" className="page-enter">
+    <Box className="page-enter">
       <Stack gap="lg">
-        <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
-          <Stack gap="md">
-            <Group gap="sm" align="flex-start">
-              <IconCoin size="2rem" color="var(--mantine-color-yellow-filled)" />
-              <Box style={{ flex: 1 }}>
-                <Group gap="sm" align="center">
-                  <Title order={2} fw={800}>AI budget</Title>
-                  {vhost && <Badge variant="light" size="lg" radius="sm" tt="none" aria-label="VHost shown">{vhost}</Badge>}
-                </Group>
-                <Text size="sm" c="dimmed">
-                  Monthly token and cost limits for the AI nodes and agents of a vhost, and of single workflows in it.
-                  An alert goes out at 80%; at 100% calls are refused and the node takes its error branch.
-                </Text>
-              </Box>
-              {report && (
-                <Switch size="md" color="red" label="Switch AI calls off" checked={disabled}
-                  disabled={readOnly || kill.isPending} onChange={(e) => toggle(e.currentTarget.checked)} />
-              )}
-            </Group>
-            {!isModelVHost(selectedVHost) && (
-              <Select label="VHost" description="A budget belongs to one vhost." placeholder="Select one"
-                data={vhostOptions} value={chosen} onChange={setChosen} allowDeselect={false} maw={360} />
+        <Box>
+          <SectionHeader
+            title="AI budget"
+            meta={vhost && <Badge variant="light" size="lg" radius="sm" tt="none" aria-label="Virtual host shown">{vhost}</Badge>}
+            lede="Monthly token and cost limits for the AI steps and agents of a virtual host, and of single flows in it. An alert goes out at 80%. At 100% calls are refused and the step takes its error branch."
+            actions={report && (
+              <Switch size="md" color="red" label="Switch AI calls off" checked={disabled}
+                disabled={readOnly || kill.isPending} onChange={(e) => toggle(e.currentTarget.checked)} />
             )}
-          </Stack>
-        </Paper>
+          />
+          {!isModelVHost(selectedVHost) && (
+            <Select label="Virtual host" description="A budget belongs to one virtual host." placeholder="Select one"
+              data={vhostOptions} value={chosen} onChange={setChosen} allowDeselect={false} maw={360} />
+          )}
+        </Box>
 
         {disabled && (
           <Alert color="red" icon={<IconPlugConnectedX size="1rem" />} title="AI calls are switched off">
@@ -102,8 +93,8 @@ export function AIBudgetPage() {
 
         {!vhost ? (
           <Paper radius="md" withBorder>
-            <EmptyState compact icon={<IconCoin size="1.3rem" />} title="Choose a vhost"
-              description="Budgets are kept per vhost. Pick one above to see and change its budget." />
+            <EmptyState compact icon={<IconCoin size="1.3rem" />} title="Choose a virtual host"
+              description="Budgets are kept per virtual host. Pick one above to see and change its budget." />
           </Paper>
         ) : isLoading ? (
           <Group justify="center" p="xl"><Loader size="sm" /><Text size="sm" c="dimmed">Loading the budget…</Text></Group>

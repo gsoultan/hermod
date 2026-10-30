@@ -182,7 +182,7 @@ export function WorkerForm({ initialData, isEditing = false }: WorkerFormProps) 
       <Group justify="flex-end" mt="xl">
         <Button variant="outline" onClick={() => navigate({ to: '/workers' })}>Cancel</Button>
         <Button onClick={() => submitMutation.mutate(worker)} loading={submitMutation.isPending}>
-          {isEditing ? "Save Changes" : "Register Worker"}
+          {isEditing ? "Save changes" : "Register worker"}
         </Button>
       </Group>
     </Stack>

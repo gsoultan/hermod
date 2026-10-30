@@ -93,7 +93,7 @@ export function DatasetsPanel({ vhost, blockedReason, onSetup, onTrain }: {
           <Group justify="center" p="md"><Loader size="sm" /><Text size="sm" c="dimmed">Loading datasets…</Text></Group>
         ) : datasets.length === 0 ? (
           <EmptyState compact icon={<IconTable size="1.3rem" />} title="No datasets yet"
-            description="Upload a CSV, Excel or Parquet file, or read rows from one of this vhost's databases. One row is one example, such as one customer or one order line."
+            description="Upload a CSV, Excel or Parquet file, or read rows from one of this virtual host's databases. One row is one example, such as one customer or one order line."
             action={{ label: 'Upload a file', onClick: () => setDialog({ kind: 'upload' }) }} />
         ) : (
           <Table.ScrollContainer minWidth={620}>

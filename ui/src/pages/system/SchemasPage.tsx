@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
-  Container, Title, Text, Paper, Group, Button, Table, ActionIcon,
+  Box, Text, Paper, Group, Button, Table, ActionIcon,
   TextInput, JsonInput, Select, Modal, Stack, Badge, Tooltip,
   Loader, Alert, Menu, rem
 } from '@mantine/core';
@@ -8,6 +8,7 @@ import { apiFetch } from '@/api';
 import { formatDateTime } from '@/utils/dateUtils';
 import { notifications } from '@mantine/notifications';
 import { IconAlertCircle, IconBraces, IconCode, IconDotsVertical, IconDownload, IconHistory, IconPlus, IconTrash } from '@tabler/icons-react';
+import { SectionHeader } from '@/components/rows';
 export function SchemasPage() {
   const [schemas, setSchemas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -117,16 +118,16 @@ export function SchemasPage() {
   ));
 
   return (
-    <Container size="xl" py="md">
-      <Group justify="space-between" mb="xl">
-        <div>
-          <Title order={2}>Global Schema Registry</Title>
-          <Text c="dimmed" size="sm">Manage data contracts and enforce schema validation across workflows</Text>
-        </div>
-        <Button leftSection={<IconPlus size="1rem" />} onClick={() => setModalOpened(true)}>
-          Register Schema
-        </Button>
-      </Group>
+    <Box>
+      <SectionHeader
+        title="Schema registry"
+        lede="Data contracts that flows check messages against."
+        actions={
+          <Button leftSection={<IconPlus size="1rem" />} onClick={() => setModalOpened(true)}>
+            Register schema
+          </Button>
+        }
+      />
 
       {loading ? (
         <Group justify="center" py="xl"><Loader /></Group>
@@ -135,7 +136,7 @@ export function SchemasPage() {
           <IconBraces size="3rem" color="var(--mantine-color-dimmed)" style={{ marginBottom: rem(10) }} />
           <Text fw={500}>No schemas registered yet</Text>
           <Text size="sm" c="dimmed" mb="md">Register your first schema to start enforcing data contracts.</Text>
-          <Button variant="light" onClick={() => setModalOpened(true)}>Register Schema</Button>
+          <Button variant="light" onClick={() => setModalOpened(true)}>Register schema</Button>
         </Paper>
       ) : (
         <Paper withBorder radius="md">
@@ -196,11 +197,11 @@ export function SchemasPage() {
           </Alert>
           <Group justify="flex-end" mt="md">
             <Button variant="subtle" onClick={() => setModalOpened(false)}>Cancel</Button>
-            <Button onClick={handleRegister} loading={saving}>Register Schema</Button>
+            <Button onClick={handleRegister} loading={saving}>Register schema</Button>
           </Group>
         </Stack>
       </Modal>
-    </Container>
+    </Box>
   );
 }
 

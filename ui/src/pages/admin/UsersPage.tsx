@@ -1,12 +1,22 @@
-import { IconEdit, IconSearch, IconShieldLock, IconShieldOff, IconTrash, IconUserPlus, IconUsers } from '@tabler/icons-react';
+import { IconDots, IconEdit, IconPlus, IconTrash } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
 import { useState } from 'react'
-import { Title, Table, Button, Group, ActionIcon, Box, Paper, Text, Stack, TextInput, Pagination, Badge } from '@mantine/core'
+import { ActionIcon, Box, Button, Group, Menu, Pagination, Paper, Text } from '@mantine/core'
 import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api'
-import { useNavigate } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import type { User } from '@/types'
 import { useConfirm } from '@/components/common/ConfirmProvider';
+import { EmptyState, FilterBar, Row, RowList } from '@/components/rows';
+import { AdminListHeader } from './AdminListHeader';
+
+/** Role, where they can work, and who they are: the line under the name. */
+export function personDetail(user: User): string {
+  const reach = user.role === 'Administrator'
+    ? 'every virtual host'
+    : user.vhosts?.length ? user.vhosts.join(', ') : 'no virtual hosts'
+  return [user.role, reach, user.full_name, user.email].filter(Boolean).join(' · ')
+}
 
 export function UsersPage() {
   const confirm = useConfirm();
@@ -19,13 +29,8 @@ export function UsersPage() {
   const [activePage, setPage] = useState(1)
   const itemsPerPage = 30
 
-  // `useQuery`, not `useSuspenseQuery`.
-  //
-  // A suspense query re-suspends whenever its key changes, so paging or
-  // searching threw the whole route back to the router's full-viewport spinner —
-  // header, search box and nav all gone — and suspense queries cannot take
-  // `placeholderData`. Reading it as a normal query lets the shell stay put and
-  // the previous rows stay on screen while the next page loads.
+  // `useQuery`, not `useSuspenseQuery`: a suspense query re-suspends on every
+  // key change, which threw paging and searching back to the full-page spinner.
   const { data: usersResponse, isPending } = useQuery<any>({
     queryKey: ['users', activePage, debouncedSearch],
     placeholderData: keepPreviousData,
@@ -38,6 +43,7 @@ export function UsersPage() {
 
   const users = (usersResponse as any)?.data as User[] || []
   const totalItems = (usersResponse as any)?.total as number || 0
+  const totalPages = Math.ceil(totalItems / itemsPerPage)
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -49,111 +55,59 @@ export function UsersPage() {
     }
   })
 
-  const totalPages = Math.ceil(totalItems / itemsPerPage)
-
-  const rows = users.map((user: User) => (
-    <Table.Tr key={user.id}>
-      <Table.Td>{user.username}</Table.Td>
-      <Table.Td>{user.full_name}</Table.Td>
-      <Table.Td>{user.email}</Table.Td>
-      <Table.Td>{user.role}</Table.Td>
-      <Table.Td>{user.vhosts?.join(', ') || '-'}</Table.Td>
-      <Table.Td>
-        {user.two_factor_enabled ? (
-          <Badge variant="light" color="green" leftSection={<IconShieldLock size="0.8rem" />}>Enabled</Badge>
-        ) : (
-          <Badge variant="light" color="gray" leftSection={<IconShieldOff size="0.8rem" />}>Disabled</Badge>
-        )}
-      </Table.Td>
-      <Table.Td>
-        <Group justify="flex-end">
-          <ActionIcon variant="light" color="blue" onClick={() => navigate({ to: `/users/${user.id}/edit` })} radius="md" aria-label="Edit user">
-            <IconEdit size="1.2rem" stroke={1.5} />
-          </ActionIcon>
-          <ActionIcon color="red" variant="light" onClick={async () => {
-            if (await confirm({ title: 'Delete user', message: `Permanently delete ${user.username || 'this user'}?`, consequence: 'They will lose access immediately. This cannot be undone.', confirmLabel: 'Delete user', danger: true })) {
-              deleteMutation.mutate(user.id);
-            }
-          }} radius="md" aria-label="Delete user">
-            <IconTrash size="1.2rem" />
-          </ActionIcon>
-        </Group>
-      </Table.Td>
-    </Table.Tr>
-  ))
+  const remove = async (user: User) => {
+    if (await confirm({ title: 'Delete user', message: `Permanently delete ${user.username || 'this user'}?`, consequence: 'They will lose access immediately. This cannot be undone.', confirmLabel: 'Delete user', danger: true })) {
+      deleteMutation.mutate(user.id);
+    }
+  }
 
   return (
-    <Box p="md" className="page-enter">
-      <Stack gap="lg">
-        <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
-          <Stack gap="md">
-            <Group gap="sm">
-              <IconUsers size="2rem" color="var(--mantine-color-blue-filled)" />
-              <Box style={{ flex: 1 }}>
-                <Title order={2} fw={800}>User Management</Title>
-                <Text size="sm" c="dimmed">
-                  Manage system users, their roles, and access to virtual hosts. 
-                  Administrators can create and edit users to control platform access.
-                </Text>
-              </Box>
-              <Button leftSection={<IconUserPlus size="1.2rem" />} onClick={() => navigate({ to: '/users/new' })}>
-                Add User
-              </Button>
-            </Group>
-            <TextInput
-              placeholder="Search users by username, name, email or role..."
-              leftSection={<IconSearch size="1rem" stroke={1.5} />}
-              value={search}
-              onChange={(event) => {
-                setSearch(event.currentTarget.value)
-                setPage(1)
-              }}
-              radius="md"
-            />
-          </Stack>
-        </Paper>
+    <Box className="page-enter">
+      <AdminListHeader
+        title="People"
+        lede="Who can sign in and what they can do"
+        back={{ to: '/settings', label: 'Back to settings' }}
+        actions={<Button leftSection={<IconPlus size="1rem" />} onClick={() => navigate({ to: '/users/new' })}>Add person</Button>}
+      />
+      <FilterBar search={{ value: search, onChange: (v) => { setSearch(v); setPage(1) }, placeholder: 'Search people by name, email or role' }} />
 
-        <Paper radius="md" style={{ border: '1px solid var(--mantine-color-gray-1)', overflow: 'hidden' }}>
-          <Table.ScrollContainer minWidth={900}>
-            <Table verticalSpacing="md" horizontalSpacing="xl">
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Username</Table.Th>
-                <Table.Th>Full Name</Table.Th>
-                <Table.Th>Email</Table.Th>
-                <Table.Th>Role</Table.Th>
-                <Table.Th>VHosts</Table.Th>
-                <Table.Th>2FA</Table.Th>
-                <Table.Th style={{ textAlign: 'right' }}>Actions</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {rows}
-              {users.length === 0 && (
-                <Table.Tr>
-                  <Table.Td colSpan={7} py="xl">
-                    <Text c="dimmed" ta="center">
-                      {isPending
-                        ? 'Loading users…'
-                        : search
-                          ? 'No users match your search'
-                          : 'No users found'}
-                    </Text>
-                  </Table.Td>
-                </Table.Tr>
-              )}
-            </Table.Tbody>
-          </Table>
-          </Table.ScrollContainer>
-          {totalPages > 1 && (
-            <Group justify="center" p="md" bg="var(--mantine-color-body)" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
-              <Pagination total={totalPages} value={activePage} onChange={setPage} radius="md" />
-            </Group>
-          )}
+      {users.length === 0 ? (
+        <Paper withBorder radius={12}>
+          {isPending
+            ? <Text c="dimmed" ta="center" py="xl">Loading people…</Text>
+            : <EmptyState title={search ? 'Nobody matches' : 'Nobody here yet'} detail={search ? 'Try a username, a name, an email or a role.' : 'Add a person to let them sign in.'} />}
         </Paper>
-      </Stack>
+      ) : (
+        <RowList aria-label="People">
+          {users.map((user) => (
+            <Row
+              key={user.id}
+              avatar={user.username || '?'}
+              title={user.username}
+              detail={personDetail(user)}
+              state={<Text size="sm" c="dimmed">{user.two_factor_enabled ? 'Two-factor on' : 'Two-factor off'}</Text>}
+              to="/users/$userId/edit"
+              params={{ userId: user.id }}
+              action={
+                <Menu position="bottom-end" withArrow shadow="md">
+                  <Menu.Target>
+                    <ActionIcon aria-label={`More for ${user.username}`} variant="subtle" color="gray"><IconDots size="1rem" /></ActionIcon>
+                  </Menu.Target>
+                  <Menu.Dropdown>
+                    <Menu.Item component={Link} to="/users/$userId/edit" params={{ userId: user.id } as any} leftSection={<IconEdit size="1rem" />}>Edit</Menu.Item>
+                    <Menu.Item color="red" leftSection={<IconTrash size="1rem" />} onClick={() => remove(user)}>Delete</Menu.Item>
+                  </Menu.Dropdown>
+                </Menu>
+              }
+            />
+          ))}
+        </RowList>
+      )}
+      {totalPages > 1 && (
+        <Group justify="center" mt="md">
+          <Pagination total={totalPages} value={activePage} onChange={setPage} radius="md" />
+        </Group>
+      )}
     </Box>
   )
 }
-
-

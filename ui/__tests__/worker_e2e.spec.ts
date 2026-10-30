@@ -59,7 +59,7 @@ test.describe('Worker Agent Installation and Setup', () => {
     // 2. Navigate to Workers page
     console.log('Navigating to workers...');
     await page.goto('/workers');
-    await expect(page.locator('h2')).toContainText('Workers');
+    await expect(page.getByRole('heading', { name: 'Workers' })).toBeVisible();
     
     console.log('Clicking Register Worker button...');
     await page.getByRole('button', { name: /Register Worker/i }).first().click();
@@ -136,8 +136,8 @@ test.describe('Worker Agent Installation and Setup', () => {
     const workerGUID = guidMatch ? guidMatch[1] : '';
     console.log('Waiting for worker online:', workerGUID);
 
-    const workerRow = page.locator('tr').filter({ hasText: workerGUID });
-    const onlineBadge = workerRow.locator('.mantine-Badge-root:has-text("Online")');
+    const workerRow = page.getByRole('list', { name: 'Workers' }).getByRole('listitem').filter({ hasText: workerGUID });
+    const onlineBadge = workerRow.getByText('Online', { exact: true });
     
     // Manual polling with reload since UI doesn't auto-refresh workers list yet
     await expect(async () => {

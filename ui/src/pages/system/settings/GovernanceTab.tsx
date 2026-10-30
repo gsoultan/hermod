@@ -33,8 +33,8 @@ export function GovernanceTab({ ctx }: { ctx: SettingsController }) {
                     <Title order={4}>Workspaces</Title>
                   </Group>
                   <Text size="sm" c="dimmed">
-                    Group workflows, sources and sinks, and cap what they may consume.
-                    Assign one from the Workflows list (Batch Actions &rarr; Move to Workspace).
+                    Group flows, sources and sinks, and cap what they may consume.
+                    Assign one from the Flows list: select flows, then Move to workspace.
                   </Text>
                 </Stack>
                 <Button size="xs" leftSection={<IconPlus size="1rem" />} onClick={() => openWSModal()}>Create Workspace</Button>

@@ -31,10 +31,11 @@ const openPalette = async (page: Page) => {
   await page.goto('/workflows/new');
   await page.waitForTimeout(2000);
   // The panel remembers whether it was open, so only toggle when it is shut.
-  if (!(await page.getByText('Workflow Panel').isVisible().catch(() => false))) {
-    await page.getByRole('button', { name: 'Workflow panel' }).click();
+  if (!(await page.getByText('Add a step', { exact: true }).isVisible().catch(() => false))) {
+    await page.getByRole('button', { name: 'Add step' }).click();
+    await page.getByRole('button', { name: 'Browse the full palette' }).click();
   }
-  await expect(page.getByText('Workflow Panel')).toBeVisible();
+  await expect(page.getByText('Add a step', { exact: true })).toBeVisible();
 };
 
 test('palette search filters the list and points at other tabs', async ({ page }) => {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Alert, Badge, Box, Button, Group, Loader, Paper, Select, Stack, Switch, Table, Tabs, Text, Title, Tooltip, VisuallyHidden,
+  Alert, Badge, Box, Button, Group, Loader, Paper, Select, Stack, Switch, Table, Tabs, Text, Tooltip, VisuallyHidden,
 } from '@mantine/core'
 import {
   IconAlertCircle, IconBrain, IconCode, IconDatabase, IconGauge, IconListCheck, IconPlus,
@@ -33,6 +33,7 @@ import { ServingKeyModal } from './ServingKeyModal'
 import { TrainModal } from './TrainModal'
 import { VersionsModal } from './VersionsModal'
 import { WorkerSetupModal } from './WorkerSetupModal'
+import { SectionHeader } from '@/components/rows';
 
 const SERVER_LABEL: Record<string, string> = { oip: 'On an Open Inference server', mlflow: 'On an MLflow server' }
 
@@ -74,7 +75,7 @@ type Dialog =
 
 /** The page's tabs, each with the one line that says what it holds. */
 const TABS = [
-  { value: 'models', label: 'Models', icon: IconBrain, help: 'The models this vhost can use, and what you can do with each.' },
+  { value: 'models', label: 'Models', icon: IconBrain, help: 'The models this virtual host can use, and what you can do with each.' },
   { value: 'data', label: 'Data', icon: IconDatabase, help: 'The rows models learn from: upload a CSV, Excel or Parquet file or read them from a database, then analyze them.' },
   { value: 'jobs', label: 'Training jobs', icon: IconListCheck, help: 'Trainings and other long tasks, running or finished, with their progress.' },
   { value: 'scripts', label: 'Scripts', icon: IconCode, help: 'Your own Python training code, for experts. Most people never need it.' },
@@ -203,8 +204,8 @@ export function ModelsPage() {
   const modelsTable = (
     <Paper radius="md" withBorder style={{ overflow: 'hidden' }}>
       {!vhost ? (
-        <EmptyState compact icon={<IconBrain size="1.3rem" />} title="Choose a vhost"
-          description="Models are kept per vhost. Pick one above to see and manage its models." />
+        <EmptyState compact icon={<IconBrain size="1.3rem" />} title="Choose a virtual host"
+          description="Models are kept per virtual host. Pick one above to see and manage its models." />
       ) : isLoading ? (
         <Group justify="center" p="xl"><Loader size="sm" /><Text size="sm" c="dimmed">Loading models…</Text></Group>
       ) : error ? (
@@ -236,32 +237,22 @@ export function ModelsPage() {
   )
 
   return (
-    <Box p="md" className="page-enter">
+    <Box className="page-enter">
       <Stack gap="lg">
-        <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
-          <Stack gap="md">
-            <Group gap="sm" align="flex-start">
-              <IconBrain size="2rem" color="var(--mantine-color-grape-filled)" />
-              <Box style={{ flex: 1 }}>
-                <Group gap="sm" align="center">
-                  <Title order={2} fw={800}>Machine Learning</Title>
-                  {vhost && <Badge variant="light" size="lg" radius="sm" tt="none" aria-label="VHost shown">{vhost}</Badge>}
-                </Group>
-                <Text size="sm" c="dimmed">
-                  Models predict things from your data, such as which customers may leave. Workflows use them in a
-                  Predict node, and applications call them with a key.
-                </Text>
-              </Box>
-              {vhost && (
-                <Button leftSection={<IconPlus size="1.2rem" />} onClick={() => setDialog({ kind: 'add' })}>Add model</Button>
-              )}
-            </Group>
-            {!isModelVHost(selectedVHost) && (
-              <Select label="VHost" description="A model belongs to one vhost." placeholder="Select one"
-                data={vhostOptions} value={chosen} onChange={setChosen} allowDeselect={false} maw={360} />
+        <Box>
+          <SectionHeader
+            title="Machine learning"
+            meta={vhost && <Badge variant="light" size="lg" radius="sm" tt="none" aria-label="Virtual host shown">{vhost}</Badge>}
+            lede="Models predict things from your data, such as which customers may leave. Flows use them in a Predict step, and applications call them with a key."
+            actions={vhost && (
+              <Button leftSection={<IconPlus size="1rem" />} onClick={() => setDialog({ kind: 'add' })}>Add model</Button>
             )}
-          </Stack>
-        </Paper>
+          />
+          {!isModelVHost(selectedVHost) && (
+            <Select label="Virtual host" description="A model belongs to one virtual host." placeholder="Select one"
+              data={vhostOptions} value={chosen} onChange={setChosen} allowDeselect={false} maw={360} />
+          )}
+        </Box>
 
         {vhost && (
           <GettingStarted key={username} worker={worker} datasets={canTrain ? datasets?.length : undefined} models={models}

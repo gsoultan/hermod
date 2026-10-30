@@ -115,7 +115,7 @@ export function InsertFieldButton({
               ))
             )}
             {secrets.length > 0 && (
-              <Combobox.Group label="Secrets of this vhost">
+              <Combobox.Group label="Secrets of this virtual host">
                 {secrets.map((name) => (
                   <Combobox.Option value={SECRET + name} key={name}>
                     <Group gap={6} wrap="nowrap">

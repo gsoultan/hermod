@@ -5,7 +5,6 @@ import {
   IconBolt,
   IconClockHour4,
   IconGitBranch,
-  IconPackage,
   IconPlugConnected,
   IconServer,
   IconSitemap,
@@ -13,7 +12,6 @@ import {
   IconWaveSine,
 } from '@tabler/icons-react';
 import {
-  ActionIcon,
   Alert,
   Badge,
   Box,
@@ -23,24 +21,21 @@ import {
   Paper,
   ScrollArea,
   Stack,
-  Table,
   Text,
   ThemeIcon,
-  Title,
   Tooltip,
 } from '@mantine/core';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from '@/api';
 import { StatCard } from '@/components/system/StatCard';
 import { ClusterResourceCards } from '@/components/system/ClusterResourceCards';
 import { useNavigate } from '@tanstack/react-router';
 import { formatDateTime } from '@/utils/dateUtils';
 import { DataLineageModal } from '@/components/modals/DataLineageModal';
-import { notifications } from '@mantine/notifications';
 import { useVHost } from '@/context/VHostContext';
-import type { Workflow } from '@/types';
 import { EmptyState } from '@/components/common/EmptyState';
-import { useDashboardStream, type StreamState } from '@/hooks/useDashboardStream';
+import type { DashboardStats, StreamState } from '@/hooks/useDashboardStream';
 import { formatCount, formatLatency, formatPercent, formatUptime } from '@/utils/metricFormat';
 
 function ThroughputChart({ data }: { data: number[] }) {
@@ -114,7 +109,7 @@ function ThroughputChart({ data }: { data: number[] }) {
  * Without this a dropped socket is indistinguishable from a quiet system:
  * both show the same unchanging figures, and only one of them is true.
  */
-function ConnectionBadge({ state }: { state: StreamState }) {
+export function ConnectionBadge({ state }: { state: StreamState }) {
   const presentation: Record<StreamState, { color: string; label: string; tooltip: string }> = {
     connecting: { color: 'gray', label: 'Connecting', tooltip: 'Opening the live stats stream' },
     live: { color: 'green', label: 'Live', tooltip: 'Receiving live updates' },
@@ -135,88 +130,37 @@ function ConnectionBadge({ state }: { state: StreamState }) {
   );
 }
 
-export function DashboardPage() {
+interface PlatformPanelProps {
+  stats: DashboardStats;
+  series: number[];
+  error: string | null;
+}
+
+/**
+ * The platform under the flows: throughput, latency, lag, error rate,
+ * backpressure, circuit breakers, the cluster and its machines, connector
+ * counts, recent events and the lineage view. Everything the old dashboard
+ * showed, below what needs you rather than instead of it.
+ */
+export function PlatformPanel({ stats, series, error }: PlatformPanelProps) {
   const navigate = useNavigate();
   const { selectedVHost } = useVHost();
-  const { stats, series, connection, error } = useDashboardStream(selectedVHost);
-
-  const [recentLogs, setRecentLogs] = useState<any[]>([]);
-  const [logsError, setLogsError] = useState<string | null>(null);
-  const [workflows, setWorkflows] = useState<Workflow[]>([]);
-  const [workflowsError, setWorkflowsError] = useState<string | null>(null);
   const [lineageOpened, setLineageOpened] = useState(false);
-  const [isBootstrapping, setIsBootstrapping] = useState(false);
 
   const mps = series.length > 0 ? series[series.length - 1] : stats.throughput;
 
-  useEffect(() => {
-    let cancelled = false;
-
-    apiFetch(`/api/logs?limit=10&vhost=${encodeURIComponent(selectedVHost)}`)
-      .then((res) => {
-        if (!res.ok) throw new Error(`logs request failed (${res.status})`);
-        return res.json();
-      })
-      .then((data) => {
-        if (cancelled) return;
-        setRecentLogs(data.data || []);
-        setLogsError(null);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        // Surfaced rather than logged to the console: an empty events panel and
-        // a broken events panel look identical, and only one needs attention.
-        setLogsError(err instanceof Error ? err.message : 'Could not load recent events');
-      });
-
-    apiFetch(`/api/workflows?limit=100&vhost=${encodeURIComponent(selectedVHost)}`)
-      .then((res) => {
-        if (!res.ok) throw new Error(`workflows request failed (${res.status})`);
-        return res.json();
-      })
-      .then((data) => {
-        if (cancelled) return;
-        setWorkflows(data.data || []);
-        setWorkflowsError(null);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setWorkflowsError(err instanceof Error ? err.message : 'Could not load pipelines');
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedVHost]);
-
-  const handleBootstrap = async () => {
-    setIsBootstrapping(true);
-    try {
-      const res = await apiFetch('/api/infra/bootstrap-scenario', { method: 'POST' });
-      if (res.ok) {
-        const data = await res.json();
-        notifications.show({
-          title: 'Enterprise Scenario Bootstrapped',
-          message: data.message,
-          color: 'green',
-        });
-        const wfRes = await apiFetch('/api/workflows?limit=100');
-        const wfData = await wfRes.json();
-        setWorkflows(wfData.data || []);
-      } else {
-        throw new Error('Failed to bootstrap scenario');
-      }
-    } catch (err) {
-      notifications.show({
-        title: 'Bootstrap Failed',
-        message: err instanceof Error ? err.message : 'Unknown error',
-        color: 'red',
-      });
-    } finally {
-      setIsBootstrapping(false);
-    }
-  };
-
+  const { data: logsData, error: logsErr } = useQuery({
+    queryKey: ['logs', 'recent', selectedVHost],
+    queryFn: async () => {
+      const res = await apiFetch(`/api/logs?limit=10&vhost=${encodeURIComponent(selectedVHost)}`, { silent: true });
+      return res.json();
+    },
+    refetchInterval: 30_000,
+  });
+  const recentLogs: any[] = logsData?.data || [];
+  // Surfaced rather than logged to the console: an empty events panel and a
+  // broken events panel look identical, and only one needs attention.
+  const logsError = logsErr ? (logsErr instanceof Error ? logsErr.message : 'Could not load recent events') : null;
   const pipelineCards = (
     <Grid grow gap="sm">
       <Grid.Col span={{ base: 12, sm: 6, md: 3 }}>
@@ -308,33 +252,14 @@ export function DashboardPage() {
   );
 
   return (
-    <Stack gap="lg" h="100%">
-      <Group justify="space-between">
-        <Stack gap={4}>
-          <Title order={2}>Enterprise Command Center</Title>
-          <Group gap="xs">
-            <Text size="sm" c="dimmed">
-              Real-time autonomous operations &amp; data mesh monitoring
-            </Text>
-            <ConnectionBadge state={connection} />
-          </Group>
-        </Stack>
-        <Group>
-          <Button
-            variant="light"
-            color="indigo"
-            leftSection={<IconPackage size="1.2rem" />}
-            loading={isBootstrapping}
-            onClick={handleBootstrap}
-          >
-            Bootstrap Enterprise Scenario
+    <Stack gap="md">
+      <Group justify="space-between" align="center">
+        <Text fw={700}>Platform</Text>
+        <Tooltip label="Data lineage across every flow">
+          <Button variant="subtle" size="xs" leftSection={<IconSitemap size="1rem" />} onClick={() => setLineageOpened(true)}>
+            Lineage
           </Button>
-          <Tooltip label="Global Data Lineage">
-            <ActionIcon aria-label="View lineage" variant="light" size="lg" onClick={() => setLineageOpened(true)}>
-              <IconSitemap size="1.2rem" />
-            </ActionIcon>
-          </Tooltip>
-        </Group>
+        </Tooltip>
       </Group>
 
       {/* A failed stats request used to render as a dashboard of zeros, which
@@ -345,7 +270,7 @@ export function DashboardPage() {
         </Alert>
       )}
 
-      <Box style={{ flex: 1, minHeight: 800 }}>
+      <Box>
         <Grid gap="md">
           <Grid.Col span={12}>{pipelineCards}</Grid.Col>
           <Grid.Col span={12}>{healthCards}</Grid.Col>
@@ -374,78 +299,6 @@ export function DashboardPage() {
               <Box mt="auto" pt="xl">
                 <ThroughputChart data={series} />
               </Box>
-            </Paper>
-          </Grid.Col>
-
-          <Grid.Col span={{ base: 12, lg: 4 }}>
-            <Paper withBorder p="md" radius="md" h="100%">
-              <Group justify="space-between" mb="md">
-                <div>
-                  <Text fw={700} size="sm">
-                    Active Pipelines
-                  </Text>
-                  <Text size="xs" c="dimmed">
-                    Critical data flows
-                  </Text>
-                </div>
-                <Button variant="subtle" size="xs" onClick={() => navigate({ to: '/workflows' })}>
-                  View All
-                </Button>
-              </Group>
-              {workflowsError ? (
-                <Alert color="red" icon={<IconAlertCircle size={16} />}>
-                  {workflowsError}
-                </Alert>
-              ) : workflows.length === 0 ? (
-                /* With no workflows the table rendered as a lone "Name" header
-                   above 300px of nothing, which reads as a broken panel rather
-                   than an empty one. Say which it is, and offer the way out. */
-                <EmptyState
-                  compact
-                  icon={<IconGitBranch size={20} />}
-                  title="No pipelines yet"
-                  description="Build a workflow to start moving data between a source and a sink."
-                  action={{ label: 'Create workflow', onClick: () => navigate({ to: '/workflows/new' }) }}
-                />
-              ) : (
-                <ScrollArea h={300} offsetScrollbars>
-                  <Table.ScrollContainer minWidth={700}>
-                    <Table verticalSpacing="xs" highlightOnHover>
-                      <Table.Thead>
-                        <Table.Tr>
-                          <Table.Th>Name</Table.Th>
-                          <Table.Th ta="right">Status</Table.Th>
-                        </Table.Tr>
-                      </Table.Thead>
-                      <Table.Tbody>
-                        {workflows.slice(0, 10).map((wf) => (
-                          <Table.Tr
-                            key={wf.id}
-                            style={{ cursor: 'pointer' }}
-                            onClick={() => navigate({ to: `/workflows/$id`, params: { id: wf.id } as any })}
-                          >
-                            <Table.Td>
-                              <Group gap="xs">
-                                <ThemeIcon size="xs" variant="light" color={wf.active ? 'green' : 'gray'}>
-                                  <IconGitBranch size={10} />
-                                </ThemeIcon>
-                                <Text size="sm" fw={500}>
-                                  {wf.name}
-                                </Text>
-                              </Group>
-                            </Table.Td>
-                            <Table.Td ta="right">
-                              <Badge size="xs" color={wf.active ? 'green' : 'gray'} variant="light">
-                                {wf.active ? 'Active' : 'Inactive'}
-                              </Badge>
-                            </Table.Td>
-                          </Table.Tr>
-                        ))}
-                      </Table.Tbody>
-                    </Table>
-                  </Table.ScrollContainer>
-                </ScrollArea>
-              )}
             </Paper>
           </Grid.Col>
 
@@ -491,19 +344,19 @@ export function DashboardPage() {
             </Paper>
           </Grid.Col>
 
-          <Grid.Col span={{ base: 12, lg: 8 }}>
+          <Grid.Col span={12}>
             <Paper withBorder p="md" radius="md" h="100%">
               <Group justify="space-between" mb="md">
                 <div>
                   <Text fw={700} size="sm">
-                    System Events
+                    Recent events
                   </Text>
                   <Text size="xs" c="dimmed">
                     Recent activity logs
                   </Text>
                 </div>
-                <Button variant="subtle" size="xs" onClick={() => navigate({ to: '/logs' })}>
-                  System Logs
+                <Button variant="subtle" size="xs" onClick={() => navigate({ to: '/activity', search: { tab: 'logs' } as any })}>
+                  All logs
                 </Button>
               </Group>
               {logsError ? (

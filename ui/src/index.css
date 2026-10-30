@@ -214,3 +214,62 @@
 [data-mantine-color-scheme='dark'] .mantine-Table-th {
   border-bottom: 1px solid var(--mantine-color-dark-4);
 }
+
+/* Shared row pattern (components/rows): the list draws the outer border, rows draw dividers. */
+.hermod-row:first-child { border-top: 0 !important; }
+.hermod-row > a:hover, .hermod-row > button:hover { background: var(--mantine-color-default-hover); }
+
+.hermod-row {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-areas: 'main state tail';
+}
+.hermod-row-with-lead {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-areas: 'lead main state tail';
+}
+.hermod-row-lead { grid-area: lead; display: flex; }
+.hermod-row-main { grid-area: main; }
+.hermod-row-state { grid-area: state; }
+.hermod-row-tail { grid-area: tail; }
+
+/* Below the sm breakpoint the state moves under the name, and name and detail wrap to two lines instead of truncating. */
+@media (max-width: 47.99em) {
+  .hermod-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'main tail' 'state tail';
+    row-gap: 4px;
+  }
+  .hermod-row-with-lead {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: 'lead main tail' 'lead state tail';
+  }
+  /* The icon tile and the arrow go: on a phone the name needs their width. */
+  .hermod-row-icon, .hermod-row-chevron { display: none !important; }
+  .hermod-row-text {
+    white-space: normal !important;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+}
+
+/* The add-a-step picker: its choices and rows are plain buttons that light on hover. */
+.hermod-pick:hover:not(:disabled) { background: var(--mantine-color-default-hover); }
+
+/* Settings › Workspace: tabs down the side on a wide screen. On a phone a 220px
+   side column left the tab's content a sliver, so the tabs become one row that
+   scrolls sideways above the content. */
+.hermod-settings-tabs { display: flex; gap: 2rem; }
+.hermod-settings-tabs > .mantine-Tabs-list { width: 220px; flex-shrink: 0; }
+.hermod-settings-tabs > .mantine-Tabs-panel { flex: 1; min-width: 0; }
+@media (max-width: 48em) {
+  .hermod-settings-tabs { flex-direction: column; gap: var(--mantine-spacing-md); }
+  .hermod-settings-tabs > .mantine-Tabs-list {
+    width: auto;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .hermod-settings-tabs > .mantine-Tabs-list > .mantine-Tabs-tab { flex: none; }
+}

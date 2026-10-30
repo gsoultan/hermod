@@ -46,11 +46,8 @@ export function SettingsPage() {
         <Text c="dimmed" size="sm">Virtual hosts, workers and how this Hermod instance behaves</Text>
       </Stack>
 
-      <Tabs value={tab} onChange={setTab} orientation="vertical" variant="pills" styles={{
-        root: { display: 'flex', gap: '2rem' },
-        list: { width: 220, flexShrink: 0 },
-        panel: { flex: 1, minWidth: 0 }
-      }}>
+      {/* Side tabs on a wide screen, a row of tabs that scrolls on a phone: see .hermod-settings-tabs. */}
+      <Tabs value={tab} onChange={setTab} orientation="vertical" variant="pills" className="hermod-settings-tabs">
         <Tabs.List>
           <Tabs.Tab value="vhosts" leftSection={<IconHierarchy size="1.1rem" />}>Virtual hosts</Tabs.Tab>
           <Tabs.Tab value="workers" leftSection={<IconServerBolt size="1.1rem" />}>Workers</Tabs.Tab>
@@ -64,10 +61,10 @@ export function SettingsPage() {
         </Tabs.List>
 
         <Tabs.Panel value="vhosts">
-          {tab === 'vhosts' && <Suspense fallback={<Center h={200}><Loader /></Center>}><VHostsPage /></Suspense>}
+          {tab === 'vhosts' && <Suspense fallback={<Center h={200}><Loader /></Center>}><VHostsPage embedded /></Suspense>}
         </Tabs.Panel>
         <Tabs.Panel value="workers">
-          {tab === 'workers' && <Suspense fallback={<Center h={200}><Loader /></Center>}><WorkersPage /></Suspense>}
+          {tab === 'workers' && <Suspense fallback={<Center h={200}><Loader /></Center>}><WorkersPage embedded /></Suspense>}
         </Tabs.Panel>
         <Tabs.Panel value="platform">
           <PlatformTab ctx={ctx} />

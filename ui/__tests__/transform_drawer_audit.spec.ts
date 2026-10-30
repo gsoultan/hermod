@@ -44,10 +44,11 @@ test('node config drawers size to their content', async ({ page }) => {
   //
   // Selectors by role and label now, and every step that must happen is
   // asserted. A layout change should break this loudly or not at all.
-  if (!(await page.getByText('Workflow Panel').isVisible().catch(() => false))) {
-    await page.getByRole('button', { name: 'Workflow panel' }).click();
+  if (!(await page.getByText('Add a step', { exact: true }).isVisible().catch(() => false))) {
+    await page.getByRole('button', { name: 'Add step' }).click();
+    await page.getByRole('button', { name: 'Browse the full palette' }).click();
   }
-  await expect(page.getByText('Workflow Panel')).toBeVisible();
+  await expect(page.getByText('Add a step', { exact: true })).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/panel-open.png` });
 
   // A source has to exist before the Transformations tab unlocks.

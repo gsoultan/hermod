@@ -15,6 +15,7 @@ import {
   workflowNames, type ApprovalRule, type Promotion, type ReadyLane, type ReleaseItem, type Rules,
 } from '@/lib/environments'
 import { ReleaseDialog } from './ReleaseDialog'
+import { PageHeader } from '@/components/rows'
 
 /**
  * Environments: on a sending install, one lane per connected vhost with what
@@ -28,14 +29,16 @@ export function EnvironmentsPage() {
   const receives = role === 'staging' || role === 'production'
 
   return (
-    <Stack gap="xl" maw={1120}>
-      <Group gap="sm">
-        <Title order={2}>Environments</Title>
-        {role && <Badge color={roleColor[role]} variant="light" size="lg">{instance?.name || roleLabel[role]}</Badge>}
-      </Group>
+    <Stack gap="md" maw={1120}>
+      <PageHeader
+        title="Releases"
+        lede="Move flows between development, staging and production, and approve what arrives."
+        back={{ to: '/settings', label: 'Back to settings' }}
+        meta={role && <Badge color={roleColor[role]} variant="light" size="lg">{instance?.name || roleLabel[role]}</Badge>}
+      />
       {isLoading && <Loader size="sm" aria-label="Loading" />}
       {!isLoading && role === '' && (
-        <Alert color="blue">This instance has no environment role yet. An administrator sets it in Settings › Environments.</Alert>
+        <Alert color="blue">This instance has no environment role yet. An administrator sets it in Settings › Workspace › Environments.</Alert>
       )}
       {receives ? (
         <Grid gap="xl">
@@ -70,7 +73,7 @@ function Lanes() {
       <Group justify="space-between">
         <Stack gap={0}>
           <Title order={3}>Ready to promote</Title>
-          <Text size="sm" c="dimmed">What changed in each vhost since it last went out.</Text>
+          <Text size="sm" c="dimmed">What changed in each virtual host since it last went out.</Text>
         </Stack>
         <Button
           size="md"
