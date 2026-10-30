@@ -803,6 +803,36 @@ func (r *Runner) runBufferToSink(ctx context.Context, sinkWg *sync.WaitGroup) {
 	}
 }
 
+// bundle is every row one event produced for one sink.
+type bundle struct {
+	sinkIndex int
+	rows      []hermod.Message
+}
+
+// bundleTargets groups routed messages by sink, in the order the sinks were
+// first reached. Targets outside [0, writers) are dropped, as they always were.
+// Targets are few, so a scan beats a map here: this runs once per event.
+func bundleTargets(targets []RoutedMessage, writers int) []bundle {
+	out := make([]bundle, 0, len(targets))
+	for _, t := range targets {
+		if t.SinkIndex < 0 || t.SinkIndex >= writers || t.Message == nil {
+			continue
+		}
+		placed := false
+		for i := range out {
+			if out[i].sinkIndex == t.SinkIndex {
+				out[i].rows = append(out[i].rows, t.Message)
+				placed = true
+				break
+			}
+		}
+		if !placed {
+			out = append(out, bundle{sinkIndex: t.SinkIndex, rows: []hermod.Message{t.Message}})
+		}
+	}
+	return out
+}
+
 func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 	if m == nil {
 		return
@@ -1037,14 +1067,14 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 	var swg sync.WaitGroup
 	serrCh := make(chan error, len(targets))
 
-	for _, target := range targets {
-		if target.SinkIndex < 0 || target.SinkIndex >= len(r.engine.sinkWriters) {
-			continue
-		}
-
-		sw := r.engine.sinkWriters[target.SinkIndex]
-		target.Message.Retain()
-		pm := acquirePendingMessage(target.Message)
+	// The rows this event produced for one sink go to that sink's writer as
+	// one bundle, so they land in one batch however the writer cuts it. Two
+	// branches each building a row for a group that commits together is the
+	// case that needs it: queued one by one, the writer could commit one row
+	// and then the other, and the group would have kept its promise to neither.
+	for _, b := range bundleTargets(targets, len(r.engine.sinkWriters)) {
+		sw := r.engine.sinkWriters[b.sinkIndex]
+		pm := acquireBundle(b.rows)
 		swg.Go(func() {
 			sw.enqueueWithStrategy(ctx, pm, sw.snapshotConfig().BackpressureStrategy)
 			select {

@@ -375,6 +375,10 @@ func (t *WorkflowTraversal) processNode(ctx context.Context, currID string) {
 		t.RoutedMu.Lock()
 		if sinkIdx, ok := t.SinkNodeToIndex[currID]; ok {
 			for _, m := range msgs {
+				// Several sink nodes can share one engine sink — the members
+				// of a transaction that commit together — and inside it only
+				// this says which database a row was built for.
+				m.SetMetadata(hermod.MetaSinkNode, currID)
 				m.Retain()
 				t.Routed = append(t.Routed, pkgengine.RoutedMessage{
 					SinkIndex: sinkIdx,

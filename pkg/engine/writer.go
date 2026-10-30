@@ -74,7 +74,12 @@ type sinkWriter struct {
 }
 
 type pendingMessage struct {
-	msg      hermod.Message
+	msg hermod.Message
+	// more holds the rest of a bundle: the other rows one event produced for
+	// this sink. They travel with msg, land in the same batch, and answer on
+	// the same done channel, so a sink that commits together sees the whole
+	// event at once and the event succeeds or fails as one.
+	more     []hermod.Message
 	done     chan error
 	refCount atomic.Int32
 }
@@ -92,6 +97,17 @@ func acquirePendingMessage(msg hermod.Message) *pendingMessage {
 	pm := pendingMessagePool.Get().(*pendingMessage)
 	pm.msg = msg
 	pm.refCount.Store(2) // One for the producer/runner, one for the writer/backpressure
+	return pm
+}
+
+// acquireBundle is acquirePendingMessage for every row one event produced for
+// one sink. The rows are retained here and released with the bundle.
+func acquireBundle(rows []hermod.Message) *pendingMessage {
+	for _, m := range rows {
+		m.Retain()
+	}
+	pm := acquirePendingMessage(rows[0])
+	pm.more = append(pm.more[:0], rows[1:]...)
 	return pm
 }
 
@@ -162,6 +178,11 @@ func releasePendingMessage(pm *pendingMessage) {
 		pm.msg.Release()
 		pm.msg = nil
 	}
+	for i, m := range pm.more {
+		m.Release()
+		pm.more[i] = nil
+	}
+	pm.more = pm.more[:0]
 
 	// Reset the done channel by reading if it has anything (should be empty though)
 	select {
@@ -1185,6 +1206,7 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 		msgsReuse = msgsReuse[:0]
 		for _, pm := range batch {
 			msgsReuse = append(msgsReuse, pm.msg)
+			msgsReuse = append(msgsReuse, pm.more...)
 		}
 
 		var err error
@@ -1200,15 +1222,25 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 			err = w.engine.writeBatchToSink(writeCtx, bs, msgsReuse, w.sinkID, w.index)
 			healthFailure = err != nil && !errors.Is(err, hermod.ErrPermanent)
 		} else {
-			perMsgErr = make([]error, len(msgsReuse))
-			for i, m := range msgsReuse {
-				e := w.engine.writeToSink(writeCtx, w.sink, m, w.sinkID, w.index, observeAttemptErr)
-				perMsgErr[i] = e
-				if e != nil {
+			// One answer per pending message, not per row: a bundle's rows
+			// are written one by one here and any of them refused fails the
+			// event they all belong to.
+			perMsgErr = make([]error, len(batch))
+			for i, pm := range batch {
+				write := func(m hermod.Message) {
+					e := w.engine.writeToSink(writeCtx, w.sink, m, w.sinkID, w.index, observeAttemptErr)
+					if e == nil {
+						return
+					}
+					perMsgErr[i] = errors.Join(perMsgErr[i], e)
 					err = e
 					if !errors.Is(e, hermod.ErrPermanent) {
 						healthFailure = true
 					}
+				}
+				write(pm.msg)
+				for _, m := range pm.more {
+					write(m)
 				}
 			}
 		}
@@ -1292,6 +1324,9 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 						// in the engine: 1.86 GB out of 4.9 GB.
 						if cfg.BatchBytes > 0 {
 							batchBytes += payloadLen(msg)
+							for _, m := range pm.more {
+								batchBytes += payloadLen(m)
+							}
 						}
 						if len(batch) >= batchSize || (cfg.BatchBytes > 0 && batchBytes >= cfg.BatchBytes) {
 							flush()
@@ -1386,7 +1421,10 @@ func (w *sinkWriter) enqueueWithStrategy(ctx context.Context, pm *pendingMessage
 		case target <- pm:
 			// enqueued in memory
 		default:
-			if w.spillBuffer != nil {
+			// A bundle is not spilled: the spill buffer reloads rows one at a
+			// time, and rows that must land in one batch cannot come back that
+			// way. It waits for room instead, as BPBlock does.
+			if w.spillBuffer != nil && len(pm.more) == 0 {
 				// Spill the raw message so we can reload later. Produce takes
 				// ownership of the message and releases it back to the pool, so
 				// detach it from pm first; otherwise releasePendingMessage (called
