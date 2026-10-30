@@ -41,7 +41,7 @@ A container image and a Helm chart ship with each release:
 
 ```bash
 helm install hermod oci://ghcr.io/gsoultan/charts/hermod \
-  --version 1.2.0 \
+  --version 1.21.0 \
   --set existingSecret=hermod-master-key \
   --set metrics.prometheusRule.enabled=true
 ```
