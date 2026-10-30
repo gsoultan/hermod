@@ -26,7 +26,7 @@ import (
 // ---------------------------------------------------------------------------
 // One message's cancellation must not fail another message's lookup.
 //
-// Identical requests share one call through singleflight. The call used to run
+// Identical requests share one call (see package sharedcall). The call used to run
 // on the context of whichever message started it, so when that message was
 // cancelled -- its run stopped, a rerun replaced it -- every other message
 // waiting on the same request failed with that message's "context canceled".

@@ -27,6 +27,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/gsoultan/hermod/pkg/infra/sharedcall"
 	"golang.org/x/sync/singleflight"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
@@ -225,6 +226,9 @@ type Registry struct {
 	reconcilingMu sync.Mutex
 
 	sf singleflight.Group
+	// calls shares the store reads below between concurrent callers and keeps
+	// a read alive until its last waiter leaves; see package sharedcall.
+	calls sharedcall.Group
 
 	// backgroundTasks bounds concurrent background work (tracing, PII discovery)
 	backgroundTasks chan struct{}
@@ -1515,8 +1519,11 @@ func (r *Registry) GetSourceConfig(ctx context.Context, id string) (storage.Sour
 	}
 	r.sourceCacheMu.RUnlock()
 
-	// Use singleflight to avoid redundant DB hits
-	v, err, _ := r.sf.Do("source:"+id, func() (any, error) {
+	// One store read per id, shared by every concurrent caller. The read runs on
+	// a context no single caller can cancel: on the first caller's context, one
+	// cancelled message failed every message waiting on the same source with
+	// its "context canceled", and cached nothing.
+	v, err := r.calls.Do(ctx, "source:"+id, func(ctx context.Context) (any, error) {
 		src, err := r.store().GetSource(ctx, id)
 		if err != nil {
 			return storage.Source{}, err
@@ -1545,7 +1552,7 @@ func (r *Registry) GetSinkConfig(ctx context.Context, id string) (storage.Sink, 
 	}
 	r.sourceCacheMu.RUnlock()
 
-	v, err, _ := r.sf.Do("sink:"+id, func() (any, error) {
+	v, err := r.calls.Do(ctx, "sink:"+id, func(ctx context.Context) (any, error) {
 		snk, err := r.store().GetSink(ctx, id)
 		if err != nil {
 			return storage.Sink{}, err

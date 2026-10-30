@@ -31,14 +31,15 @@ import (
 	"github.com/gsoultan/hermod/pkg/comm/transformer/core"
 	"github.com/gsoultan/hermod/pkg/infra/evaluator"
 	"github.com/gsoultan/hermod/pkg/infra/httpclient"
+	"github.com/gsoultan/hermod/pkg/infra/sharedcall"
 )
 
 func init() {
-	transformer.Register("api_lookup", &APILookupTransformer{calls: &sharedCalls{}})
+	transformer.Register("api_lookup", &APILookupTransformer{calls: &sharedcall.Group{}})
 }
 
 type APILookupTransformer struct {
-	calls *sharedCalls
+	calls *sharedcall.Group
 }
 
 // configInt reads a whole number that the editor may have saved as a number or
@@ -364,7 +365,7 @@ func (t *APILookupTransformer) Transform(ctx context.Context, msg hermod.Message
 	}
 
 	// Identical concurrent requests share one call, which outlives any one
-	// message's cancellation -- see sharedCalls.
+	// message's cancellation -- see package sharedcall.
 	res, err := t.calls.Do(ctx, cacheKey, func(ctx context.Context) (any, error) {
 		// Execute API call with retries
 		timeout := 10 * time.Second

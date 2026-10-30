@@ -21,6 +21,7 @@ import (
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/infra/sharedcall"
 )
 
 // ---------------------------------------------------------------------------
@@ -79,7 +80,7 @@ func apiLookup(t *testing.T, tr *APILookupTransformer, reg *cachingFakeRegistry,
 }
 
 func newAPIFixture() (*APILookupTransformer, *cachingFakeRegistry) {
-	return &APILookupTransformer{calls: &sharedCalls{}}, &cachingFakeRegistry{cache: map[string]any{}}
+	return &APILookupTransformer{calls: &sharedcall.Group{}}, &cachingFakeRegistry{cache: map[string]any{}}
 }
 
 // A templated header is per-message input that selects the response, so it

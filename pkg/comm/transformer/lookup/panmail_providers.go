@@ -25,12 +25,13 @@ import (
 	"github.com/gsoultan/hermod/pkg/comm/transformer"
 	"github.com/gsoultan/hermod/pkg/comm/transformer/core"
 	"github.com/gsoultan/hermod/pkg/infra/evaluator"
+	"github.com/gsoultan/hermod/pkg/infra/sharedcall"
 	sdk "github.com/gsoultan/panmail-sdk"
 )
 
 func init() {
 	transformer.Register("panmail_providers", &PanmailProvidersTransformer{
-		calls: &sharedCalls{},
+		calls: &sharedcall.Group{},
 	})
 }
 
@@ -38,7 +39,7 @@ func init() {
 // into the message, through panmail-sdk's ListProviders. Its main use is
 // finding the provider id a panmail sink sends with.
 type PanmailProvidersTransformer struct {
-	calls *sharedCalls
+	calls *sharedcall.Group
 }
 
 // defaultPanmailProvidersField is where the list goes when the node names no

@@ -33,9 +33,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gsoultan/hermod/pkg/infra/sharedcall"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"golang.org/x/sync/singleflight"
 )
 
 // poolerParams are custom, non-libpq query parameters callers may add to a
@@ -213,7 +213,7 @@ var DefaultPooler = NewPooler()
 // same underlying connection pool, reducing the load on the database or proxy.
 type Pooler struct {
 	pools sync.Map // map[string]*pgxpool.Pool
-	sf    singleflight.Group
+	calls sharedcall.Group
 }
 
 // NewPooler creates a new connection pooler.
@@ -237,9 +237,13 @@ func (p *Pooler) Get(ctx context.Context, connString string) (*pgxpool.Pool, err
 		return pool, nil
 	}
 
-	// Use singleflight to ensure only one goroutine creates the pool for this key.
-	val, err, _ := p.sf.Do(key, func() (any, error) {
-		// Double check if pool was created while waiting for singleflight.
+	// One goroutine creates the pool for this key and every concurrent caller
+	// shares its result. The creation runs on a context that outlives any one
+	// caller's cancellation (see package sharedcall): a source stopping while a
+	// sink waited on the same pool used to fail the sink with that source's
+	// "context canceled".
+	val, err := p.calls.Do(ctx, key, func(ctx context.Context) (any, error) {
+		// Double check if pool was created while waiting.
 		if v, ok := p.pools.Load(key); ok {
 			return v, nil
 		}

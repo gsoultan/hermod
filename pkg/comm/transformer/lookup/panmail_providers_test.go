@@ -23,6 +23,7 @@ import (
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/message"
 	"github.com/gsoultan/hermod/pkg/comm/transformer"
+	"github.com/gsoultan/hermod/pkg/infra/sharedcall"
 )
 
 // panmailGateway answers ListEmailProviders with the given providers and
@@ -77,7 +78,7 @@ func runPanmailProviders(t *testing.T, tr *PanmailProvidersTransformer, reg *cac
 }
 
 func newPanmailProvidersFixture() (*PanmailProvidersTransformer, *cachingFakeRegistry) {
-	return &PanmailProvidersTransformer{calls: &sharedCalls{}}, &cachingFakeRegistry{cache: map[string]any{}}
+	return &PanmailProvidersTransformer{calls: &sharedcall.Group{}}, &cachingFakeRegistry{cache: map[string]any{}}
 }
 
 func TestPanmailProvidersIsRegistered(t *testing.T) {
