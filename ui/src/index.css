@@ -214,3 +214,7 @@
 [data-mantine-color-scheme='dark'] .mantine-Table-th {
   border-bottom: 1px solid var(--mantine-color-dark-4);
 }
+
+/* Shared row pattern (components/rows): the list draws the outer border, rows draw dividers. */
+.hermod-row:first-child { border-top: 0 !important; }
+.hermod-row > a:hover, .hermod-row > button:hover { background: var(--mantine-color-default-hover); }

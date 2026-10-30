@@ -1,4 +1,5 @@
-import { Box, Center, Loader, ScrollArea, Stack, Tabs, Text, Title } from '@mantine/core';
+import { Box, Center, Loader, ScrollArea, Stack, Tabs } from '@mantine/core';
+import { PageHeader } from '@/components/rows';
 import { Suspense, type ReactNode } from 'react';
 import type { HubTab } from './nav';
 
@@ -19,11 +20,8 @@ interface HubPageProps {
 export function HubPage({ title, lede, tabs, value, onChange, children }: HubPageProps) {
   const current = tabs.some((t) => t.value === value) ? value : tabs[0]?.value;
   return (
-    <Stack gap="md">
-      <Box>
-        <Title order={1} size="h2">{title}</Title>
-        {lede && <Text c="dimmed" size="sm">{lede}</Text>}
-      </Box>
+    <Stack gap={0}>
+      <PageHeader title={title} lede={lede} />
       <Tabs value={current} onChange={(t) => t && onChange(t)} keepMounted={false}>
         <ScrollArea type="never" scrollbars="x">
           <Tabs.List style={{ flexWrap: 'nowrap' }}>
