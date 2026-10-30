@@ -45,7 +45,7 @@ const LineagePage = lazy(async () => ({ default: (await import('./pages/monitori
 const GlobalHealthPage = lazy(async () => ({ default: (await import('./pages/monitoring/GlobalHealthPage')).default }))
 const CommunityMarketplace = lazy(async () => ({ default: (await import('./pages/Marketplace/CommunityMarketplace')).CommunityMarketplace }))
 const WorkflowDetailPage = lazy(async () => ({ default: (await import('./pages/workflows/WorkflowDetailPage')).WorkflowDetailPage }))
-const DashboardPage = lazy(async () => ({ default: (await import('./pages/system/DashboardPage')).DashboardPage }))
+const HomePage = lazy(async () => ({ default: (await import('./pages/home/HomePage')).HomePage }))
 const WorkflowEditorPage = lazy(async () => ({ default: (await import('./pages/workflows/WorkflowEditorPage')).default }))
 const WorkflowsPage = lazy(async () => ({ default: (await import('./pages/workflows/WorkflowsPage')).default }))
 const CompliancePage = lazy(async () => ({ default: (await import('./pages/monitoring/ComplianceDashboard')).ComplianceDashboard }))
@@ -191,7 +191,7 @@ const indexRoute = createRoute({
   path: '/',
   component: () => (
     <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
-      <DashboardPage />
+      <HomePage />
     </Suspense>
   ),
 })

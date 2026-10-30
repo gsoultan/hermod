@@ -218,3 +218,28 @@
 /* Shared row pattern (components/rows): the list draws the outer border, rows draw dividers. */
 .hermod-row:first-child { border-top: 0 !important; }
 .hermod-row > a:hover, .hermod-row > button:hover { background: var(--mantine-color-default-hover); }
+
+.hermod-row {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-areas: 'main state tail';
+}
+.hermod-row-main { grid-area: main; }
+.hermod-row-state { grid-area: state; }
+.hermod-row-tail { grid-area: tail; }
+
+/* Below the sm breakpoint the state moves under the name, and name and detail wrap to two lines instead of truncating. */
+@media (max-width: 47.99em) {
+  .hermod-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'main tail' 'state tail';
+    row-gap: 4px;
+  }
+  /* Under the name, not under the icon tile (36px tile + md gap). */
+  .hermod-row:has(.mantine-ThemeIcon-root) .hermod-row-state { padding-left: 52px; }
+  .hermod-row-text {
+    white-space: normal !important;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+}
