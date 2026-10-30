@@ -430,6 +430,17 @@ type Handler func(ctx context.Context, msg Message) error
 // and those are spread across workers exactly as before.
 const MetaOrderingKey = "_hermod_order_key"
 
+// MetaSinkNode names the sink node a routed message reached.
+//
+// A workflow draws each destination as its own sink node, and several of them
+// may share one engine sink: the members of a transaction that commit together
+// are one sink to the engine, so that one writer hands them a batch and runs
+// two-phase commit across them. Inside that sink the rows are no longer alike —
+// one branch of the workflow built a row for one database and another branch a
+// row for another — and this is what tells them apart. The traversal sets it on
+// every message it routes; a sink that has no use for it ignores it.
+const MetaSinkNode = "_hermod_sink_node"
+
 // OrderingKey returns the message's ordering key, or "" when it has none.
 //
 // It must not clone the metadata map to read one entry. This runs once per

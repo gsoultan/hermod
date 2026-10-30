@@ -57,7 +57,10 @@ type Member struct {
 
 // Sink writes to every member inside one distributed transaction.
 type Sink struct {
-	members     []Member
+	members []Member
+	// memberIdx finds a member by ID: a row that names the sink node it came
+	// through is for the member of that name alone.
+	memberIdx   map[string]int
 	coordinator *twopc.Coordinator
 	logger      hermod.Logger
 
@@ -106,7 +109,11 @@ func New(members []Member, coordinator *twopc.Coordinator, logger hermod.Logger)
 			"as ordinary sinks: a group is only atomic if every member can prepare", notParticipants)
 	}
 
-	return &Sink{members: members, coordinator: coordinator, logger: logger}, nil
+	idx := make(map[string]int, len(members))
+	for i, m := range members {
+		idx[m.ID] = i
+	}
+	return &Sink{members: members, memberIdx: idx, coordinator: coordinator, logger: logger}, nil
 }
 
 // Preflight verifies that every member can genuinely honour the transaction
@@ -171,26 +178,47 @@ func (s *Sink) Write(ctx context.Context, msg hermod.Message) error {
 	return s.WriteBatch(ctx, []hermod.Message{msg})
 }
 
-// WriteBatch sends a batch to every member atomically.
+// WriteBatch writes a batch atomically: every member that has rows in it
+// either commits them or none does.
+//
+// Which rows a member gets is the row's business. A row that names the sink
+// node it came through (hermod.MetaSinkNode) and that node is a member goes to
+// that member alone: the workflow built it for that database. Any other row goes
+// to every member, which is what a stand-alone Transaction Group has always
+// done with the rows it is handed. A member with no rows in the batch takes no
+// part in it, so nothing is prepared empty on its behalf; and when only one
+// member has rows there is nothing to coordinate, and its own transaction is
+// the whole guarantee.
 //
 // The writes happen first and the vote second, because a member can only
 // prepare changes it already holds. If any write fails, nothing is prepared.
 func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
-	filtered := make([]hermod.Message, 0, len(msgs))
-	for _, m := range msgs {
-		if m != nil {
-			filtered = append(filtered, m)
+	rows := s.rowsByMember(msgs)
+
+	var active []int
+	for i := range s.members {
+		if len(rows[i]) > 0 {
+			active = append(active, i)
 		}
 	}
-	if len(filtered) == 0 {
+	if len(active) == 0 {
 		return nil
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	participants := make([]twopc.Participant, 0, len(s.members))
-	for _, m := range s.members {
+	if len(active) == 1 {
+		m := s.members[active[0]]
+		if err := s.writeMember(ctx, m, rows[active[0]]); err != nil {
+			return fmt.Errorf("member %q: %w", m.ID, err)
+		}
+		return nil
+	}
+
+	participants := make([]twopc.Participant, 0, len(active))
+	for _, i := range active {
+		m := s.members[i]
 		p, ok := m.Sink.(hermod.TwoPhaseCommit)
 		if !ok {
 			// New rejects these, so reaching here means the group was mutated
@@ -201,13 +229,36 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 	}
 
 	return s.coordinator.Run(ctx, participants, func(ctx context.Context) error {
-		for _, m := range s.members {
-			if err := s.writeMember(ctx, m, filtered); err != nil {
+		for _, i := range active {
+			m := s.members[i]
+			if err := s.writeMember(ctx, m, rows[i]); err != nil {
 				return fmt.Errorf("member %q: %w", m.ID, err)
 			}
 		}
 		return nil
 	})
+}
+
+// rowsByMember sorts a batch into one slice per member, in batch order. A row
+// addressed to a member goes to that member; a row addressed to nobody the
+// group knows goes to all of them.
+func (s *Sink) rowsByMember(msgs []hermod.Message) [][]hermod.Message {
+	rows := make([][]hermod.Message, len(s.members))
+	for _, m := range msgs {
+		if m == nil {
+			continue
+		}
+		if node, ok := hermod.MetadataValue(m, hermod.MetaSinkNode); ok {
+			if i, member := s.memberIdx[node]; member {
+				rows[i] = append(rows[i], m)
+				continue
+			}
+		}
+		for i := range rows {
+			rows[i] = append(rows[i], m)
+		}
+	}
+	return rows
 }
 
 // writeMember hands the batch to one member, preferring its batch path.

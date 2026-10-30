@@ -7,6 +7,20 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Changed — The rows one event produces for one sink stay together
+
+A workflow can send one event to the same sink more than once: two branches each
+build a row, or a fan-out produces several. Those rows used to be queued one by
+one, so the sink could get them in different batches. They now travel as one
+bundle and always land in the same batch, and the event succeeds or fails as a
+whole. Every routed row also records which sink node it came through.
+
+A transactional group uses both: a row that came through one of its member
+nodes goes to that member alone, so one event can put different rows in
+different databases and still commit them together. A member with no rows in a
+batch is left out of that transaction. The stand-alone Transaction Group node is
+unchanged: rows that name no member still go to every member.
+
 ### Fixed — A workflow could hang when stopped
 
 Stopping a workflow could wait for ever. A message the buffer handed to the
