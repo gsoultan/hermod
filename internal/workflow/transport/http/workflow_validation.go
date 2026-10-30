@@ -330,6 +330,7 @@ func (h *WorkflowHandler) ValidateWorkflow(ctx context.Context, wf storage.Workf
 	issues = append(issues, aiNodeIssues(wf)...)
 	issues = append(issues, retryIssues(wf)...)
 	issues = append(issues, h.commitTogetherIssues(ctx, wf)...)
+	issues = append(issues, h.kafkaExactlyOnceIssues(ctx, wf)...)
 
 	return issues
 }
@@ -348,6 +349,22 @@ func (h *WorkflowHandler) commitTogetherIssues(ctx context.Context, wf storage.W
 		Message:  err.Error(),
 		Recommendation: "Add a second PostgreSQL, YugabyteDB, MySQL or MariaDB sink node to the transaction, " +
 			"or turn off \"Commit together\" on the node named.",
+	}}
+}
+
+// kafkaExactlyOnceIssues refuses what the engine would refuse about a Kafka
+// sink with a transactional ID: a second sink in a workflow that reads Kafka,
+// which the transaction's offset commit would skip after a failure.
+func (h *WorkflowHandler) kafkaExactlyOnceIssues(ctx context.Context, wf storage.Workflow) []ValidationIssue {
+	err := h.Registry.CheckKafkaExactlyOnce(ctx, wf)
+	if err == nil {
+		return nil
+	}
+	return []ValidationIssue{{
+		Severity: "error",
+		Message:  err.Error(),
+		Recommendation: "Make the Kafka sink the workflow's only sink and move the other sinks to a workflow of " +
+			"their own that reads the output topic, or clear the Kafka sink's Transactional ID.",
 	}}
 }
 

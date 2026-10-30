@@ -175,9 +175,10 @@ not editing this paragraph.
 the Kafka sink a `transactional_id` and each batch is one Kafka transaction that
 also commits the source consumer group's offsets: after a crash the input is
 re-read from the last committed transaction, and an unfinished one is aborted
-and never seen by a read_committed consumer. Use it only when Kafka is the
+and never seen by a read_committed consumer. Kafka must be the
 workflow's only sink, since a second sink that failed would not be handed the
-records again. Kafka still cannot join a transactional sink group, because
+records again: a workflow that reads Kafka and has a second sink next to a
+transactional one is refused when it is saved and when it starts. Kafka still cannot join a transactional sink group, because
 recovery there must be able to *commit* a transaction an earlier process
 prepared and Kafka can only abort one. See [ROADMAP](../ROADMAP.md).
 
