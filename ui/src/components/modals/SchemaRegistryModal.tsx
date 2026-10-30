@@ -1,15 +1,60 @@
 import { useState } from 'react';
 import { 
   Modal, Stack, Group, Text, Button, Table, Badge, ScrollArea, TextInput, 
-  Select, Textarea, ThemeIcon, Alert, Tabs
-} from '@mantine/core';import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+  Select, Textarea, ThemeIcon, Alert, Tabs, Title
+} from '@mantine/core';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api';
-import { formatDateTime } from '@/utils/dateUtils';import { IconAlertCircle, IconCheck, IconCloudUpload, IconCode, IconDatabase, IconHistory, IconPlus, IconRefresh } from '@tabler/icons-react';
-export function SchemaRegistryModal({ opened, onClose }: { opened: boolean; onClose: () => void }) {
+import { formatDateTime } from '@/utils/dateUtils';
+import { IconAlertCircle, IconCheck, IconCloudUpload, IconCode, IconDatabase, IconHistory, IconPlus, IconRefresh } from '@tabler/icons-react';
+import type { LineageImpact, LineageNode } from '@/lib/lineage';
+import { ImpactPanel } from '@/pages/monitoring/lineage/ImpactPanel';
+
+/** POST /api/ai/analyze-schema: the AI verdict, and what is downstream of the workflow. */
+interface SchemaAnalysis {
+  breaking: boolean;
+  suggestion: string;
+  impacted_nodes?: string[];
+  downstream?: Omit<LineageImpact, 'vhost'>;
+}
+
+/** The schema a textarea holds, or an error naming it. */
+function parseSchema(form: FormData, field: string, label: string): Record<string, unknown> {
+  try {
+    return JSON.parse(String(form.get(field) ?? ''));
+  } catch {
+    throw new Error(`${label} is not valid JSON`);
+  }
+}
+
+/**
+ * The sinks and workflows a change to the workflow's data reaches. The server
+ * leaves it out for an unsaved workflow or one the caller may not see.
+ */
+function Downstream({ analysis, workflowId }: { analysis: SchemaAnalysis; workflowId?: string }) {
+  const impact = analysis.downstream;
+  if (!workflowId) {
+    return <Text size="sm" c="dimmed">Save the workflow to see what is downstream of it.</Text>;
+  }
+  if (!impact) return null;
+  if (impact.impacted.length === 0) {
+    return <Text size="sm" c="dimmed">No sink or workflow downstream of {impact.root.label} is known to Hermod.</Text>;
+  }
+  const labels = new Map<string, LineageNode>([[impact.root.id, impact.root]]);
+  for (const it of impact.impacted) labels.set(it.node.id, it.node);
+  return <ImpactPanel impact={{ vhost: '', ...impact }} loading={false} error={null} labels={labels} />;
+}
+
+export function SchemaRegistryModal({ opened, onClose, workflowId }: {
+  opened: boolean;
+  onClose: () => void;
+  /** The saved workflow the editor has open; unset for a new one. */
+  workflowId?: string;
+}) {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<string | null>('list');
   const [selectedSchema, setSelectedSchema] = useState<string | null>(null);
-  const [evolutionAnalysis, setEvolutionAnalysis] = useState<any>(null);
+  const [evolutionAnalysis, setEvolutionAnalysis] = useState<SchemaAnalysis | null>(null);
 
   const { data: schemas, isLoading } = useQuery({
     queryKey: ['schemas'],
@@ -46,14 +91,21 @@ export function SchemaRegistryModal({ opened, onClose }: { opened: boolean; onCl
   });
 
   const analyzeEvolutionMutation = useMutation({
-    mutationFn: async (values: any) => {
+    mutationFn: async (form: FormData): Promise<SchemaAnalysis> => {
+      const body = {
+        ...(workflowId ? { workflow_id: workflowId } : {}),
+        old_schema: parseSchema(form, 'old_schema', 'Old schema'),
+        new_schema: parseSchema(form, 'new_schema', 'New schema'),
+      };
       const res = await apiFetch('/api/ai/analyze-schema', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(values)
+        body: JSON.stringify(body),
+        silent: true
       });
       return res.json();
     },
+    onMutate: () => setEvolutionAnalysis(null),
     onSuccess: (data) => {
       setEvolutionAnalysis(data);
     }
@@ -136,12 +188,7 @@ export function SchemaRegistryModal({ opened, onClose }: { opened: boolean; onCl
         <Tabs.Panel value="evolution" pt="md">
           <form onSubmit={(e) => {
             e.preventDefault();
-            const formData = new FormData(e.currentTarget);
-            analyzeEvolutionMutation.mutate({
-              workflow_id: 'default',
-              old_schema: JSON.parse(formData.get('old_schema') as string),
-              new_schema: JSON.parse(formData.get('new_schema') as string)
-            });
+            analyzeEvolutionMutation.mutate(new FormData(e.currentTarget));
           }}>
             <Stack gap="sm">
               <Group grow>
@@ -154,10 +201,19 @@ export function SchemaRegistryModal({ opened, onClose }: { opened: boolean; onCl
                 <Alert color={evolutionAnalysis.breaking ? 'red' : 'green'} icon={evolutionAnalysis.breaking ? <IconAlertCircle size="1rem" /> : <IconCheck size="1rem" />}>
                   <Text fw={700}>{evolutionAnalysis.breaking ? 'Breaking Changes Detected' : 'Safe to Proceed'}</Text>
                   <Text size="sm" mt="xs">{evolutionAnalysis.suggestion}</Text>
-                  {evolutionAnalysis.impacted_nodes?.length > 0 && (
-                    <Text size="xs" mt="xs" color="dimmed">Impacted Nodes: {evolutionAnalysis.impacted_nodes.join(', ')}</Text>
+                    {(evolutionAnalysis.impacted_nodes?.length ?? 0) > 0 && (
+                    <Text size="xs" mt="xs" color="dimmed">Impacted Nodes: {evolutionAnalysis.impacted_nodes?.join(', ')}</Text>
                   )}
                 </Alert>
+              )}
+              {analyzeEvolutionMutation.error && (
+                <Alert color="red" icon={<IconAlertCircle size="1rem" />}>{analyzeEvolutionMutation.error.message}</Alert>
+              )}
+              {evolutionAnalysis && (
+                <Stack gap="xs">
+                  <Title order={5}>Affected downstream</Title>
+                  <Downstream analysis={evolutionAnalysis} workflowId={workflowId} />
+                </Stack>
               )}
             </Stack>
           </form>

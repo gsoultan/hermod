@@ -53,6 +53,7 @@ export function WorkflowModals({
       <SchemaRegistryModal 
         opened={schemaRegistryOpened} 
         onClose={() => setSchemaRegistryOpened(false)} 
+        workflowId={id && id !== 'new' ? id : undefined}
       />
 
       <WorkflowHistoryModal
