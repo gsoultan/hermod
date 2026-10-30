@@ -48,6 +48,14 @@ function startsWithPath(pathname: string, prefix: string): boolean {
 }
 
 /** Which of the five places a URL belongs to; null for the public pages. */
+/**
+ * How tall the phone's bottom tabs are: one 56px row of buttons, the 1px
+ * border above it, and the home-indicator inset below. The tabs, the spacer
+ * that keeps page content clear of them and the workflow editor (which sizes
+ * itself to the screen) all read it, so they cannot drift apart.
+ */
+export const BOTTOM_TABS_HEIGHT = 'calc(3.5rem + 1px + env(safe-area-inset-bottom))'
+
 export function sectionOf(pathname: string): Section | null {
   if (PUBLIC_PATHS.has(pathname)) return null
   if (pathname === '/') return 'home'

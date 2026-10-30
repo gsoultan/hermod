@@ -15,7 +15,7 @@ import type { Workflow } from '@/types';
 import { ErrorBoundary } from './ErrorBoundary';
 import { useConfirm } from '@/components/common/ConfirmProvider';
 import { EnvironmentBadge } from './EnvironmentBadge';
-import { PRIMARY_NAV, collapsesSidebar, isCanvasRoute as canvasRoute, sectionOf, type Section } from './nav';
+import { BOTTOM_TABS_HEIGHT, PRIMARY_NAV, collapsesSidebar, isCanvasRoute as canvasRoute, sectionOf, type Section } from './nav';
 
 interface LayoutProps {
   children: ReactNode;
@@ -714,7 +714,7 @@ export function Layout({ children }: LayoutProps) {
           </ErrorBoundary>
         </Box>
         {/* Room for the bottom tabs on a phone; nothing on wider screens. */}
-        <Box hiddenFrom="sm" h={64} />
+        <Box hiddenFrom="sm" h={BOTTOM_TABS_HEIGHT} />
       </AppShell.Main>
 
       <Box
@@ -723,6 +723,7 @@ export function Layout({ children }: LayoutProps) {
         hiddenFrom="sm"
         style={{
           position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 200,
+          height: BOTTOM_TABS_HEIGHT, boxSizing: 'border-box',
           display: 'grid', gridTemplateColumns: `repeat(${PRIMARY_NAV.length}, 1fr)`,
           borderTop: `1px solid ${dark ? 'var(--mantine-color-dark-5)' : 'var(--mantine-color-gray-3)'}`,
           background: dark ? 'var(--mantine-color-dark-7)' : 'white',

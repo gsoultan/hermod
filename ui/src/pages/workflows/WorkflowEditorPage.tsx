@@ -47,6 +47,7 @@ import { WorkflowModals } from './WorkflowEditor/components/WorkflowModals';
 import { WorkflowNodeSettingsModal } from './WorkflowEditor/components/WorkflowNodeSettingsModal';
 import { UnsavedChangesGuard } from './WorkflowEditor/components/UnsavedChangesGuard';
 import { deadLetterPageFor, wantsDeadLetterQueue } from './WorkflowEditor/utils/deadLetterLink';
+import { BOTTOM_TABS_HEIGHT } from '@/components/layout/nav';
 
 const API_BASE = '/api';
 
@@ -278,15 +279,20 @@ function EditorInner() {
           placeholder: 'Search components to add...',
         }}
       />
-      {/* Derived from Mantine's own header-height variable rather than the old
-          hand-tuned `calc(100vh - 120px)`, so changing the header cannot
-          silently mis-size the canvas. Viewport-relative on purpose: a
-          percentage height would need every ancestor to have a definite height,
-          and ErrorBoundary sits in that chain without one, which collapses the
-          canvas to zero. */}
+      {/* The screen less whatever the shell puts above and below the page.
+          Above is Mantine's header offset, which is 0 now that the shell has no
+          header; this used to read the header height with a 60px fallback,
+          and that fallback left a blank strip under the live log panel once
+          the header went. Below, on a phone, are the bottom tabs.
+          Viewport-relative on purpose: a percentage height would need every
+          ancestor to have a definite height, and ErrorBoundary sits in that
+          chain without one, which collapses the canvas to zero. */}
       <Box
+        h={{
+          base: `calc(100dvh - var(--app-shell-header-offset, 0px) - ${BOTTOM_TABS_HEIGHT})`,
+          sm: 'calc(100dvh - var(--app-shell-header-offset, 0px))',
+        }}
         style={{
-          height: 'calc(100vh - var(--app-shell-header-height, 60px))',
           minHeight: 0,
           display: 'flex',
           flexDirection: 'column',
