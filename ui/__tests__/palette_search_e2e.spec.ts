@@ -32,7 +32,7 @@ const openPalette = async (page: Page) => {
   await page.waitForTimeout(2000);
   // The panel remembers whether it was open, so only toggle when it is shut.
   if (!(await page.getByText('Workflow Panel').isVisible().catch(() => false))) {
-    await page.getByRole('button', { name: 'Workflow panel' }).click();
+    await page.getByRole('button', { name: 'Add step' }).click();
   }
   await expect(page.getByText('Workflow Panel')).toBeVisible();
 };

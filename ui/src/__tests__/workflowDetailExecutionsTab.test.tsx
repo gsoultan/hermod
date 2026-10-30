@@ -12,6 +12,7 @@ vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, to: _to, params: _params, ...rest }: any) => <a {...rest}>{children}</a>,
   useParams: () => ({ id: 'wf-1' }),
   useNavigate: () => () => {},
+  useSearch: () => ({}),
 }))
 // The canvas and the debugger are not what is under test, and both are heavy.
 vi.mock('@/pages/workflows/WorkflowEditor/components/DetailFlowCanvas', () => ({ DetailFlowCanvas: () => null }))
@@ -53,7 +54,7 @@ describe('Workflow detail page: runs and proposals', () => {
     const user = userEvent.setup()
     renderDetailPage()
 
-    await user.click(await screen.findByRole('tab', { name: /executions/i }))
+    await user.click(await screen.findByRole('tab', { name: /runs/i }))
     await user.click(await screen.findByRole('button', { name: /open run run-1/i }))
     expect(await screen.findByRole('button', { name: /^replay/i })).toBeInTheDocument()
   })
@@ -64,13 +65,13 @@ describe('Workflow detail page: runs and proposals', () => {
     const user = userEvent.setup()
     renderDetailPage()
 
-    await user.click(await screen.findByRole('tab', { name: /executions/i }))
+    await user.click(await screen.findByRole('tab', { name: /runs/i }))
     await user.click(await screen.findByRole('button', { name: /open run run-1/i }))
     await screen.findByRole('heading', { name: 'Run' })
     expect(screen.queryByRole('button', { name: /^replay/i })).toBeNull()
   })
 
-  it('runs with input from the header and opens the run in Executions', async () => {
+  it('runs with input from the header and opens the run in Runs', async () => {
     signInAs('Editor')
     useWorkflow()
     server.use(
@@ -84,9 +85,9 @@ describe('Workflow detail page: runs and proposals', () => {
     await user.click(await screen.findByRole('button', { name: /run with input/i }))
     fireEvent.change(await screen.findByRole('textbox', { name: /input message/i }), { target: { value: '{"a": 1}' } })
     await user.click(screen.getByRole('button', { name: /^run workflow/i }))
-    await user.click(await screen.findByRole('button', { name: /open in executions/i }))
+    await user.click(await screen.findByRole('button', { name: /open in runs/i }))
 
-    expect(await screen.findByRole('tab', { name: /executions/i, selected: true })).toBeInTheDocument()
+    expect(await screen.findByRole('tab', { name: /runs/i, selected: true })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: 'Run' })).toBeInTheDocument()
   })
 
@@ -109,7 +110,7 @@ describe('Workflow detail page: runs and proposals', () => {
 
     expect(await screen.findByText(/1 self-healing fix is waiting for review/i)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /review fixes/i }))
-    expect(await screen.findByRole('tab', { name: /proposals/i, selected: true })).toBeInTheDocument()
+    expect(await screen.findByRole('tab', { name: /tuning/i, selected: true })).toBeInTheDocument()
     expect(await screen.findByText('Retry longer')).toBeInTheDocument()
   })
 

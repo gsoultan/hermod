@@ -89,13 +89,16 @@ test.describe('workflow detail surface', () => {
     // Each tab is a distinct data path — traces, versions, logs, the debugger —
     // and any of them can throw on an empty workflow, which is exactly the
     // state a user sees right after creating one.
+    // The view and the editor share seven tabs; Build is the graph, Traces the
+    // message traces, and Tuning holds suggested fixes and optimization.
     for (const tab of [
-      /graph view/i,
-      /message traces/i,
-      /history/i,
-      /logs/i,
-      /debugger/i,
-      /optimization/i,
+      /^build$/i,
+      /^runs$/i,
+      /^traces$/i,
+      /^history$/i,
+      /^logs$/i,
+      /^debugger$/i,
+      /^tuning/i,
     ]) {
       const t = page.getByRole('tab', { name: tab });
       await expect(t, `tab ${tab} is missing`).toBeVisible({ timeout: 20000 });
@@ -110,7 +113,7 @@ test.describe('workflow detail surface', () => {
     test.setTimeout(120000);
 
     await page.goto(`/workflows/${workflowID}`);
-    await page.getByRole('tab', { name: /message traces/i }).click();
+    await page.getByRole('tab', { name: /^traces$/i }).click();
 
     // A workflow that has never run has no traces. That must be a designed
     // empty state, not a spinner that never resolves or a blank panel.

@@ -154,7 +154,7 @@ function RunOutcome({ result, onOpen }: { result: RunResult; onOpen: () => void 
         ))}
         <Group>
           <Button size="xs" variant="light" leftSection={<IconListDetails size="0.9rem" />} onClick={onOpen}>
-            Open in Executions
+            Open in Runs
           </Button>
         </Group>
       </Stack>

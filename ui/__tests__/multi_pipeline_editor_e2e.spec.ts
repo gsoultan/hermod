@@ -55,7 +55,8 @@ test.describe('workflow editor: multi-source pipeline', () => {
 
     // Toolbar affordances the editor is unusable without.
     await expect(page.getByRole('textbox').first()).toBeVisible({ timeout: 15000 });
-    for (const label of [/^tools$/i, /^test$/i, /^save$/i]) {
+    // The old Tools and Inspect menus are one ⋯ menu named More.
+    for (const label of [/^more$/i, /^test$/i, /^save$/i]) {
       await expect(page.getByRole('button', { name: label }).first()).toBeVisible({
         timeout: 15000,
       });

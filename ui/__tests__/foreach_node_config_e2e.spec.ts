@@ -34,7 +34,7 @@ test('a foreach node can be given its array path from the palette', async ({ pag
   await page.waitForTimeout(2000);
 
   if (!(await page.getByText('Workflow Panel').isVisible().catch(() => false))) {
-    await page.getByRole('button', { name: 'Workflow panel' }).click();
+    await page.getByRole('button', { name: 'Add step' }).click();
   }
   await expect(page.getByText('Workflow Panel')).toBeVisible();
 
