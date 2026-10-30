@@ -41,7 +41,7 @@ function StepCard({ color, icon: Icon, kind, title, detail, inbound, outbound, v
           </ThemeIcon>
           <Text size="xs" fw={600} c="dimmed" tt="uppercase" truncate style={{ letterSpacing: rem(0.6) }}>{kind}</Text>
         </Group>
-        <Text size="sm" fw={600} lh={1.3} truncate>{title}</Text>
+        <Text size="sm" fw={600} lh={1.3} lineClamp={2} title={title}>{title}</Text>
         {detail && <Text size="xs" c="dimmed" truncate>{detail}</Text>}
       </Stack>
     </Paper>

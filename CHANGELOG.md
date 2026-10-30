@@ -31,6 +31,14 @@ tabs, the tabs scroll sideways, and the read-only view draws the flow top to
 bottom. It opens at the top of the flow at a readable size; a flow with many
 branches stays readable and its other branches are a swipe sideways.
 
+- **Step cards.** A step with more than one way out (Condition, Approval, Switch, Router, AI
+  Classify, Foreach, Deduplicate) lists its branches in rows at the foot of the card, each with its
+  handle level with its name. The names used to float over the card at fixed offsets and ran into
+  a long step name. Long names wrap to two lines. A step's counts and warnings (processed, errors,
+  failed, circuit breaker, buffer) are one line inside the card instead of bubbles on its edges.
+  Notes and AI Agent steps use the same card. Tidy up now spaces steps by the size they are drawn
+  at, so a tall step no longer lands on the one below it.
+
 ### Added — "Every database must get a row" and a view of each transaction's runs
 
 A transaction of sink nodes that commit together has a new switch, **Every

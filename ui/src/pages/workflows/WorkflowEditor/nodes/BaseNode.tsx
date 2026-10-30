@@ -56,6 +56,30 @@ export const PlusHandle = ({ type, position, id, color, nodeId, style }: any) =>
   );
 };
 
+export interface Branch {
+  /** The handle's id, which an edge drawn from it carries as its branch; null for the step's main output. */
+  id: string | null;
+  label: string;
+  color: string;
+}
+
+/**
+ * A step's ways out, one row each in the foot of its card: the branch's name,
+ * and its handle level with that name on the card's right edge. The rows give
+ * the card its height, so a long step name or many branches never put a name
+ * under a handle or a handle off the card.
+ */
+export const BranchOutputs = ({ nodeId, branches }: { nodeId: string; branches: Branch[] }) => (
+  <Box className="hermod-branches">
+    {branches.map((b) => (
+      <Box key={b.id ?? ''} className="hermod-branch">
+        <Text size="xs" fw={500} c={b.color === 'gray' ? 'dimmed' : `${b.color}.7`} truncate title={b.label}>{b.label}</Text>
+        <PlusHandle type="source" position={Position.Right} id={b.id} nodeId={nodeId} color={b.color} style={{ top: '50%' }} />
+      </Box>
+    ))}
+  </Box>
+);
+
 export const TargetHandle = ({ position, color, style }: any) => {
   return (
     <Handle 
@@ -160,6 +184,20 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
     setSelectedNode(null);
   };
 
+  // What the step has done and anything wrong with it, as one line in the
+  // card rather than bubbles hung off its edges.
+  const stats: ReactNode[] = [];
+  if (cbOpen) stats.push(<Badge key="cb" size="xs" variant="light" color="red">Circuit open</Badge>);
+  if (cbHalfOpen) stats.push(<Badge key="cb" size="xs" variant="light" color="orange">Circuit half-open</Badge>);
+  if (metric > 0) stats.push(<Text key="m" size="xs" c="dimmed">{`${metric.toLocaleString()} processed`}</Text>);
+  if (errorCount > 0) stats.push(<Text key="e" size="xs" c="red.7">{`${errorCount.toLocaleString()} ${errorCount === 1 ? 'error' : 'errors'}`}</Text>);
+  if (data.dlqCount > 0) stats.push(<Text key="d" size="xs" c="orange.7">{`${data.dlqCount.toLocaleString()} failed`}</Text>);
+  if (bufferFill > 0) {
+    stats.push(
+      <Text key="b" size="xs" c={bufferHigh ? 'red.7' : 'dimmed'}>{`Buffer ${Math.round(bufferFill * 100)}%`}</Text>,
+    );
+  }
+
   const title = stepTitle(data, type, data.ref_id ? context?.refNames?.[data.ref_id] : undefined);
   const ringColor = cbOpen ? 'red' : (simulationColor ?? problemColor ?? (errorCount > 0 ? healthColor : null));
 
@@ -181,7 +219,7 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
         filter: faded ? 'grayscale(1)' : undefined,
       }}
     >
-      <Stack gap={4} px={14} py={12}>
+      <Stack className="hermod-step-body" gap={4} px={14} py={12}>
         <Group justify="space-between" gap="xs" wrap="nowrap">
           <Group gap={8} wrap="nowrap" style={{ minWidth: 0 }}>
             <ThemeIcon color={color} variant="light" size={22} radius="sm">
@@ -220,9 +258,14 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
           </Group>
         </Group>
 
-        <Text fw={600} size="sm" lh={1.3} truncate>{title}</Text>
+        <Text fw={600} size="sm" lh={1.3} lineClamp={2} title={title}>{title}</Text>
         {data.description && <Text size="xs" c="dimmed" lineClamp={1}>{data.description}</Text>}
         {badge && <Group gap={4}>{badge}</Group>}
+        {stats.length > 0 && (
+          <Group className="hermod-step-stats" gap={6} wrap="wrap">
+            {stats}
+          </Group>
+        )}
       </Stack>
 
       {(hovered || selected) && (
@@ -244,87 +287,6 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
             <IconTrash size="0.8rem" />
           </ActionIcon>
         </Tooltip>
-      )}
-
-      {cbOpen && (
-        <Box 
-          style={{ 
-            position: 'absolute', 
-            top: 4, 
-            left: '50%',
-            transform: 'translateX(-50%)',
-            background: 'var(--mantine-color-red-6)',
-            borderRadius: '4px',
-            padding: '2px 8px',
-            color: 'white',
-            fontSize: '8px',
-            fontWeight: 800,
-            zIndex: 10,
-          }}
-        >
-          CIRCUIT BREAKER: OPEN
-        </Box>
-      )}
-      {cbHalfOpen && (
-        <Box 
-          style={{ 
-            position: 'absolute', 
-            top: -20, 
-            left: '50%',
-            transform: 'translateX(-50%)',
-            background: 'var(--mantine-color-orange-6)',
-            borderRadius: '4px',
-            padding: '2px 8px',
-            color: 'white',
-            fontSize: 'var(--mantine-font-size-xs)',
-            fontWeight: 800,
-            zIndex: 10,
-            whiteSpace: 'nowrap'
-          }}
-        >
-          CIRCUIT BREAKER: HALF-OPEN
-        </Box>
-      )}
-      {bufferFill > 0 && (
-        <Box 
-          style={{ 
-            position: 'absolute', 
-            top: -5, 
-            right: 10,
-            width: '40px',
-            height: '4px',
-            background: 'var(--mantine-color-gray-3)',
-            borderRadius: '2px',
-            overflow: 'hidden',
-            zIndex: 10
-          }}
-        >
-          <Box 
-            style={{ 
-              width: `${bufferFill * 100}%`,
-              height: '100%',
-              background: bufferHigh ? 'var(--mantine-color-red-6)' : 'var(--mantine-color-blue-6)',
-              transition: 'width 0.3s ease'
-            }}
-          />
-        </Box>
-      )}
-      {metric !== undefined && metric > 0 && (
-        <Box style={{ position: 'absolute', bottom: -8, right: 10, background: 'var(--mantine-color-blue-6)', color: 'white', borderRadius: '10px', padding: '0 6px', fontSize: 'var(--mantine-font-size-xs)', fontWeight: 700, zIndex: 10 }}>
-          {metric.toLocaleString()}
-        </Box>
-      )}
-
-      {errorCount !== undefined && errorCount > 0 && (
-        <Box style={{ position: 'absolute', bottom: -8, right: metric > 0 ? 50 : 10, background: 'var(--mantine-color-red-6)', color: 'white', borderRadius: '10px', padding: '0 6px', fontSize: 'var(--mantine-font-size-xs)', fontWeight: 700, zIndex: 10 }}>
-          {errorCount.toLocaleString()} ERR
-        </Box>
-      )}
-
-      {data.dlqCount !== undefined && (
-        <Box style={{ position: 'absolute', bottom: -8, left: 10, background: 'var(--mantine-color-orange-6)', color: 'white', borderRadius: '10px', padding: '0 6px', fontSize: 'var(--mantine-font-size-xs)', fontWeight: 700 }}>
-          ⚠️ {(data.dlqCount || 0).toLocaleString()} FAILED
-        </Box>
       )}
 
       {children}
