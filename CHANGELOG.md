@@ -7,6 +7,37 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — "Every database must get a row" and a view of each transaction's runs
+
+A transaction of sink nodes that commit together has a new switch, **Every
+database must get a row**, under its name in each member's "Commit together"
+section. Off, as before, a member that got no row for an event is left out of
+that event and the others commit. On, an event that produced rows for some
+members and not others is refused before anything is written, and parked in the
+dead-letter queue with the databases it missed as the reason; without a
+dead-letter sink it is not acknowledged. The switch is a setting of the
+transaction (`"require_every_member": true` on its member nodes, on when any
+member says so) and the editor writes it to every member.
+
+The flow's **Runs** tab now opens with each of its transactions: commit-together
+transactions and Transaction Group nodes. For each it shows how many runs
+committed, rolled back and were refused for a missing row, how many transactions
+the log holds in doubt right now and which databases they wait on, each
+database's commits, rollbacks, missing rows and last error, and the latest runs
+with the database that ended a failed one. Groups record their runs in the
+state store as they write (`twopc-runs/<group>`), so the numbers carry across
+restarts and read the same on every worker; `GET /api/workflows/{id}/transactions`
+serves them, and reading the log there never writes to it.
+
+### Fixed — A failed batch no longer splits an event's rows
+
+When a batch failed after its retries, the writer retried it one row at a time
+to find the bad row. A row written on its own is written in its own
+transaction, so through a group that commits together, the PostgreSQL row of an
+event could commit while the MySQL row beside it went to the dead-letter queue.
+The retry now goes one event at a time: an event's rows are written together or
+parked together.
+
 ### Added — Sink nodes that commit together
 
 In the editor, a PostgreSQL, YugabyteDB, MySQL or MariaDB sink node has a

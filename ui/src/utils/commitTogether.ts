@@ -13,6 +13,13 @@ import { typeLabel } from '@/utils/txgroup';
 /** The sink node config key naming the transaction; the server reads the same one. */
 export const TRANSACTION_KEY = 'transaction';
 
+/**
+ * The sink node config key for "Every database must get a row". It is a setting
+ * of the transaction kept on its members: the server treats it as on when any
+ * member says so, and the editor writes it to all of them.
+ */
+export const EVERY_MEMBER_KEY = 'require_every_member';
+
 /** A node as the editor's store holds it: data is the node's config. */
 export type EditorNode = {
   id: string;
@@ -43,6 +50,18 @@ export function transactionNames(nodes: EditorNode[]): string[] {
 export function membersOf(nodes: EditorNode[], name: string): EditorNode[] {
   if (!name) return [];
   return (nodes || []).filter((n) => isSink(n) && transactionOf(n.data) === name);
+}
+
+/**
+ * Whether the named transaction refuses an event that produced no row for one
+ * of its members. Read as the server reads it: on when any member says so,
+ * as true or as the text "true".
+ */
+export function requiresEveryMember(nodes: EditorNode[], name: string): boolean {
+  return membersOf(nodes, name).some((n) => {
+    const v = n.data?.[EVERY_MEMBER_KEY];
+    return v === true || (typeof v === 'string' && v.trim().toLowerCase() === 'true');
+  });
 }
 
 export type CommitTogetherProblem = {

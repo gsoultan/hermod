@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MantineProvider } from '@mantine/core'
@@ -34,8 +34,13 @@ const sink = (id: string, type: string, extra: Record<string, any> = {}): Editor
   data: { label: `DB ${id}`, type, ref_id: `ref-${id}`, ...extra },
 })
 
+let latest: EditorNode[] = []
+
 function Harness({ nodeId, initial }: { nodeId: string; initial: EditorNode[] }) {
   const [nodes, setNodes] = useState(initial)
+  useEffect(() => {
+    latest = nodes
+  }, [nodes])
   const me = nodes.find((n) => n.id === nodeId)!
   return (
     <CommitTogetherSection
@@ -126,5 +131,38 @@ describe('the Commit together section', () => {
     await user.click(toggle)
     await waitFor(() => expect(toggle).not.toBeChecked())
     expect(screen.queryByPlaceholderText('orders')).not.toBeInTheDocument()
+  })
+
+  it('offers "Every database must get a row", off by default, once the node is in a transaction', async () => {
+    ui('A', [sink('A', 'postgres', { transaction: 'orders' }), sink('B', 'mysql', { transaction: 'orders' })])
+    const rule = await screen.findByRole('switch', { name: /every database must get a row/i })
+    expect(rule).not.toBeChecked()
+    expect(screen.getByText(/left out of that event/i)).toBeInTheDocument()
+  })
+
+  it('turning the rule on writes it to every member, and off again clears it from all', async () => {
+    const user = userEvent.setup()
+    ui('A', [sink('A', 'postgres', { transaction: 'orders' }), sink('B', 'mysql', { transaction: 'orders' }), sink('C', 'postgres')])
+    const rule = await screen.findByRole('switch', { name: /every database must get a row/i })
+    await user.click(rule)
+    await waitFor(() => expect(rule).toBeChecked())
+    expect(latest.find((n) => n.id === 'A')!.data.require_every_member).toBe(true)
+    expect(latest.find((n) => n.id === 'B')!.data.require_every_member).toBe(true)
+    expect(latest.find((n) => n.id === 'C')!.data.require_every_member).toBeUndefined()
+    expect(screen.getByText(/dead-letter queue/i)).toBeInTheDocument()
+
+    await user.click(rule)
+    await waitFor(() => expect(rule).not.toBeChecked())
+    expect(latest.find((n) => n.id === 'B')!.data.require_every_member).toBe(false)
+  })
+
+  it('shows the rule as on when another member set it, and a node that joins takes it on', async () => {
+    const user = userEvent.setup()
+    ui('A', [sink('A', 'postgres'), sink('B', 'mysql', { transaction: 'orders', require_every_member: true })])
+    await user.click(await screen.findByRole('switch', { name: /commit together/i }))
+    // The workflow's only transaction is joined straight away.
+    const rule = await screen.findByRole('switch', { name: /every database must get a row/i })
+    expect(rule).toBeChecked()
+    await waitFor(() => expect(latest.find((n) => n.id === 'A')!.data.require_every_member).toBe(true))
   })
 })

@@ -51,6 +51,28 @@ import (
 // ErrNotFound is what a Store returns for a missing key.
 var ErrNotFound = errors.New("twopc: record not found")
 
+// ErrCommitIncomplete is a commit whose decision is durable but that did not
+// reach every participant. It is not a failure to commit: recovery will finish
+// it, and the participants not yet told hold their changes, in doubt, until
+// then.
+var ErrCommitIncomplete = errors.New("twopc: commit incomplete, will be finished by recovery")
+
+// ParticipantError is a participant that could not begin or prepare, which
+// aborted the transaction. ID is the participant's, so a caller can say which
+// database refused without reading the message.
+type ParticipantError struct {
+	ID string
+	// Op is "begin" or "prepare".
+	Op  string
+	Err error
+}
+
+func (e *ParticipantError) Error() string {
+	return fmt.Sprintf("twopc: participant %q could not %s: %v", e.ID, e.Op, e.Err)
+}
+
+func (e *ParticipantError) Unwrap() error { return e.Err }
+
 // errTooFewParticipants is returned when fewer than two participants are given.
 // It is a sentinel so tests can tell "rejected on arity" apart from "rejected
 // for the reason under test" — several assertions here would otherwise pass for
@@ -252,7 +274,7 @@ func (c *Coordinator) prepareAll(ctx context.Context, participants []Participant
 		if err != nil {
 			// Roll back the ones already open; the rest were never touched.
 			c.rollbackOpen(ctx, participants[:i])
-			return nil, fmt.Errorf("twopc: participant %q could not begin: %w", p.ID, err)
+			return nil, &ParticipantError{ID: p.ID, Op: "begin", Err: err}
 		}
 	}
 
@@ -307,7 +329,7 @@ func (c *Coordinator) prepareAll(ctx context.Context, participants []Participant
 		actual, err := p.Sink.Prepare(ctx, txID)
 		if err != nil {
 			c.abort(ctx, participants, rec)
-			return nil, fmt.Errorf("twopc: participant %q could not prepare: %w", p.ID, err)
+			return nil, &ParticipantError{ID: p.ID, Op: "prepare", Err: err}
 		}
 
 		// A participant may report a different identifier — the PostgreSQL sink
@@ -363,7 +385,7 @@ func (c *Coordinator) commitAll(ctx context.Context, participants []Participant,
 		// The decision stands. Leaving the record is deliberate: recovery will
 		// finish the commit, and reporting success here would claim a durability
 		// the participants do not yet have.
-		return fmt.Errorf("twopc: commit incomplete, will be finished by recovery: %w", err)
+		return fmt.Errorf("%w: %w", ErrCommitIncomplete, err)
 	}
 
 	return c.store.Delete(ctx, c.key(rec.TxID))
@@ -600,6 +622,40 @@ func (c *Coordinator) load(ctx context.Context) ([]*record, error) {
 	}
 	sort.Slice(records, func(i, j int) bool { return records[i].StartedAt.Before(records[j].StartedAt) })
 	return records, nil
+}
+
+// PendingTx is a transaction the log still holds: in flight, or left in doubt
+// for recovery or the reaper to resolve.
+type PendingTx struct {
+	TxID  string `json:"tx_id"`
+	State string `json:"state"`
+	// StartedAt is when the intent was recorded; PreparedAt when the last
+	// participant voted, or zero if not every one has.
+	StartedAt  time.Time `json:"started_at"`
+	PreparedAt time.Time `json:"prepared_at,omitzero"`
+	// Participants are the ones not yet resolved, in the recorded order.
+	Participants []string `json:"participants"`
+}
+
+// Pending lists the transactions the log holds, oldest first. It reads the log
+// and resolves nothing, so it is safe beside a live coordinator: it is what a
+// view shows as "in doubt now".
+func (c *Coordinator) Pending(ctx context.Context) ([]PendingTx, error) {
+	records, err := c.load(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PendingTx, 0, len(records))
+	for _, rec := range records {
+		p := PendingTx{TxID: rec.TxID, State: string(rec.State), StartedAt: rec.StartedAt, PreparedAt: rec.PreparedAt}
+		for _, id := range rec.Order {
+			if _, open := rec.TxIDs[id]; open {
+				p.Participants = append(p.Participants, id)
+			}
+		}
+		out = append(out, p)
+	}
+	return out, nil
 }
 
 // WorkflowID reports the workflow this coordinator's transaction log is scoped

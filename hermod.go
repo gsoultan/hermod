@@ -247,6 +247,21 @@ type ValidatingSink interface {
 	Validate(ctx context.Context, msg Message) error
 }
 
+// BundleValidatingSink is an optional interface for sinks that judge an event
+// as a whole before any of it is written.
+//
+// rows is every row one event produced for this sink, as the engine bundles
+// them. An error refuses the event: none of its rows is written, and the engine
+// parks all of them in the dead-letter sink, with the error as the reason, or,
+// without one, leaves the event unacknowledged. A transactional group that
+// requires a row for every database is the case this exists for: it can only
+// tell that a row is missing by looking at the event, and by the time rows are
+// batched the events are no longer told apart.
+type BundleValidatingSink interface {
+	Sink
+	ValidateBundle(ctx context.Context, rows []Message) error
+}
+
 // Transactional is an optional interface for sources and sinks that support atomic transactions.
 type Transactional interface {
 	Begin(ctx context.Context) error

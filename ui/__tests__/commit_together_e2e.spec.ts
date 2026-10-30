@@ -98,9 +98,11 @@ test.describe('commit together', () => {
     await page.locator('[data-id="n-pg"]').dblclick();
     const section = page.getByTestId('commit-together');
     await expect(section).toBeVisible({ timeout: 20000 });
-    await expect(section.getByRole('switch')).toBeChecked();
+    await expect(section.getByRole('switch', { name: /commit together/i })).toBeChecked();
     await expect(section.getByText('Ledger DB · MySQL')).toBeVisible();
     await expect(section.getByText(/2 databases in “orders-ledger”/)).toBeVisible();
+    // "Every database must get a row" is offered for the transaction, off by default.
+    await expect(section.getByRole('switch', { name: /every database must get a row/i })).not.toBeChecked();
   });
 
   test('the server refuses to save a transaction with one member, naming the node', async ({ page }) => {

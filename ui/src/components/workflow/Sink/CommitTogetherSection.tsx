@@ -5,7 +5,9 @@ import { ReadinessCheck, sentence } from '@/components/shared/ReadinessCheck';
 import { useTwoPhaseCapability } from '@/hooks/useTwoPhaseCapability';
 import {
   commitTogetherProblems,
+  EVERY_MEMBER_KEY,
   membersOf,
+  requiresEveryMember,
   nodeName,
   TRANSACTION_KEY,
   transactionNames,
@@ -53,6 +55,17 @@ export const CommitTogetherSection: FC<CommitTogetherSectionProps> = ({ nodeId, 
   const names = transactionNames(nodes).filter((n) => n !== name);
   const problems = on ? commitTogetherProblems(nodes, name, capability.types) : [];
   const ready = on && problems.length === 0 && capability.logReady;
+  const everyRow = requiresEveryMember(nodes, name);
+
+  // Joining takes on the transaction's rule, so the members never disagree
+  // about it.
+  const join = (value: string) =>
+    updateNodeConfig(nodeId, { [TRANSACTION_KEY]: value, [EVERY_MEMBER_KEY]: requiresEveryMember(nodes, value.trim()) });
+
+  // The rule belongs to the transaction: every member gets it.
+  const setEveryRow = (next: boolean) => {
+    for (const m of membersOf(nodes, name)) updateNodeConfig(m.id, { [EVERY_MEMBER_KEY]: next });
+  };
 
   const setOn = (next: boolean) => {
     setTurnedOn(next);
@@ -60,7 +73,7 @@ export const CommitTogetherSection: FC<CommitTogetherSectionProps> = ({ nodeId, 
       // Joining the workflow's only transaction is what someone turning this on
       // almost always means; with several, or none, they say which.
       const existing = transactionNames(nodes);
-      if (existing.length === 1) updateNodeConfig(nodeId, { [TRANSACTION_KEY]: existing[0] });
+      if (existing.length === 1) join(existing[0]);
     } else {
       updateNodeConfig(nodeId, { [TRANSACTION_KEY]: '' });
     }
@@ -90,7 +103,7 @@ export const CommitTogetherSection: FC<CommitTogetherSectionProps> = ({ nodeId, 
               placeholder="orders"
               data={names}
               value={name}
-              onChange={(value) => updateNodeConfig(nodeId, { [TRANSACTION_KEY]: value })}
+              onChange={join}
               leftSection={<IconArrowsJoin2 size="1rem" />}
             />
 
@@ -111,6 +124,19 @@ export const CommitTogetherSection: FC<CommitTogetherSectionProps> = ({ nodeId, 
                   </Text>
                 ))}
               </Stack>
+            )}
+
+            {name && (
+              <Switch
+                label="Every database must get a row"
+                description={
+                  everyRow
+                    ? 'On: an event that has no row for one of these databases goes to the dead-letter queue, and nothing of it is written.'
+                    : 'Off: a database that gets no row for an event (a filter dropped it) is left out of that event, and the others still commit.'
+                }
+                checked={everyRow}
+                onChange={(e) => setEveryRow(e.currentTarget.checked)}
+              />
             )}
 
             <Paper withBorder p="sm" radius="md">

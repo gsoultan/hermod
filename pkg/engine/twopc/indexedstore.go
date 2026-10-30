@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/gsoultan/hermod"
 )
@@ -142,7 +143,12 @@ func (s *IndexedStore) Delete(ctx context.Context, key string) error {
 func (s *IndexedStore) List(ctx context.Context, prefix string) (map[string][]byte, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.list(ctx, prefix, true)
+}
 
+// list reads every indexed record under prefix and, when prune is set, drops
+// index entries whose record has gone.
+func (s *IndexedStore) list(ctx context.Context, prefix string, prune bool) (map[string][]byte, error) {
 	keys, err := s.readIndex(ctx)
 	if err != nil {
 		return nil, err
@@ -164,7 +170,7 @@ func (s *IndexedStore) List(ctx context.Context, prefix string) (map[string][]by
 		out[k] = v
 	}
 
-	if len(stale) > 0 {
+	if prune && len(stale) > 0 {
 		for _, k := range stale {
 			delete(keys, k)
 		}
@@ -174,4 +180,36 @@ func (s *IndexedStore) List(ctx context.Context, prefix string) (map[string][]by
 		_ = s.writeIndex(ctx, keys)
 	}
 	return out, nil
+}
+
+// readOnlyIndex reads a log another IndexedStore keeps, and never writes it.
+//
+// Pruning is only safe from the store that writes the log: it indexes a record
+// before writing it, so from outside, a record being written looks exactly
+// like one deleted, and pruning its entry would hide an in-flight transaction
+// from recovery for good.
+type readOnlyIndex struct{ s *IndexedStore }
+
+var errReadOnly = errors.New("twopc: this view of the transaction log is read-only")
+
+func (r readOnlyIndex) Get(ctx context.Context, key string) ([]byte, error) {
+	return r.s.base.Get(ctx, key)
+}
+func (readOnlyIndex) Set(context.Context, string, []byte) error { return errReadOnly }
+func (readOnlyIndex) Delete(context.Context, string) error      { return errReadOnly }
+func (r readOnlyIndex) List(ctx context.Context, prefix string) (map[string][]byte, error) {
+	return r.s.list(ctx, prefix, false)
+}
+
+// ReadPending lists the transactions in the log a coordinator over
+// NewIndexedStore(base, indexKey) keeps for workflowID, without that
+// coordinator and without writing anything: a view can call it beside the live
+// group, or when the workflow is not running at all.
+func ReadPending(ctx context.Context, base hermod.StateStore, indexKey, workflowID string) ([]PendingTx, error) {
+	c := &Coordinator{
+		store:      readOnlyIndex{s: NewIndexedStore(base, indexKey)},
+		workflowID: workflowID,
+		now:        time.Now,
+	}
+	return c.Pending(ctx)
 }

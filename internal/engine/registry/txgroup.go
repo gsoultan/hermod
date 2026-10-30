@@ -63,14 +63,20 @@ func (r *Registry) createTxGroupSink(ctx context.Context, cfg factory.SinkConfig
 		members = append(members, txgroup.Member{ID: id, Sink: snk})
 	}
 
-	return r.startTxGroup(ctx, fmt.Sprintf("txgroup sink %q", cfg.ID), members, coordinator)
+	group, err := r.startTxGroup(ctx, fmt.Sprintf("txgroup sink %q", cfg.ID), cfg.ID, members, coordinator)
+	if err != nil {
+		// Not the typed nil: a nil *txgroup.Sink in a hermod.Sink is not nil.
+		return nil, err
+	}
+	return group, nil
 }
 
 // startTxGroup assembles a group from its members and coordinator and makes it
 // safe to write to. label names the group in errors: a stand-alone group by its
-// sink ID, a workflow transaction by its name. The members are closed on
-// failure.
-func (r *Registry) startTxGroup(ctx context.Context, label string, members []txgroup.Member, coordinator *twopc.Coordinator) (hermod.Sink, error) {
+// sink ID, a workflow transaction by its name. id is the group's sink ID, which
+// scopes the record of its runs as it scopes its log. The members are closed
+// on failure.
+func (r *Registry) startTxGroup(ctx context.Context, label, id string, members []txgroup.Member, coordinator *twopc.Coordinator) (*txgroup.Sink, error) {
 	group, err := txgroup.New(members, coordinator, r.logger)
 	if err != nil {
 		closeMembers(members)
@@ -85,6 +91,10 @@ func (r *Registry) startTxGroup(ctx context.Context, label string, members []txg
 		_ = group.Close()
 		return nil, fmt.Errorf("%s: %w", label, err)
 	}
+
+	// The runs carry on from what the last start recorded, so the run view
+	// counts across restarts and reads the same on every worker.
+	group.KeepRunsIn(ctx, r.stateStore, txGroupRunsKey(id))
 
 	// Resolve anything the previous run left in doubt, before this one writes.
 	// Skipping it would let a new transaction stack on top of an unresolved one.
@@ -172,7 +182,7 @@ func (r *Registry) newTxCoordinator(cfg factory.SinkConfig) (*twopc.Coordinator,
 	}
 
 	opts := twopc.Options{
-		Store:      twopc.NewIndexedStore(r.stateStore, "twopc-index/"+cfg.ID),
+		Store:      twopc.NewIndexedStore(r.stateStore, txGroupIndexKey(cfg.ID)),
 		WorkflowID: cfg.ID,
 		Logger:     r.logger,
 	}
@@ -190,6 +200,13 @@ func (r *Registry) newTxCoordinator(cfg factory.SinkConfig) (*twopc.Coordinator,
 	}
 	return c, nil
 }
+
+// txGroupIndexKey is where the log of the group with this sink ID keeps its
+// index; the coordinator's WorkflowID is the sink ID itself.
+func txGroupIndexKey(id string) string { return "twopc-index/" + id }
+
+// txGroupRunsKey is where the group with this sink ID records its runs.
+func txGroupRunsKey(id string) string { return "twopc-runs/" + id }
 
 // TxGroupLogProblem says why a transactional group could not keep a durable
 // transaction log right now, or returns "" when it can. createTxGroupSink

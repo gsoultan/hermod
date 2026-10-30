@@ -41,7 +41,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/engine/twopc"
@@ -51,7 +54,10 @@ import (
 type Member struct {
 	// ID must be stable across restarts: recovery matches log records to sinks
 	// by it, so renaming one strands any transaction it was part of.
-	ID   string
+	ID string
+	// Name is what people call the member: the sink node's label. Optional;
+	// it names the member in refusals and in the run view.
+	Name string
 	Sink hermod.Sink
 }
 
@@ -63,6 +69,11 @@ type Sink struct {
 	memberIdx   map[string]int
 	coordinator *twopc.Coordinator
 	logger      hermod.Logger
+
+	// requireEvery refuses an event that has rows for some members and not
+	// others. See SetRequireEveryMember.
+	requireEvery atomic.Bool
+	runs         *runLog
 
 	// mu serialises writes. The coordinator serialises too, but holding it here
 	// keeps the member-write phase inside the same critical section, so two
@@ -113,7 +124,54 @@ func New(members []Member, coordinator *twopc.Coordinator, logger hermod.Logger)
 	for i, m := range members {
 		idx[m.ID] = i
 	}
-	return &Sink{members: members, memberIdx: idx, coordinator: coordinator, logger: logger}, nil
+	return &Sink{members: members, memberIdx: idx, coordinator: coordinator, logger: logger, runs: newRunLog(members)}, nil
+}
+
+// SetRequireEveryMember turns on the rule that every member must get a row.
+//
+// Off, a member that got no row for an event is left out of that event's
+// transaction and the others commit: a filter on one branch dropping its row
+// is the workflow's decision. On, an event that produced rows for some members
+// and not for others is refused whole by ValidateBundle, before anything is
+// written, and the engine parks it in the dead-letter sink. Call it before the
+// first write.
+func (s *Sink) SetRequireEveryMember(on bool) { s.requireEvery.Store(on) }
+
+// ValidateBundle implements hermod.BundleValidatingSink. rows is every row one
+// event produced for the group. With the every-member rule on, an event with no
+// row for some member is refused, naming the members it missed, and recorded
+// as a refused run.
+func (s *Sink) ValidateBundle(ctx context.Context, rows []hermod.Message) error {
+	if !s.requireEvery.Load() {
+		return nil
+	}
+	byMember := s.rowsByMember(rows)
+	var missing []string
+	run := Run{At: time.Now(), Outcome: OutcomeRefused}
+	for i, m := range s.members {
+		rm := RunMember{ID: m.ID, Rows: len(byMember[i])}
+		if rm.Rows == 0 {
+			rm.Missing = true
+			missing = append(missing, s.memberName(m))
+		}
+		run.Members = append(run.Members, rm)
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	err := fmt.Errorf("%w: every database in this transaction must get a row, and this event "+
+		"produced none for %s", hermod.ErrPermanent, strings.Join(missing, ", "))
+	run.Error = err.Error()
+	s.record(ctx, run)
+	return err
+}
+
+// memberName is the member's name for people, its ID when it has none.
+func (s *Sink) memberName(m Member) string {
+	if m.Name != "" {
+		return m.Name
+	}
+	return m.ID
 }
 
 // Preflight verifies that every member can genuinely honour the transaction
@@ -208,10 +266,28 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	start := time.Now()
+	err := s.writeActive(ctx, active, rows)
+	outcome, failed := outcomeOf(err)
+	run := Run{At: start, Outcome: outcome, DurationMS: time.Since(start).Milliseconds()}
+	if err != nil {
+		run.Error = err.Error()
+	}
+	for _, i := range active {
+		id := s.members[i].ID
+		run.Members = append(run.Members, RunMember{ID: id, Rows: len(rows[i]), Failed: id == failed})
+	}
+	s.record(ctx, run)
+	return err
+}
+
+// writeActive writes each active member its rows: in the member's own
+// transaction when it is the only one, in a two-phase transaction otherwise.
+func (s *Sink) writeActive(ctx context.Context, active []int, rows [][]hermod.Message) error {
 	if len(active) == 1 {
 		m := s.members[active[0]]
 		if err := s.writeMember(ctx, m, rows[active[0]]); err != nil {
-			return fmt.Errorf("member %q: %w", m.ID, err)
+			return &memberError{id: m.ID, err: err}
 		}
 		return nil
 	}
@@ -232,7 +308,7 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 		for _, i := range active {
 			m := s.members[i]
 			if err := s.writeMember(ctx, m, rows[i]); err != nil {
-				return fmt.Errorf("member %q: %w", m.ID, err)
+				return &memberError{id: m.ID, err: err}
 			}
 		}
 		return nil
@@ -309,3 +385,5 @@ func (s *Sink) Close() error {
 func (s *Sink) InDoubt(ctx context.Context) (int, error) {
 	return s.coordinator.InDoubt(ctx)
 }
+
+var _ hermod.BundleValidatingSink = (*Sink)(nil)

@@ -32,6 +32,7 @@ import { DetailFlowCanvas } from './WorkflowEditor/components/DetailFlowCanvas';
 import { useConfirm } from '@/components/common/ConfirmProvider';
 import { useSessionStore } from '@/auth/session';
 import { ExecutionsPanel } from './executions/ExecutionsPanel';
+import { TransactionRunsPanel } from './executions/TransactionRunsPanel';
 import { RunWithInputModal } from './executions/RunWithInputModal';
 import { ProposalsPanel } from './proposals/ProposalsPanel';
 import { ReleaseDialog } from '../environments/ReleaseDialog';
@@ -472,6 +473,7 @@ export function WorkflowDetailPage() {
             <Tabs.Panel value="runs" style={{ flex: 1, overflow: 'hidden' }}>
               {activeTab === 'runs' && (
                 <ScrollArea h="100%">
+                  <TransactionRunsPanel workflowId={id} />
                   <ExecutionsPanel
                     workflowId={id}
                     canReplay={canEdit}

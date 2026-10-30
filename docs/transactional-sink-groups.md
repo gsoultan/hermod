@@ -107,8 +107,12 @@ What the rules are:
 - **Members must be PostgreSQL, YugabyteDB, MySQL or MariaDB sinks.** Any other type is
   refused by node at save time.
 - **A member that produced no row for an event is left out of that event's
-  transaction**, and the event still commits. An event whose branches produced several
-  rows for one member puts all of them in the same transaction.
+  transaction**, and the event still commits — unless the transaction requires a row
+  for every database (below). An event whose branches produced several rows for one
+  member puts all of them in the same transaction.
+- **An event is never part written.** If a batch fails after its retries, it is retried
+  one event at a time, never one row at a time, so an event's rows are written together
+  or parked in the dead-letter queue together.
 - **A member's identity is its node ID**, which is what the transaction log records,
   so the same sink record can back two nodes of one workflow and a recovery after a
   crash still finds the right member.
@@ -121,6 +125,45 @@ What the rules are:
 
 Everything above about the durable state store, preflight, recovery, the reaper and the
 operational hazard applies to these groups exactly as to a Transactional Group node.
+
+#### Every database must get a row
+
+By default, a filter on one branch dropping its row is the workflow's decision: the
+member is left out and the others commit. When an event must reach **every** database
+or none, turn on **Every database must get a row** under the transaction's name in any
+member's "Commit together" section. The editor writes `"require_every_member": true`
+to every member node; the server treats the rule as on when any member says so, so a
+node that joins cannot quietly turn it off for the others.
+
+With the rule on, an event that produced rows for some members and not others is
+refused before anything is written. Its rows go to the dead-letter queue together, with
+`_hermod_last_error` naming the databases it produced no row for; with no dead-letter
+sink the event is not acknowledged, and the source delivers it again. An event that
+reached no member at all is not affected: nothing of it was for this transaction. A
+dry run checks nothing, as it writes nothing.
+
+### The runs of a transaction
+
+The flow's **Runs** tab lists the workflow's transactions — sink nodes that commit
+together and Transaction Group nodes — above its message runs. For each:
+
+| Shown | Meaning |
+| :--- | :--- |
+| Committed | Runs where every member with rows committed them. A run with rows for one member commits in that member's own transaction and counts here. |
+| Rolled back | Runs where a member could not write or prepare, so every member rolled back. The run names the member that failed. |
+| Refused: missing row | Events refused by "Every database must get a row". The run names the member with no row. |
+| In doubt now | Transactions the log holds right now, with the databases they wait on. A decided commit is finished by recovery when the workflow starts; the reaper rolls back the rest past `max_prepared_age`. |
+
+Below that, each database's commits, rollbacks, missing rows and last error, and the
+latest runs (the group keeps the last 50; every run is counted). A commit whose decision
+stood but did not reach every member is recorded as *in doubt*.
+
+A group records its runs in the state store as it writes, under `twopc-runs/<group ID>`
+(`<workflow ID>/<transaction>` for sink nodes that commit together, the sink ID for a
+Transaction Group node), so the numbers carry across restarts and read the same on every
+worker. `GET /api/workflows/{id}/transactions` serves them. Reading the log there never
+writes to it: the live group indexes a record before writing it, so a reader that tidied
+the index could hide an in-flight transaction from recovery.
 
 ### Why it is opt-in
 
