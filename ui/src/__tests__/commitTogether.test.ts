@@ -4,6 +4,8 @@ import {
   transactionNames,
   membersOf,
   commitTogetherProblems,
+  requiresEveryMember,
+  EVERY_MEMBER_KEY,
   type EditorNode,
 } from '@/utils/commitTogether'
 
@@ -80,5 +82,20 @@ describe('what stops a transaction from being saved', () => {
   it('says nothing about types until the server has said which can', () => {
     const graph = [...GRAPH, node('K', 'kafka', { transaction: 'orders' })]
     expect(commitTogetherProblems(graph, 'orders', null)).toEqual([])
+  })
+})
+
+describe('"Every database must get a row"', () => {
+  it('is a setting of the transaction, on when any member says so', () => {
+    const nodes = [node('A', 'postgres', { transaction: 'orders' }), node('B', 'mysql', { transaction: 'orders', [EVERY_MEMBER_KEY]: true })]
+    expect(requiresEveryMember(nodes, 'orders')).toBe(true)
+    expect(requiresEveryMember(nodes, 'audit')).toBe(false)
+    expect(requiresEveryMember(GRAPH, 'orders')).toBe(false)
+  })
+
+  it('reads the server\'s text form too, and ignores a node outside the transaction', () => {
+    expect(requiresEveryMember([node('A', 'postgres', { transaction: 'orders', [EVERY_MEMBER_KEY]: 'true' })], 'orders')).toBe(true)
+    expect(requiresEveryMember([node('A', 'postgres', { [EVERY_MEMBER_KEY]: true })], 'orders')).toBe(false)
+    expect(requiresEveryMember([node('A', 'postgres', { transaction: 'orders', [EVERY_MEMBER_KEY]: 'false' })], 'orders')).toBe(false)
   })
 })

@@ -63,6 +63,7 @@ func (h *WorkflowHandler) RegisterWorkflowRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /api/workflows/{id}/stats", h.UpdateWorkflowStats)
 	mux.HandleFunc("GET /api/workflows/{id}/report", h.GetWorkflowComplianceReport)
 	mux.HandleFunc("GET /api/workflows/{id}/health", h.GetWorkflowHealth)
+	mux.HandleFunc("GET /api/workflows/{id}/transactions", h.GetWorkflowTransactions)
 	mux.Handle("POST /api/workflows", h.EditorOnly(http.HandlerFunc(h.CreateWorkflow)))
 	mux.Handle("PUT /api/workflows/{id}", h.EditorOnly(http.HandlerFunc(h.UpdateWorkflow)))
 	mux.Handle("DELETE /api/workflows/{id}", h.EditorOnly(http.HandlerFunc(h.DeleteWorkflow)))

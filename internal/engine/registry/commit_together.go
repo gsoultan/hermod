@@ -39,6 +39,31 @@ import (
 // nodeTransactionKey is the sink node config key that names the transaction.
 const nodeTransactionKey = "transaction"
 
+// nodeEveryMemberKey is the sink node config key that turns on "Every database
+// must get a row" for the node's transaction.
+const nodeEveryMemberKey = "require_every_member"
+
+// requiresEveryMember says whether a transaction refuses an event that has no
+// row for one of its members. It is a setting of the transaction, kept on its
+// member nodes: on when any member says so, so a node that joins a transaction
+// cannot quietly turn the rule off for the others. The editor writes it to
+// every member.
+func requiresEveryMember(nodes []storage.WorkflowNode) bool {
+	for _, node := range nodes {
+		switch v := node.Config[nodeEveryMemberKey].(type) {
+		case bool:
+			if v {
+				return true
+			}
+		case string:
+			if strings.EqualFold(strings.TrimSpace(v), "true") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // nodeTransaction is the transaction a sink node commits in, or "" for none.
 func nodeTransaction(node storage.WorkflowNode) string {
 	name, _ := node.Config[nodeTransactionKey].(string)
@@ -231,12 +256,13 @@ func (r *Registry) buildCommitTogether(ctx context.Context, wf storage.Workflow,
 			closeMembers(members)
 			return nil, cfg, fmt.Errorf("%s: cannot build sink node %s: %w", label, r.getNodeName(node), err)
 		}
-		members = append(members, txgroup.Member{ID: node.ID, Sink: snk})
+		members = append(members, txgroup.Member{ID: node.ID, Name: nodeLabel(node), Sink: snk})
 	}
 
-	group, err := r.startTxGroup(ctx, label, members, coordinator)
+	group, err := r.startTxGroup(ctx, label, cfg.ID, members, coordinator)
 	if err != nil {
 		return nil, cfg, err
 	}
+	group.SetRequireEveryMember(requiresEveryMember(plan.nodes))
 	return group, cfg, nil
 }

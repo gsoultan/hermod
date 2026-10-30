@@ -673,7 +673,11 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 	return nil
 }
 
-func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msgs []hermod.Message, sinkID string, i int) error {
+// writeBatchToSink writes a batch with retries. events is msgs cut into the
+// rows of each event; when the batch fails for good, it is retried one event
+// at a time, so an event is never part written. nil treats every row as an
+// event of its own.
+func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msgs []hermod.Message, events [][]hermod.Message, sinkID string, i int) error {
 	// Filter nil messages using modern slice tools
 	msgs = slices.DeleteFunc(msgs, func(m hermod.Message) bool { return m == nil })
 
@@ -681,26 +685,7 @@ func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msg
 		return nil
 	}
 
-	// A batch belongs to no single trace: its messages were read separately and
-	// each carries its own. So they are attached as links rather than as a
-	// parent — one arbitrary message promoted to parent would claim the batch
-	// belongs to that record's trace and orphan every other one.
-	links := make([]trace.Link, 0, len(msgs))
-	for _, m := range msgs {
-		if sc := trace.SpanContextFromContext(tracing.Extract(ctx, m)); sc.IsValid() {
-			links = append(links, trace.Link{SpanContext: sc})
-		}
-	}
-
-	// Trace batch write
-	var span trace.Span
-	ctx, span = tracer.Start(ctx, "sink.write_batch",
-		trace.WithLinks(links...),
-		trace.WithAttributes(
-			attribute.String("workflow_id", e.workflowID),
-			attribute.String("sink_id", sinkID),
-			attribute.Int("batch_size", len(msgs)),
-		))
+	ctx, span := e.startBatchSpan(ctx, msgs, sinkID)
 	defer span.End()
 
 	// Same ordering rule as writeToSink: dry-run is decided before any branch
@@ -717,56 +702,103 @@ func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msg
 
 	// Pre-write validation
 	if vs, ok := snk.(hermod.ValidatingSink); ok {
-		validMsgs := make([]hermod.Message, 0, len(msgs))
-		invalidMsgs := make([]hermod.Message, 0)
-		for _, m := range msgs {
-			if err := vs.Validate(ctx, m); err != nil {
-				e.logger.Error("Sink pre-write validation failed for message in batch", "workflow_id", e.workflowID, "sink_id", sinkID, "message_id", m.ID(), "error", err)
-				if e.deadLetterSink != nil {
-					m.SetMetadata("_hermod_validation_failed", "true")
-					m.SetMetadata("_hermod_last_error", err.Error())
-					invalidMsgs = append(invalidMsgs, m)
-				}
-				continue
-			}
-			validMsgs = append(validMsgs, m)
+		var err error
+		if msgs, err = e.parkInvalidRows(ctx, vs, msgs, sinkID); err != nil || len(msgs) == 0 {
+			return err
 		}
-		if len(invalidMsgs) > 0 {
-			if err := e.writeToDLQ(ctx, sinkID, invalidMsgs...); err != nil {
-				return err
-			}
-		}
-		msgs = validMsgs
-	}
-
-	if len(msgs) == 0 {
-		return nil
 	}
 
 	if e.IsSafeMode() && e.deadLetterSink != nil {
-		e.logger.Warn("Safe Mode Active: diverting batch to Dead Letter Sink", "workflow_id", e.workflowID, "sink_id", sinkID, "batch_size", len(msgs))
-		for _, m := range msgs {
-			if m != nil {
-				m.SetMetadata("_hermod_safe_mode", "true")
-				m.SetMetadata("_hermod_original_sink", sinkID)
-			}
-		}
-		return e.writeToDLQ(ctx, sinkID, msgs...)
+		return e.divertBatchInSafeMode(ctx, msgs, sinkID)
 	}
 
 	if len(msgs) == 1 {
 		return e.writeToSink(ctx, snk, msgs[0], sinkID, i)
 	}
 
-	// Retry mechanism for Sink WriteBatch
-	var lastErr error
+	lastErr, err := e.retryBatch(ctx, snk, msgs, sinkID, i)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+	if lastErr == nil {
+		return nil
+	}
 
-	maxRetries := e.config.MaxRetries
+	e.logger.Error("Sink batch write failed after retries", "workflow_id", e.workflowID, "sink_id", sinkID, "error", lastErr)
+	span.RecordError(lastErr)
+	span.SetStatus(codes.Error, lastErr.Error())
+	return e.isolateFailedBatch(ctx, snk, msgs, events, sinkID, i, lastErr)
+}
+
+// startBatchSpan starts the span of a batch write.
+//
+// A batch belongs to no single trace: its messages were read separately and
+// each carries its own. So they are attached as links rather than as a
+// parent — one arbitrary message promoted to parent would claim the batch
+// belongs to that record's trace and orphan every other one.
+func (e *Engine) startBatchSpan(ctx context.Context, msgs []hermod.Message, sinkID string) (context.Context, trace.Span) {
+	links := make([]trace.Link, 0, len(msgs))
+	for _, m := range msgs {
+		if sc := trace.SpanContextFromContext(tracing.Extract(ctx, m)); sc.IsValid() {
+			links = append(links, trace.Link{SpanContext: sc})
+		}
+	}
+	return tracer.Start(ctx, "sink.write_batch",
+		trace.WithLinks(links...),
+		trace.WithAttributes(
+			attribute.String("workflow_id", e.workflowID),
+			attribute.String("sink_id", sinkID),
+			attribute.Int("batch_size", len(msgs)),
+		))
+}
+
+// divertBatchInSafeMode parks the whole batch, marked as safe-mode diverted.
+func (e *Engine) divertBatchInSafeMode(ctx context.Context, msgs []hermod.Message, sinkID string) error {
+	e.logger.Warn("Safe Mode Active: diverting batch to Dead Letter Sink", "workflow_id", e.workflowID, "sink_id", sinkID, "batch_size", len(msgs))
+	for _, m := range msgs {
+		if m != nil {
+			m.SetMetadata("_hermod_safe_mode", "true")
+			m.SetMetadata("_hermod_original_sink", sinkID)
+		}
+	}
+	return e.writeToDLQ(ctx, sinkID, msgs...)
+}
+
+// parkInvalidRows parks the rows a validating sink refuses and returns the
+// rest. Without a dead-letter sink, refused rows are dropped from the batch
+// as they always were.
+func (e *Engine) parkInvalidRows(ctx context.Context, vs hermod.ValidatingSink, msgs []hermod.Message, sinkID string) ([]hermod.Message, error) {
+	validMsgs := make([]hermod.Message, 0, len(msgs))
+	invalidMsgs := make([]hermod.Message, 0)
+	for _, m := range msgs {
+		if err := vs.Validate(ctx, m); err != nil {
+			e.logger.Error("Sink pre-write validation failed for message in batch", "workflow_id", e.workflowID, "sink_id", sinkID, "message_id", m.ID(), "error", err)
+			if e.deadLetterSink != nil {
+				m.SetMetadata("_hermod_validation_failed", "true")
+				m.SetMetadata("_hermod_last_error", err.Error())
+				invalidMsgs = append(invalidMsgs, m)
+			}
+			continue
+		}
+		validMsgs = append(validMsgs, m)
+	}
+	if len(invalidMsgs) > 0 {
+		if err := e.writeToDLQ(ctx, sinkID, invalidMsgs...); err != nil {
+			return nil, err
+		}
+	}
+	return validMsgs, nil
+}
+
+// retrySettings is how many times, and how far apart, sink i is retried.
+func (e *Engine) retrySettings(i int) (maxRetries int, retryInterval time.Duration) {
+	maxRetries = e.config.MaxRetries
 	if maxRetries <= 0 {
 		maxRetries = 1
 	}
-	retryInterval := e.config.RetryInterval
-
+	retryInterval = e.config.RetryInterval
 	if i >= 0 && i < len(e.sinkConfigs) {
 		if e.sinkConfigs[i].MaxRetries > 0 {
 			maxRetries = e.sinkConfigs[i].MaxRetries
@@ -775,7 +807,24 @@ func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msg
 			retryInterval = e.sinkConfigs[i].RetryInterval
 		}
 	}
+	return maxRetries, retryInterval
+}
 
+// batchRetryInterval is the wait after failed batch attempt j to sink i: the
+// sink's own schedule when it has one, else a linear backoff on base.
+func (e *Engine) batchRetryInterval(i, j int, base time.Duration) time.Duration {
+	if i >= 0 && i < len(e.sinkConfigs) && len(e.sinkConfigs[i].RetryIntervals) > 0 {
+		intervals := e.sinkConfigs[i].RetryIntervals
+		return intervals[min(j, len(intervals)-1)]
+	}
+	return time.Duration(j+1) * base
+}
+
+// retryBatch writes the batch, retrying a transient failure. lastErr is the
+// last failure, nil once a write succeeded; err is the context ending the
+// wait between attempts.
+func (e *Engine) retryBatch(ctx context.Context, snk hermod.BatchSink, msgs []hermod.Message, sinkID string, i int) (lastErr, err error) {
+	maxRetries, retryInterval := e.retrySettings(i)
 	for j := range maxRetries {
 		start := time.Now()
 		if err := snk.WriteBatch(ctx, msgs); err != nil {
@@ -783,31 +832,18 @@ func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msg
 			telemetry.SinkWriteErrors.WithLabelValues(e.workflowID, sinkID).Add(float64(len(msgs)))
 			if errors.Is(err, hermod.ErrPermanent) {
 				// Nothing in the batch can succeed on another attempt. The
-				// per-message pass below still runs, which parks each one.
-				break
+				// per-event pass after this still runs, which parks each one.
+				return lastErr, nil
 			}
 			e.setSinkStatus(sinkID, "reconnecting")
 			e.setStatus("reconnecting:sink:" + sinkID)
 			e.logger.Warn("Sink batch write error, retrying", "workflow_id", e.workflowID, "attempt", j+1, "sink_id", sinkID, "batch_size", len(msgs), "error", err)
 
-			var interval time.Duration
-			if i >= 0 && i < len(e.sinkConfigs) && len(e.sinkConfigs[i].RetryIntervals) > 0 {
-				if j < len(e.sinkConfigs[i].RetryIntervals) {
-					interval = e.sinkConfigs[i].RetryIntervals[j]
-				} else {
-					interval = e.sinkConfigs[i].RetryIntervals[len(e.sinkConfigs[i].RetryIntervals)-1]
-				}
-			} else {
-				interval = time.Duration(j+1) * retryInterval
-			}
-
 			select {
-			case <-time.After(interval):
+			case <-time.After(e.batchRetryInterval(i, j, retryInterval)):
 				continue
 			case <-ctx.Done():
-				span.RecordError(ctx.Err())
-				span.SetStatus(codes.Error, ctx.Err().Error())
-				return ctx.Err()
+				return lastErr, ctx.Err()
 			}
 		}
 
@@ -829,52 +865,120 @@ func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msg
 			"action", "write_batch",
 			"batch_size", len(msgs),
 		)
-		lastErr = nil
-		break
+		return nil, nil
+	}
+	return lastErr, nil
+}
+
+// isolateFailedBatch is the pass after a batch failed for good: it writes the
+// batch again one event at a time, never one row at a time, so the rows of an
+// event are written together or parked together. Written row by row, a group
+// that commits together would commit each row in a transaction of its own. A
+// sink that validates rows has already parked some of them, so it keeps the
+// row-by-row pass. It returns nil when every event was written or parked.
+func (e *Engine) isolateFailedBatch(ctx context.Context, snk hermod.BatchSink, msgs []hermod.Message, events [][]hermod.Message, sinkID string, i int, lastErr error) error {
+	e.logger.Warn("Batch write failed, attempting individual writes to isolate errors", "workflow_id", e.workflowID, "sink_id", sinkID, "batch_size", len(msgs))
+
+	if _, rowValidating := snk.(hermod.ValidatingSink); rowValidating || events == nil {
+		events = make([][]hermod.Message, 0, len(msgs))
+		for _, m := range msgs {
+			events = append(events, []hermod.Message{m})
+		}
 	}
 
-	if lastErr != nil {
-		e.logger.Error("Sink batch write failed after retries", "workflow_id", e.workflowID, "sink_id", sinkID, "error", lastErr)
-		span.RecordError(lastErr)
-		span.SetStatus(codes.Error, lastErr.Error())
-
-		if e.deadLetterSink != nil || len(msgs) > 1 {
-			e.logger.Warn("Batch write failed, attempting individual writes to isolate errors", "workflow_id", e.workflowID, "sink_id", sinkID, "batch_size", len(msgs))
-
-			allSucceeded := true
-			for _, m := range msgs {
-				if m == nil {
-					continue
-				}
-				// Use writeToSink for individual processing (which already handles DLQ)
-				if err := e.writeToSink(ctx, snk, m, sinkID, i); err != nil {
-					allSucceeded = false
-					// We continue with other messages in the batch instead of stopping
-					// writeToSink already logged the error and handled DLQ if available
-				}
-			}
-
-			if allSucceeded {
-				return nil
-			}
-
-			// If some failed even after individual attempts, and we don't have a DLQ
-			// for those individual failures, writeToSink would have returned an error.
-			// But here we want to return nil if we managed to process the whole batch
-			// (either by success or by DLQing the individual failures).
-			// If writeToSink returned nil for all messages (either success or DLQ),
-			// then allSucceeded will be true.
-			// If it returned error for any message (meaning no DLQ or DLQ failed),
-			// then we still have a problem.
-			if !allSucceeded {
-				return fmt.Errorf("sink batch write failed and some messages could not be diverted: %w", lastErr)
-			}
-			return nil
+	allSucceeded := true
+	for _, rows := range events {
+		// writeEventToSink parks what fails when there is a dead-letter sink,
+		// so an error here means a row is nowhere.
+		if err := e.writeEventToSink(ctx, snk, rows, sinkID, i); err != nil {
+			allSucceeded = false
 		}
-
-		return fmt.Errorf("sink batch write error: %w", lastErr)
+	}
+	if !allSucceeded {
+		return fmt.Errorf("sink batch write failed and some messages could not be diverted: %w", lastErr)
 	}
 	return nil
+}
+
+// writeEventToSink writes the rows of one event together, with retries, and
+// parks all of them in the dead-letter sink when they cannot be written. It is
+// the per-event pass after a batch failed: a single row goes the usual way, and
+// several go as a batch of their own, so a sink that commits a batch atomically
+// commits the event atomically too.
+func (e *Engine) writeEventToSink(ctx context.Context, snk hermod.BatchSink, rows []hermod.Message, sinkID string, i int) error {
+	rows = slices.DeleteFunc(slices.Clone(rows), func(m hermod.Message) bool { return m == nil })
+	switch len(rows) {
+	case 0:
+		return nil
+	case 1:
+		return e.writeToSink(ctx, snk, rows[0], sinkID, i)
+	}
+
+	maxRetries, retryInterval := e.retrySettings(i)
+	var lastErr error
+	for j := range maxRetries {
+		lastErr = snk.WriteBatch(ctx, rows)
+		if lastErr == nil {
+			telemetry.SinkWriteCount.WithLabelValues(e.workflowID, sinkID).Add(float64(len(rows)))
+			return nil
+		}
+		telemetry.SinkWriteErrors.WithLabelValues(e.workflowID, sinkID).Add(float64(len(rows)))
+		if errors.Is(lastErr, hermod.ErrPermanent) || j == maxRetries-1 {
+			break
+		}
+		select {
+		case <-time.After(e.retryDelay(i, j, retryInterval)):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	e.logger.Error("Sink could not write an event's rows; they stay together",
+		"workflow_id", e.workflowID, "sink_id", sinkID, "message_id", rows[0].ID(),
+		"rows", len(rows), "error", lastErr)
+	if e.deadLetterSink == nil {
+		return fmt.Errorf("sink write error: %w", lastErr)
+	}
+	for _, m := range rows {
+		m.SetMetadata("_hermod_last_error", lastErr.Error())
+	}
+	return e.writeToDLQ(ctx, sinkID, rows...)
+}
+
+// refuseBundles asks the sink about each event in the batch and answers the
+// ones it refuses: their rows are parked in the dead-letter sink, with the
+// sink's reason, or, without one, the event fails and is not acknowledged.
+// None of a refused event's rows reaches the sink. It returns the batch without
+// them, reusing its backing array.
+func (w *sinkWriter) refuseBundles(ctx context.Context, bv hermod.BundleValidatingSink, batch []*pendingMessage) []*pendingMessage {
+	kept := batch[:0]
+	var rows []hermod.Message
+	for _, pm := range batch {
+		rows = append(append(rows[:0], pm.msg), pm.more...)
+		verr := bv.ValidateBundle(ctx, rows)
+		if verr == nil {
+			kept = append(kept, pm)
+			continue
+		}
+
+		w.engine.logger.Warn("Sink refused an event before writing it",
+			"workflow_id", w.engine.workflowID, "sink_id", w.sinkID,
+			"message_id", pm.msg.ID(), "rows", len(rows), "reason", verr)
+		var err error
+		if w.engine.deadLetterSink != nil {
+			for _, m := range rows {
+				m.SetMetadata("_hermod_validation_failed", "true")
+				m.SetMetadata("_hermod_last_error", verr.Error())
+			}
+			err = w.engine.writeToDLQ(ctx, w.sinkID, rows...)
+		} else {
+			err = fmt.Errorf("validation error: %w", verr)
+		}
+		signalDone(pm, err)
+		releasePendingMessage(pm)
+	}
+	clear(batch[len(kept):])
+	return kept
 }
 
 func (sw *sinkWriter) checkCircuitBreaker() error {
@@ -1139,6 +1243,9 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 	// Reuse slices to minimize allocations in the hot loop.
 	batch := make([]*pendingMessage, 0, batchSize)
 	msgsReuse := make([]hermod.Message, 0, batchSize)
+	// eventsReuse is msgsReuse cut at the edges of its pending messages: the
+	// rows of one event each. A failed batch is retried one event at a time.
+	eventsReuse := make([][]hermod.Message, 0, batchSize)
 	var batchBytes int
 	ticker := time.NewTicker(batchTimeout)
 	defer ticker.Stop()
@@ -1202,11 +1309,29 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 			return
 		}
 
+		// A sink that judges each event as a whole sees it before anything is
+		// written; the events it refuses are answered here and leave the batch.
+		// A dry run writes nothing, so there is nothing to refuse.
+		if bv, ok := w.sink.(hermod.BundleValidatingSink); ok && !w.engine.config.DryRun {
+			batch = w.refuseBundles(writeCtx, bv, batch)
+			if len(batch) == 0 {
+				batchBytes = 0
+				return
+			}
+		}
+
 		// Reuse the messages slice
 		msgsReuse = msgsReuse[:0]
 		for _, pm := range batch {
 			msgsReuse = append(msgsReuse, pm.msg)
 			msgsReuse = append(msgsReuse, pm.more...)
+		}
+		eventsReuse = eventsReuse[:0]
+		end := 0
+		for _, pm := range batch {
+			start := end
+			end += 1 + len(pm.more)
+			eventsReuse = append(eventsReuse, msgsReuse[start:end:end])
 		}
 
 		var err error
@@ -1219,7 +1344,7 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 		isBatch := false
 		if bs, ok := w.sink.(hermod.BatchSink); ok && len(msgsReuse) > 1 {
 			isBatch = true
-			err = w.engine.writeBatchToSink(writeCtx, bs, msgsReuse, w.sinkID, w.index)
+			err = w.engine.writeBatchToSink(writeCtx, bs, msgsReuse, eventsReuse, w.sinkID, w.index)
 			healthFailure = err != nil && !errors.Is(err, hermod.ErrPermanent)
 		} else {
 			// One answer per pending message, not per row: a bundle's rows
