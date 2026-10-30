@@ -134,6 +134,11 @@ const GUIDES: Record<string, TransformationGuide> = {
     what: 'Enriches each record with data fetched from an HTTP API.',
     firstStep: 'Enter the URL. Put record values in as {{.after.column}}, or pick one with the { } button.',
   },
+  redis_lookup: {
+    title: 'Redis lookup',
+    what: 'Enriches each record with a value read from Redis: a string, one hash field, or a whole hash.',
+    firstStep: 'Set the address on the Connection tab, then write the key with record values as {{.after.column}}.',
+  },
   panmail_providers: {
     title: 'Panmail providers',
     what: 'Adds the list of email providers configured in a panmail gateway, with each one\'s id, name, type and allowed domains.',

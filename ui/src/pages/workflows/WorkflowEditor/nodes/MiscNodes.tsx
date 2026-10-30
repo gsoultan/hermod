@@ -6,7 +6,7 @@ import { BaseNode, PlusHandle, TargetHandle } from './BaseNode';
 import { branchHandleId } from './branchHandleId';
 import { useState, memo } from 'react';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
-import { IconAlertTriangle, IconArrowsMaximize, IconArrowsSplit, IconBinary, IconBraces, IconChartHistogram, IconChecklist, IconClock, IconCloud, IconCode, IconCopy, IconDatabase, IconDatabaseSearch, IconEye, IconFileSearch, IconFilter, IconGitBranch, IconGitCompare, IconGitMerge, IconLayoutList, IconList, IconLock, IconLockOpen, IconMail, IconMapPin, IconNote, IconPlaylist, IconScale, IconSearch, IconShieldLock, IconSparkles, IconStack2, IconTemplate, IconTerminal2, IconTextScan2, IconTimeline, IconTrash, IconVariable, IconVector } from '@tabler/icons-react';
+import { IconAlertTriangle, IconArrowsMaximize, IconArrowsSplit, IconBinary, IconBolt, IconBraces, IconChartHistogram, IconChecklist, IconClock, IconCloud, IconCode, IconCopy, IconDatabase, IconDatabaseSearch, IconEye, IconFileSearch, IconFilter, IconGitBranch, IconGitCompare, IconGitMerge, IconLayoutList, IconList, IconLock, IconLockOpen, IconMail, IconMapPin, IconNote, IconPlaylist, IconScale, IconSearch, IconShieldLock, IconSparkles, IconStack2, IconTemplate, IconTerminal2, IconTextScan2, IconTimeline, IconTrash, IconVariable, IconVector } from '@tabler/icons-react';
 const ValidatorNodeImpl = ({ id, data, selected }: any) => {
   return (
     <BaseNode id={id} type="Validator" color="orange" icon={IconChecklist} data={data} selected={selected}>
@@ -26,6 +26,7 @@ const TransformationNodeImpl = ({ id, data, selected }: any) => {
       case 'decrypt': return IconLockOpen;
       case 'db_lookup': return IconSearch;
       case 'api_lookup': return IconCloud;
+      case 'redis_lookup': return IconBolt;
       case 'panmail_providers': return IconMail;
       case 'fuzzy_lookup': return IconSearch;
       case 'char_map': return IconTerminal2;
@@ -71,6 +72,7 @@ const TransformationNodeImpl = ({ id, data, selected }: any) => {
       case 'decrypt': return 'Decrypt';
       case 'db_lookup': return 'DB Lookup';
       case 'api_lookup': return 'API Lookup';
+      case 'redis_lookup': return 'Redis Lookup';
       case 'panmail_providers': return 'Panmail Providers';
       case 'fuzzy_lookup': return 'Fuzzy Lookup';
       case 'char_map': return 'Char Map';

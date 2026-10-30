@@ -608,6 +608,10 @@ export const simulateTransformation = (transType: string, data: any, inputPayloa
        if (data.targetField) {
           setValByPath(result.output, data.targetField, data.defaultValue ? `[API Lookup Result (or ${data.defaultValue})]` : `[API Lookup Result]`);
        }
+    } else if (transType === 'redis_lookup') {
+       if (data.targetField) {
+          setValByPath(result.output, data.targetField, data.defaultValue ? `[Redis Lookup Result (or ${data.defaultValue})]` : `[Redis Lookup Result]`);
+       }
     } else if (transType === 'panmail_providers') {
        setValByPath(result.output, data.targetField || 'panmail_providers', '[Panmail Providers]');
     }

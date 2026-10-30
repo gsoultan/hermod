@@ -12,6 +12,7 @@ package lineage
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	"github.com/gsoultan/hermod/internal/storage"
@@ -38,6 +39,22 @@ func transType(n storage.WorkflowNode) string {
 func str(cfg map[string]any, key string) string {
 	s, _ := cfg[key].(string)
 	return strings.TrimSpace(s)
+}
+
+// redisDB is redis_lookup's database number as text, which the editor saves
+// as a number and an imported workflow may carry as a string.
+func redisDB(cfg map[string]any) string {
+	switch v := cfg["db"].(type) {
+	case float64:
+		return strconv.Itoa(int(v))
+	case int:
+		return strconv.Itoa(v)
+	case string:
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+			return strconv.Itoa(n)
+		}
+	}
+	return "0"
 }
 
 // sourceRef is the source a node names by id (storage.NodeConfigSourceKeys).
@@ -136,6 +153,15 @@ var transformerReaders = map[string]func(r nodeReader, cfg map[string]any) []nod
 			return []nodeIO{{asset: one(KindEndpoint, "http", loc, "")[0], relation: RelLooksUp}}
 		}
 		return nil
+	},
+	"redis_lookup": func(_ nodeReader, cfg map[string]any) []nodeIO {
+		// The key is per message, so the database is what is known. An addr
+		// held in a secret names nothing that can be shown here.
+		addr := strings.ToLower(str(cfg, "addr"))
+		if addr == "" || strings.Contains(addr, "{{") {
+			return nil
+		}
+		return []nodeIO{{asset: one(KindDatabase, "redis", addr, redisDB(cfg))[0], relation: RelLooksUp}}
 	},
 	"reference_lookup": func(_ nodeReader, cfg map[string]any) []nodeIO {
 		if p := str(cfg, "filePath"); p != "" {

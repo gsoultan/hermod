@@ -8,7 +8,7 @@ import {
   IconBrandFacebook, IconBrandInstagram, IconBrandLinkedin, IconBrandTiktok, IconExternalLink, IconLock, IconLockOpen, IconSitemap,
   IconSparkles, IconTextScan2, IconTags, IconFileDescription, IconLanguage, IconVector, IconDatabaseSearch, IconRobot, IconBrain, IconSchool,
   IconLayoutList, IconStack2, IconArrowsMaximize, IconBraces, IconTemplate, IconGitCompare, IconFileSearch, IconMapPin,
-  IconScale, IconBinary, IconChartHistogram, IconTimeline, IconAlertTriangle
+  IconScale, IconBinary, IconChartHistogram, IconTimeline, IconAlertTriangle, IconBolt
 } from '@tabler/icons-react';
 
 export const NODE_CATEGORIES = [
@@ -70,6 +70,7 @@ export const NODE_CATEGORIES = [
     items: [
       { type: 'transformation', refId: 'new', label: 'DB Lookup', subType: 'db_lookup', icon: IconSearch, color: 'teal', description: 'Enrich data from a database' },
       { type: 'transformation', refId: 'new', label: 'API Lookup', subType: 'api_lookup', icon: IconCloud, color: 'teal', description: 'Fetch and merge from HTTP APIs' },
+      { type: 'transformation', refId: 'new', label: 'Redis Lookup', subType: 'redis_lookup', icon: IconBolt, color: 'teal', description: 'Read a key from Redis and merge it' },
       { type: 'transformation', refId: 'new', label: 'Panmail Providers', subType: 'panmail_providers', icon: IconMail, color: 'teal', description: 'List a panmail tenant\'s email providers' },
       { type: 'transformation', refId: 'new', label: 'Pipeline', subType: 'pipeline', icon: IconPlaylist, color: 'teal', description: 'Compose multiple steps' },
       { type: 'transformation', refId: 'new', label: 'Lua Script', subType: 'lua', icon: IconCode, color: 'teal', description: 'Custom logic with Lua' },
