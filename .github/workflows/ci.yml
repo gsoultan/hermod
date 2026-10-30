@@ -319,6 +319,11 @@ jobs:
       # --sync-config needs neither a container nor a build.
       - name: Dev script config sync
         run: ./scripts/dev_config_sync_test.sh
+      # The API port serves a generated UI bundle that dev.sh used to rebuild only
+      # on request, so a pulled redesign never showed up there. --print-ui-state
+      # runs the staleness check alone against a scratch repository.
+      - name: Dev script UI staleness
+        run: ./scripts/dev_ui_stale_test.sh
 
       # The pr-base workflow only ever exercises one path per run — whichever the
       # pull request under review happens to be. This covers the rest of them, so

@@ -18,13 +18,14 @@ Then open **http://localhost:5175** and sign in with **`admin` / `admin`**.
 | `./scripts/dev.sh` | Start everything (PostgreSQL via Apple `container`) |
 | `./scripts/dev.sh --sqlite` | Use SQLite instead — no container needed |
 | `./scripts/dev.sh --reset` | Wipe the dev database and re-seed from scratch |
-| `./scripts/dev.sh --build-ui` | Refresh the UI bundle the API serves, then start |
+| `./scripts/dev.sh --build-ui` | Rebuild the UI bundle the API serves even if it looks current, then start |
 | `./scripts/dev.sh --stop` | Stop a running stack |
 
 **Work against port 5175.** It runs Vite, so edits under `ui/src` appear in the browser immediately
 via hot reload — no restart needed. Port 4005 also serves a UI, but that is the pre-built bundle in
-`internal/api/static`; it will **not** show your edits until you run `--build-ui`. It exists for
-checking what production actually ships.
+`internal/api/static`. The script rebuilds it on start whenever anything under `ui/` is newer than
+it, such as after a pull, but not while the stack is running, so edits made mid-run reach 4005 only
+on the next start or with `--build-ui`. It exists for checking what production actually ships.
 
 **Ports are chosen, not assumed.** The stack prefers 4005 (API), 50051 (gRPC) and 5175 (UI), and
 steps up to the next free number for any of them already taken — so a second stack, or an unrelated
