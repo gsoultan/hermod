@@ -63,6 +63,7 @@ describe('a sink form can satisfy the requirements gate it is held to', () => {
     elasticsearch: ['addresses'],
     snowflake: ['connection_string'],
     redis: ['addr'],
+    redis_set: ['addr', 'key'],
     kafka: ['brokers', 'topic'],
     s3: ['bucket', 'region'],
     mqtt: ['broker_url', 'topic'],

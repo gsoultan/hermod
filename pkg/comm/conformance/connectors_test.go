@@ -54,6 +54,7 @@ import (
 	sinkpulsar "github.com/gsoultan/hermod/pkg/comm/sink/pulsar"
 	sinkrabbitmq "github.com/gsoultan/hermod/pkg/comm/sink/rabbitmq"
 	sinkredis "github.com/gsoultan/hermod/pkg/comm/sink/redis"
+	sinkredisset "github.com/gsoultan/hermod/pkg/comm/sink/redisset"
 	sinks3 "github.com/gsoultan/hermod/pkg/comm/sink/s3"
 	sinks3parquet "github.com/gsoultan/hermod/pkg/comm/sink/s3parquet"
 	sinksalesforce "github.com/gsoultan/hermod/pkg/comm/sink/salesforce"
@@ -323,6 +324,9 @@ func TestSinkConformance(t *testing.T) {
 	})
 	sinkOrSkip(t, "redis", func() (hermod.Sink, error) {
 		return sinkredis.NewRedisSink(deadAddr, "", "s", fmtr())
+	})
+	sinkOrSkip(t, "redis_set", func() (hermod.Sink, error) {
+		return sinkredisset.New(map[string]string{"addr": deadAddr, "key": "k"}, fmtr())
 	})
 	sinkOrSkip(t, "nats", func() (hermod.Sink, error) {
 		return sinknats.NewNatsJetStreamSink("nats://"+deadAddr, "s", "", "", "", fmtr())

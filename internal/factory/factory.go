@@ -62,6 +62,7 @@ import (
 	"github.com/gsoultan/hermod/pkg/comm/sink/pulsar"
 	sinkrabbitmq "github.com/gsoultan/hermod/pkg/comm/sink/rabbitmq"
 	sinkredis "github.com/gsoultan/hermod/pkg/comm/sink/redis"
+	sinkredisset "github.com/gsoultan/hermod/pkg/comm/sink/redisset"
 	"github.com/gsoultan/hermod/pkg/comm/sink/s3"
 	"github.com/gsoultan/hermod/pkg/comm/sink/s3parquet"
 	"github.com/gsoultan/hermod/pkg/comm/sink/salesforce"
@@ -988,6 +989,8 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 		return sinkrabbitmq.NewRabbitMQQueueSink(BuildConnectionString(cfg.Config, cfg.Type), cfg.Config["queue_name"], fmttr)
 	case "redis":
 		return sinkredis.NewRedisSink(cfg.Config["addr"], cfg.Config["password"], cfg.Config["stream"], fmttr)
+	case "redis_set":
+		return sinkredisset.New(cfg.Config, fmttr)
 	case "file":
 		return file.NewFileSink(cfg.Config["filename"], fmttr)
 	case "kafka":

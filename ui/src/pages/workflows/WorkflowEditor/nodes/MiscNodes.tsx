@@ -27,6 +27,7 @@ const TransformationNodeImpl = ({ id, data, selected }: any) => {
       case 'db_lookup': return IconSearch;
       case 'api_lookup': return IconCloud;
       case 'redis_lookup': return IconBolt;
+      case 'redis_set': return IconBolt;
       case 'panmail_providers': return IconMail;
       case 'fuzzy_lookup': return IconSearch;
       case 'char_map': return IconTerminal2;
@@ -73,6 +74,7 @@ const TransformationNodeImpl = ({ id, data, selected }: any) => {
       case 'db_lookup': return 'DB Lookup';
       case 'api_lookup': return 'API Lookup';
       case 'redis_lookup': return 'Redis Lookup';
+      case 'redis_set': return 'Redis Set';
       case 'panmail_providers': return 'Panmail Providers';
       case 'fuzzy_lookup': return 'Fuzzy Lookup';
       case 'char_map': return 'Char Map';

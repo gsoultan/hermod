@@ -347,6 +347,12 @@ var sharedReaders = map[string]reader{
 		s := c.get("stream")
 		return oneIf(s != "", KindStream, "redis", strings.ToLower(c.get("addr")), s)
 	},
+	"redis_set": func(_ string, c cfgMap) []asset {
+		// The key is per record, so the database is what is known. An addr
+		// held in a secret names nothing that can be shown here.
+		addr := strings.ToLower(c.get("addr"))
+		return oneIf(addr != "" && !strings.Contains(addr, "{{"), KindDatabase, "redis", addr, redisDBNumber(c.get("db")))
+	},
 	"rabbitmq": func(_ string, c cfgMap) []asset {
 		loc, ok := connLocator(c, true)
 		return oneIf(ok && c.get("stream_name") != "", KindStream, "rabbitmq", loc, c.get("stream_name"))

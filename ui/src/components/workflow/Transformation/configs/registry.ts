@@ -26,6 +26,7 @@ import { TermExtractionConfig } from './enrichment/TermExtractionConfig'
 import { APILookupConfig } from './enrichment/APILookupConfig'
 import { PanmailProvidersConfig } from './enrichment/PanmailProvidersConfig'
 import { RedisLookupConfig } from './enrichment/RedisLookupConfig'
+import { RedisSetConfig } from './enrichment/RedisSetConfig'
 import { AIConfig } from './enrichment/AIConfig'
 
 // ai
@@ -162,6 +163,7 @@ export const TRANSFORM_CONFIGS: Record<string, ConfigComponent> = {
   term_extraction: TermExtractionConfig,
   api_lookup: APILookupConfig,
   redis_lookup: RedisLookupConfig,
+  redis_set: RedisSetConfig,
   panmail_providers: PanmailProvidersConfig,
   // The AI palette replaced these two; they stay so saved workflows open.
   ai_enrichment: AIConfig,
