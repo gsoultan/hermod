@@ -9,6 +9,12 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ### Added — Sink nodes that commit together
 
+In the editor, a PostgreSQL, YugabyteDB, MySQL or MariaDB sink node has a
+"Commit together with other databases" switch at the top of its settings, a
+transaction name to join or create, the list of the other members, and a
+readiness check with the server's own reasons. Members show the transaction's
+name on the canvas.
+
 A workflow can now put different rows in different databases in one transaction.
 Each database is its own sink node, and the nodes name the transaction they
 commit in (`"transaction"` in the node's config). When the workflow starts, the

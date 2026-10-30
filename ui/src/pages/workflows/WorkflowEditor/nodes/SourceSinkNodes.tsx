@@ -1,7 +1,9 @@
 import { Position } from '@xyflow/react';
 import { BaseNode, PlusHandle, TargetHandle } from './BaseNode';
 import { memo } from 'react';
-import { IconBrandDiscord, IconBrandFacebook, IconBrandInstagram, IconBrandLinkedin, IconBrandSlack, IconBrandTiktok, IconBrandTwitter, IconCircles, IconCloudUpload, IconDatabase, IconDeviceFloppy, IconFileSpreadsheet, IconMail, IconMessage, IconSettingsAutomation, IconTerminal2, IconWorld } from '@tabler/icons-react';
+import { Badge } from '@mantine/core';
+import { transactionOf } from '@/utils/commitTogether';
+import { IconArrowsJoin2, IconBrandDiscord, IconBrandFacebook, IconBrandInstagram, IconBrandLinkedin, IconBrandSlack, IconBrandTiktok, IconBrandTwitter, IconCircles, IconCloudUpload, IconDatabase, IconDeviceFloppy, IconFileSpreadsheet, IconMail, IconMessage, IconSettingsAutomation, IconTerminal2, IconWorld } from '@tabler/icons-react';
 const SourceNodeImpl = ({ id, data, selected }: any) => {
   const getIcon = () => {
     if (data.type === 'webhook' || data.type === 'form' || data.type === 'graphql') return IconWorld;
@@ -47,8 +49,25 @@ const SinkNodeImpl = ({ id, data, selected }: any) => {
     return IconDatabase;
   };
 
+  // A sink node that commits together with others says so where the other
+  // members are seen: on the canvas, by the transaction's name.
+  const transaction = transactionOf(data);
+  const badge = transaction ? (
+    <Badge
+      size="xs"
+      variant="light"
+      color="teal"
+      radius="sm"
+      leftSection={<IconArrowsJoin2 size="0.7rem" />}
+      aria-label={`Commits together in transaction ${transaction}`}
+      style={{ textTransform: 'none' }}
+    >
+      {transaction}
+    </Badge>
+  ) : undefined;
+
   return (
-    <BaseNode id={id} type="Sink" color="green" icon={getIcon()} data={data} selected={selected}>
+    <BaseNode id={id} type="Sink" color="green" icon={getIcon()} data={data} selected={selected} badge={badge}>
       <TargetHandle position={Position.Left} color="green" />
     </BaseNode>
   );
