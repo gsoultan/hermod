@@ -61,7 +61,7 @@ type result struct {
 	err error
 }
 
-func start(g *Group, ctx context.Context, fn func(context.Context) (any, error)) <-chan result {
+func start(ctx context.Context, g *Group, fn func(context.Context) (any, error)) <-chan result {
 	out := make(chan result, 1)
 	go func() {
 		v, err := g.Do(ctx, "k", fn)
@@ -79,10 +79,10 @@ func TestDoSurvivesTheStartersCancellation(t *testing.T) {
 
 	leaderCtx, cancelLeader := context.WithCancel(t.Context())
 	defer cancelLeader()
-	leader := start(g, leaderCtx, fn.call)
+	leader := start(leaderCtx, g, fn.call)
 	wait(t, fn.started, "the call to start")
 
-	follower := start(g, t.Context(), fn.call)
+	follower := start(t.Context(), g, fn.call)
 	// There is no hook to observe a singleflight join; give it a moment.
 	time.Sleep(50 * time.Millisecond)
 
@@ -117,7 +117,7 @@ func TestDoEndsTheCallWhenTheLastWaiterLeaves(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	only := start(g, ctx, fn.call)
+	only := start(ctx, g, fn.call)
 	wait(t, fn.started, "the call to start")
 
 	cancel()
@@ -145,7 +145,7 @@ func TestDoRetriesACancellationThatIsNotTheCallersOwn(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(t.Context())
-	first := start(g, ctx, fn)
+	first := start(ctx, g, fn)
 	time.Sleep(50 * time.Millisecond)
 	cancel()
 	if r := <-first; !errors.Is(r.err, context.Canceled) {
@@ -154,7 +154,7 @@ func TestDoRetriesACancellationThatIsNotTheCallersOwn(t *testing.T) {
 
 	// The first call's context is cancelled but fn has not returned, so
 	// singleflight still holds the key.
-	second := start(g, t.Context(), fn)
+	second := start(t.Context(), g, fn)
 	time.Sleep(50 * time.Millisecond)
 	close(slowExit)
 
