@@ -102,4 +102,56 @@ test.describe('Workflow editor canvas real estate', () => {
       expect(ratio).toBeGreaterThan(0.6);
     }
   });
+
+  // The editor sized itself as "the viewport minus the header", with 60px
+  // assumed when no header said otherwise. The redesign dropped the header, so
+  // the 60px was taken anyway and left a blank strip under the live log panel.
+  // Measured rather than read from CSS, so any layer that adds the gap back
+  // fails here.
+  test('live log panel reaches the bottom of the screen', async ({ page }) => {
+    await login(page);
+    await page.goto('/workflows/new');
+
+    const header = page.getByRole('button', { name: /live workflow logs/i });
+    await header.waitFor({ state: 'visible', timeout: 30000 });
+    const panelBottom = () =>
+      header.evaluate((el) => el.closest('.mantine-Paper-root')!.getBoundingClientRect().bottom);
+
+    for (const viewport of [
+      { width: 1440, height: 900 },
+      { width: 1920, height: 1080 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await page.waitForTimeout(400);
+      expect(Math.round(await panelBottom())).toBe(viewport.height);
+
+      // Open as well as folded: the panel grows upward, its foot stays put.
+      await header.click();
+      await page.waitForTimeout(400);
+      expect(Math.round(await panelBottom())).toBe(viewport.height);
+      await header.click();
+      await page.waitForTimeout(400);
+    }
+  });
+
+  // On a phone the bottom tabs take the foot of the screen, so the panel
+  // should sit right on top of them: no gap, and not tucked underneath.
+  test('live log panel sits on the bottom tabs on a phone', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await login(page);
+    await page.goto('/workflows/new');
+
+    const header = page.getByRole('button', { name: /live workflow logs/i });
+    await header.waitFor({ state: 'visible', timeout: 30000 });
+    const panelBottom = await header.evaluate(
+      (el) => el.closest('.mantine-Paper-root')!.getBoundingClientRect().bottom,
+    );
+    const tabsTop = await page
+      .getByRole('navigation', { name: 'Bottom tabs' })
+      .evaluate((el) => el.getBoundingClientRect().top);
+
+    expect(Math.round(panelBottom)).toBe(Math.round(tabsTop));
+    // Nothing to scroll: the editor fits the screen above the tabs.
+    expect(await page.evaluate(() => document.scrollingElement!.scrollHeight)).toBe(844);
+  });
 });
