@@ -209,8 +209,8 @@ Thin, untested, or semantically limited. Specific caveats where they matter:
 
 GA describes the *data path* — that changes are captured and land correctly. It does
 not mean a connector carries existing rows across when a workflow starts: only the
-PostgreSQL source does, and only when asked. See
-[Maturity, up front](../README.md#maturity-up-front).
+PostgreSQL, MySQL, MongoDB and Oracle (LogMiner) sources do, and only when asked. See
+[Initial load](initial-load.md).
 
 Moving a connector up a tier means adding the missing evidence, not editing this
 table. If you depend on one, an integration test is the most useful contribution you

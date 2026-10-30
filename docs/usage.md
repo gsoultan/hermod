@@ -28,9 +28,8 @@ Hermod provides a professional CLI tool for developers and operators to manage t
 Compiled as `Example` in [`pkg/engine/example_test.go`](../pkg/engine/example_test.go),
 so it cannot drift from the packages it names.
 
-Note that `go get` cannot fetch these packages at the current version — see
-[`go get` does not work](../README.md#go-get-does-not-work-and-is-not-expected-to). Building
-against a checkout, or a `replace` directive pointing at one, does work.
+`go get github.com/gsoultan/hermod` fetches these packages at the latest release; see
+[`go get`](install.md#go-get) for the retracted versions to avoid.
 
 ```go
 import (
