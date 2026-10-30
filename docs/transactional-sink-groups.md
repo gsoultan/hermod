@@ -67,6 +67,53 @@ On start-up the group preflights every member, resolves anything the previous
 run left in doubt, and starts its reaper. A member that cannot genuinely
 participate stops the workflow starting rather than failing mid-batch.
 
+### Different rows for different databases: sink nodes that commit together
+
+A Transactional Group node sends the **same** rows to every member. When one event
+has to put **different** rows in different databases — branch X builds the order row
+for PostgreSQL while branch Y builds the invoice row for MySQL — give each database
+its own sink node and have the nodes name the same transaction:
+
+```json
+{ "id": "orders-pg", "type": "sink", "ref_id": "sink-orders", "config": { "transaction": "order" } }
+{ "id": "invoice-my", "type": "sink", "ref_id": "sink-invoices", "config": { "transaction": "order" } }
+```
+
+| Node config key | Meaning |
+| :--- | :--- |
+| `transaction` | The name of the transaction this node commits in. Every reachable sink node of the workflow with the same name is a member. |
+| `max_prepared_age` | Optional, on any member (the first one found wins). As for a group. |
+
+When the workflow starts, the registry builds the sink nodes that share a name into
+**one** group (`internal/engine/registry/commit_together.go`), driven by one writer, so
+the rows one event produced for the members leave the engine in one batch and reach
+their databases in one two-phase transaction. The engine records on every routed row
+which sink node it came through, and the group hands each row to **that member only**:
+PostgreSQL gets the order row, MySQL the invoice row, and both commit or neither does.
+
+What the rules are:
+
+- **At least two connected members per transaction.** A single database already
+  commits its own rows alone, so a transaction with one member is refused, by node, when
+  the workflow is saved and again when it starts.
+- **Members must be PostgreSQL, YugabyteDB, MySQL or MariaDB sinks.** Any other type is
+  refused by node at save time.
+- **A member that produced no row for an event is left out of that event's
+  transaction**, and the event still commits. An event whose branches produced several
+  rows for one member puts all of them in the same transaction.
+- **A member's identity is its node ID**, which is what the transaction log records,
+  so the same sink record can back two nodes of one workflow and a recovery after a
+  crash still finds the right member.
+- **The log is scoped by workflow and transaction name**, so two workflows can both call
+  their transaction `order` without sharing a log.
+- **Resumed and replayed messages** — an approval that was granted, a wait that
+  elapsed, a replay from an event store — write to each member through its own sink
+  and commit alone; they are one row for one node, and a side path must not recover
+  the running workflow's transaction log.
+
+Everything above about the durable state store, preflight, recovery, the reaper and the
+operational hazard applies to these groups exactly as to a Transactional Group node.
+
 ### Why it is opt-in
 
 The engine gives every sink its own writer goroutine with its own batching loop. That

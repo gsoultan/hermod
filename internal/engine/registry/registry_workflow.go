@@ -112,69 +112,58 @@ func (r *Registry) buildWorkflowSources(ctx context.Context, wf storage.Workflow
 	return srcConfigs, ms, nil
 }
 
-// discoverWorkflowSinks uses BFS from source nodes to find and create all sinks.
+// discoverWorkflowSinks builds the engine sinks for the sink nodes reachable
+// from the workflow's sources: one sink per plain node, and one group per
+// transaction that several nodes commit in (see commit_together.go). The
+// returned map says which engine sink each sink node writes through.
 func (r *Registry) discoverWorkflowSinks(ctx context.Context, wf storage.Workflow, ms *multiSource) ([]hermod.Sink, []factory.SinkConfig, map[string]int, error) {
-	adj := make(map[string][]string)
-	for _, edge := range wf.Edges {
-		adj[edge.SourceID] = append(adj[edge.SourceID], edge.TargetID)
+	plans, err := r.planWorkflowSinks(wf)
+	if err != nil {
+		_ = ms.Close()
+		return nil, nil, nil, err
 	}
 
 	var sinks []hermod.Sink
 	var snkConfigs []factory.SinkConfig
 	sinkNodeToIndex := make(map[string]int)
-
-	queue := []string{}
-	visited := make(map[string]bool)
-	for _, node := range wf.Nodes {
-		if node.Type == "source" {
-			queue = append(queue, node.ID)
-			visited[node.ID] = true
+	fail := func(err error) ([]hermod.Sink, []factory.SinkConfig, map[string]int, error) {
+		for _, s := range sinks {
+			_ = s.Close()
 		}
+		_ = ms.Close()
+		return nil, nil, nil, err
 	}
 
-	for len(queue) > 0 {
-		currID := queue[0]
-		queue = queue[1:]
-
-		node := findNodeByID(wf.Nodes, currID)
-		if node == nil {
-			continue
-		}
-
-		if node.Type == "sink" {
-			dbSnk, err := r.GetSinkConfig(ctx, node.RefID)
+	for _, plan := range plans {
+		var snk hermod.Sink
+		var snkCfg factory.SinkConfig
+		if plan.transaction != "" {
+			snk, snkCfg, err = r.buildCommitTogether(ctx, wf, plan)
 			if err != nil {
-				for _, s := range sinks {
-					s.Close()
-				}
-				ms.Close()
-				return nil, nil, nil, fmt.Errorf("failed to get sink %s: %w", node.RefID, err)
+				return fail(err)
 			}
-			snkCfg := factory.SinkConfig{
+		} else {
+			node := plan.nodes[0]
+			var dbSnk storage.Sink
+			if dbSnk, err = r.GetSinkConfig(ctx, node.RefID); err != nil {
+				return fail(fmt.Errorf("failed to get sink %s: %w", node.RefID, err))
+			}
+			snkCfg = factory.SinkConfig{
 				ID:     dbSnk.ID,
 				Type:   dbSnk.Type,
 				VHost:  dbSnk.VHost,
 				Config: dbSnk.Config,
 			}
-			snk, err := r.createSinkInternal(ctx, snkCfg)
+			snk, err = r.createSinkInternal(ctx, snkCfg)
 			if err != nil {
-				for _, s := range sinks {
-					s.Close()
-				}
-				ms.Close()
-				return nil, nil, nil, err
+				return fail(err)
 			}
+		}
+		for _, node := range plan.nodes {
 			sinkNodeToIndex[node.ID] = len(sinks)
-			sinks = append(sinks, snk)
-			snkConfigs = append(snkConfigs, snkCfg)
 		}
-
-		for _, nextID := range adj[currID] {
-			if !visited[nextID] {
-				visited[nextID] = true
-				queue = append(queue, nextID)
-			}
-		}
+		sinks = append(sinks, snk)
+		snkConfigs = append(snkConfigs, snkCfg)
 	}
 
 	if len(sinks) == 0 {
@@ -1354,6 +1343,9 @@ func (r *Registry) replayWriteToSink(ctx context.Context, workflowID string, nod
 	if !ok || idx >= len(sinks) {
 		return nil
 	}
+	// As the traversal does: a group that commits together hands the row to
+	// the member it came through.
+	msg.SetMetadata(hermod.MetaSinkNode, node.ID)
 	err := sinks[idx].Write(ctx, msg)
 	if err != nil {
 		r.broadcastLog(workflowID, "error", fmt.Sprintf(

@@ -2204,7 +2204,13 @@ func (r *Registry) ValidateWorkflow(ctx context.Context, wf storage.Workflow) er
 		return errors.New("no sink node reachable from any source")
 	}
 
-	// 6. DLQ Prioritization requirements
+	// 6. Sink nodes that commit together: at least two per transaction, each a
+	// database that can prepare one.
+	if err := r.checkCommitTogether(ctx, wf); err != nil {
+		return err
+	}
+
+	// 7. DLQ Prioritization requirements
 	return r.checkDLQPrioritization(ctx, wf)
 }
 

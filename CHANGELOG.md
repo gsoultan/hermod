@@ -7,6 +7,19 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — Sink nodes that commit together
+
+A workflow can now put different rows in different databases in one transaction.
+Each database is its own sink node, and the nodes name the transaction they
+commit in (`"transaction"` in the node's config). When the workflow starts, the
+sink nodes that share a name become one two-phase group: the row branch X built
+for PostgreSQL and the row branch Y built for MySQL leave the engine together
+and both commit or neither does. A member with no row for an event is left out
+of that event's transaction. A transaction with one member, or a member whose
+database cannot prepare a transaction, is refused by node when the workflow is
+saved. The stand-alone Transaction Group node, which sends the same rows to
+every member, is unchanged. See docs/transactional-sink-groups.md.
+
 ### Changed — The rows one event produces for one sink stay together
 
 A workflow can send one event to the same sink more than once: two branches each

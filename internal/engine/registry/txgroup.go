@@ -63,10 +63,18 @@ func (r *Registry) createTxGroupSink(ctx context.Context, cfg factory.SinkConfig
 		members = append(members, txgroup.Member{ID: id, Sink: snk})
 	}
 
+	return r.startTxGroup(ctx, fmt.Sprintf("txgroup sink %q", cfg.ID), members, coordinator)
+}
+
+// startTxGroup assembles a group from its members and coordinator and makes it
+// safe to write to. label names the group in errors: a stand-alone group by its
+// sink ID, a workflow transaction by its name. The members are closed on
+// failure.
+func (r *Registry) startTxGroup(ctx context.Context, label string, members []txgroup.Member, coordinator *twopc.Coordinator) (hermod.Sink, error) {
 	group, err := txgroup.New(members, coordinator, r.logger)
 	if err != nil {
 		closeMembers(members)
-		return nil, fmt.Errorf("txgroup sink %q: %w", cfg.ID, err)
+		return nil, fmt.Errorf("%s: %w", label, err)
 	}
 
 	// Preflight before anything is written. A member that cannot genuinely
@@ -75,14 +83,14 @@ func (r *Registry) createTxGroupSink(ctx context.Context, cfg factory.SinkConfig
 	// mid-batch, or worse, commit at prepare time and diverge silently.
 	if err := group.Preflight(ctx); err != nil {
 		_ = group.Close()
-		return nil, fmt.Errorf("txgroup sink %q: %w", cfg.ID, err)
+		return nil, fmt.Errorf("%s: %w", label, err)
 	}
 
 	// Resolve anything the previous run left in doubt, before this one writes.
 	// Skipping it would let a new transaction stack on top of an unresolved one.
 	if err := group.Recover(ctx); err != nil {
 		_ = group.Close()
-		return nil, fmt.Errorf("txgroup sink %q: unresolved transactions from a previous run: %w", cfg.ID, err)
+		return nil, fmt.Errorf("%s: unresolved transactions from a previous run: %w", label, err)
 	}
 
 	// Recover only runs at start-up, and the failure that hurts is a coordinator
