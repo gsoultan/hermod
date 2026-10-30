@@ -7,6 +7,20 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — A workflow could hang when stopped
+
+Stopping a workflow could wait for ever. A message the buffer handed to the
+worker pool just as the workflow was stopping could land after the workers had
+left, and nothing then counted it out of the in-flight total that stopping waits
+on. Workers now stay until their queues are closed, so every message that was
+queued is still processed and the count always reaches zero.
+
+### Fixed — The Failover Group form offers your sinks
+
+The primary and fallback pickers were always empty, because neither the Sinks
+page nor the workflow editor passed the list of sinks to the form. The form now
+fetches the list itself, as the Transactional group form does.
+
 ### Fixed — Transactional groups (2PC) can be set up and run from the UI
 
 Running a transactional group end to end, from the Sinks page through a

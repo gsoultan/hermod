@@ -736,12 +736,18 @@ func (r *Runner) runBufferToSink(ctx context.Context, sinkWg *sync.WaitGroup) {
 			own := keyed[i]
 			r.wg.Go(func() {
 				mine, pool := own, shared
+				// A worker leaves when its queues are closed, not when ctx is
+				// cancelled. The handler below races that cancellation and can
+				// queue a message after it; a worker that had already left
+				// would never count it out of inFlightWg, and Start waits on
+				// that before closing the sink channels, so the engine never
+				// stopped. Consume returns once ctx is cancelled and the queues
+				// are closed right after, so the workers still leave promptly,
+				// having handed on everything that was queued.
 				for mine != nil || pool != nil {
 					var m hermod.Message
 					var ok bool
 					select {
-					case <-ctx.Done():
-						return
 					case m, ok = <-mine:
 						if !ok {
 							// A closed channel is always ready; nil never is.

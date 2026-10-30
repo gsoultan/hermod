@@ -3,6 +3,7 @@ import { TextInput } from '@/components/shared/ReferenceInputs';
 import { IconAlertTriangle, IconCircleCheck, IconLoader2 } from '@tabler/icons-react';
 import { useEffect, useState, type FC, type ReactNode } from 'react';
 import { apiFetch } from '@/api';
+import { useSinkOptions } from '@/hooks/useSinkOptions';
 import {
   eligibleSinks,
   formatMembers,
@@ -12,7 +13,6 @@ import {
   setupNotesFor,
   typeLabel,
   validateTxGroup,
-  type SinkOption,
 } from '@/utils/txgroup';
 
 export type TxGroupSinkConfigProps = {
@@ -58,34 +58,6 @@ function useCapability(): Capability | null {
     };
   }, []);
   return capability;
-}
-
-/**
- * The stored sinks to choose members from. Neither the Sinks page nor the
- * workflow editor passes them down, which left the picker empty and every saved
- * member reported as deleted; so when none are given, the form asks.
- */
-function useSinkOptions(given?: any[]): SinkOption[] | null {
-  const [fetched, setFetched] = useState<SinkOption[] | null>(null);
-  const useGiven = Array.isArray(given) && given.length > 0;
-  useEffect(() => {
-    if (useGiven) return;
-    let cancelled = false;
-    apiFetch('/api/sinks?limit=1000', { silent: true })
-      .then(readJSON)
-      .then((data: any) => {
-        const rows = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
-        if (!cancelled) setFetched(rows);
-      })
-      .catch(() => {
-        if (!cancelled) setFetched([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [useGiven]);
-  const rows = useGiven ? given! : fetched;
-  return rows === null ? null : rows.map((s: any) => ({ id: s.id, name: s.name, type: s.type }));
 }
 
 /** The backend's reason as a sentence: capitalised, with a full stop. */
