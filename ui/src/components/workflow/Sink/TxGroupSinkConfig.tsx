@@ -1,8 +1,8 @@
-import { Accordion, Anchor, Code, Group, List, MultiSelect, Paper, Stack, Text, ThemeIcon } from '@mantine/core';
+import { Accordion, Anchor, Code, List, MultiSelect, Paper, Stack, Text } from '@mantine/core';
 import { TextInput } from '@/components/shared/ReferenceInputs';
-import { IconAlertTriangle, IconCircleCheck, IconLoader2 } from '@tabler/icons-react';
-import { useEffect, useState, type FC, type ReactNode } from 'react';
-import { apiFetch } from '@/api';
+import { useState, type FC } from 'react';
+import { ReadinessCheck as Check, sentence } from '@/components/shared/ReadinessCheck';
+import { useTwoPhaseCapability as useCapability } from '@/hooks/useTwoPhaseCapability';
 import { useSinkOptions } from '@/hooks/useSinkOptions';
 import {
   eligibleSinks,
@@ -22,76 +22,6 @@ export type TxGroupSinkConfigProps = {
   currentSinkId?: string;
   updateConfig: (key: string, value: any) => void;
 };
-
-type Capability = { types: string[]; logReady: boolean; logProblem: string };
-
-/** The JSON of a response, or the value itself when a test stubbed apiFetch. */
-const readJSON = (res: any) => (res && typeof res.json === 'function' ? res.json() : res);
-
-/**
- * Which sinks can take part, and whether a group could keep its transaction log
- * here. Both come from the backend, which enforces the same rules when the
- * workflow starts, so the form and the engine cannot disagree.
- */
-function useCapability(): Capability | null {
-  const [capability, setCapability] = useState<Capability | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    apiFetch('/api/sinks/capabilities/two-phase', { silent: true })
-      .then(readJSON)
-      .then((data: any) => {
-        if (cancelled) return;
-        setCapability({
-          types: Array.isArray(data?.types) ? data.types : [],
-          // An older server does not report the log; say nothing rather than guess.
-          logReady: data?.log_ready !== false,
-          logProblem: typeof data?.log_problem === 'string' ? data.log_problem : '',
-        });
-      })
-      .catch(() => {
-        // Offer nothing rather than guess. A picker built from a hardcoded list
-        // is how someone ends up with a group that cannot start.
-        if (!cancelled) setCapability({ types: [], logReady: true, logProblem: '' });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  return capability;
-}
-
-/** The backend's reason as a sentence: capitalised, with a full stop. */
-const sentence = (text: string) => {
-  const t = text.trim();
-  if (!t) return t;
-  return t[0].toUpperCase() + t.slice(1) + (/[.!?]$/.test(t) ? '' : '.');
-};
-
-/** One line of the readiness check. */
-function Check({ state, children }: { state: 'ok' | 'problem' | 'waiting'; children: ReactNode }) {
-  const icon =
-    state === 'ok' ? (
-      <ThemeIcon color="green" variant="light" size="sm" radius="xl">
-        <IconCircleCheck size="0.9rem" />
-      </ThemeIcon>
-    ) : state === 'problem' ? (
-      <ThemeIcon color="orange" variant="light" size="sm" radius="xl">
-        <IconAlertTriangle size="0.9rem" />
-      </ThemeIcon>
-    ) : (
-      <ThemeIcon color="gray" variant="light" size="sm" radius="xl">
-        <IconLoader2 size="0.9rem" />
-      </ThemeIcon>
-    );
-  return (
-    <Group gap="xs" wrap="nowrap" align="flex-start">
-      {icon}
-      <Text size="sm" style={{ flex: 1 }}>
-        {children}
-      </Text>
-    </Group>
-  );
-}
 
 const POSTGRES_SETUP = (
   <Stack gap={4}>

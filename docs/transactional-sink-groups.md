@@ -91,6 +91,14 @@ their databases in one two-phase transaction. The engine records on every routed
 which sink node it came through, and the group hands each row to **that member only**:
 PostgreSQL gets the order row, MySQL the invoice row, and both commit or neither does.
 
+In the editor, open a PostgreSQL, YugabyteDB, MySQL or MariaDB sink node and turn on
+**Commit together with other databases** at the top of its settings. Pick a transaction
+name already in the workflow to join it, or type a new one; the panel lists who else is
+in the transaction and says whether it is ready to run, with the server's own reasons
+when it is not. Each member shows the transaction's name on the canvas. The switch and
+the name belong to the node, not to the sink record, so the same record can commit
+alone in another workflow.
+
 What the rules are:
 
 - **At least two connected members per transaction.** A single database already

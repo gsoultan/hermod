@@ -72,14 +72,16 @@ export const TargetHandle = ({ position, color, style }: any) => {
   );
 };
 
-export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected }: {
+export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected, badge }: {
   id: string, 
   type: string, 
   color: string, 
   icon: any, 
   children: ReactNode, 
   data: any,
-  selected?: boolean
+  selected?: boolean,
+  /** Something the node wants said about itself on the canvas, under its description. */
+  badge?: ReactNode
 }) => {
   const { colorScheme } = useMantineColorScheme();
   const isDark = colorScheme === 'dark';
@@ -209,6 +211,7 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
 
         <Text fw={600} size="sm" mb={4}>{data.label || 'Unnamed Node'}</Text>
         <Text size="xs" c="dimmed" mb="xs" lineClamp={1}>{data.description || 'No description'}</Text>
+        {badge && <Group gap={4} mb="xs">{badge}</Group>}
 
         {children}
       </Stack>

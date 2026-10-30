@@ -156,6 +156,19 @@ func (r *Registry) checkCommitTogether(ctx context.Context, wf storage.Workflow)
 	return nil
 }
 
+// CheckCommitTogether is checkCommitTogether for callers outside the registry:
+// the workflow API's validator, which runs when a workflow is saved and must
+// refuse what starting it would. It works on a nil registry, where only the
+// graph can be checked, so a handler built without one still refuses a
+// transaction with one member.
+func (r *Registry) CheckCommitTogether(ctx context.Context, wf storage.Workflow) error {
+	if r == nil {
+		_, err := (*Registry)(nil).planWorkflowSinks(wf)
+		return err
+	}
+	return r.checkCommitTogether(ctx, wf)
+}
+
 // checkCommitTogetherMember refuses a member node whose sink cannot prepare a
 // transaction, naming the node rather than the record: the node is what the
 // person sees on the canvas.

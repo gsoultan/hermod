@@ -5,6 +5,8 @@ import { SinkForm } from '../../../../components/forms/SinkForm';
 import { TransformationForm } from '../../../../components/forms/TransformationForm';
 import { useNodeContext } from '../hooks/useNodeContext';
 import { IconX } from '@tabler/icons-react';
+import { CommitTogetherSection } from '../../../../components/workflow/Sink/CommitTogetherSection';
+import { useWorkflowStore } from '../store/useWorkflowStore';
 
 type NodeConfigDrawerProps = {
   opened: boolean;
@@ -32,6 +34,8 @@ export function NodeConfigDrawer({
     sources, 
     sinks
   );
+  // The other sink nodes, for "Commit together": who else is in the transaction.
+  const graphNodes = useWorkflowStore(state => state.nodes);
 
   if (!selectedNode) return null;
 
@@ -125,6 +129,14 @@ export function NodeConfigDrawer({
             onRefreshFields={onRefreshFields}
             isRefreshing={isRefreshing}
             onRunSimulation={onRefreshFields}
+          />
+        )}
+        {type === 'sink' && (
+          <CommitTogetherSection
+            nodeId={selectedNode.id}
+            data={selectedNode.data || {}}
+            nodes={graphNodes as any}
+            updateNodeConfig={updateNodeConfig}
           />
         )}
         {type === 'sink' && (

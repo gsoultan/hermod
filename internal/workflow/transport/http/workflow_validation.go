@@ -329,8 +329,26 @@ func (h *WorkflowHandler) ValidateWorkflow(ctx context.Context, wf storage.Workf
 	issues = append(issues, orphanIssues(wf)...)
 	issues = append(issues, aiNodeIssues(wf)...)
 	issues = append(issues, retryIssues(wf)...)
+	issues = append(issues, h.commitTogetherIssues(ctx, wf)...)
 
 	return issues
+}
+
+// commitTogetherIssues refuses what the engine would refuse about sink nodes
+// that commit together — a transaction with one connected member, a member
+// whose database cannot prepare a transaction — so the mistake is seen when
+// the workflow is saved and not when it fails to start.
+func (h *WorkflowHandler) commitTogetherIssues(ctx context.Context, wf storage.Workflow) []ValidationIssue {
+	err := h.Registry.CheckCommitTogether(ctx, wf)
+	if err == nil {
+		return nil
+	}
+	return []ValidationIssue{{
+		Severity: "error",
+		Message:  err.Error(),
+		Recommendation: "Add a second PostgreSQL, YugabyteDB, MySQL or MariaDB sink node to the transaction, " +
+			"or turn off \"Commit together\" on the node named.",
+	}}
 }
 
 // retryIssues checks each node's retry policy (see noderetry). One the engine
