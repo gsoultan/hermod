@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { server, signInAs } from '../test/setupTests'
 import { VHostProvider, useVHost } from '@/context/VHostContext'
 import { ConfirmProvider } from '@/components/common/ConfirmProvider'
-import { Layout } from '@/components/layout/Layout'
+import { activityTabs } from '@/components/layout/nav'
 import { ModelsPage } from '@/pages/ml/ModelsPage'
 import { modelAction } from '../test/buttons'
 
@@ -139,28 +139,15 @@ async function trainChoice(user: ReturnType<typeof userEvent.setup>) {
 afterEach(() => localStorage.clear())
 
 describe('Machine Learning in the sidebar', () => {
-  it('is called Machine Learning, not Models', async () => {
-    signInAs('Editor')
-    server.use(
-      http.get('/api/vhosts', () => HttpResponse.json({ data: [], total: 0 })),
-      http.get('/api/dashboard/stats', () => HttpResponse.json({})),
-      http.get('/api/workflows', () => HttpResponse.json({ data: [], total: 0 })),
-      http.get('/api/version', () => HttpResponse.json({ version: 'v1.0.0' })),
-    )
-    render(
-      <MantineProvider>
-        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-          <ConfirmProvider>
-            <VHostProvider>
-              <Layout><div /></Layout>
-            </VHostProvider>
-          </ConfirmProvider>
-        </QueryClientProvider>
-      </MantineProvider>,
-    )
-    expect(await screen.findByText('Machine Learning', {}, { timeout: 10000 })).toBeInTheDocument()
-    expect(screen.queryByText('Models')).not.toBeInTheDocument()
-  }, 30000)
+  // Machine learning is a tab of Activity now, not a sidebar link, and the
+  // navigation is data: this is where its name lives.
+  it('is called Machine learning, not Models, and only for those who may train', () => {
+    const labels = (role: string) => activityTabs(role).map((t) => t.label)
+    expect(labels('Editor')).toContain('Machine learning')
+    expect(labels('Administrator')).toContain('Machine learning')
+    expect(labels('Viewer')).not.toContain('Machine learning')
+    expect(labels('Editor')).not.toContain('Models')
+  })
 
   it('titles the page Machine Learning', async () => {
     pageApi()

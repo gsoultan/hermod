@@ -12,7 +12,8 @@ const API_BASE = '/api';
 
 export function LogsPage() {
   const confirm = useConfirm();
-  const searchParams = useSearch({ from: '/logs' }) as any;
+  // Hosted under Activity now, and still answering at /logs, so the route is not fixed.
+  const searchParams = useSearch({ strict: false }) as any;
   const queryClient = useQueryClient();
   const [workflowId, setWorkflowId] = useState<string>(searchParams.workflow_id || '');
   const [level, setLevel] = useState<string | null>(null);

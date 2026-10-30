@@ -1,4 +1,4 @@
-import { AppShell, Burger, Group, NavLink, Text, LoadingOverlay, Box, Button, Select, Tooltip, Stack, ScrollArea, Badge, ActionIcon, useMantineColorScheme, Kbd, Menu, Avatar, rem } from '@mantine/core';
+import { AppShell, Group, NavLink, Text, LoadingOverlay, Box, Button, Select, Tooltip, Stack, ScrollArea, Badge, ActionIcon, useMantineColorScheme, Kbd, Menu, Avatar, UnstyledButton, rem } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import React, { useEffect, useRef, type ReactNode } from 'react';
 import { Link, useRouterState, useNavigate } from '@tanstack/react-router';
@@ -10,37 +10,44 @@ import { getSessionRole, getSessionUser, clearSession } from '@/auth/session';
 import { Spotlight, spotlight } from '@mantine/spotlight';
 import '@mantine/spotlight/styles.css';
 import { notifications } from '@mantine/notifications';
-import { IconActivity, IconBraces, IconChevronLeft, IconChevronRight, IconCloudUpload, IconDashboard, IconDatabase, IconGitBranch, IconGitMerge, IconHierarchy, IconHistory, IconKey, IconList, IconLogout, IconMoon, IconPlus, IconPuzzle, IconRocket, IconSearch, IconServer, IconSettings, IconShieldLock, IconSun, IconUser, IconUsers, IconWorld, IconChecklist, IconBrain, IconCoin, IconMailbox, IconTransfer } from '@tabler/icons-react';
+import { IconActivity, IconBolt, IconBraces, IconChevronLeft, IconChevronRight, IconCloudUpload, IconDatabase, IconGitBranch, IconGitMerge, IconHistory, IconHome, IconList, IconLogout, IconMoon, IconPlug, IconPlus, IconPuzzle, IconRocket, IconSearch, IconSettings, IconShieldLock, IconSun, IconUser, IconWorld } from '@tabler/icons-react';
 import type { Workflow } from '@/types';
 import { ErrorBoundary } from './ErrorBoundary';
 import { useConfirm } from '@/components/common/ConfirmProvider';
 import { EnvironmentBadge } from './EnvironmentBadge';
+import { PRIMARY_NAV, collapsesSidebar, isCanvasRoute as canvasRoute, sectionOf, type Section } from './nav';
 
 interface LayoutProps {
   children: ReactNode;
 }
+
+const NAV_ICONS: Record<Section, React.FC<any>> = {
+  home: IconHome,
+  flows: IconGitBranch,
+  connections: IconPlug,
+  activity: IconActivity,
+  settings: IconSettings,
+};
 
 interface SideLinkProps {
   to: string;
   label: string;
   icon: React.FC<any>;
   badge?: React.ReactNode;
-  children?: React.ReactNode;
+  active: boolean;
   desktopOpened: boolean;
 }
 
-const SideLink = ({ to, label, icon: Icon, badge, children, desktopOpened }: SideLinkProps) => {
-  const routerState = useRouterState();
-  const activePage = routerState.location.pathname;
-  
+const SideLink = ({ to, label, icon: Icon, badge, active, desktopOpened }: SideLinkProps) => {
   const link = (
     <NavLink
       component={Link}
       to={to}
       label={desktopOpened ? label : null}
-      leftSection={<Icon size="1.1rem" stroke={1.5} />}
+      leftSection={<Icon size="1.2rem" stroke={1.6} />}
       rightSection={desktopOpened ? badge : null}
-      active={activePage === to || (to !== '/' && activePage.startsWith(to))}
+      active={active}
+      aria-current={active ? 'page' : undefined}
       variant="light"
       styles={{
         root: {
@@ -48,25 +55,18 @@ const SideLink = ({ to, label, icon: Icon, badge, children, desktopOpened }: Sid
           paddingLeft: desktopOpened ? 'var(--mantine-spacing-sm)' : 0,
           paddingRight: desktopOpened ? 'var(--mantine-spacing-sm)' : 0,
           borderRadius: 'var(--mantine-radius-md)',
-          marginBottom: '4px',
+          height: rem(40),
+          marginBottom: '2px',
           transition: 'all 0.2s ease',
-          // Collapsed, the row fills its (narrowed) container and centres the
-          // icon, so the active highlight reads as a symmetric tile. Fixing a
-          // width here instead would overflow the container and push the tile
-          // off-centre the other way.
-          // gap is still applied between the icon and the two empty siblings
-          // (hidden body, absent right section), adding phantom space that
-          // shifts the icon ~6px left of the tile it is meant to sit in.
+          // Collapsed, the row fills the rail and centres the icon, so the
+          // active highlight reads as a symmetric tile.
           ...(desktopOpened ? null : { width: '100%', height: rem(44), gap: 0 }),
         },
         // With no label to hold, the body still claims the row's free space and
-        // pushes the icon left of centre — 9px off, and visible as a lopsided
-        // highlight. Remove it from the layout entirely when collapsed.
+        // pushes the icon left of centre. Remove it when collapsed.
         body: desktopOpened ? undefined : { display: 'none' },
         section: {
           marginRight: desktopOpened ? 'var(--mantine-spacing-xs)' : 0,
-          // The trailing (empty) section keeps its own inline margin, which is
-          // the last 11px of phantom space holding the icon off-centre.
           ...(desktopOpened ? null : { marginInline: 0 }),
         },
         label: {
@@ -74,9 +74,7 @@ const SideLink = ({ to, label, icon: Icon, badge, children, desktopOpened }: Sid
           fontSize: 'var(--mantine-font-size-sm)',
         }
       }}
-    >
-      {desktopOpened && children}
-    </NavLink>
+    />
   );
 
   if (desktopOpened) {
@@ -93,24 +91,26 @@ const SideLink = ({ to, label, icon: Icon, badge, children, desktopOpened }: Sid
 export function Layout({ children }: LayoutProps) {
   const confirm = useConfirm();
   const queryClient = useQueryClient();
-  const [mobileOpened, { toggle: toggleMobile }] = useDisclosure();
   const [desktopOpened, { toggle: toggleDesktop, open: openDesktop, close: closeDesktop }] =
     useDisclosure(true);
   const routerState = useRouterState();
   const navigate = useNavigate();
   const activePage = routerState.location.pathname;
-  // Routes whose main content is an infinite canvas rather than a document.
-  // These get a full-bleed shell: the surrounding card, padding and border are
-  // dropped so the canvas gets the viewport instead of ~34px of chrome per axis.
-  const isCanvasRoute = /^\/workflows\/(new|[^/]+\/edit)$/.test(activePage);
+  const section = sectionOf(activePage);
+  // The editor is an infinite canvas rather than a document. It gets a
+  // full-bleed shell: the surrounding card, padding and border are dropped so
+  // the canvas gets the viewport instead of ~34px of chrome per axis.
+  const isCanvasRoute = canvasRoute(activePage);
+  // Whenever a flow is open, read only or in the editor, the sidebar folds to
+  // its icon rail so the diagram gets the width.
+  const foldsSidebar = collapsesSidebar(activePage);
 
-  // Collapsing the navbar on the editor hands another 180px to the canvas.
-  // The pre-editor state is remembered and restored on the way out, and the
+  // The pre-flow state is remembered and restored on the way out, and the
   // toggle still works while inside, so this is a smarter default rather than
   // something the user has to fight.
   const navbarStateBeforeCanvas = useRef<boolean | null>(null);
   useEffect(() => {
-    if (isCanvasRoute) {
+    if (foldsSidebar) {
       if (navbarStateBeforeCanvas.current === null) {
         navbarStateBeforeCanvas.current = desktopOpened;
         if (desktopOpened) closeDesktop();
@@ -124,7 +124,11 @@ export function Layout({ children }: LayoutProps) {
     // desktopOpened is intentionally omitted: this must react to route changes
     // only, or the user's own toggle inside the editor would be undone.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isCanvasRoute, closeDesktop, openDesktop]);
+  }, [foldsSidebar, closeDesktop, openDesktop]);
+  // The first render on a flow route must already be folded: the effect above
+  // runs after paint, and a frame of the wide sidebar on top of the canvas is
+  // a visible jump.
+  const navOpen = desktopOpened && !(foldsSidebar && navbarStateBeforeCanvas.current === null);
   const role = getSessionRole();
   const isAdmin = role === 'Administrator';
   const canEdit = role === 'Administrator' || role === 'Editor';
@@ -236,7 +240,7 @@ export function Layout({ children }: LayoutProps) {
     if (vhostNames) setAvailableVHosts(vhostNames);
   }, [vhostNames, setAvailableVHosts]);
 
-  if (activePage === '/setup' || activePage === '/login' || activePage === '/forgot-password') {
+  if (isPublicRoute) {
     return <main>{children}</main>;
   }
 
@@ -261,22 +265,22 @@ export function Layout({ children }: LayoutProps) {
 
   const safeVhosts = Array.isArray(availableVHosts) ? availableVHosts : [];
   const vhostOptions = [
-    { value: 'all', label: 'All VHosts' },
+    { value: 'all', label: 'All virtual hosts' },
     ...safeVhosts.map((v: string) => ({ value: v, label: v }))
   ];
 
   const spotlightActions = [
     {
-      id: 'dashboard',
-      label: 'Dashboard',
-      description: 'Go to overview dashboard',
+      id: 'home',
+      label: 'Home',
+      description: 'What needs you, and your flows',
       onClick: () => navigate({ to: '/' }),
-      leftSection: <IconDashboard size="1.2rem" />,
+      leftSection: <IconHome size="1.2rem" />,
     },
     {
-      id: 'workflows',
-      label: 'Workflows',
-      description: 'Manage data pipelines',
+      id: 'flows',
+      label: 'Flows',
+      description: 'Every flow, with its switch',
       onClick: () => navigate({ to: '/workflows' }),
       leftSection: <IconGitBranch size="1.2rem" />,
     },
@@ -395,24 +399,38 @@ export function Layout({ children }: LayoutProps) {
       }
     ])) : []),
     {
+      id: 'connections',
+      label: 'Connections',
+      description: 'Sources, sinks and community connectors',
+      onClick: () => navigate({ to: '/connections' }),
+      leftSection: <IconPlug size="1.2rem" />,
+    },
+    {
+      id: 'activity',
+      label: 'Activity',
+      description: 'Logs, dead letters, mesh health and insights',
+      onClick: () => navigate({ to: '/activity' }),
+      leftSection: <IconActivity size="1.2rem" />,
+    },
+    {
       id: 'sources',
       label: 'Sources',
       description: 'Manage data sources',
-      onClick: () => navigate({ to: '/sources' }),
+      onClick: () => navigate({ to: '/connections', search: { tab: 'sources' } as any }),
       leftSection: <IconDatabase size="1.2rem" />,
     },
     {
       id: 'sinks',
       label: 'Sinks',
       description: 'Manage data destinations',
-      onClick: () => navigate({ to: '/sinks' }),
+      onClick: () => navigate({ to: '/connections', search: { tab: 'sinks' } as any }),
       leftSection: <IconCloudUpload size="1.2rem" />,
     },
     {
       id: 'logs',
       label: 'Logs',
       description: 'View system logs',
-      onClick: () => navigate({ to: '/logs' }),
+      onClick: () => navigate({ to: '/activity', search: { tab: 'logs' } as any }),
       leftSection: <IconList size="1.2rem" />,
     },
     {
@@ -426,28 +444,28 @@ export function Layout({ children }: LayoutProps) {
       id: 'lineage',
       label: 'Data Lineage',
       description: 'Data flow per vhost, and what breaks if a source changes',
-      onClick: () => navigate({ to: '/lineage' }),
+      onClick: () => navigate({ to: '/activity', search: { tab: 'lineage' } as any }),
       leftSection: <IconGitMerge size="1.2rem" />,
     },
     {
       id: 'compliance',
       label: 'Compliance',
       description: 'Security and governance reports',
-      onClick: () => navigate({ to: '/compliance' }),
+      onClick: () => navigate({ to: '/activity', search: { tab: 'compliance' } as any }),
       leftSection: <IconShieldLock size="1.2rem" />,
     },
     {
       id: 'marketplace',
       label: 'Marketplace',
       description: 'Install community plugins',
-      onClick: () => navigate({ to: '/marketplace' }),
+      onClick: () => navigate({ to: '/connections', search: { tab: 'community' } as any }),
       leftSection: <IconPuzzle size="1.2rem" />,
     },
     {
       id: 'health',
       label: 'Mesh Health',
       description: 'Global cluster status',
-      onClick: () => navigate({ to: '/health' }),
+      onClick: () => navigate({ to: '/activity', search: { tab: 'health' } as any }),
       leftSection: <IconActivity size="1.2rem" />,
     },
     {
@@ -459,12 +477,106 @@ export function Layout({ children }: LayoutProps) {
     },
     {
       id: 'toggle-theme',
-      label: 'Toggle Theme',
+      label: 'Toggle theme',
       description: `Switch to ${dark ? 'light' : 'dark'} mode`,
       onClick: () => toggleColorScheme(),
       leftSection: dark ? <IconSun size="1.2rem" /> : <IconMoon size="1.2rem" />,
     }
   ];
+
+  const user = getSessionUser();
+  const initial = user?.username?.charAt(0).toUpperCase() || '?';
+  const vhostLabel = selectedVHost && selectedVHost !== 'all' ? selectedVHost : 'All virtual hosts';
+  const problems = Number(dashboardStats?.failed_workflows) || 0;
+
+  const navLinks = (compact: boolean) => PRIMARY_NAV.map((item) => (
+    <SideLink
+      key={item.key}
+      to={item.to}
+      label={item.label}
+      icon={NAV_ICONS[item.key]}
+      active={section === item.key}
+      desktopOpened={compact}
+      badge={item.key === 'flows' && problems > 0
+        ? <Badge size="xs" variant="filled" color="red" aria-label={`${problems} flows with problems`}>{problems}</Badge>
+        : null}
+    />
+  ));
+
+  const accountMenu = (
+    <Menu
+      shadow="md"
+      width={260}
+      position={navOpen ? 'top-start' : 'right-end'}
+      withArrow
+      trapFocus={false}
+      transitionProps={{ transition: 'pop' }}
+    >
+      <Menu.Target>
+        <UnstyledButton
+          aria-label="Account menu"
+          title="Account"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: rem(10),
+            width: '100%',
+            padding: navOpen ? `${rem(6)} ${rem(8)}` : rem(6),
+            justifyContent: navOpen ? 'flex-start' : 'center',
+            borderRadius: 'var(--mantine-radius-md)',
+          }}
+        >
+          <Avatar size="sm" radius="xl" color="indigo">{initial}</Avatar>
+          {navOpen && (
+            <Box style={{ minWidth: 0 }}>
+              <Text size="sm" fw={500} truncate="end">{user?.username}</Text>
+              <Text size="xs" c="dimmed" truncate="end">{vhostLabel}</Text>
+            </Box>
+          )}
+        </UnstyledButton>
+      </Menu.Target>
+
+      <Menu.Dropdown>
+        <Menu.Label>{user?.username} · {role}</Menu.Label>
+        <Box px="sm" pb="xs">
+          <Select
+            label="Virtual host"
+            size="xs"
+            data={vhostOptions}
+            value={selectedVHost}
+            onChange={(value) => setSelectedVHost(value || 'all')}
+            leftSection={<IconWorld size="1rem" stroke={1.5} />}
+            comboboxProps={{ withinPortal: false }}
+            allowDeselect={false}
+          />
+        </Box>
+        <Menu.Divider />
+        <Menu.Item leftSection={<IconUser size="1rem" stroke={1.5} />} onClick={() => navigate({ to: '/profile' })}>
+          My account
+        </Menu.Item>
+        <Menu.Item
+          leftSection={dark ? <IconSun size="1rem" stroke={1.5} /> : <IconMoon size="1rem" stroke={1.5} />}
+          onClick={() => toggleColorScheme()}
+        >
+          {dark ? 'Switch to light mode' : 'Switch to dark mode'}
+        </Menu.Item>
+        {isAdmin && (
+          <Menu.Item leftSection={<IconSettings size="1rem" stroke={1.5} />} onClick={() => navigate({ to: '/settings' })}>
+            Settings
+          </Menu.Item>
+        )}
+        <Menu.Divider />
+        <Menu.Item color="red" leftSection={<IconLogout size="1rem" stroke={1.5} />} onClick={handleLogout}>
+          Sign out
+        </Menu.Item>
+        <Menu.Label>
+          <Tooltip label={versionData?.version ? `Hermod ${versionData.version}` : 'Hermod'} multiline w={280} withArrow>
+            <span>Hermod {releaseTag}</span>
+          </Tooltip>
+        </Menu.Label>
+      </Menu.Dropdown>
+    </Menu>
+  );
 
   return (
     <>
@@ -475,217 +587,93 @@ export function Layout({ children }: LayoutProps) {
       highlightQuery
       searchProps={{
         leftSection: <IconSearch size="1.2rem" stroke={1.5} />,
-        placeholder: 'Search for pages, workflows, sources...',
+        placeholder: 'Search for pages, flows, connections...',
       }}
       limit={7}
     />
     <AppShell
-      header={{ height: 60 }}
       navbar={{
-        width: desktopOpened ? 260 : 80,
+        width: navOpen ? 232 : 64,
         breakpoint: 'sm',
-        collapsed: { mobile: !mobileOpened },
+        // Phones get the bottom tabs instead of a drawer.
+        collapsed: { mobile: true },
       }}
       padding={isCanvasRoute ? 0 : 'md'}
     >
-      <AppShell.Header withBorder bg={dark ? 'var(--mantine-color-dark-7)' : 'white'}>
-        <Group h="100%" px="lg" justify="space-between">
-          <Group gap="xs">
-            <Burger opened={mobileOpened} onClick={toggleMobile} hiddenFrom="sm" size="sm" />
-            <IconRocket size="1.8rem" color="var(--mantine-color-indigo-6)" />
-            <Text fw={800} size="xl" variant="gradient" gradient={{ from: 'indigo', to: 'cyan', deg: 45 }} style={{ letterSpacing: '-0.5px' }}>
-              Hermod
-            </Text>
-            <EnvironmentBadge />
-          </Group>
-
-          <Group gap="sm">
-            <Button
-              variant="default"
-              size="xs"
-              leftSection={<IconSearch size="1rem" stroke={1.5} />}
-              rightSection={<Kbd size="sm" ml={10}>Ctrl+K</Kbd>}
-              onClick={spotlight.open}
-              color="gray"
-              visibleFrom="md"
-              style={{ fontWeight: 400, color: 'var(--mantine-color-dimmed)' }}
-            >
-              Search...
-            </Button>
-            <Select
-              placeholder="Select VHost"
-              data={vhostOptions}
-              value={selectedVHost}
-              onChange={(value) => setSelectedVHost(value || 'all')}
-              leftSection={<IconWorld size="1rem" stroke={1.5} />}
-              size="xs"
-              variant="filled"
-              style={{ width: 180 }}
-            />
-            <ActionIcon
-              aria-label="Toggle color scheme"
-              variant="subtle"
-              color={dark ? 'yellow' : 'gray'}
-              onClick={() => toggleColorScheme()}
-              title="Toggle color scheme"
-              size="lg"
-            >
-              {dark ? <IconSun size="1.2rem" /> : <IconMoon size="1.2rem" />}
-            </ActionIcon>
-            <Menu shadow="md" width={200} position="bottom-end" withArrow transitionProps={{ transition: 'pop-top-right' }}>
-              <Menu.Target>
-                <ActionIcon aria-label="Account menu" variant="subtle" color="gray" size="lg" radius="xl" title="Account">
-                  <Avatar size="sm" radius="xl" color="blue">
-                    {getSessionUser()?.username?.charAt(0).toUpperCase()}
-                  </Avatar>
-                </ActionIcon>
-              </Menu.Target>
-
-              <Menu.Dropdown>
-                <Menu.Label>Account ({getSessionUser()?.username})</Menu.Label>
-                <Menu.Item 
-                  leftSection={<IconUser size="1rem" stroke={1.5} />}
-                  onClick={() => navigate({ to: '/profile' })}
-                >
-                  My Profile
-                </Menu.Item>
-                {isAdmin && (
-                  <Menu.Item 
-                    leftSection={<IconSettings size="1rem" stroke={1.5} />}
-                    onClick={() => navigate({ to: '/settings' })}
-                  >
-                    System Settings
-                  </Menu.Item>
-                )}
-
-                <Menu.Divider />
-
-                <Menu.Label>Danger zone</Menu.Label>
-                <Menu.Item 
-                  color="red" 
-                  leftSection={<IconLogout size="1rem" stroke={1.5} />}
-                  onClick={handleLogout}
-                >
-                  Sign Out
-                </Menu.Item>
-              </Menu.Dropdown>
-            </Menu>
-          </Group>
-        </Group>
-      </AppShell.Header>
-
-      <AppShell.Navbar p="xs" withBorder bg={dark ? 'var(--mantine-color-dark-7)' : 'white'}>
-        <AppShell.Section grow component={ScrollArea} mx="-xs" px="xs">
-          {/* Collapsed, sm padding either side leaves only 36px of an 80px rail
-              for the highlight tile — a thin sliver with wide dead gutters. */}
-          <Stack gap={4} px={desktopOpened ? 'sm' : 4} pt="md">
-            {desktopOpened && (
-              <Box mb={4} px="xs">
-                <Text size="xs" fw={700} c="dimmed" style={{ textTransform: 'uppercase', letterSpacing: '1px' }}>
-                  Main Menu
-                </Text>
+      <AppShell.Navbar p={navOpen ? 'sm' : 'xs'} withBorder bg={dark ? 'var(--mantine-color-dark-7)' : 'white'}>
+        <AppShell.Section>
+          <Group justify={navOpen ? 'space-between' : 'center'} gap="xs" wrap="nowrap" pb="sm" pt={4} px={navOpen ? 4 : 0}>
+            <Group gap={8} wrap="nowrap" style={{ minWidth: 0 }}>
+              <Box
+                aria-hidden
+                style={{
+                  width: rem(28), height: rem(28), borderRadius: rem(8), display: 'grid', placeItems: 'center',
+                  background: 'var(--mantine-color-indigo-6)', color: 'white', flex: 'none',
+                }}
+              >
+                <IconBolt size="1rem" stroke={2} />
               </Box>
+              {navOpen && <Text fw={700} size="md" truncate="end">Hermod</Text>}
+            </Group>
+            {navOpen && (
+              <ActionIcon
+                variant="subtle"
+                color="gray"
+                onClick={toggleDesktop}
+                aria-label="Collapse sidebar"
+                title="Collapse sidebar"
+                visibleFrom="sm"
+              >
+                <IconChevronLeft size="1rem" />
+              </ActionIcon>
             )}
-            
-            <SideLink to="/" label="Dashboard" icon={IconDashboard} desktopOpened={desktopOpened}>
-              <SideLink to="/" label="Overview" icon={IconActivity} desktopOpened={desktopOpened} />
-              <SideLink to="/compliance" label="Compliance" icon={IconShieldLock} desktopOpened={desktopOpened} />
-            </SideLink>
-            <SideLink to="/sources" label="Sources" icon={IconList} desktopOpened={desktopOpened} 
-              badge={dashboardStats?.active_sources > 0 && <Badge size="xs" variant="filled" color="indigo">{dashboardStats.active_sources}</Badge>} 
-            />
-            <SideLink to="/sinks" label="Sinks" icon={IconActivity} desktopOpened={desktopOpened} 
-              badge={dashboardStats?.active_sinks > 0 && <Badge size="xs" variant="filled" color="orange">{dashboardStats.active_sinks}</Badge>}
-            />
-            <SideLink to="/workflows" label="Workflows" icon={IconGitBranch} desktopOpened={desktopOpened} />
-            <SideLink to="/approvals" label="Approvals" icon={IconChecklist} desktopOpened={desktopOpened} />
-            <SideLink to="/environments" label="Environments" icon={IconTransfer} desktopOpened={desktopOpened} />
-            <SideLink to="/dead-letters" label="Dead Letters" icon={IconMailbox} desktopOpened={desktopOpened} />
-            <SideLink to="/logs" label="Logs" icon={IconHistory} desktopOpened={desktopOpened} />
-            <SideLink to="/schemas" label="Schema Registry" icon={IconBraces} desktopOpened={desktopOpened} />
-            {canEdit && (
-              <SideLink to="/secrets" label="Secrets" icon={IconKey} desktopOpened={desktopOpened} />
-            )}
-            {canEdit && (
-              <SideLink to="/ml/models" label="Machine Learning" icon={IconBrain} desktopOpened={desktopOpened} />
-            )}
-            <SideLink to="/ai/budget" label="AI Budget" icon={IconCoin} desktopOpened={desktopOpened} />
-            <SideLink to="/lineage" label="Data Lineage" icon={IconGitMerge} desktopOpened={desktopOpened} />
-            <SideLink to="/marketplace" label="Marketplace" icon={IconPuzzle} desktopOpened={desktopOpened} />
-            <SideLink to="/health" label="Mesh Health" icon={IconActivity} desktopOpened={desktopOpened} />
-            
-            {isAdmin && (
-              <>
-                {desktopOpened && (
-                  <Box mt="lg" mb={4} px="xs">
-                    <Text size="xs" fw={700} c="dimmed" style={{ textTransform: 'uppercase', letterSpacing: '1px' }}>
-                      Administration
-                    </Text>
-                  </Box>
-                )}
-                <SideLink to="/vhosts" label="Virtual Hosts" icon={IconHierarchy} desktopOpened={desktopOpened} />
-                <SideLink to="/workers" label="Workers" icon={IconServer} desktopOpened={desktopOpened} />
-                <SideLink to="/users" label="Users" icon={IconUsers} desktopOpened={desktopOpened} />
-                
-                {desktopOpened && (
-                  <Box mt="lg" mb={4} px="xs">
-                    <Text size="xs" fw={700} c="dimmed" style={{ textTransform: 'uppercase', letterSpacing: '1px' }}>
-                      System
-                    </Text>
-                  </Box>
-                )}
-                
-                <SideLink to="/settings" label="Settings" icon={IconSettings} desktopOpened={desktopOpened} />
-                <SideLink to="/audit-logs" label="Audit Logs" icon={IconHistory} desktopOpened={desktopOpened} />
-              </>
-            )}
+          </Group>
+          {!navOpen && (
+            <Tooltip label="Expand sidebar" position="right" withArrow transitionProps={{ duration: 0 }}>
+              <ActionIcon
+                variant="default"
+                onClick={toggleDesktop}
+                aria-label="Expand sidebar"
+                mb="xs"
+                style={{ width: '100%', height: rem(28) }}
+              >
+                <IconChevronRight size="0.9rem" />
+              </ActionIcon>
+            </Tooltip>
+          )}
+          {navOpen && <Box px={4} pb={6}><EnvironmentBadge /></Box>}
+        </AppShell.Section>
+
+        <AppShell.Section grow component={ScrollArea} mx={navOpen ? '-sm' : '-xs'} px={navOpen ? 'sm' : 'xs'}>
+          <Stack component="nav" aria-label="Main" gap={0}>
+            {navLinks(navOpen)}
           </Stack>
         </AppShell.Section>
 
-        <AppShell.Section pt="md">
-          <Button
-            variant="subtle"
-            color="gray"
-            onClick={toggleDesktop}
-            visibleFrom="sm"
-            fullWidth
-            leftSection={desktopOpened ? <IconChevronLeft size="1.2rem" /> : <IconChevronRight size="1.2rem" />}
-            justify={desktopOpened ? 'flex-start' : 'center'}
-            aria-label={desktopOpened ? 'Collapse sidebar' : 'Expand sidebar'}
-            styles={{
-              root: {
-                height: '42px',
-                borderRadius: '8px',
-                // Matches the nav rows: centred chevron, no off-side drift.
-                ...(desktopOpened ? null : { paddingInline: 0 }),
-              },
-              // Same empty-body problem as the nav rows.
-              label: desktopOpened ? undefined : { display: 'none' },
-              section: {
-                marginRight: desktopOpened ? undefined : 0
-              }
-            }}
-          >
-            {desktopOpened && "Collapse Sidebar"}
-          </Button>
-        </AppShell.Section>
-
-        <AppShell.Section p="xs">
-          {/* A Go pseudo-version — v1.2.5-0.20260730072614-816c03f6a612+dirty —
-              wrapped to three lines here and spilled out of the 80px rail onto
-              the canvas. Only the release tag is worth standing space; the build
-              stamp belongs in the tooltip, where it is still one hover away. */}
-          <Tooltip
-            label={versionData?.version ? `Hermod ${versionData.version}` : 'Hermod'}
-            position="right"
-            withArrow
-            multiline
-            w={280}
-          >
-            <Text size="xs" c="dimmed" ta="center" truncate="end" style={{ cursor: 'default' }}>
-              {desktopOpened ? `Hermod ${releaseTag}` : releaseTag}
-            </Text>
-          </Tooltip>
+        <AppShell.Section pt="xs">
+          <Stack gap={2}>
+            {navOpen ? (
+              <Button
+                variant="subtle"
+                color="gray"
+                fullWidth
+                justify="flex-start"
+                leftSection={<IconSearch size="1.1rem" stroke={1.6} />}
+                rightSection={<Kbd size="xs">⌘K</Kbd>}
+                onClick={spotlight.open}
+                styles={{ root: { height: rem(40), fontWeight: 500, paddingInline: 'var(--mantine-spacing-sm)' }, inner: { justifyContent: 'space-between' } }}
+              >
+                Search
+              </Button>
+            ) : (
+              <Tooltip label="Search (⌘K)" position="right" withArrow transitionProps={{ duration: 0 }}>
+                <ActionIcon variant="subtle" color="gray" onClick={spotlight.open} aria-label="Search" style={{ width: '100%', height: rem(44) }}>
+                  <IconSearch size="1.2rem" stroke={1.6} />
+                </ActionIcon>
+              </Tooltip>
+            )}
+            {accountMenu}
+          </Stack>
         </AppShell.Section>
       </AppShell.Navbar>
 
@@ -711,24 +699,58 @@ export function Layout({ children }: LayoutProps) {
             overflow: isCanvasRoute ? 'hidden' : undefined,
           }}
         >
-          <LoadingOverlay 
-            visible={isLoading} 
-            zIndex={1000} 
-            overlayProps={{ 
-              radius: "md", 
+          <LoadingOverlay
+            visible={isLoading}
+            zIndex={1000}
+            overlayProps={{
+              radius: "md",
               blur: 2,
               // Do not block user interactions (typing/clicks) if overlay remains visible longer than expected
               style: { pointerEvents: 'none' }
-            }} 
+            }}
           />
           <ErrorBoundary>
             {children}
           </ErrorBoundary>
         </Box>
+        {/* Room for the bottom tabs on a phone; nothing on wider screens. */}
+        <Box hiddenFrom="sm" h={64} />
       </AppShell.Main>
+
+      <Box
+        component="nav"
+        aria-label="Bottom tabs"
+        hiddenFrom="sm"
+        style={{
+          position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 200,
+          display: 'grid', gridTemplateColumns: `repeat(${PRIMARY_NAV.length}, 1fr)`,
+          borderTop: `1px solid ${dark ? 'var(--mantine-color-dark-5)' : 'var(--mantine-color-gray-3)'}`,
+          background: dark ? 'var(--mantine-color-dark-7)' : 'white',
+          paddingBottom: 'env(safe-area-inset-bottom)',
+        }}
+      >
+        {PRIMARY_NAV.map((item) => {
+          const Icon = NAV_ICONS[item.key];
+          const active = section === item.key;
+          return (
+            <UnstyledButton
+              key={item.key}
+              component={Link}
+              to={item.to}
+              aria-current={active ? 'page' : undefined}
+              style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
+                minHeight: rem(56), fontSize: rem(11), fontWeight: 500,
+                color: active ? 'var(--mantine-color-indigo-6)' : 'var(--mantine-color-dimmed)',
+              }}
+            >
+              <Icon size="1.4rem" stroke={1.6} />
+              {item.label}
+            </UnstyledButton>
+          );
+        })}
+      </Box>
     </AppShell>
     </>
   );
 }
-
-

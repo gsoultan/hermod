@@ -74,7 +74,7 @@ test.describe('Session storage', () => {
 
   test('the app still knows who is logged in', async ({ page }) => {
     // Without the token to decode, the role comes from GET /api/me. If that
-    // wiring is broken the shell renders but admin-only navigation disappears,
+    // wiring is broken the shell renders but admin-only settings disappear,
     // which is a silent downgrade rather than an error.
     await page.goto('/login');
     await page.getByPlaceholder('Your username').fill(E2E_USER);
@@ -82,8 +82,10 @@ test.describe('Session storage', () => {
     await page.click('button:has-text("Sign In")');
     await expect(page).not.toHaveURL(/login/, { timeout: 30000 });
 
-    // Users is an Administrator-only destination; the seeded dev account is one.
-    await expect(page.getByText('Users', { exact: true }).first()).toBeVisible({
+    // People (user management) is an Administrator-only row of Settings; the
+    // seeded dev account is one.
+    await page.goto('/settings');
+    await expect(page.getByText('People', { exact: true }).first()).toBeVisible({
       timeout: 15000,
     });
   });

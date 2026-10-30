@@ -1,5 +1,7 @@
 import { Box, Button, Group, Modal, NumberInput, SimpleGrid, Stack, Tabs, Text, TextInput, Textarea, Title } from '@mantine/core';
-import { IconActivity, IconCode, IconHistory, IconRocket, IconServer, IconShieldLock, IconWorld } from '@tabler/icons-react';
+import { IconActivity, IconCode, IconHierarchy, IconHistory, IconRocket, IconServer, IconServerBolt, IconShieldLock, IconWorld } from '@tabler/icons-react';
+import { lazy, Suspense, useState } from 'react';
+import { Center, Loader } from '@mantine/core';
 import { useSettingsController } from './settings/useSettingsController';
 import { PlatformTab } from './settings/PlatformTab';
 import { ConnectivityTab } from './settings/ConnectivityTab';
@@ -9,7 +11,12 @@ import { GovernanceTab } from './settings/GovernanceTab';
 import { DeveloperTab } from './settings/DeveloperTab';
 import { EnvironmentsTab } from '../environments/EnvironmentsTab';
 
-const tabs = ['platform', 'connectivity', 'security', 'observability', 'governance', 'environments', 'developer'];
+const tabs = ['vhosts', 'workers', 'platform', 'connectivity', 'security', 'observability', 'governance', 'environments', 'developer'];
+
+// Virtual hosts and workers were sidebar pages of their own; they are tabs of
+// the workspace now, loaded on demand like the rest.
+const VHostsPage = lazy(async () => ({ default: (await import('../admin/VHostsPage')).VHostsPage }));
+const WorkersPage = lazy(async () => ({ default: (await import('../admin/WorkersPage')).WorkersPage }));
 
 /** ?tab=environments opens that tab, so other pages can link straight to it. */
 function initialTab(): string {
@@ -26,21 +33,27 @@ function initialTab(): string {
  */
 export function SettingsPage() {
   const ctx = useSettingsController();
+  // The two admin pages are mounted only while their tab is open: they bring
+  // their own data loading and router links, and have no place in the
+  // unsaved-changes baseline the settings tabs keep.
+  const [tab, setTab] = useState<string | null>(initialTab());
   const { closeWSModal, createWSMutation, editingWS, maxCPU, maxMemory, maxThroughput, maxWorkflows, newWSDesc, newWSName, setMaxCPU, setMaxMemory, setMaxThroughput, setMaxWorkflows, setNewWSDesc, setNewWSName, wsModalOpened } = ctx;
 
   return (
     <Box pb="xl">
       <Stack gap="xs" mb="xl">
-        <Title order={2}>Platform Settings</Title>
-        <Text c="dimmed" size="sm">Configure and manage your Hermod instance</Text>
+        <Title order={2}>Workspace</Title>
+        <Text c="dimmed" size="sm">Virtual hosts, workers and how this Hermod instance behaves</Text>
       </Stack>
 
-      <Tabs defaultValue={initialTab()} orientation="vertical" variant="pills" styles={{
+      <Tabs value={tab} onChange={setTab} orientation="vertical" variant="pills" styles={{
         root: { display: 'flex', gap: '2rem' },
         list: { width: 220, flexShrink: 0 },
         panel: { flex: 1, minWidth: 0 }
       }}>
         <Tabs.List>
+          <Tabs.Tab value="vhosts" leftSection={<IconHierarchy size="1.1rem" />}>Virtual hosts</Tabs.Tab>
+          <Tabs.Tab value="workers" leftSection={<IconServerBolt size="1.1rem" />}>Workers</Tabs.Tab>
           <Tabs.Tab value="platform" leftSection={<IconServer size="1.1rem" />}>Platform</Tabs.Tab>
           <Tabs.Tab value="connectivity" leftSection={<IconWorld size="1.1rem" />}>Connectivity</Tabs.Tab>
           <Tabs.Tab value="security" leftSection={<IconShieldLock size="1.1rem" />}>Security</Tabs.Tab>
@@ -50,6 +63,12 @@ export function SettingsPage() {
           <Tabs.Tab value="developer" leftSection={<IconCode size="1.1rem" />}>Developer</Tabs.Tab>
         </Tabs.List>
 
+        <Tabs.Panel value="vhosts">
+          {tab === 'vhosts' && <Suspense fallback={<Center h={200}><Loader /></Center>}><VHostsPage /></Suspense>}
+        </Tabs.Panel>
+        <Tabs.Panel value="workers">
+          {tab === 'workers' && <Suspense fallback={<Center h={200}><Loader /></Center>}><WorkersPage /></Suspense>}
+        </Tabs.Panel>
         <Tabs.Panel value="platform">
           <PlatformTab ctx={ctx} />
         </Tabs.Panel>
