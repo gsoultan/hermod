@@ -7,7 +7,7 @@ backend, React 19 UI, single binary. Its defensible position is real-time
 Postgres CDC with a visual DAG editor, self-hosted, no JVM and no Kafka cluster
 required — not connector count. README.md leads with that.
 
-**Maturity is tiered, and the tiers are load-bearing.** 42 source and 46 sink
+**Maturity is tiered, and the tiers are load-bearing.** 42 source and 47 sink
 connectors are *not* equally deep. README.md's connector table assigns GA / Beta /
 Experimental on evidence (GA requires a test against live infrastructure). Moving
 a connector up means adding the evidence, not editing the table. Before
@@ -25,9 +25,26 @@ find a claim that outruns the code, fix the claim.
 
 ### Memories
 
+- [prepareWorkflowNodes writes the nodes it is given](prepare_nodes_mutates_in_place.md)
+  — copy `wf.Nodes` (`ownNodes`) before preparing a workflow you share; the
+  dead-letter drain did not, and raced StartWorkflow.
+- [SQL previews run in a rolled-back sandbox](sql_preview_sandbox.md) — any node
+  that runs SQL must get its database through `sqlutil.Use`, or its preview
+  commits for real; savepoints per statement, the refused statements, and why
+  ClickHouse previews read only.
+- [Redis Lookup and Redis Set](redis_set_and_lookup.md) — both writers share
+  `pkg/infra/rediskv`; a key whose token is missing is refused, NX is SET-only,
+  and a batch goes out in one MULTI.
+- [The Tuning tab and the optimizer](tuning_metrics_and_optimizer.md) — how
+  ErrorRate and Backpressure are computed, the optimizer's AI pass is off by
+  default, and the chaos monkey that still injects 10s sink failures in
+  production.
+- [A flow's view and editor](flow_view_and_editor_layout.md) — one frame and one
+  live store for both pages, `stepLive.tsx` shared with `BaseNode`, FormRow's
+  container queries, and why the Traces panes are a CSS grid.
 - [execute_sql returned rows](execute_sql_returned_rows.md) — `resultField` is
   opt-in, the result is read to its end, and Live Preview executes the
-  statement for real.
+  statement inside a rolled-back sandbox (it committed before #339).
 - [List variables in SQL templates](sql_template_list_variables.md) — why
   `IN ({{.ids}})` expands but `= ANY({{.ids}})` must not, the 65535 cap, and how
   a list gets built in the first place.

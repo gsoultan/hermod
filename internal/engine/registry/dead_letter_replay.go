@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -123,6 +124,9 @@ func (r *Registry) ReplayDeadLetter(ctx context.Context, wf storage.Workflow, dl
 		return RunResult{}, err
 	}
 
+	// Prepared on a copy: wf.Nodes is shared with the caller, and the drain
+	// replays in the background while StartWorkflow still reads it.
+	wf.Nodes = ownNodes(wf.Nodes)
 	r.prepareWorkflowNodes(ctx, wf.Nodes)
 	nodeMap, adj := workflowGraph(wf)
 	sinks, sinkNodeToIndex, err := r.buildWalkSinks(ctx, wf)
@@ -217,4 +221,15 @@ func replaySubgraph(wf storage.Workflow, startID string) storage.Workflow {
 		}
 	}
 	return sub
+}
+
+// ownNodes copies nodes and each node's top-level Config, which is as deep as
+// prepareWorkflowNodes writes: it replaces a node's Config or sets a key in it.
+func ownNodes(nodes []storage.WorkflowNode) []storage.WorkflowNode {
+	out := make([]storage.WorkflowNode, len(nodes))
+	for i, n := range nodes {
+		n.Config = maps.Clone(n.Config)
+		out[i] = n
+	}
+	return out
 }

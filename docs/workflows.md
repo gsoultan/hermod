@@ -114,3 +114,25 @@ The DB Lookup transformation and SQL sources/sinks share an interactive SQL Quer
 - **Format Query**: A one-click formatter normalizes whitespace and breaks major clauses onto their own lines for readability.
 - **Fullscreen Editor**: Expand the editor into a large modal for comfortable editing of long, multi-line statements.
 - **Convenience**: Copy the query to the clipboard, see a live character/line counter, and run with `Cmd/Ctrl + Enter`.
+
+### Previews run in a rolled-back sandbox
+
+**Simulate**, **Run Preview** and the SQL builder's preview never commit. A preview run
+carries a sandbox (`pkg/infra/sqlutil/sandbox.go`): Execute SQL, DB Lookup and SCD get
+their database through `sqlutil.Use`, which outside a preview is the connection pool as
+before and inside one is a single transaction on that pool, opened on first use and
+rolled back when the run ends. Later steps in the same run see the rows earlier steps
+wrote, because they share the transaction, and nothing reaches the real table.
+
+- On PostgreSQL each statement runs behind a savepoint, so one failing step does not
+  abort the transaction for every step after it. A step's own transaction (SCD) becomes
+  a savepoint too, so its commit stays inside the preview.
+- Statements that would escape the rollback are refused in a preview: `COMMIT` and
+  `ROLLBACK`, more than one statement, opening a transaction, and DDL or procedure calls
+  on MySQL, Oracle and Snowflake, which commit on their own.
+- ClickHouse cannot roll back a write, so a preview there runs reads only.
+- Lock waits are capped at 5 seconds for the preview's connection (`SET LOCAL
+  lock_timeout` on PostgreSQL; MySQL and SQL Server are reset before the connection goes
+  back to the pool).
+- DB Lookup skips the shared lookup cache and batching in a preview, so it never answers
+  with, or keeps, a row the preview is about to roll back.

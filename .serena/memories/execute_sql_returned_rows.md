@@ -32,12 +32,17 @@ statement returns rows and no field is named — the report that led here was
 "Run Preview shows no data" for exactly that. `statementReturnsRows` only drives
 the hint; it never changes what runs.
 
-**Preview writes for real, so this node previews on demand.**
-`/api/transformations/test` runs the transformer itself. Live Preview used to
+**Preview no longer writes (since #339), but this node still previews on demand.**
+`/api/transformations/test` runs the transformer itself, through
+`Registry.TestTransformationPipeline`, which now runs inside a rolled-back
+`sqlutil.Sandbox` — see [SQL preview sandbox](sql_preview_sandbox.md). Before
+#339 every preview committed its INSERT/UPDATE. The text below is why it is
+on-demand; the sandbox did not change that. Live Preview used to
 re-run 400 ms after every config change, which executed an `execute_sql`
 statement at each pause in typing; `TransformationForm` now skips the automatic
 preview for `execute_sql` (`previewsOnDemand`) and the node runs only when Run
-Preview is pressed. The builder's own **Run statement** also executes for real.
+Preview is pressed. The builder's own **Run statement** goes through the discovery service's
+`queryRolledBack` when the query may write, so it is rolled back too.
 
 **The SQL builder** (`ui/src/components/forms/SQLQueryBuilder.tsx` plus
 `forms/sqlBuilder/`) is shared with `db_lookup` and the batch SQL source. It
