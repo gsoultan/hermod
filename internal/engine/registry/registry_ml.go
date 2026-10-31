@@ -102,6 +102,18 @@ func (r *Registry) MLPredict(ctx context.Context, vhost, model string, rows []in
 	return r.MLService().Predict(ml.WithCaller(ctx, storage.MLCallerWorkflow, workflowID), vhost, model, rows)
 }
 
+// MLFeedback is what the Feedback node calls: the real answer to one of the
+// vhost's model's earlier predictions. It reports whether the model was right.
+func (r *Registry) MLFeedback(ctx context.Context, vhost, model, predictionID string, actual any) (bool, error) {
+	return r.MLService().Feedback(ctx, vhost, model, predictionID, actual)
+}
+
+// MLExplain is what the Predict node calls with "explain" on: why the vhost's
+// model answers as it does for one row, as inference.Client.Explain says.
+func (r *Registry) MLExplain(ctx context.Context, vhost, model string, row map[string]any, label string) (map[string]any, error) {
+	return r.MLService().Explain(ctx, vhost, model, row, label)
+}
+
 // MLRecommend is what the Predict node calls in Recommend mode: the vhost's
 // recommendation model, for req's "user" or "item", with "k" and
 // "exclude_seen" when set. The workflow is the caller the log names.

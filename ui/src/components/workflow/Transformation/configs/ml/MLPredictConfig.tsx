@@ -179,6 +179,14 @@ export function MLPredictConfig({ config, updateNodeConfig, nodeId, fieldPaths =
         value={config.outputField ?? ''}
         onChange={(e) => set({ outputField: e.currentTarget.value })}
       />
+      {model?.backend === 'mimir' && (
+        <Checkbox
+          label="Explain each answer"
+          description="Also asks the model why: each column's effect on the answer, written as explanation inside the prediction. One more call per record."
+          checked={config.explain === true || config.explain === 'true'}
+          onChange={(e) => set({ explain: e.currentTarget.checked })}
+        />
+      )}
       </>)}
     </Stack>
   )

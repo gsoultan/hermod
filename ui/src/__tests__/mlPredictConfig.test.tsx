@@ -98,4 +98,26 @@ describe('Predict node', () => {
     renderConfig()
     expect(await screen.findByText(/no models in tenant-a/i)).toBeInTheDocument()
   })
+
+  it('offers to explain each answer for a mimir model only, and saves the choice', async () => {
+    server.use(
+      http.get('/api/vhosts/:vhost/ml/models', () => HttpResponse.json({
+        data: [
+          { name: 'churn', backend: 'mimir', url: 'http://mimir', remote_model: 'm-1', features: ['plan'] },
+          { name: 'fraud', backend: 'oip', url: 'http://ml', features: ['amount'] },
+        ],
+        total: 2,
+      })),
+    )
+    const config = renderConfig({ model: 'fraud' })
+    const user = userEvent.setup()
+    await screen.findByText(/^Inputs$/)
+    expect(screen.queryByRole('checkbox', { name: /explain each answer/i })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('combobox', { name: /^model/i }))
+    await user.click(await screen.findByRole('option', { name: 'churn', hidden: true }))
+    const box = await screen.findByRole('checkbox', { name: /explain each answer/i })
+    await user.click(box)
+    expect(config().explain).toBe(true)
+  })
 })
