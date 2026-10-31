@@ -396,6 +396,11 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		"CREATE INDEX IF NOT EXISTS idx_dead_letters_vhost_failed ON dead_letters(vhost, failed_at DESC)",
 		"CREATE INDEX IF NOT EXISTS idx_dead_letters_wf_failed ON dead_letters(workflow_id, failed_at DESC)",
 		"CREATE INDEX IF NOT EXISTS idx_dead_letters_failed ON dead_letters(failed_at)",
+		// The reconciliation loop asks every five seconds, on every worker,
+		// for the suspended messages that are due. Without this each tick was
+		// a full scan of every parked message in the deployment, payload
+		// BLOBs included, however many of them were due.
+		"CREATE INDEX IF NOT EXISTS idx_suspended_messages_resume_at ON suspended_messages(resume_at)",
 	}
 
 	for _, q := range indexQueries {
