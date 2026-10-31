@@ -1,3 +1,4 @@
+import { FormRow } from '@/components/common/FormRow';
 import {
   ActionIcon,
   Badge,
@@ -5,7 +6,6 @@ import {
   Button,
   Group,
   Paper,
-  SimpleGrid,
   Select,
   Stack,
   Text,
@@ -167,7 +167,7 @@ function CaseCard({ index, value: c, fieldPaths, onChange, onRemove }: CaseCardP
           </Tooltip>
         </Group>
 
-        <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="sm">
+        <FormRow>
           <TextInput
             label="Branch Label"
             placeholder="e.g. high_value"
@@ -181,7 +181,7 @@ function CaseCard({ index, value: c, fieldPaths, onChange, onRemove }: CaseCardP
             data={OPERATORS}
             allowDeselect={false}
           />
-        </SimpleGrid>
+        </FormRow>
 
         <OperandInput
           label="Compare to"

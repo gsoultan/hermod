@@ -1,4 +1,5 @@
-import { Autocomplete, Group, NumberInput, SegmentedControl, Select, Stack, Switch, Text } from '@mantine/core'
+import { FormRow } from '@/components/common/FormRow'
+import { Autocomplete, NumberInput, SegmentedControl, Select, Stack, Switch, Text } from '@mantine/core'
 import { TextInput } from '@/components/shared/ReferenceInputs'
 
 /**
@@ -93,7 +94,7 @@ export function WindowFields({ config, set, fieldPaths }: {
         />
       </Stack>
       {byTime ? (
-        <Group grow align="flex-start">
+        <FormRow>
           <TextInput
             label="Window length"
             description="A duration: 30s, 5m, 1h."
@@ -111,7 +112,7 @@ export function WindowFields({ config, set, fieldPaths }: {
             value={config.maxEvents ?? ''}
             onChange={(v) => set({ maxEvents: num(v) })}
           />
-        </Group>
+        </FormRow>
       ) : (
         <NumberInput
           label="Events in the window"

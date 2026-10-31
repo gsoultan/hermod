@@ -1,3 +1,4 @@
+import { FormRow } from '@/components/common/FormRow';
 import { ActionIcon, Autocomplete, Box, Button, Group, Select, Stack, Text } from '@mantine/core';
 import { TextInput } from '@/components/shared/ReferenceInputs';
 import { IconPlus, IconTrash } from '@tabler/icons-react';
@@ -137,7 +138,9 @@ export function DataConversionConfig({ config, updateNodeConfig, nodeId, fieldPa
             style={{ border: '1px solid var(--mantine-color-gray-3)', borderRadius: 'var(--mantine-radius-sm)' }}
           >
             <Stack gap="xs">
-              <Group gap="xs" align="flex-end" wrap="nowrap">
+              {/* Wraps rather than squeezing: on a phone the type picker
+                  moves under the field instead of both shrinking to ~110px. */}
+              <Group gap="xs" align="flex-end" wrap="wrap">
                 <Autocomplete
                   label="Field"
                   placeholder="amount"
@@ -146,7 +149,7 @@ export function DataConversionConfig({ config, updateNodeConfig, nodeId, fieldPa
                   onChange={(val) => updateRow(i, { field: val })}
                   required
                   description="Field or expression to convert (e.g. amount, lower(source.status))."
-                  style={{ flex: 1 }}
+                  style={{ flex: '2 1 14rem', minWidth: 0 }}
                   rightSection={
                     <ExpressionFieldPicker
                       field={row.field}
@@ -161,7 +164,7 @@ export function DataConversionConfig({ config, updateNodeConfig, nodeId, fieldPa
                   data={TARGET_TYPES}
                   value={targetType}
                   onChange={(val) => updateRow(i, { targetType: val || 'string' })}
-                  style={{ flex: 1 }}
+                  style={{ flex: '1 1 9rem', minWidth: 0 }}
                 />
                 <ActionIcon
                   variant="subtle"
@@ -253,7 +256,7 @@ export function DataConversionConfig({ config, updateNodeConfig, nodeId, fieldPa
                 />
               )}
 
-              <Group grow gap="xs" align="flex-start">
+              <FormRow>
                 <TargetFieldInput
                   field={row.field}
                   value={row.targetField}
@@ -266,7 +269,7 @@ export function DataConversionConfig({ config, updateNodeConfig, nodeId, fieldPa
                   onChange={(val) => updateRow(i, { errorBehavior: !val || val === INHERIT ? '' : val })}
                   description="Overrides the node default for this field alone."
                 />
-              </Group>
+              </FormRow>
             </Stack>
           </Box>
         );

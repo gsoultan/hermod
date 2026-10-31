@@ -1,4 +1,5 @@
-import { Stack, Group, NumberInput, Select, Autocomplete, Alert, Text } from '@mantine/core';
+import { FormRow } from '@/components/common/FormRow';
+import { Stack, NumberInput, Select, Autocomplete, Alert, Text } from '@mantine/core';
 import { useMemo } from 'react';
 import { IconInfoCircle } from '@tabler/icons-react';
 import { ExpressionFieldPicker } from '@/components/workflow/Transformation/expressionField';
@@ -21,7 +22,7 @@ export function RateLimitConfig({ config, updateNodeConfig, nodeId, availableFie
       <Alert icon={<IconInfoCircle size="1rem" />} color="indigo">
         <Text size="sm">Control the flow of messages to prevent overwhelming downstream systems.</Text>
       </Alert>
-      <Group grow>
+      <FormRow>
         <NumberInput 
           label="MPS" 
           description="Messages per sec" 
@@ -38,7 +39,7 @@ export function RateLimitConfig({ config, updateNodeConfig, nodeId, availableFie
           onChange={(val) => updateNodeConfig(nodeId, { burst: val })} 
           mih={80}
         />
-      </Group>
+      </FormRow>
       <Select 
         label="Strategy"
         data={[{ label: 'Wait (Block)', value: 'wait' }, { label: 'Drop (Discard)', value: 'drop' }]}

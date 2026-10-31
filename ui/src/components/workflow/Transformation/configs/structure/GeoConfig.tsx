@@ -1,4 +1,5 @@
-import { Autocomplete, Group, Input, SegmentedControl, Stack, Text, Textarea } from '@mantine/core'
+import { FormRow } from '@/components/common/FormRow'
+import { Autocomplete, Input, SegmentedControl, Stack, Text, Textarea } from '@mantine/core'
 import { TextInput } from '@/components/shared/ReferenceInputs'
 import type { ReactNode } from 'react'
 
@@ -46,14 +47,14 @@ export function GeoConfig({ config, updateNodeConfig, nodeId, fieldPaths = [] }:
       </Input.Wrapper>
       {within ? <WithinFields config={config} set={set} field={field} /> : (
         <>
-          <Group grow align="flex-start">
+          <FormRow>
             {field('lat1Field', 'First point latitude', 'e.g. pickup.lat')}
             {field('lon1Field', 'First point longitude', 'e.g. pickup.lon')}
-          </Group>
-          <Group grow align="flex-start">
+          </FormRow>
+          <FormRow>
             {field('lat2Field', 'Second point latitude', 'e.g. dropoff.lat')}
             {field('lon2Field', 'Second point longitude', 'e.g. dropoff.lon')}
-          </Group>
+          </FormRow>
           <Input.Wrapper label="Unit">
             <SegmentedControl
               fullWidth
@@ -90,10 +91,10 @@ function WithinFields({ config, set, field }: {
 }) {
   return (
     <>
-      <Group grow align="flex-start">
+      <FormRow>
         {field('latField', 'Latitude', 'e.g. lat')}
         {field('lonField', 'Longitude', 'e.g. lon')}
-      </Group>
+      </FormRow>
       <Textarea
         label="Polygon"
         description="A GeoJSON Polygon or MultiPolygon, or a Feature holding one. Holes are honoured."

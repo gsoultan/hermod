@@ -1,4 +1,5 @@
-import { Autocomplete, Group, Input, SegmentedControl, Stack, Text } from '@mantine/core'
+import { FormRow } from '@/components/common/FormRow'
+import { Autocomplete, Input, SegmentedControl, Stack, Text } from '@mantine/core'
 import { TextInput } from '@/components/shared/ReferenceInputs'
 
 interface FlattenConfigProps {
@@ -27,7 +28,7 @@ export function FlattenConfig({ config, updateNodeConfig, nodeId, fieldPaths = [
           ? `Rebuilds nested objects from joined keys: a${sep}b${sep}c becomes {"a":{"b":{"c":…}}}. Use the separator the record was flattened with — "_" also splits snake_case names.`
           : `Turns nested objects into one level of joined keys: {"a":{"b":{"c":…}}} becomes a${sep}b${sep}c. Two fields that would join to the same key fail the record.`}
       </Text>
-      <Group grow align="flex-start">
+      <FormRow>
         <TextInput
           label="Separator"
           placeholder="_"
@@ -43,7 +44,7 @@ export function FlattenConfig({ config, updateNodeConfig, nodeId, fieldPaths = [
           value={config.maxDepth ?? ''}
           onChange={(e) => set({ maxDepth: e.currentTarget.value.replace(/\D/g, '') })}
         />
-      </Group>
+      </FormRow>
       <Input.Wrapper label="Arrays" description={unflatten ? 'Keys 0, 1, 2… under one name' : 'An array inside the record'}>
         <SegmentedControl
           fullWidth

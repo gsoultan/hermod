@@ -1,3 +1,4 @@
+import { FormRow } from '@/components/common/FormRow'
 import { useState } from 'react'
 import { Alert, Autocomplete, Button, FileButton, Group, Select, Stack, Text } from '@mantine/core'
 import { TextInput } from '@/components/shared/ReferenceInputs'
@@ -50,14 +51,14 @@ export function ReferenceLookupConfig({ config, updateNodeConfig, nodeId, fieldP
         Adds columns from a reference file to each record, matched on a key. The file is read once and kept in
         memory, and read again when it changes.
       </Text>
-      <Group align="flex-end" wrap="nowrap">
+      <Group align="flex-end" wrap="wrap">
         <TextInput
           label="File path"
           placeholder="/var/hermod/uploads/countries.csv"
           description="A .csv, .tsv or .xlsx file in the upload directory or a directory listed in HERMOD_REFERENCE_DIRS"
           value={config.filePath ?? ''}
           onChange={(e) => set({ filePath: e.currentTarget.value })}
-          style={{ flex: 1 }}
+          style={{ flex: '1 1 14rem', minWidth: 0 }}
           required
         />
         <FileButton onChange={upload} accept=".csv,.tsv,.xlsx">
@@ -73,7 +74,7 @@ export function ReferenceLookupConfig({ config, updateNodeConfig, nodeId, fieldP
           {uploadError}
         </Alert>
       )}
-      <Group grow align="flex-start">
+      <FormRow>
         <Select
           label="Format"
           placeholder="From the extension"
@@ -102,8 +103,8 @@ export function ReferenceLookupConfig({ config, updateNodeConfig, nodeId, fieldP
             onChange={(e) => set({ delimiter: e.currentTarget.value })}
           />
         )}
-      </Group>
-      <Group grow align="flex-start">
+      </FormRow>
+      <FormRow>
         <TextInput
           label="Key column"
           placeholder="e.g. code"
@@ -121,7 +122,7 @@ export function ReferenceLookupConfig({ config, updateNodeConfig, nodeId, fieldP
           onChange={(v) => set({ keyField: v })}
           required
         />
-      </Group>
+      </FormRow>
       <TextInput
         label="Columns"
         placeholder="Every column but the key"
@@ -136,7 +137,7 @@ export function ReferenceLookupConfig({ config, updateNodeConfig, nodeId, fieldP
         value={config.targetField ?? ''}
         onChange={(e) => set({ targetField: e.currentTarget.value })}
       />
-      <Group grow align="flex-start">
+      <FormRow>
         <Select
           label="When no row matches"
           data={[
@@ -155,7 +156,7 @@ export function ReferenceLookupConfig({ config, updateNodeConfig, nodeId, fieldP
             onChange={(e) => set({ defaultValue: e.currentTarget.value })}
           />
         )}
-      </Group>
+      </FormRow>
       <Text size="xs" c="dimmed">
         Values are copied as text. Files are limited to 32 MiB and 200,000 rows unless the node's maxBytes and maxRows
         say otherwise.

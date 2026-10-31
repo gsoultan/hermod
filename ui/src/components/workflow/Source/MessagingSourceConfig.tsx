@@ -1,4 +1,5 @@
-import { Stack, Text, SimpleGrid, Checkbox } from '@mantine/core';
+import { FormRow } from '@/components/common/FormRow';
+import { Stack, Text, Checkbox } from '@mantine/core';
 import { PasswordInput, TextInput } from '@/components/shared/ReferenceInputs';
 
 interface MessagingSourceConfigProps {
@@ -14,7 +15,7 @@ export function MessagingSourceConfig({ type, config, updateConfig }: MessagingS
         <TextInput label="Brokers" placeholder="localhost:9092" value={config.brokers || ''} onChange={(e) => updateConfig('brokers', e.target.value)} required />
         <TextInput label="Topic" placeholder="topic" value={config.topic || ''} onChange={(e) => updateConfig('topic', e.target.value)} required />
         <TextInput label="Group ID" placeholder="hermod-consumer" value={config.group_id || ''} onChange={(e) => updateConfig('group_id', e.target.value)} />
-        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+        <FormRow>
           <TextInput 
             label="Username" 
             value={config.username || ''} 
@@ -29,7 +30,7 @@ export function MessagingSourceConfig({ type, config, updateConfig }: MessagingS
             description="Broker password"
             mih={80}
           />
-        </SimpleGrid>
+        </FormRow>
       </Stack>
     );
   }
@@ -39,7 +40,7 @@ export function MessagingSourceConfig({ type, config, updateConfig }: MessagingS
       <Stack gap="md">
         <TextInput label="NATS URL" placeholder="nats://localhost:4222" value={config.url || ''} onChange={(e) => updateConfig('url', e.target.value)} required />
         <TextInput label="Subject" placeholder="events.>" value={config.subject || ''} onChange={(e) => updateConfig('subject', e.target.value)} required />
-        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+        <FormRow>
           <TextInput 
             label="Queue Group" 
             placeholder="hermod" 
@@ -56,7 +57,7 @@ export function MessagingSourceConfig({ type, config, updateConfig }: MessagingS
             description="JetStream durable name"
             mih={80}
           />
-        </SimpleGrid>
+        </FormRow>
       </Stack>
     );
   }
@@ -72,7 +73,7 @@ export function MessagingSourceConfig({ type, config, updateConfig }: MessagingS
           updateConfig('topics', e.target.value);
           updateConfig('topic', e.target.value);
         }} required />
-        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+        <FormRow>
           <TextInput 
             label="Client ID" 
             placeholder="Optional" 
@@ -89,8 +90,8 @@ export function MessagingSourceConfig({ type, config, updateConfig }: MessagingS
             description="Quality of Service level"
             mih={80}
           />
-        </SimpleGrid>
-        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+        </FormRow>
+        <FormRow>
           <TextInput 
             label="Username" 
             placeholder="Optional" 
@@ -106,8 +107,8 @@ export function MessagingSourceConfig({ type, config, updateConfig }: MessagingS
             description="Broker password"
             mih={80}
           />
-        </SimpleGrid>
-        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+        </FormRow>
+        <FormRow>
           <TextInput 
             label="Keepalive (e.g., 30s)" 
             placeholder="30s" 
@@ -124,7 +125,7 @@ export function MessagingSourceConfig({ type, config, updateConfig }: MessagingS
             description="Start with clean session"
             mih={80}
           />
-        </SimpleGrid>
+        </FormRow>
         <TextInput label="TLS Insecure Skip Verify" placeholder="false" value={config.tls_insecure_skip_verify || ''} onChange={(e) => updateConfig('tls_insecure_skip_verify', e.target.value)} />
       </Stack>
     );
@@ -136,7 +137,7 @@ export function MessagingSourceConfig({ type, config, updateConfig }: MessagingS
         {(!config.host || config.url) && (
            <TextInput label="RabbitMQ URL (Legacy — overrides the fields below)" placeholder="amqp://guest:guest@localhost:5672/" value={config.url || ''} onChange={(e) => updateConfig('url', e.target.value)} />
         )}
-        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+        <FormRow>
           <TextInput 
             label="Host" 
             placeholder="localhost" 
@@ -154,8 +155,8 @@ export function MessagingSourceConfig({ type, config, updateConfig }: MessagingS
             description="RabbitMQ port"
             mih={80}
           />
-        </SimpleGrid>
-        <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
+        </FormRow>
+        <FormRow cols={3}>
           <TextInput 
             label="Username" 
             placeholder="guest" 
@@ -180,7 +181,7 @@ export function MessagingSourceConfig({ type, config, updateConfig }: MessagingS
             description="RabbitMQ vhost"
             mih={80}
           />
-        </SimpleGrid>
+        </FormRow>
         <Checkbox label="Use SSL/TLS" checked={config.use_ssl === 'true'} onChange={(e) => updateConfig('use_ssl', e.currentTarget.checked ? 'true' : 'false')} />
         {type === 'rabbitmq' ? (
           <>

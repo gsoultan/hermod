@@ -1,4 +1,5 @@
-import { Stack, Group, Divider, Checkbox, NumberInput, Fieldset, Switch, Text, SimpleGrid, Radio } from '@mantine/core';
+import { FormRow } from '@/components/common/FormRow';
+import { Stack, Group, Divider, Checkbox, NumberInput, Fieldset, Switch, Text, Radio } from '@mantine/core';
 import { PasswordInput, TextInput } from '@/components/shared/ReferenceInputs';
 import { PostgresReplicationConfig } from './PostgresReplicationConfig';
 import { ConnectionUrlPaste } from '../../shared/ConnectionUrlPaste';
@@ -47,7 +48,7 @@ export function DatabaseSourceConfig({ type, config, updateConfig, tablesInput, 
         />
         {tablesInput}
         <Divider label="Initial Snapshot" labelPosition="center" />
-        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+        <FormRow>
           <NumberInput 
             label="Batch Size" 
             value={parseInt(config.snapshot_batch_size) || 1000} 
@@ -62,7 +63,7 @@ export function DatabaseSourceConfig({ type, config, updateConfig, tablesInput, 
             description="Number of parallel threads"
             mih={80}
           />
-        </SimpleGrid>
+        </FormRow>
       </Stack>
     );
   }
@@ -83,7 +84,7 @@ export function DatabaseSourceConfig({ type, config, updateConfig, tablesInput, 
               }
             />
           )}
-          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+          <FormRow>
             {type === 'cassandra' || type === 'scylladb' ? (
               <TextInput 
                 label="Hosts" 
@@ -115,8 +116,8 @@ export function DatabaseSourceConfig({ type, config, updateConfig, tablesInput, 
                 />
               </>
             )}
-          </SimpleGrid>
-          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+          </FormRow>
+          <FormRow>
             <TextInput 
               label="User" 
               placeholder="user" 
@@ -133,9 +134,9 @@ export function DatabaseSourceConfig({ type, config, updateConfig, tablesInput, 
               description="Database password"
               mih={80}
             />
-          </SimpleGrid>
+          </FormRow>
           {type === 'mongodb' ? (
-            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+            <FormRow>
               <TextInput 
                 label="Database" 
                 placeholder="my-db" 
@@ -154,7 +155,7 @@ export function DatabaseSourceConfig({ type, config, updateConfig, tablesInput, 
                 description="Target collection name"
                 mih={80}
               />
-            </SimpleGrid>
+            </FormRow>
           ) : databaseInput}
           
           {type === 'mongodb' && (
@@ -167,7 +168,7 @@ export function DatabaseSourceConfig({ type, config, updateConfig, tablesInput, 
           )}
           
           {type === 'postgres' && (
-            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+            <FormRow>
               <TextInput label="SSL Mode" placeholder="disable" value={config.sslmode || 'disable'} onChange={(e) => updateConfig('sslmode', e.target.value)} />
               <Checkbox
                 mt="xl"
@@ -176,7 +177,7 @@ export function DatabaseSourceConfig({ type, config, updateConfig, tablesInput, 
                 checked={config.pgbouncer === 'true'}
                 onChange={(e) => updateConfig('pgbouncer', e.target.checked ? 'true' : 'false')}
               />
-            </SimpleGrid>
+            </FormRow>
           )}
         </Stack>
       </Fieldset>
@@ -203,7 +204,7 @@ export function DatabaseSourceConfig({ type, config, updateConfig, tablesInput, 
               )}
             </>
           ) : (
-            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+            <FormRow>
               <TextInput 
                 label="Incremental ID Field" 
                 placeholder="id" 
@@ -220,11 +221,11 @@ export function DatabaseSourceConfig({ type, config, updateConfig, tablesInput, 
                 description="Delay between polls"
                 mih={80}
               />
-            </SimpleGrid>
+            </FormRow>
           )}
 
           <Divider label="Initial Snapshot" labelPosition="center" />
-          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+          <FormRow>
             <NumberInput 
               label="Batch Size" 
               value={parseInt(config.snapshot_batch_size) || 1000} 
@@ -239,7 +240,7 @@ export function DatabaseSourceConfig({ type, config, updateConfig, tablesInput, 
               description="Parallel fetch threads"
               mih={80}
             />
-          </SimpleGrid>
+          </FormRow>
         </Stack>
       </Fieldset>
     </Stack>
@@ -264,7 +265,7 @@ function OracleCdcMethod({ config, updateConfig }: { config: Record<string, any>
         </Stack>
       </Radio.Group>
       {method === 'logminer' ? (
-        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+        <FormRow>
           <TextInput
             label="Pluggable database (PDB)"
             placeholder="ORCLPDB1"
@@ -287,9 +288,9 @@ function OracleCdcMethod({ config, updateConfig }: { config: Record<string, any>
             checked={config.initial_load === 'true'}
             onChange={(e) => updateConfig('initial_load', e.target.checked ? 'true' : 'false')}
           />
-        </SimpleGrid>
+        </FormRow>
       ) : (
-        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+        <FormRow>
           <TextInput
             label="Incremental ID Field"
             placeholder="ID"
@@ -306,7 +307,7 @@ function OracleCdcMethod({ config, updateConfig }: { config: Record<string, any>
             description="Delay between polls"
             mih={80}
           />
-        </SimpleGrid>
+        </FormRow>
       )}
     </Stack>
   );

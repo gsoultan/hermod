@@ -1,3 +1,4 @@
+import { FormRow } from '@/components/common/FormRow';
 import { Stack, Select, Card, Group, rem, ThemeIcon, Text } from '@mantine/core';
 import { TextInput } from '@/components/shared/ReferenceInputs';
 import { IconMessage, IconSearch, IconAlertCircle } from '@tabler/icons-react';
@@ -36,7 +37,7 @@ export function LogConfig({ config, updateNodeConfig, nodeId }: LogConfigProps) 
           leftSection={<IconMessage size={rem(16)} />}
         />
 
-        <Group grow>
+        <FormRow>
           <Select
             label="Level"
             data={[
@@ -59,7 +60,7 @@ export function LogConfig({ config, updateNodeConfig, nodeId }: LogConfigProps) 
             size="sm"
             leftSection={<IconSearch size={rem(16)} />}
           />
-        </Group>
+        </FormRow>
       </Stack>
     </Card>
   );

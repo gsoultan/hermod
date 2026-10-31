@@ -1,4 +1,5 @@
-import { Accordion, Alert, Autocomplete, Divider, Group, NumberInput, Select, Stack, Text } from '@mantine/core'
+import { FormRow } from '@/components/common/FormRow'
+import { Accordion, Alert, Autocomplete, Divider, NumberInput, Select, Stack, Text } from '@mantine/core'
 import { TextInput } from '@/components/shared/ReferenceInputs'
 import { IconInfoCircle } from '@tabler/icons-react'
 import { AIKeyField } from './AIKeyField'
@@ -54,7 +55,7 @@ export function AIConnectionSection({ config, nodeId, updateNodeConfig, embeddin
   return (
     <Stack gap="md">
       <Divider label="Model" labelPosition="center" />
-      <Group grow align="flex-start" gap="sm">
+      <FormRow>
         <Select
           label="Provider"
           placeholder="Choose a provider"
@@ -74,7 +75,7 @@ export function AIConnectionSection({ config, nodeId, updateNodeConfig, embeddin
           disabled={!provider}
           description="As the provider names it."
         />
-      </Group>
+      </FormRow>
 
       {!provider ? (
         <Alert icon={<IconInfoCircle size="1rem" />} color="blue" variant="light">
@@ -116,7 +117,7 @@ export function AIConnectionSection({ config, nodeId, updateNodeConfig, embeddin
           <Accordion.Control>Limits &amp; timeout</Accordion.Control>
           <Accordion.Panel>
             <Stack gap="sm">
-              <Group grow align="flex-start" gap="sm">
+              <FormRow>
                 <TextInput
                   label="Timeout"
                   placeholder={timeoutHint?.placeholder ?? '60s'}
@@ -134,9 +135,9 @@ export function AIConnectionSection({ config, nodeId, updateNodeConfig, embeddin
                   onChange={(v) => set({ maxConcurrency: asText(v) })}
                   description="Calls this node makes at once."
                 />
-              </Group>
+              </FormRow>
               {!embedding && (
-                <Group grow align="flex-start" gap="sm">
+                <FormRow>
                   <NumberInput
                     label="Max tokens"
                     placeholder="Provider default"
@@ -157,7 +158,7 @@ export function AIConnectionSection({ config, nodeId, updateNodeConfig, embeddin
                     onChange={(v) => set({ temperature: asText(v) })}
                     description="0 is most predictable."
                   />
-                </Group>
+                </FormRow>
               )}
               {!showsBaseUrl(provider) && (
                 <TextInput
@@ -179,7 +180,7 @@ export function AIConnectionSection({ config, nodeId, updateNodeConfig, embeddin
               <Text size="xs" c="dimmed">
                 Used when the main provider fails or is unavailable. Leave empty for no fallback.
               </Text>
-              <Group grow align="flex-start" gap="sm">
+              <FormRow>
                 <Select
                   label="Fallback provider"
                   placeholder="None"
@@ -197,7 +198,7 @@ export function AIConnectionSection({ config, nodeId, updateNodeConfig, embeddin
                   onChange={(v) => set({ fallbackModel: v })}
                   disabled={!fallback}
                 />
-              </Group>
+              </FormRow>
               {fallback && usesApiKey(fallback) && (
                 <AIKeyField
                   configKey="fallbackApiKey"

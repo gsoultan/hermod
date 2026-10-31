@@ -1,4 +1,5 @@
-import { Autocomplete, Group, Input, SegmentedControl, Stack, Switch, Text } from '@mantine/core'
+import { FormRow } from '@/components/common/FormRow'
+import { Autocomplete, Input, SegmentedControl, Stack, Switch, Text } from '@mantine/core'
 import { TextInput } from '@/components/shared/ReferenceInputs'
 
 interface ParseFieldConfigProps {
@@ -47,7 +48,7 @@ export function ParseFieldConfig({ config, updateNodeConfig, nodeId, fieldPaths 
       </Input.Wrapper>
       {format === 'csv' && (
         <>
-          <Group grow align="flex-start">
+          <FormRow>
             <TextInput
               label="Delimiter"
               placeholder=","
@@ -62,7 +63,7 @@ export function ParseFieldConfig({ config, updateNodeConfig, nodeId, fieldPaths 
               value={config.headers ?? ''}
               onChange={(e) => set({ headers: e.currentTarget.value })}
             />
-          </Group>
+          </FormRow>
           <Switch
             label="The first line names the columns"
             checked={config.hasHeader === true || config.hasHeader === 'true'}
@@ -71,7 +72,7 @@ export function ParseFieldConfig({ config, updateNodeConfig, nodeId, fieldPaths 
         </>
       )}
       {format === 'kv' && (
-        <Group grow align="flex-start">
+        <FormRow>
           <TextInput
             label="Pair delimiter"
             placeholder="space"
@@ -85,9 +86,9 @@ export function ParseFieldConfig({ config, updateNodeConfig, nodeId, fieldPaths 
             value={config.kvSeparator ?? ''}
             onChange={(e) => set({ kvSeparator: e.currentTarget.value })}
           />
-        </Group>
+        </FormRow>
       )}
-      <Group grow align="flex-start">
+      <FormRow>
         <TextInput
           label="Target field"
           placeholder={config.field || 'the field itself'}
@@ -103,7 +104,7 @@ export function ParseFieldConfig({ config, updateNodeConfig, nodeId, fieldPaths 
           value={config.maxBytes ?? ''}
           onChange={(e) => set({ maxBytes: e.currentTarget.value.replace(/\D/g, '') })}
         />
-      </Group>
+      </FormRow>
       <Text size="xs" c="dimmed">Text that does not parse fails the record; the node's On Error setting decides what follows.</Text>
     </Stack>
   )

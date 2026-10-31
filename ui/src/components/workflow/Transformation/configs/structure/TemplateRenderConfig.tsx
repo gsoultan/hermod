@@ -1,4 +1,5 @@
-import { Group, Stack, Switch, Text, Textarea } from '@mantine/core'
+import { FormRow } from '@/components/common/FormRow'
+import { Stack, Switch, Text, Textarea } from '@mantine/core'
 import { TextInput } from '@/components/shared/ReferenceInputs'
 
 interface TemplateRenderConfigProps {
@@ -28,7 +29,7 @@ export function TemplateRenderConfig({ config, updateNodeConfig, nodeId }: Templ
         onChange={(e) => set({ template: e.currentTarget.value })}
         required
       />
-      <Group grow align="flex-start">
+      <FormRow>
         <TextInput
           label="Target field"
           placeholder="rendered"
@@ -44,7 +45,7 @@ export function TemplateRenderConfig({ config, updateNodeConfig, nodeId }: Templ
           value={config.maxBytes ?? ''}
           onChange={(e) => set({ maxBytes: e.currentTarget.value.replace(/\D/g, '') })}
         />
-      </Group>
+      </FormRow>
       <Switch
         label="Strict: a missing field fails the record"
         description="Off: a field the record does not have renders as empty text"

@@ -42,6 +42,23 @@ describe('FormRow', () => {
     // asserted by review, not by a test that cannot see it.
   })
 
+  it('sizes its columns to the space it is given, not to the screen', () => {
+    // A node's settings live in a drawer column a few hundred pixels wide on a
+    // 1440px screen. Viewport breakpoints saw the 1440 and split that column
+    // into two or three fields of ~140px each. Container queries measure the
+    // row's own parent, so the same row stacks inside the drawer and still
+    // sits side by side on a full-width page.
+    const { container } = ui(
+      <FormRow cols={3}>
+        <TextInput label="A" />
+        <TextInput label="B" />
+        <TextInput label="C" />
+      </FormRow>
+    )
+    const grid = container.querySelector('.hermod-form-row') as HTMLElement
+    expect(grid.parentElement?.className).toContain('mantine-SimpleGrid-container')
+  })
+
   it('bottom-aligns fields so inputs line up under uneven descriptions', () => {
     const { container } = ui(
       <FormRow>
@@ -79,6 +96,9 @@ describe('entity form field layout', () => {
       '../components/workflow/Source/**/*.tsx',
       '../components/workflow/Sink/**/*.tsx',
       '../components/forms/**/*.tsx',
+      // Transformation settings render in the same node drawer as sources and
+      // sinks, in a narrower column, so a squeezed row hurts there most.
+      '../components/workflow/Transformation/**/*.tsx',
     ],
     { query: '?raw', import: 'default', eager: true }
   ) as Record<string, string>
@@ -88,9 +108,27 @@ describe('entity form field layout', () => {
     expect(Object.keys(sources).length).toBeGreaterThan(30)
   })
 
-  it('uses no <Group grow> in source, sink or entity form components', () => {
+  it('uses no <Group grow> in source, sink, transformation or entity form components', () => {
     const offenders = Object.entries(sources)
       .filter(([, code]) => /<Group[^>]*\sgrow\b/.test(code))
+      .map(([file]) => file)
+
+    expect(offenders).toEqual([])
+  })
+
+  it('lays out node settings by the drawer width, not the screen width', () => {
+    // A media-query grid inside the node drawer reads the screen, so on a
+    // laptop it splits a ~400px column as if it had a monitor's width. Node
+    // settings use FormRow, or a grid with type="container".
+    const nodeSettings = Object.entries(sources).filter(([file]) =>
+      /\/workflow\/(Source|Sink|Transformation)\//.test(file)
+    )
+    expect(nodeSettings.length).toBeGreaterThan(30)
+
+    const offenders = nodeSettings
+      .filter(([, code]) =>
+        [...code.matchAll(/<(SimpleGrid|Grid)\b[^>]*>/g)].some(([tag]) => !/type="container"/.test(tag))
+      )
       .map(([file]) => file)
 
     expect(offenders).toEqual([])

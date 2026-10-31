@@ -145,9 +145,11 @@ export function MappingEditor({
           ) : (
             <Stack gap="xs">
               {mappingEntries.map(([oldVal, newVal], index) => (
-                <Group key={index} grow gap="xs">
+                <Group key={index} gap="xs" wrap="nowrap">
                   <TextInput
                     placeholder="Source Value"
+                    flex={1}
+                    miw={0}
                     value={oldVal}
                     size="sm"
                     onChange={(e) => updateKey(oldVal, e.target.value)}
@@ -158,6 +160,8 @@ export function MappingEditor({
                   </Box>
                   <TextInput
                     placeholder="Target Value"
+                    flex={1}
+                    miw={0}
                     value={newVal}
                     size="sm"
                     onChange={(e) => updateValue(oldVal, e.target.value)}

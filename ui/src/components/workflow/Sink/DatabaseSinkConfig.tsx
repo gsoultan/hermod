@@ -1,4 +1,4 @@
-import { Group, ActionIcon, Title, Stack, Badge, Autocomplete, Switch, Divider, SimpleGrid, Select, Button, Loader } from '@mantine/core';
+import { Group, ActionIcon, Title, Stack, Badge, Autocomplete, Switch, Divider, Select, Button, Loader } from '@mantine/core';
 import { TextInput } from '@/components/shared/ReferenceInputs';
 import { FormRow } from '@/components/common/FormRow';
 import { IconRefresh } from '@tabler/icons-react';
@@ -198,7 +198,7 @@ export const DatabaseSinkConfig: FC<DatabaseSinkConfigProps> = ({
         <ConnectionUrlPaste
           updateConfig={(k, v) => updateConfig(k === 'database' ? 'dbname' : k, v)}
         />
-        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+        <FormRow>
           <TextInput 
             label="Host" 
             placeholder="localhost" 
@@ -215,8 +215,8 @@ export const DatabaseSinkConfig: FC<DatabaseSinkConfigProps> = ({
             description="Database port number"
             mih={80}
           />
-        </SimpleGrid>
-        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+        </FormRow>
+        <FormRow>
           <TextInput 
             label="User" 
             placeholder="root" 
@@ -234,7 +234,7 @@ export const DatabaseSinkConfig: FC<DatabaseSinkConfigProps> = ({
             description="Database password"
             mih={80}
           />
-        </SimpleGrid>
+        </FormRow>
         <Group align="flex-end" gap="xs">
           <Autocomplete 
             label="Database" 
@@ -304,7 +304,7 @@ export const DatabaseSinkConfig: FC<DatabaseSinkConfigProps> = ({
             onChange={(e) => updateConfig('use_existing_table', e.currentTarget.checked ? 'true' : 'false')} 
           />
 
-          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+          <FormRow>
             <Switch 
               label="Truncate Table (on start)" 
               description="Truncate table when workflow starts"
@@ -319,7 +319,7 @@ export const DatabaseSinkConfig: FC<DatabaseSinkConfigProps> = ({
               onChange={(e) => updateConfig('sync_columns', e.currentTarget.checked ? 'true' : 'false')} 
               mih={60}
             />
-          </SimpleGrid>
+          </FormRow>
 
           <Group justify="flex-start">
             <Button

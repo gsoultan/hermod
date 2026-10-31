@@ -1,4 +1,5 @@
-import { Group, NumberInput, SegmentedControl, Stack, Text } from '@mantine/core'
+import { FormRow } from '@/components/common/FormRow'
+import { NumberInput, SegmentedControl, Stack, Text } from '@mantine/core'
 import { TextInput } from '@/components/shared/ReferenceInputs'
 import { type FeatureConfigProps, FieldInput, OnMissingSelect, WindowFields, num } from './shared'
 
@@ -30,7 +31,7 @@ export function AnomalyScoreConfig({ config, updateNodeConfig, nodeId, fieldPath
             : 'How many standard deviations the value lies from the mean.'}
         </Text>
       </Stack>
-      <Group grow align="flex-start">
+      <FormRow>
         <NumberInput
           label="Threshold"
           description="A score above it is an anomaly."
@@ -48,9 +49,9 @@ export function AnomalyScoreConfig({ config, updateNodeConfig, nodeId, fieldPath
           value={config.minEvents ?? ''}
           onChange={(v) => set({ minEvents: num(v) })}
         />
-      </Group>
+      </FormRow>
       <WindowFields config={config} set={set} fieldPaths={fieldPaths} />
-      <Group grow align="flex-start">
+      <FormRow>
         <TextInput
           label="Score field"
           placeholder={`${field}_anomaly_score`}
@@ -63,7 +64,7 @@ export function AnomalyScoreConfig({ config, updateNodeConfig, nodeId, fieldPath
           value={config.flagField ?? ''}
           onChange={(e) => set({ flagField: e.currentTarget.value })}
         />
-      </Group>
+      </FormRow>
       <OnMissingSelect value={config.onMissing} onChange={(v) => set({ onMissing: v })} />
     </Stack>
   )

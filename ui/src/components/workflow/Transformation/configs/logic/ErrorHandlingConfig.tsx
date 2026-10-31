@@ -1,5 +1,5 @@
+import { FormRow } from '@/components/common/FormRow';
 import {
-  SimpleGrid,
   Select,
   Divider,
   Stack,
@@ -38,7 +38,7 @@ export function ErrorHandlingConfig({ config, updateNodeConfig, nodeId }: ErrorH
 
         <Divider variant="dashed" />
 
-        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+        <FormRow>
           <Select
             label="On Error Strategy"
             description="The action to take when an error occurs."
@@ -61,7 +61,7 @@ export function ErrorHandlingConfig({ config, updateNodeConfig, nodeId }: ErrorH
             size="sm"
             leftSection={<IconDatabase size={rem(16)} />}
           />
-        </SimpleGrid>
+        </FormRow>
       </Stack>
     </Card>
   );

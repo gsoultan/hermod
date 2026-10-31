@@ -1,3 +1,4 @@
+import { FormRow } from '@/components/common/FormRow'
 import { useState } from 'react'
 import { ActionIcon, Alert, Box, Button, Checkbox, Group, Radio, Stack, Text } from '@mantine/core'
 import { TextInput } from '@/components/shared/ReferenceInputs'
@@ -80,7 +81,7 @@ export function McpToolSettings({ tool, issues, onChange }: McpToolSettingsProps
 
   return (
     <Stack gap="sm">
-      <Group grow align="flex-start" gap="sm">
+      <FormRow>
         <TemplateField
           label="Server URL"
           placeholder="https://mcp.example.com/mcp"
@@ -101,7 +102,7 @@ export function McpToolSettings({ tool, issues, onChange }: McpToolSettingsProps
           error={errorFor('tool')}
           description="The name of the one tool on the server this tool calls."
         />
-      </Group>
+      </FormRow>
 
       <Stack gap="xs">
         <Text size="sm" fw={500}>

@@ -1,3 +1,4 @@
+import { FormRow } from '@/components/common/FormRow';
 import { Suspense, lazy, useState, useMemo } from 'react';
 import {
   Stack,
@@ -239,7 +240,7 @@ export function DBLookupConfig({
                   required
                 />
 
-                <Group grow align="flex-start">
+                <FormRow>
                   <TextInput
                     label="Key Column (DB)"
                     placeholder="e.g. id"
@@ -259,7 +260,7 @@ export function DBLookupConfig({
                     required
                     description="Field in message containing the key"
                   />
-                </Group>
+                </FormRow>
 
                 <TemplateField
                   label="Additional Filter (Where Clause)"
@@ -313,7 +314,7 @@ export function DBLookupConfig({
 
         <Tabs.Panel value="output">
           <Stack gap="sm">
-            <Group grow align="flex-start">
+            <FormRow>
               <TextInput
                 label={
                   <Group gap={4}>
@@ -341,7 +342,7 @@ export function DBLookupConfig({
                 required
                 description="Path in message to store the result."
               />
-            </Group>
+            </FormRow>
 
             <Divider mt="xs" />
 
@@ -474,7 +475,7 @@ export function DBLookupConfig({
               </Text>
             )}
 
-            <Group grow>
+            <FormRow>
               <TextInput
                 label="Default Value"
                 placeholder="Value if not found"
@@ -502,7 +503,7 @@ export function DBLookupConfig({
                   </span>
                 }
               />
-            </Group>
+            </FormRow>
 
             <Button
               variant="filled"

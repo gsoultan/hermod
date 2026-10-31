@@ -79,16 +79,20 @@ export function NodeConfigDrawer({
   // viewport instead, and give the denser node types more of it. The min()
   // keeps a laptop honest; the ch/px floor keeps a large monitor from stretching
   // form rows to an unreadable width.
+  //
+  // The share of the viewport also needs a floor. 62vw of a 390px phone is
+  // 242px, which left a source's Name input at 110px and cut every placeholder
+  // in half. clamp() keeps the share on wide screens and gives a narrow one
+  // the whole width: below the floor the drawer is simply 100vw.
   const width = (() => {
     switch (type) {
       case 'transformation':
       case 'validator':
-        return 'min(1180px, 78vw)';
+        return 'clamp(min(100vw, 720px), 78vw, 1180px)';
       case 'source':
       case 'sink':
-        return 'min(880px, 62vw)';
       default:
-        return 'min(880px, 62vw)';
+        return 'clamp(min(100vw, 560px), 62vw, 880px)';
     }
   })();
 

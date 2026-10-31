@@ -1,7 +1,7 @@
+import { FormRow } from '@/components/common/FormRow'
 import {
   Stack,
   Tabs,
-  Group,
   Select,
   Button,
   JsonInput,
@@ -65,7 +65,7 @@ export function LookupConfig({
         <Tabs.Panel value="endpoint">
           <Card withBorder radius="md" p="md">
             <Stack gap="md">
-              <Group grow align="flex-start">
+              <FormRow>
                 <Select
                   label="HTTP Method"
                   data={['GET', 'POST', 'PUT', 'DELETE', 'PATCH']}
@@ -81,7 +81,7 @@ export function LookupConfig({
                   description="Where to store the result"
                   size="sm"
                 />
-              </Group>
+              </FormRow>
 
               <TextInput
                 label="Target URL"

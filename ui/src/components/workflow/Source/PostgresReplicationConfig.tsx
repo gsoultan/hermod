@@ -1,5 +1,6 @@
+import { FormRow } from '@/components/common/FormRow';
 import { useCallback, useRef, useState } from 'react';
-import { Autocomplete, Loader, SimpleGrid, Stack, Text, Badge, Group, Alert } from '@mantine/core';
+import { Autocomplete, Loader, Stack, Text, Badge, Group, Alert } from '@mantine/core';
 import { apiFetch } from '@/api';
 
 interface ReplicationSlot {
@@ -74,7 +75,7 @@ export function PostgresReplicationConfig({ type, config, updateConfig }: Postgr
 
   return (
     <Stack gap="sm">
-      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+      <FormRow>
         <Autocomplete
           label="Slot Name"
           placeholder="hermod_slot"
@@ -109,7 +110,7 @@ export function PostgresReplicationConfig({ type, config, updateConfig }: Postgr
               : 'Select or type publication'
           }
         />
-      </SimpleGrid>
+      </FormRow>
 
       {error && (
         <Alert color="red" variant="light" title="Discovery failed">

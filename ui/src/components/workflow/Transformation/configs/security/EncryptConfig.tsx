@@ -1,3 +1,4 @@
+import { FormRow } from '@/components/common/FormRow'
 import {
   Accordion,
   Alert,
@@ -203,7 +204,7 @@ export function EncryptConfig({
                 description="Must match the salt the data was encrypted with, byte for byte. There is no default: an empty salt would silently weaken every value."
               />
               {keyFormat === 'pbkdf2' ? (
-                <Group grow align="flex-start">
+                <FormRow>
                   <NumberInput
                     label="Iterations"
                     value={config.kdfIterations ?? 600000}
@@ -221,9 +222,9 @@ export function EncryptConfig({
                     size="sm"
                     allowDeselect={false}
                   />
-                </Group>
+                </FormRow>
               ) : (
-                <Group grow align="flex-start">
+                <FormRow cols={3}>
                   <NumberInput
                     label="N"
                     value={config.scryptN ?? 32768}
@@ -248,7 +249,7 @@ export function EncryptConfig({
                     size="sm"
                     description="Parallelism."
                   />
-                </Group>
+                </FormRow>
               )}
             </>
           )}
