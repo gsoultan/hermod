@@ -28,6 +28,7 @@ the same way, with the same prediction log and drift checks.
   number model with `prediction` and `prediction_id`. **Try it with one row**
   draws the guesses as bars.
 - A connected model's status badge now says what kind of server it is on.
+
 ### Fixed — An idle deployment no longer writes, scans and remembers things that have not changed
 
 Six places where Hermod spent disk, CPU or memory on work whose result was
