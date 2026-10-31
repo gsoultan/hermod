@@ -19,7 +19,7 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => () => {},
   useSearch: () => search,
 }))
-vi.mock('@/pages/workflows/WorkflowEditor/components/DetailFlowCanvas', () => ({ DetailFlowCanvas: () => <div>canvas</div> }))
+vi.mock('@/pages/workflows/WorkflowEditor/components/DetailFlowCanvas', () => ({ DetailFlowCanvas: () => <div>canvas</div>, toViewEdges: () => [] }))
 vi.mock('@/pages/workflows/WorkflowDebugger', () => ({ WorkflowDebugger: () => null }))
 
 function renderPage() {

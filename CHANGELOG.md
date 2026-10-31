@@ -7,6 +7,29 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — A flow's read-only view shows that it is running, and what each step is doing
+
+The read-only view drew its own plain step cards and lines and kept nothing of
+the flow's status feed but "running" or "stopped", so a running flow looked
+exactly like a stopped one: no counts, no moving lines, and no latest record
+or eye to open it. The engine was already sending all of it; the view dropped
+it. It now fills the same live state the editor reads, from the same feed:
+
+- The note in the canvas's corner says **Live** (with a pulsing dot) while the
+  flow runs, **Live data paused · Reconnecting…** when the feed goes quiet, and
+  **Stopped · Turn it on to see live data** otherwise, in place of a note that
+  only said "Read only".
+- Each step shows its counts and errors, the newest record it passed on behind
+  the eye (a click opens it in full, record or whole message), and what is
+  wrong with it, such as stuck, failing or circuit open: the editor's live
+  card lines, shared rather than copied (`nodes/stepLive.tsx`).
+- The lines are the editor's live edges: they move only while messages cross
+  them, carry the rate, and show recent messages on hover. They cannot be
+  edited here, and React Flow's dash that ran on every line of an active flow,
+  moving or not, is gone.
+- On a phone the flow is laid out by each card's measured height, so cards
+  that grow with live data no longer overlap.
+
 ### Changed — One layout for a flow, read only or editing, on desktop and phone
 
 The read-only view and the editor of a flow now share one frame: the page's

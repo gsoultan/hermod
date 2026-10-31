@@ -83,7 +83,7 @@ function toStoreValues(workflow: any): any {
  * showed the last one's logs, status and samples. A reload of the same
  * workflow keeps them: the status socket is still reporting on it.
  */
-function noLiveState() {
+export function noLiveState() {
   return {
     logs: [],
     sourceStatus: '',

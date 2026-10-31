@@ -1,5 +1,5 @@
 import { 
-  Alert, Button, Group, JsonInput, Modal, SegmentedControl, Stack, Text, Tabs, PasswordInput, ScrollArea, Badge, Loader, TextInput, ThemeIcon, Code, Box, Tooltip
+  Alert, Button, Group, JsonInput, Modal, Stack, Text, Tabs, PasswordInput, ScrollArea, Badge, Loader, TextInput, ThemeIcon, Code, Box, Tooltip
 } from '@mantine/core';
 import { useShallow } from 'zustand/react/shallow';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams } from '@tanstack/react-router';
 import { apiFetch } from '../../../../api';
 import { ComplianceReportModal } from '../../ComplianceReportModal';
-import { latestRecord } from '../nodes/latestRecord';
+import { SampleInspector } from './SampleInspector';
 import { formatDateTime } from '../../../../utils/dateUtils';
 import { IconAlertCircle, IconBraces, IconCircleCheck, IconCircleX, IconClock, IconInfoCircle, IconPlayerPlay, IconSearch, IconTimeline } from '@tabler/icons-react';
 interface ModalsProps {
@@ -20,10 +20,9 @@ export function Modals({ onRunSimulation, isTesting }: ModalsProps) {
   const { 
     testModalOpened, testInput,
     traceInspectorOpened, traceMessageID,
-    sampleInspectorOpened, sampleNodeId, nodeSamples,
     complianceReportOpened,
     setTestModalOpened, setTestInput,
-    setTraceInspectorOpened, setSampleInspectorOpened,
+    setTraceInspectorOpened,
     setComplianceReportOpened,
     nodes
   } = useWorkflowStore(useShallow(state => ({
@@ -31,24 +30,13 @@ export function Modals({ onRunSimulation, isTesting }: ModalsProps) {
     testInput: state.testInput,
     traceInspectorOpened: state.traceInspectorOpened,
     traceMessageID: state.traceMessageID,
-    sampleInspectorOpened: state.sampleInspectorOpened,
-    sampleNodeId: state.sampleNodeId,
-    nodeSamples: state.nodeSamples,
     complianceReportOpened: state.complianceReportOpened,
     setTestModalOpened: state.setTestModalOpened,
     setTestInput: state.setTestInput,
     setTraceInspectorOpened: state.setTraceInspectorOpened,
-    setSampleInspectorOpened: state.setSampleInspectorOpened,
     setComplianceReportOpened: state.setComplianceReportOpened,
     nodes: state.nodes
   })));
-
-  // The sample inspector leads with the record; the whole message (id,
-  // operation, table, metadata) is one switch away.
-  const [sampleView, setSampleView] = useState<'record' | 'message'>('record');
-  const sample = sampleNodeId ? nodeSamples[sampleNodeId] : undefined;
-  const sampleIsMessage = sample != null && latestRecord(sample) !== (Array.isArray(sample) ? sample[sample.length - 1] : sample);
-  const sampleStepName = (nodes.find((n: any) => n.id === sampleNodeId)?.data as any)?.label || 'this step';
 
   const [cryptoKey, setCryptoKey] = useState('');
   const [saveStatus, setSaveStatus] = useState<null | { ok: boolean; msg: string }>(null);
@@ -330,52 +318,7 @@ export function Modals({ onRunSimulation, isTesting }: ModalsProps) {
         </Group>
       </Stack>
     </Modal>
-      {/* The latest record a step processed on a live run. */}
-      <Modal
-        opened={sampleInspectorOpened}
-        onClose={() => setSampleInspectorOpened(false)}
-        title={<Text fw={700}>Latest record</Text>}
-        size="lg"
-      >
-        <Stack>
-          <Text size="sm" c="dimmed">
-            The newest record <b>{sampleStepName}</b> passed on. It updates while the flow runs.
-          </Text>
-          {sampleNodeId && nodeSamples[sampleNodeId] ? (
-            <>
-              {sampleIsMessage && (
-                <SegmentedControl
-                  size="xs"
-                  value={sampleView}
-                  onChange={(v) => setSampleView(v as 'record' | 'message')}
-                  data={[{ value: 'record', label: 'Record' }, { value: 'message', label: 'Whole message' }]}
-                  style={{ alignSelf: 'flex-start' }}
-                />
-              )}
-              <JsonInput
-                aria-label={sampleView === 'message' && sampleIsMessage ? 'Whole message' : 'Record'}
-                value={JSON.stringify(
-                  sampleView === 'message' && sampleIsMessage ? nodeSamples[sampleNodeId] : latestRecord(nodeSamples[sampleNodeId]),
-                  null,
-                  2,
-                )}
-                readOnly
-                autosize
-                minRows={6}
-                maxRows={20}
-                styles={{ input: { fontFamily: 'monospace', fontSize: '13px' } }}
-              />
-            </>
-          ) : (
-            <Alert icon={<IconInfoCircle size="1rem" />} color="blue">
-              No record has passed this step yet. Turn the flow on to see live data.
-            </Alert>
-          )}
-          <Group justify="flex-end">
-            <Button variant="default" onClick={() => setSampleInspectorOpened(false)}>Close</Button>
-          </Group>
-        </Stack>
-      </Modal>
+      <SampleInspector />
 
       <ComplianceReportModal workflowId={workflowID} opened={complianceReportOpened} onClose={() => setComplianceReportOpened(false)} />
     </>
