@@ -372,7 +372,7 @@ func (s *Service) ListMimirModels(ctx context.Context, vhost, url, tokenSecret s
 	}
 	token, err := s.secret(ctx, vhost, tokenSecret)
 	if err != nil {
-		return nil, fmt.Errorf("%w: the mimir server %v", ErrBadMimirRequest, err)
+		return nil, fmt.Errorf("%w: the mimir server %w", ErrBadMimirRequest, err)
 	}
 	return s.client.ListMimirModels(ctx, strings.TrimSpace(url), token)
 }
