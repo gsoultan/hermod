@@ -869,6 +869,35 @@ export async function previewQuery(vhost: string, sourceId: string, query: strin
   return (await res.json()) as QueryPreview
 }
 
+/** A dataset as a mimir server holds it after Send to mimir-server. */
+export interface MimirDataset {
+  id: string
+  name: string
+  rows: number
+  target?: string
+  columns?: Array<{ name: string; kind?: string }>
+  /** The server's check of the data: good, warn or bad (it cannot learn from bad yet). */
+  verdict?: string
+}
+
+export interface SendToMimirRequest {
+  url: string
+  token_secret: string
+  name?: string
+  target?: string
+}
+
+/** Copies a dataset to a mimir server as a new dataset there; the key stays a vhost secret. */
+export async function sendDatasetToMimir(vhost: string, name: string, body: SendToMimirRequest): Promise<MimirDataset> {
+  const res = await apiFetch(`${datasetUrl(vhost, name)}/mimir`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    silent: true,
+  })
+  return (await res.json()) as MimirDataset
+}
+
 export async function deleteDataset(vhost: string, name: string): Promise<void> {
   await apiFetch(datasetUrl(vhost, name), { method: 'DELETE', silent: true })
 }

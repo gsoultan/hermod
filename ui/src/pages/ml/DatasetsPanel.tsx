@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ActionIcon, Alert, Button, Group, Loader, Paper, Stack, Table, Text, Title, Tooltip } from '@mantine/core'
-import { IconAlertCircle, IconChartBar, IconClock, IconDatabase, IconEye, IconPlugConnected, IconTable, IconTrash, IconUpload } from '@tabler/icons-react'
+import { IconAlertCircle, IconChartBar, IconClock, IconDatabase, IconEye, IconPlugConnected, IconSend, IconTable, IconTrash, IconUpload } from '@tabler/icons-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useConfirm } from '@/components/common/ConfirmProvider'
 import { EmptyState } from '@/components/common/EmptyState'
@@ -10,6 +10,7 @@ import { AnalysisModal, type AnalysisTab } from './datasets/AnalysisModal'
 import { QueryModal } from './datasets/QueryModal'
 import { RefreshModal } from './datasets/RefreshModal'
 import { UploadModal } from './datasets/UploadModal'
+import { SendToMimirModal } from './datasets/SendToMimirModal'
 
 // UploadModal is where it always was for the training steps that open it.
 export { UploadModal }
@@ -19,6 +20,7 @@ type Dialog =
   | { kind: 'query' }
   | { kind: 'analyze'; name: string; tab?: AnalysisTab }
   | { kind: 'refresh'; name: string }
+  | { kind: 'mimir'; name: string }
 
 /** The Datasets heading's id: Getting started moves focus to it. */
 export const DATASETS_HEADING_ID = 'ml-datasets-heading'
@@ -128,6 +130,11 @@ export function DatasetsPanel({ vhost, blockedReason, onSetup, onTrain }: {
                             <IconClock size="1.1rem" />
                           </ActionIcon>
                         </Tooltip>
+                        <Tooltip label="Send to mimir-server">
+                          <ActionIcon variant="subtle" radius="md" aria-label={`Send ${d.name} to mimir-server`} onClick={() => setDialog({ kind: 'mimir', name: d.name })}>
+                            <IconSend size="1.1rem" />
+                          </ActionIcon>
+                        </Tooltip>
                         <Tooltip label="Delete">
                           <ActionIcon variant="subtle" color="red" radius="md" aria-label={`Delete dataset ${d.name}`} onClick={() => askDelete(d.name)}>
                             <IconTrash size="1.1rem" />
@@ -143,6 +150,9 @@ export function DatasetsPanel({ vhost, blockedReason, onSetup, onTrain }: {
         )}
       </Stack>
       {dialog?.kind === 'upload' && <UploadModal vhost={vhost} onClose={close} onUploaded={(info) => analyze(info.name)} />}
+      {dialog?.kind === 'mimir' && (
+        <SendToMimirModal vhost={vhost} name={dialog.name} columns={datasets.find((d) => d.name === dialog.name)?.columns} onClose={close} />
+      )}
       {dialog?.kind === 'query' && <QueryModal vhost={vhost} onClose={close} onAnalyze={(name) => analyze(name)} />}
       {dialog?.kind === 'analyze' && (
         <AnalysisModal vhost={vhost} name={dialog.name} initialTab={dialog.tab} onClose={close}

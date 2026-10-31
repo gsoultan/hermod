@@ -62,6 +62,7 @@ export const NODE_CATEGORIES = [
       { type: 'transformation', refId: 'new', label: 'Translate', subType: 'ai_prompt', icon: IconLanguage, color: 'grape', description: 'Translate each record\'s text with a model', defaults: { prompt: 'Translate the text values of the input into English. Answer with the translation only.', includeData: true } },
       { type: 'transformation', refId: 'new', label: 'AI Embed', subType: 'ai_embed', icon: IconVector, color: 'grape', description: 'Turn text into a vector for semantic search' },
       { type: 'transformation', refId: 'new', label: 'AI Retrieve', subType: 'ai_retrieve', icon: IconDatabaseSearch, color: 'grape', description: 'Find the closest documents in a vector store (RAG)' },
+      { type: 'transformation', refId: 'new', label: 'Ask Documents', subType: 'mimir_ask', icon: IconFileSearch, color: 'grape', description: 'Ask a mimir-server document collection and keep the cited passages' },
     ]
   },
   {

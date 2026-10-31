@@ -11,12 +11,16 @@ Every AI node takes the same connection settings:
 
 | Setting | Meaning |
 |---|---|
-| `provider` | `anthropic` (alias `claude`), `openai` (alias `chatgpt`), `gemini` (alias `google`), `deepseek`, `mistral`, `groq`, `openrouter`, `together`, `xai`, `ollama`, `openai_compatible` |
+| `provider` | `anthropic` (alias `claude`), `openai` (alias `chatgpt`), `gemini` (alias `google`), `deepseek`, `mistral`, `groq`, `openrouter`, `together`, `xai`, `ollama`, `mimir`, `openai_compatible` |
 | `model` | The provider's model id. `anthropic` defaults to `claude-opus-5-5`; the others need one. |
 | `apiKey` | A vhost secret reference: `{{secret.ANTHROPIC_API_KEY}}`. |
-| `baseUrl` | Required for `openai_compatible`; optional elsewhere. |
+| `baseUrl` | Required for `openai_compatible` (its API root) and for `mimir` (the mimir server's address; `/v1` is added); optional elsewhere. |
 | `fallbackProvider`, `fallbackModel`, `fallbackApiKey` | Used when the primary is unavailable (rate limit, server error, refusal), never for a bad request. |
 | `maxConcurrency`, `maxTokens`, `temperature`, `timeout` | Per-node limits. `timeout` defaults to 60s. |
+
+A `mimir` connection speaks to the server's OpenAI-compatible API: `model` is a language model the
+server serves, or a collection's API name to chat with that collection's documents, and `apiKey` is a
+`mimir_...` key. Embeddings work the same way.
 
 `apiKey`, `baseUrl` and the fallback key are resolved against the vhost's secrets only. Message data cannot
 choose them, so a record cannot redirect a call or pick a credential. A key typed in as plain text works, but
@@ -35,6 +39,7 @@ limits and server errors with backoff, honouring `Retry-After`.
 | `ai_embed` | Writes an embedding vector of a field or a template. Not available for Anthropic. |
 | `ai_classify` | Picks one of the configured labels and routes the record down the edge with that label. Below `threshold` confidence, or for a label it was not offered, it takes the `unsure` edge. |
 | `ai_retrieve` | Embeds a query and returns the `topK` closest documents from pgvector or Pinecone. |
+| `mimir_ask` | Asks a [mimir-server](https://github.com/gsoultan/mimir-server) document collection a question about the record and writes the answer with the passages it cites, or the passages alone. It takes the server's own `url`, `apiKey` and `collection` rather than the AI connection; see [Ask documents](ml.md#ask-documents-node). |
 | `ai_agent` | Pursues a goal with a bounded loop over the tools it is given (see below). |
 
 The editor's AI palette also has Summarize and Translate, which are `ai_prompt` with a preset prompt.

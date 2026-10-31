@@ -266,6 +266,11 @@ const GUIDES: Record<string, TransformationGuide> = {
     what: 'Finds the documents closest to a query in a vector store and adds them, with their scores, to each record.',
     firstStep: 'Choose the provider that embedded the documents, then the store and the query.',
   },
+  mimir_ask: {
+    title: 'Ask documents',
+    what: 'Asks a mimir-server document collection a question about each record and adds the answer with the passages it cites, or the passages alone.',
+    firstStep: 'Enter the mimir server, its key secret and the collection id, then write the question.',
+  },
   ai_classify: {
     title: 'AI classify',
     what: 'Asks an AI model to label each record and sends it down that label’s branch, or down unsure.',

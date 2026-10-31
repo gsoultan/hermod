@@ -22,6 +22,8 @@ import (
 	"connectrpc.com/connect"
 	mimirv1 "github.com/gsoultan/mimir-server/gen/mimir/v1"
 	"github.com/gsoultan/mimir-server/gen/mimir/v1/mimirv1connect"
+	"github.com/xitongsys/parquet-go-source/buffer"
+	"github.com/xitongsys/parquet-go/writer"
 )
 
 // mimirModels is a mimir-server that lists two models to the holder of one key.
@@ -197,5 +199,147 @@ func TestExplainRefusesAModelThatIsNotOnAMimirServer(t *testing.T) {
 	w := call(h.Explain, editorA, http.MethodPost, "tenant-a", "double", `{"instance":{"x":1}}`)
 	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "mimir") {
 		t.Fatalf("%d %s, want 400 saying only a mimir model explains", w.Code, w.Body)
+	}
+}
+
+// mimirDatasets is a mimir server that takes dataset uploads.
+type mimirDatasets struct {
+	mimirv1connect.UnimplementedDatasetServiceHandler
+	key   string
+	got   *mimirv1.CreateDatasetRequest
+	auth  string
+	count int
+}
+
+func (m *mimirDatasets) CreateDataset(_ context.Context, req *connect.Request[mimirv1.CreateDatasetRequest]) (*connect.Response[mimirv1.CreateDatasetResponse], error) {
+	m.auth = req.Header().Get("Authorization")
+	if m.auth != "Bearer "+m.key {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("the API key is wrong or revoked"))
+	}
+	m.got = req.Msg
+	m.count++
+	rows := int64(strings.Count(string(req.Msg.GetCsv()), "\n") - 1)
+	return connect.NewResponse(&mimirv1.CreateDatasetResponse{
+		Dataset: &mimirv1.Dataset{Id: "ds-9", Name: req.Msg.GetName(), Rows: rows, Target: "churned",
+			Columns: []*mimirv1.Column{{Name: "age", Kind: "number"}, {Name: "plan", Kind: "category"}}},
+		Check: &mimirv1.DataCheck{Verdict: "good"},
+	}), nil
+}
+
+// customersParquet is a three-row table as the worker exports one.
+func customersParquet(t *testing.T) []byte {
+	t.Helper()
+	type row struct {
+		Age     float64 `parquet:"name=age, type=DOUBLE"`
+		Plan    string  `parquet:"name=plan, type=BYTE_ARRAY, convertedtype=UTF8"`
+		Churned bool    `parquet:"name=churned, type=BOOLEAN"`
+	}
+	fw := buffer.NewBufferFile()
+	pw, err := writer.NewParquetWriter(fw, new(row), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []row{{30, "monthly", true}, {41.5, "yearly", false}, {58, "say \"hi\", twice", false}} {
+		if err := pw.Write(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := pw.WriteStop(); err != nil {
+		t.Fatal(err)
+	}
+	return fw.Bytes()
+}
+
+func TestSendDatasetToMimirUploadsTheRowsAsCSVAndNeverReturnsTheKey(t *testing.T) {
+	h, _, stub := newTrainingAPI(t)
+	stub.exported = customersParquet(t)
+	h.secrets = vhostSecrets{"tenant-a/MIMIR_API_KEY": "mimir_k"}
+	server := &mimirDatasets{key: "mimir_k"}
+	mux := http.NewServeMux()
+	mux.Handle(mimirv1connect.NewDatasetServiceHandler(server))
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	body := `{"url":"` + srv.URL + `","token_secret":"MIMIR_API_KEY","target":"churned"}`
+	w := do(h.SendDatasetToMimir, editorA, http.MethodPost, "/api/vhosts/tenant-a/ml/datasets/customers/mimir",
+		strings.NewReader(body), map[string]string{"vhost": "tenant-a", "name": "customers"})
+	if w.Code != http.StatusOK {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+	if strings.Contains(w.Body.String(), "mimir_k") {
+		t.Fatal("the API key was returned to the browser")
+	}
+	if server.got.GetName() != "customers" || server.got.GetTarget() != "churned" || server.got.GetKind() != mimirv1.DatasetKind_DATASET_KIND_TABLE {
+		t.Errorf("the server was asked for %+v", server.got)
+	}
+	want := "age,plan,churned\n30,monthly,true\n41.5,yearly,false\n58,\"say \"\"hi\"\", twice\",false\n"
+	if got := string(server.got.GetCsv()); got != want {
+		t.Errorf("csv sent:\n%s\nwant:\n%s", got, want)
+	}
+	var reply struct {
+		ID      string `json:"id"`
+		Name    string `json:"name"`
+		Rows    int64  `json:"rows"`
+		Verdict string `json:"verdict"`
+		Columns []struct {
+			Name string `json:"name"`
+			Kind string `json:"kind"`
+		} `json:"columns"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &reply); err != nil {
+		t.Fatal(err)
+	}
+	if reply.ID != "ds-9" || reply.Name != "customers" || reply.Rows != 3 || reply.Verdict != "good" || len(reply.Columns) != 2 {
+		t.Errorf("reply = %s", w.Body)
+	}
+
+	// A name of its own on the server, and the same rows again: mimir has
+	// no append, so each send is a dataset of its own.
+	w = do(h.SendDatasetToMimir, editorA, http.MethodPost, "/api/vhosts/tenant-a/ml/datasets/customers/mimir",
+		strings.NewReader(`{"url":"`+srv.URL+`","token_secret":"MIMIR_API_KEY","name":"customers-2026-10"}`),
+		map[string]string{"vhost": "tenant-a", "name": "customers"})
+	if w.Code != http.StatusOK || server.got.GetName() != "customers-2026-10" || server.count != 2 {
+		t.Errorf("second send: %d %s, server asked for %q", w.Code, w.Body, server.got.GetName())
+	}
+}
+
+func TestSendDatasetToMimirSaysWhatIsWrong(t *testing.T) {
+	h, _, stub := newTrainingAPI(t)
+	stub.exported = customersParquet(t)
+	h.secrets = vhostSecrets{"tenant-a/MIMIR_API_KEY": "wrong"}
+	mux := http.NewServeMux()
+	mux.Handle(mimirv1connect.NewDatasetServiceHandler(&mimirDatasets{key: "mimir_k"}))
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	cases := []struct {
+		name, body string
+		code       int
+		want       string
+	}{
+		{"wrong key", `{"url":"` + srv.URL + `","token_secret":"MIMIR_API_KEY"}`, http.StatusBadRequest, "wrong or revoked"},
+		{"missing secret", `{"url":"` + srv.URL + `","token_secret":"OTHER"}`, http.StatusBadRequest, "does not hold"},
+		{"no url", `{"token_secret":"MIMIR_API_KEY"}`, http.StatusBadRequest, "address"},
+		{"not json", `{`, http.StatusBadRequest, "body must be"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := do(h.SendDatasetToMimir, editorA, http.MethodPost, "/api/vhosts/tenant-a/ml/datasets/customers/mimir",
+				strings.NewReader(tc.body), map[string]string{"vhost": "tenant-a", "name": "customers"})
+			if w.Code != tc.code || !strings.Contains(w.Body.String(), tc.want) {
+				t.Fatalf("%d %s, want %d containing %q", w.Code, w.Body, tc.code, tc.want)
+			}
+		})
+	}
+	if w := do(h.SendDatasetToMimir, viewerA, http.MethodPost, "/api/vhosts/tenant-a/ml/datasets/customers/mimir",
+		strings.NewReader(`{}`), map[string]string{"vhost": "tenant-a", "name": "customers"}); w.Code != http.StatusForbidden {
+		t.Errorf("a viewer was allowed: %d", w.Code)
+	}
+	// Without a worker there is nothing to read the rows from.
+	h2, _ := newModelAPI()
+	h2.secrets = vhostSecrets{"tenant-a/MIMIR_API_KEY": "mimir_k"}
+	if w := do(h2.SendDatasetToMimir, editorA, http.MethodPost, "/api/vhosts/tenant-a/ml/datasets/customers/mimir",
+		strings.NewReader(`{"url":"`+srv.URL+`","token_secret":"MIMIR_API_KEY"}`), map[string]string{"vhost": "tenant-a", "name": "customers"}); w.Code != http.StatusServiceUnavailable {
+		t.Errorf("without a worker: %d %s", w.Code, w.Body)
 	}
 }

@@ -11,7 +11,9 @@
 package connect
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -37,6 +39,40 @@ func TestBuild_Kinds(t *testing.T) {
 		}
 		if p.Name() != want {
 			t.Errorf("%s: Name() = %q, want %q", kind, p.Name(), want)
+		}
+	}
+}
+
+// A mimir-server is an OpenAI-compatible endpoint under /v1 of the server's
+// own address: the kind takes the address, adds /v1 itself, and needs the
+// server's API key, since a mimir server answers no one anonymously.
+func TestBuild_MimirSpeaksOpenAIUnderV1OfTheServer(t *testing.T) {
+	var path, auth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path, auth = r.URL.Path, r.Header.Get("Authorization")
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"hi"}}]}`)
+	}))
+	defer srv.Close()
+
+	if _, err := Build(Spec{Kind: "mimir", BaseURL: srv.URL}); err == nil {
+		t.Error("mimir without an API key accepted")
+	}
+	if _, err := Build(Spec{Kind: "mimir", APIKey: "mimir_k"}); err == nil {
+		t.Error("mimir without the server's address accepted")
+	}
+	for _, base := range []string{srv.URL, srv.URL + "/", srv.URL + "/v1"} {
+		p, err := Build(Spec{Kind: "mimir", BaseURL: base, APIKey: "mimir_k", Retry: &llm.RetryPolicy{MaxAttempts: 1}})
+		if err != nil {
+			t.Fatalf("%s: %v", base, err)
+		}
+		if p.Name() != "mimir" {
+			t.Errorf("Name() = %q", p.Name())
+		}
+		if _, err := p.Chat(context.Background(), llm.ChatRequest{Model: "handbook", Messages: []llm.Message{{Role: llm.RoleUser, Text: "hi"}}}); err != nil {
+			t.Fatalf("%s: chat: %v", base, err)
+		}
+		if path != "/v1/chat/completions" || auth != "Bearer mimir_k" {
+			t.Errorf("%s: asked %s with %q, want /v1/chat/completions with the key", base, path, auth)
 		}
 	}
 }
