@@ -1,6 +1,6 @@
 import { createContext, useContext, type ReactNode, useState } from 'react';
 import { Handle, Position, type Node as FlowNode, type Edge as FlowEdge } from '@xyflow/react';
-import { Box, Text, ActionIcon, Tooltip, Paper, Group, Stack, ThemeIcon, rem, Badge } from '@mantine/core';
+import { Box, Text, ActionIcon, Tooltip, Paper, Group, Stack, ThemeIcon, rem, Badge, UnstyledButton } from '@mantine/core';
 import { useShallow } from 'zustand/react/shallow';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
 import { nodeSimulationResult } from '@/pages/workflows/WorkflowEditor/simulation/simulationPath';
@@ -8,6 +8,18 @@ import { nodeLiveProblem } from '@/pages/workflows/WorkflowEditor/live/liveHealt
 import { SIMULATION_STATUS_STYLE, SimulationStatusBadge } from '@/pages/workflows/WorkflowEditor/simulation/SimulationStatusBadge';
 import { IconEye, IconPlus, IconTrash } from '@tabler/icons-react';
 import { stepTitle } from '@/components/flows/stepTitle';
+import { latestRecord } from './latestRecord';
+/** The newest record a step has seen, on one line. */
+function samplePreview(sample: unknown): string {
+  const latest = latestRecord(sample);
+  if (typeof latest === 'string') return latest;
+  try {
+    return JSON.stringify(latest) ?? String(latest);
+  } catch {
+    return String(latest);
+  }
+}
+
 function problemFields(p: ReturnType<typeof nodeLiveProblem>) {
   return {
     problemSeverity: p?.severity ?? null,
@@ -239,28 +251,26 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
                 {nodeStatus}
               </Badge>
             )}
-            {sample && (
-              <Tooltip label="Latest processed sample">
-                <ActionIcon aria-label="View" 
-                  size="xs" 
-                  variant="subtle" 
-                  color="blue" 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSampleNodeId(id);
-                    setSampleInspectorOpened(true);
-                  }}
-                >
-                  <IconEye size="1rem" />
-                </ActionIcon>
-              </Tooltip>
-            )}
           </Group>
         </Group>
 
         <Text fw={600} size="sm" lh={1.3} lineClamp={2} title={title}>{title}</Text>
         {data.description && <Text size="xs" c="dimmed" lineClamp={1}>{data.description}</Text>}
         {badge && <Group gap={4}>{badge}</Group>}
+        {sample != null && (
+          <UnstyledButton
+            className="hermod-step-sample"
+            aria-label="Latest record, open in full"
+            onClick={(e) => {
+              e.stopPropagation();
+              setSampleNodeId(id);
+              setSampleInspectorOpened(true);
+            }}
+          >
+            <IconEye size="0.85rem" aria-hidden />
+            <Text component="span" size="xs" ff="monospace" truncate>{samplePreview(sample)}</Text>
+          </UnstyledButton>
+        )}
         {stats.length > 0 && (
           <Group className="hermod-step-stats" gap={6} wrap="wrap">
             {stats}

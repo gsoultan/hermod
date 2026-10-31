@@ -38,6 +38,9 @@ branches stays readable and its other branches are a swipe sideways.
   failed, circuit breaker, buffer) are one line inside the card instead of bubbles on its edges.
   Notes and AI Agent steps use the same card. Tidy up now spaces steps by the size they are drawn
   at, so a tall step no longer lands on the one below it.
+- **Live data on the card.** On a live run each step shows the newest record it passed on, on one
+  line in the card, in place of an unlabelled eye icon. Clicking it opens the record in full, with
+  a switch to the whole message (id, operation, table, metadata).
 
 ### Added — "Every database must get a row" and a view of each transaction's runs
 

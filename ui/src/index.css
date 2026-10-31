@@ -451,6 +451,20 @@
   box-shadow: 0 0 0 3px var(--mantine-primary-color-light);
 }
 .hermod-step-stats { margin-top: 2px; }
+.hermod-step-sample {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 4px;
+  padding: 4px 8px;
+  border-radius: var(--mantine-radius-sm);
+  background: var(--mantine-color-default-hover);
+  color: var(--mantine-color-dimmed);
+}
+.hermod-step-sample:hover { color: var(--mantine-color-text); background: var(--mantine-primary-color-light); }
+.hermod-step-sample .mantine-Text-root { color: var(--mantine-color-text); }
+.hermod-step-sample svg { flex: none; color: var(--mantine-color-gray-6); }
 .hermod-branches {
   padding: 4px 0;
   border-top: 1px solid var(--mantine-color-default-border);
