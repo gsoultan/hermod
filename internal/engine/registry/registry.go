@@ -37,6 +37,7 @@ import (
 	"github.com/gsoultan/hermod/internal/aibudget"
 	"github.com/gsoultan/hermod/internal/discovery/service"
 	"github.com/gsoultan/hermod/internal/engine/registry/interfaces"
+	"github.com/gsoultan/hermod/internal/engine/registry/traversal"
 	"github.com/gsoultan/hermod/internal/factory"
 	"github.com/gsoultan/hermod/internal/governance"
 	"github.com/gsoultan/hermod/internal/mesh"
@@ -1634,34 +1635,11 @@ func (r *Registry) UpdateSinkStatus(ctx context.Context, id string, status strin
 	return nil
 }
 
+// mergeData is traversal.MergeData: the one rule for how a node where
+// branches meet combines what each branch brought it, shared with the live
+// traversal so a preview merges the way the workflow does.
 func (r *Registry) mergeData(dst, src map[string]any, strategy string) {
-	if strategy == "" {
-		strategy = "deep"
-	}
-	switch strategy {
-	case "overwrite":
-		maps.Copy(dst, src)
-	case "if_missing":
-		for k, v := range src {
-			if _, ok := dst[k]; !ok {
-				dst[k] = v
-			}
-		}
-	case "shallow":
-		maps.Copy(dst, src)
-	case "deep":
-		fallthrough
-	default:
-		for k, v := range src {
-			if srcMap, ok := v.(map[string]any); ok {
-				if dstMap, ok := dst[k].(map[string]any); ok {
-					r.mergeData(dstMap, srcMap, "deep")
-					continue
-				}
-			}
-			dst[k] = v
-		}
-	}
+	traversal.MergeData(dst, src, strategy)
 }
 
 func (r *Registry) TestTransformationPipeline(ctx context.Context, transformations []storage.Transformation, msg hermod.Message) ([]hermod.Message, error) {
