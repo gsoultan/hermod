@@ -46,9 +46,9 @@ const (
 	seenLimit = 10_000
 )
 
-// msgMimirNeedsSecret is what a sender is told when the source names the
+// msgMimirUnverifiable is what a sender is told when the source names the
 // mimir preset but no secret to check deliveries with.
-const msgMimirNeedsSecret = "this webhook takes mimir-server events but has no webhook secret to check them with"
+const msgMimirUnverifiable = "this webhook takes mimir-server events but has no webhook secret to check them with"
 
 // isMimir reports whether a source takes mimir-server events.
 func isMimir(config map[string]string) bool {
@@ -60,7 +60,7 @@ func isMimir(config map[string]string) bool {
 func mimirEvent(r *http.Request, config map[string]string, body []byte) (*mimirwebhook.Event, int, string) {
 	secret := config["secret"]
 	if secret == "" {
-		return nil, http.StatusServiceUnavailable, msgMimirNeedsSecret
+		return nil, http.StatusServiceUnavailable, msgMimirUnverifiable
 	}
 	ev, err := mimirwebhook.Parse(secret, r.Header.Get(mimirwebhook.SignatureHeader), body, 0)
 	switch {
