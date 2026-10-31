@@ -330,6 +330,29 @@
   overflow: hidden;
   background: var(--mantine-color-body);
 }
+/* A flow's Traces tab: the list of traces beside the selected message's
+   journey. Both panes are bounded by the tab so each scrolls on its own. */
+.hermod-traces {
+  display: grid;
+  grid-template-columns: minmax(16rem, 1fr) 2fr;
+  height: 100%;
+  min-height: 0;
+}
+.hermod-traces-list,
+.hermod-traces-journey {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.hermod-traces-list { border-right: 1px solid var(--mantine-color-default-border); }
+/* On a phone one pane at a time, at full width: the list, then the journey. */
+@media (max-width: 47.99em) {
+  .hermod-traces { grid-template-columns: 1fr; }
+  .hermod-traces-list { border-right: 0; }
+  .hermod-traces[data-pane='list'] .hermod-traces-journey,
+  .hermod-traces[data-pane='journey'] .hermod-traces-list { display: none; }
+}
 .hermod-canvas-controls {
   border-radius: var(--mantine-radius-md);
   box-shadow: var(--mantine-shadow-xs);

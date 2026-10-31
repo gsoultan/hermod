@@ -10,15 +10,16 @@ import '@xyflow/react/dist/style.css';
 import { 
   Title, Button, Group, Paper, Stack, Text, Box, Divider, Badge, ScrollArea, Flex,
   ThemeIcon, Table, ActionIcon, Tooltip, Pagination, TextInput, Tabs, Modal, Code, Menu,
-  useMantineColorScheme, Grid, Loader, UnstyledButton, Alert, SimpleGrid
+  useMantineColorScheme, Loader, UnstyledButton, Alert, SimpleGrid
 } from '@mantine/core';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { apiFetch } from '@/api';
-import { useDisclosure, useDebouncedValue } from '@mantine/hooks';
+import { useDisclosure, useDebouncedValue, useMediaQuery } from '@mantine/hooks';
 import { formatDateTime } from '@/utils/dateUtils';
+import { JourneyStep, type TraceStep } from './traces/JourneyStep';
 import { 
-  IconArrowLeft, IconArrowsExchange, IconBrain, IconRotateDot, IconChevronRight, IconCircleCheck, IconCircleX, IconClock, IconCopy, IconDots, IconEye, IconHistory, IconInfoCircle, IconPencil, IconRefresh, IconSearch, IconTimeline,
+  IconArrowLeft, IconArrowsExchange, IconBrain, IconRotateDot, IconChevronRight, IconCircleX, IconClock, IconCopy, IconDots, IconEye, IconHistory, IconInfoCircle, IconPencil, IconRefresh, IconSearch, IconTimeline,
   IconActivity, IconPlayerPlay, IconFirstAidKit, IconShieldLock, IconTrash,
   IconDownload, IconRocket
 } from '@tabler/icons-react';
@@ -152,6 +153,7 @@ export function WorkflowDetailPage() {
   });
   const { colorScheme } = useMantineColorScheme();
   const isDark = colorScheme === 'dark';
+  const phone = useMediaQuery('(max-width: 47.99em)');
   
   // Logs state
   const [search, setSearch] = useState('');
@@ -496,8 +498,14 @@ export function WorkflowDetailPage() {
             </Tabs.Panel>
 
             <Tabs.Panel value="traces" style={{ flex: 1, overflow: 'hidden' }}>
-              <Grid h="100%" gap={0}>
-                <Grid.Col span={4} style={{ borderRight: `1px solid ${isDark ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-gray-3)'}`, display: 'flex', flexDirection: 'column' }}>
+              {/* A two-pane layout whose panes are bounded by the tab, so each
+                  scrolls on its own. Not Mantine's Grid: it wraps the columns
+                  in an inner element with no height, so a column's 100% had
+                  nothing to resolve against and the journey grew to its full
+                  length under the panel's overflow: hidden, out of reach. On a
+                  phone it is one pane at a time: the list, then the journey. */}
+              <Box className="hermod-traces" data-pane={phone && selectedTraceID ? 'journey' : 'list'}>
+                <Box className="hermod-traces-list">
                   <Stack gap={0} h="100%">
                     <Box p="md" style={{ borderBottom: `1px solid ${isDark ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-gray-3)'}` }}>
                       <Text fw={700} size="sm">Recent Traces</Text>
@@ -558,9 +566,21 @@ export function WorkflowDetailPage() {
                       </Button>
                     </Group>
                   </Stack>
-                </Grid.Col>
-                <Grid.Col span={8} h="100%">
-                  <ScrollArea h="100%" p="md">
+                </Box>
+                <Box className="hermod-traces-journey">
+                  {phone && selectedTraceID && (
+                    <Box px="xs" py={6} style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}>
+                      <Button
+                        variant="subtle"
+                        size="compact-sm"
+                        leftSection={<IconArrowLeft size="0.9rem" />}
+                        onClick={() => setSelectedTraceID(null)}
+                      >
+                        All traces
+                      </Button>
+                    </Box>
+                  )}
+                  <ScrollArea style={{ flex: 1, minHeight: 0 }} p={phone ? 'sm' : 'md'}>
                     {!selectedTraceID ? (
                       <Stack h="100%" align="center" justify="center" py={100} gap="xs">
                         <IconTimeline size="3rem" color="var(--mantine-color-gray-3)" />
@@ -569,82 +589,17 @@ export function WorkflowDetailPage() {
                     ) : isTraceDetailLoading ? (
                       <Group justify="center" py={100}><Loader size="md" /></Group>
                     ) : selectedTrace ? (
-                      <Stack gap="xl">
-                        <Box>
-                          <Title order={4} mb="xs">Message Journey</Title>
-                          <Text size="sm" c="dimmed">Tracking ID: <Code>{selectedTraceID}</Code></Text>
+                      <Stack gap={phone ? 'md' : 'xl'}>
+                        <Box miw={0}>
+                          <Title order={phone ? 5 : 4} mb={phone ? 2 : 'xs'}>Message Journey</Title>
+                          <Text size={phone ? 'xs' : 'sm'} c="dimmed" truncate>Tracking ID: <Code>{selectedTraceID}</Code></Text>
                         </Box>
-                        
-                        <Stack gap={0}>
-                          {Array.isArray((selectedTrace as any)?.steps) && ((selectedTrace as any).steps as any[]).map((step: any, idx: number) => (
-                            <Box key={idx} style={{ 
-                              borderLeft: '2px solid var(--mantine-color-blue-2)', 
-                              paddingLeft: '2rem',
-                              paddingBottom: '2rem',
-                              position: 'relative'
-                            }}>
-                              <ThemeIcon 
-                                variant="filled" 
-                                size="md" 
-                                radius="xl" 
-                                color={step.error ? "red" : "blue"}
-                                style={{ position: 'absolute', left: '-13px', top: '0' }}
-                              >
-                                {step.error ? <IconCircleX size="1rem" /> : <IconCircleCheck size="1rem" />}
-                              </ThemeIcon>
-                              
-                              <Paper withBorder p="md" radius="md" shadow="xs">
-                                <Stack gap="xs">
-                                  <Group justify="space-between" align="flex-start">
-                                    <Box>
-                                      <Text fw={700}>Node: {nodeNameById.get(step.node_id) || step.node_id}</Text>
-                                      {nodeNameById.get(step.node_id) && (
-                                        <Tooltip label="Internal node ID" withArrow>
-                                          <Text size="xs" c="dimmed">ID: <Code>{step.node_id}</Code></Text>
-                                        </Tooltip>
-                                      )}
-                                    </Box>
-                                    <Badge leftSection={<IconClock size="0.8rem" />} variant="light">
-                                      {step.duration_ms || Math.round(step.duration / 1000000)}ms
-                                    </Badge>
-                                  </Group>
-                                  
-                                  <Text size="xs" c="dimmed">{formatDateTime(step.timestamp)}</Text>
 
-                                  {step.error && (
-                                    <Alert color="red" icon={<IconCircleX size="1rem" />} title="Processing Error">
-                                      {step.error}
-                                    </Alert>
-                                  )}
-                                  
-                                  {(step.before || step.after) ? (
-                                    <Grid gap="md">
-                                      <Grid.Col span={{ base: 12, md: 6 }}>
-                                        <Text size="xs" fw={700} mb={4} c="dimmed">INPUT / BEFORE</Text>
-                                        <Paper withBorder p="xs" bg={isDark ? 'dark.8' : 'gray.0'}>
-                                          <ScrollArea h={200}>
-                                            <Code block bg="transparent" style={{ whiteSpace: 'pre' }}>{JSON.stringify(step.before || {}, null, 2)}</Code>
-                                          </ScrollArea>
-                                        </Paper>
-                                      </Grid.Col>
-                                      <Grid.Col span={{ base: 12, md: 6 }}>
-                                        <Text size="xs" fw={700} mb={4} c="dimmed">OUTPUT / AFTER</Text>
-                                        <Paper withBorder p="xs" bg={isDark ? 'dark.8' : 'gray.0'}>
-                                          <ScrollArea h={200}>
-                                            <Code block bg="transparent" style={{ whiteSpace: 'pre' }}>{JSON.stringify(step.after || step.data || {}, null, 2)}</Code>
-                                          </ScrollArea>
-                                        </Paper>
-                                      </Grid.Col>
-                                    </Grid>
-                                  ) : step.data && (
-                                    <Box>
-                                      <Text size="xs" fw={700} mb={4} c="dimmed">DATA</Text>
-                                      <Code block>{JSON.stringify(step.data, null, 2)}</Code>
-                                    </Box>
-                                  )}
-                                </Stack>
-                              </Paper>
-                            </Box>
+                        {/* Inset by half a marker: each step's marker hangs
+                            13px left of its line and the scroll area clips it. */}
+                        <Stack gap={0} pl={phone ? 12 : 14}>
+                          {Array.isArray((selectedTrace as any)?.steps) && ((selectedTrace as any).steps as TraceStep[]).map((step, idx) => (
+                            <JourneyStep key={idx} step={step} nodeName={nodeNameById.get(step.node_id)} compact={!!phone} />
                           ))}
                         </Stack>
                       </Stack>
@@ -652,8 +607,8 @@ export function WorkflowDetailPage() {
                       <Alert color="red">Failed to load trace details.</Alert>
                     )}
                   </ScrollArea>
-                </Grid.Col>
-              </Grid>
+                </Box>
+              </Box>
             </Tabs.Panel>
 
             <Tabs.Panel value="history" style={{ flex: 1, overflow: 'hidden' }}>
