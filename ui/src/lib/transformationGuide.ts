@@ -139,6 +139,11 @@ const GUIDES: Record<string, TransformationGuide> = {
     what: 'Enriches each record with a value read from Redis: a string, one hash field, or a whole hash.',
     firstStep: 'Set the address on the Connection tab, then write the key with record values as {{.after.column}}.',
   },
+  redis_set: {
+    title: 'Redis set',
+    what: 'Writes a Redis key for each record (SET, or HSET for a hash), then passes the record on unchanged.',
+    firstStep: 'Set the address on the Connection tab, then write the key with record values as {{.after.column}}.',
+  },
   panmail_providers: {
     title: 'Panmail providers',
     what: 'Adds the list of email providers configured in a panmail gateway, with each one\'s id, name, type and allowed domains.',

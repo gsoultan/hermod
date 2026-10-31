@@ -44,7 +44,7 @@ const SinkNodeImpl = ({ id, data, selected }: any) => {
     if (data.type === 'tiktok') return IconBrandTiktok;
     if (data.type === 'file') return IconDeviceFloppy;
     if (data.type === 'stdout') return IconTerminal2;
-    if (['kafka', 'nats', 'rabbitmq', 'rabbitmq_queue', 'redis', 'pubsub', 'kinesis', 'pulsar'].includes(data.type)) return IconCircles;
+    if (['kafka', 'nats', 'rabbitmq', 'rabbitmq_queue', 'redis', 'redis_set', 'pubsub', 'kinesis', 'pulsar'].includes(data.type)) return IconCircles;
     if (data.type === 's3' || data.type === 's3-parquet' || data.type === 'ftp') return IconCloudUpload;
     return IconDatabase;
   };

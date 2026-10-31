@@ -44,6 +44,7 @@ const SocialSinkConfig = lazy(() => import('../workflow/Sink/SocialSinkConfig').
 const PanmailSinkConfig = lazy(() => import('../workflow/Sink/PanmailSinkConfig').then(m => ({ default: m.PanmailSinkConfig })));
 const MetisSinkConfig = lazy(() => import('../workflow/Sink/MetisSinkConfig').then(m => ({ default: m.MetisSinkConfig })));
 const FcmSinkConfig = lazy(() => import('../workflow/Sink/FcmSinkConfig').then(m => ({ default: m.FcmSinkConfig })));
+const RedisSetSinkConfig = lazy(() => import('../workflow/Sink/RedisSetSinkConfig').then(m => ({ default: m.RedisSetSinkConfig })));
 const MLDatasetSinkConfig = lazy(() => import('../workflow/Sink/MLDatasetSinkConfig').then(m => ({ default: m.MLDatasetSinkConfig })));
 
 export const SINK_TYPES = [
@@ -73,6 +74,7 @@ export const SINK_TYPES = [
   { value: 'rabbitmq', label: 'RabbitMQ Stream' , group: 'Messaging & Streams' },
   { value: 'rabbitmq_queue', label: 'RabbitMQ Queue' , group: 'Messaging & Streams' },
   { value: 'redis', label: 'Redis Stream' , group: 'Messaging & Streams' },
+  { value: 'redis_set', label: 'Redis Set (key/value)' , group: 'Messaging & Streams' },
   { value: 'pubsub', label: 'Google Pub/Sub' , group: 'Messaging & Streams' },
   { value: 'kinesis', label: 'AWS Kinesis' , group: 'Messaging & Streams' },
   { value: 'pulsar', label: 'Apache Pulsar' , group: 'Messaging & Streams' },
@@ -115,6 +117,7 @@ export const configComponents: Record<string, any> = {
   kafka: QueueSinkConfig,
   nats: QueueSinkConfig,
   redis: QueueSinkConfig,
+  redis_set: RedisSetSinkConfig,
   rabbitmq: QueueSinkConfig,
   rabbitmq_queue: QueueSinkConfig,
   pubsub: QueueSinkConfig,

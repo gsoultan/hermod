@@ -50,9 +50,15 @@ func redisDB(cfg map[string]any) string {
 	case int:
 		return strconv.Itoa(v)
 	case string:
-		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
-			return strconv.Itoa(n)
-		}
+		return redisDBNumber(v)
+	}
+	return "0"
+}
+
+// redisDBNumber is a database number saved as text, "0" when it is not one.
+func redisDBNumber(s string) string {
+	if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil {
+		return strconv.Itoa(n)
 	}
 	return "0"
 }
@@ -162,6 +168,13 @@ var transformerReaders = map[string]func(r nodeReader, cfg map[string]any) []nod
 			return nil
 		}
 		return []nodeIO{{asset: one(KindDatabase, "redis", addr, redisDB(cfg))[0], relation: RelLooksUp}}
+	},
+	"redis_set": func(_ nodeReader, cfg map[string]any) []nodeIO {
+		addr := strings.ToLower(str(cfg, "addr"))
+		if addr == "" || strings.Contains(addr, "{{") {
+			return nil
+		}
+		return []nodeIO{{asset: one(KindDatabase, "redis", addr, redisDB(cfg))[0], relation: RelWrites, out: true}}
 	},
 	"reference_lookup": func(_ nodeReader, cfg map[string]any) []nodeIO {
 		if p := str(cfg, "filePath"); p != "" {

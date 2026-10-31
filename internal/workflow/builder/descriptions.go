@@ -131,6 +131,10 @@ var descriptions = map[string]string{
 		`"apiKey":"{{secret(\"NAME\")}}","prompt":"Summarise {{text}}","system","outputMode":"text|json","targetField"}.`,
 	"transformation:api_lookup": "Fetches data from an HTTP API and merges it into the record.",
 	"transformation:audit":      "Adds execution metadata (workflow, time, node) to the record.",
+	"transformation:redis_set": `Writes a key in Redis and passes the record on unchanged (for a destination, use ` +
+		`the redis_set sink, which takes the same config). config: {"addr":"host:6379","password":"{{secret.REDIS_PASSWORD}}",` +
+		`"db":0,"tls":false,"command":"set|hset","key":"customer:{{.after.id}}","field":"{{.after.sku}}",` +
+		`"value":"{{.after.name}} (empty writes the whole record)","ttl":"1h","onlyIfAbsent":false,"onError":"fail|passthrough"}.`,
 	"transformation:redis_lookup": `Reads a key from Redis and merges the value into the record. config: ` +
 		`{"addr":"host:6379","password":"{{secret.REDIS_PASSWORD}}","db":0,"tls":false,"command":"get|hget|hgetall",` +
 		`"key":"customer:{{.after.customer_id}}","field":"{{.after.sku}}","valuePath","targetField","flattenInto",` +

@@ -9,6 +9,7 @@ import { useWorkflowStore } from '../../pages/workflows/WorkflowEditor/store/use
 import { useVHostSecretNames } from '@/lib/vhostSecrets';
 import { SecretNamesContext } from '@/components/shared/TemplateField';
 import { resolveConfigComponent } from '../workflow/Transformation/configs/registry';
+import { configColumnSpan } from '@/lib/transformationLayout';
 import { nextColumnFieldName } from '../workflow/Transformation/fieldMappings/columnFields';
 import { FunctionLibrary } from '../workflow/Transformation/FunctionLibrary';
 // Lazy-load heavy UI components to reduce initial bundle size (Junie compliance)
@@ -152,10 +153,9 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
   const secretNames = useVHostSecretNames(editorVHost);
 
   const transType = selectedNode?.data?.transType || selectedNode?.type || '';
-  // Field mappings are rows of long paths and JSON values, and a SQL statement
-  // is an editor; they get the wider middle column even when the side panels
-  // are showing.
-  const wideConfig = transType === 'set' || transType === 'advanced' || transType === 'execute_sql';
+  // These read a row's value as an expression, so they get the function library.
+  const expressionConfig = transType === 'set' || transType === 'advanced' || transType === 'execute_sql';
+  const configSpan = configColumnSpan(transType);
 
   // The node's own type, not just transType: a `foreach` node and a
   // `transformation` with transType foreach both compute transType "foreach"
@@ -493,9 +493,9 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
             </Suspense>
           </Card>
 
-          {/* Both read a row's value as an expression (wideConfig is the
+          {/* Both read a row's value as an expression (expressionConfig is the
               same pair), so both get the list of what one can call. */}
-          {wideConfig && <FunctionLibrary onInsert={onInsertExample} />}
+          {expressionConfig && <FunctionLibrary onInsert={onInsertExample} />}
 
           <Card withBorder padding="md" radius="md" bg="var(--mantine-color-body)">
              <Group gap="xs" mb="sm">
@@ -513,7 +513,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
       )}
 
       {/* Column 2: Configuration */}
-      <Grid.Col span={focus ? 12 : { base: 12, md: 8, lg: wideConfig ? 6 : 5 }}>
+      <Grid.Col span={focus ? 12 : { base: 12, md: 8, lg: configSpan }}>
         <Card withBorder shadow="md" radius="md" p="md" h="100%" style={{ display: 'flex', flexDirection: 'column' }}>
           <Stack gap="lg" h="100%">
             <Group justify="space-between" px="xs">
@@ -640,7 +640,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
     </Grid.Col>
 
       {!focus && (
-      <Grid.Col span={{ base: 12, md: 12, lg: wideConfig ? 3 : 4 }}>
+      <Grid.Col span={{ base: 12, md: 12, lg: 9 - configSpan }}>
         <Suspense fallback={<Text size="sm" c="dimmed">Loading preview…</Text>}>
           <PreviewPanel
             title="3. LIVE PREVIEW"

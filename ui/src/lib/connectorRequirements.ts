@@ -146,6 +146,12 @@ const SINK_REQUIREMENTS: Record<string, RequiredField[]> = {
     { key: 'topic', label: 'Topic', example: 'hermod.events' },
   ],
   redis: [{ key: 'addr', label: 'Address', example: 'redis.example.com:6379' }],
+  // rediskv.ParseSettings refuses a sink with neither, so the factory fails
+  // the workflow at start.
+  redis_set: [
+    { key: 'addr', label: 'Address', example: 'redis.example.com:6379' },
+    { key: 'key', label: 'Key', example: 'customer:{{.after.id}}' },
+  ],
   rabbitmq: [
     { key: 'host', aliases: URL_KEYS, label: 'Host', example: 'rabbit.example.com' },
     { key: 'stream_name', label: 'Stream name', example: 'hermod-stream' },
