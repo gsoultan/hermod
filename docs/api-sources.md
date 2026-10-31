@@ -69,6 +69,27 @@ curl -X POST http://localhost:4000/api/webhooks/orders \
   -H "X-API-Key: $KEY" -H "X-Hub-Signature-256: sha256=$SIG" -d "$BODY"
 ```
 
+#### mimir-server events
+
+A webhook source whose **Sender** is **mimir-server events** (`"preset":
+"mimir"`) takes the events a [mimir-server](https://github.com/gsoultan/mimir-server)
+sends to a webhook made on its console: `training.finished`,
+`training.failed`, `training.queued`, `model.accuracy_dropped`,
+`model.created`, `model.updated`, `model.deleted`, `user.created`,
+`user.deleted` and `test`. Paste Hermod's webhook URL into the console and
+the `whsec_…` secret it shows once into the source's **Webhook secret**
+(`secret`). Then:
+
+| | |
+| :--- | :--- |
+| Signature | Each delivery is checked against its `Mimir-Signature` header (`t=<unix>,v1=<hex HMAC-SHA256 of "<t>.<body>">`, within five minutes of now). The API key and `X-Hub-Signature-256` of a plain webhook do not apply. A source with the preset but no secret answers 503 to every delivery. |
+| Repeats | mimir retries a delivery for about a day until it gets a 2xx, so the same event can arrive again. A repeat (same event `id` on the same path) is answered `200 {"status":"duplicate"}` and not dispatched again. Ids are remembered for 25 hours, per Hermod process. |
+| Events | **Events** (`events`, comma-separated types) keeps only those; another type is answered `200 {"status":"ignored"}`. Empty takes every event. |
+| The message | The body as sent: `{"id", "type", "time", "data"}`, with `data` shaped by the type (a training event carries `job`, `model.accuracy_dropped` carries `model`, `week` and `accuracy`). The type is also in the `mimir_event` metadata and the id in `mimir_event_id`, so a Switch node can route on `metadata.mimir_event`. |
+
+A replayed request (**Webhook history → Replay**) is dispatched as before,
+without the signature or repeat check.
+
 ### gRPC Source
 
 A gRPC source receives records that your service pushes to Hermod. Hermod does

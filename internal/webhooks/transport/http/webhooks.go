@@ -73,6 +73,10 @@ func (h *WebhookHandler) authenticateWebhook(r *http.Request, config map[string]
 	if key := config["api_key"]; key != "" && !handlers.ConstantTimeCompare(r.Header.Get("X-API-Key"), key) {
 		return http.StatusUnauthorized, "Invalid API key"
 	}
+	if isMimir(config) {
+		// A mimir delivery is signed in its own header; mimirEvent checks it.
+		return http.StatusOK, ""
+	}
 	if secret := config["secret"]; secret != "" {
 		signature := r.Header.Get("X-Hub-Signature-256")
 		if signature == "" {
@@ -120,6 +124,13 @@ func (h *WebhookHandler) dispatchWebhook(r *http.Request, fullPath string, msg h
 		}
 	}
 	return err
+}
+
+// writeJSON answers with status and v as JSON.
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 // writeDispatched writes the standard "dispatched" JSON acknowledgement.
@@ -194,6 +205,28 @@ func (h *WebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		message.ReleaseMessage(msg)
 		h.JsonError(w, authMsg, status)
 		return
+	}
+	if isMimir(config) {
+		ev, status, authMsg := mimirEvent(r, config, body)
+		if authMsg != "" {
+			message.ReleaseMessage(msg)
+			h.JsonError(w, authMsg, status)
+			return
+		}
+		// Acknowledged with a 2xx either way, or the server would retry
+		// for a day what this source does not want, or already has.
+		if !wantsEvent(config, ev.Type) {
+			message.ReleaseMessage(msg)
+			writeJSON(w, http.StatusOK, map[string]string{"status": "ignored", "event": ev.Type, "event_id": ev.ID})
+			return
+		}
+		if h.seen.Seen(fullPath, ev.ID) {
+			message.ReleaseMessage(msg)
+			writeJSON(w, http.StatusOK, map[string]string{"status": "duplicate", "event": ev.Type, "event_id": ev.ID})
+			return
+		}
+		msg.SetMetadata(metaMimirEvent, ev.Type)
+		msg.SetMetadata(metaMimirEventID, ev.ID)
 	}
 
 	// A source set to answer synchronously holds the request until the

@@ -1633,6 +1633,13 @@ and `POST /api/vhosts/{vhost}/ml/models/{name}/explain` with
 `{"instance": {...}, "label": "optional"}` (Editor) answers
 `{"model", "explanation"}`. A model on another kind of server answers 400.
 
+### Hearing from the server
+
+A mimir-server also tells Hermod what happens on its side: a training that
+finished or failed, a model whose accuracy dropped in use. Make a webhook on
+the mimir console pointing at a Hermod webhook source whose **Sender** is
+**mimir-server events**; see [mimir-server events](api-sources.md#mimir-server-events).
+
 ## Feedback node
 
 *Machine Learning → Feedback.* Once the record that knows what really
