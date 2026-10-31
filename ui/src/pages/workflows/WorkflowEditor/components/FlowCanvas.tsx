@@ -1,13 +1,14 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { 
   ReactFlow, 
   Background, 
-  Controls, 
   MiniMap,
   type Node,
   type Edge,
   type Connection,
-  addEdge
+  addEdge,
+  useNodesInitialized,
+  useReactFlow
 } from '@xyflow/react';
 import { useWorkflowStore } from '../store/useWorkflowStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -93,6 +94,20 @@ export function FlowCanvas({ onNodeClick, onEdgeClick, onDrop, onDragOver }: Flo
     setEdges: state.setEdges,
   })));
 
+  // Open on the whole flow once its steps have been measured, never closer
+  // than 100%. The steps arrive after the canvas mounts, so React Flow's own
+  // fitView-on-init would fit an empty canvas.
+  const { fitView } = useReactFlow();
+  const nodesInitialized = useNodesInitialized();
+  const fitted = useRef(false);
+  useEffect(() => {
+    if (!nodesInitialized || fitted.current || nodes.length === 0) return;
+    fitted.current = true;
+    // A frame later, once the page around the canvas has settled its size.
+    const t = setTimeout(() => fitView({ padding: 0.2, maxZoom: 1 }), 50);
+    return () => clearTimeout(t);
+  }, [nodesInitialized, nodes.length, fitView]);
+
   const onConnect = useCallback((params: Connection) => {
     const label = params.sourceHandle?.split(':::')[0] || params.sourceHandle || '';
     const edge: Edge = {
@@ -121,23 +136,30 @@ export function FlowCanvas({ onNodeClick, onEdgeClick, onDrop, onDragOver }: Flo
       defaultViewport={{ x: 0, y: 0, zoom: 1 }}
       snapToGrid
       snapGrid={[15, 15]}
-      fitViewOptions={{ padding: 0.2 }}
+      fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
     >
       <Background color={isDark ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-gray-3)'} gap={20} />
       <SimulationOverlay />
       <LiveRunBanner />
-      {/* Lifted clear of the collapsed Live Logs bar (40px), which now floats
-          over the canvas instead of sitting below it. */}
-      <Controls style={{ bottom: 52 }} />
+      {/* Zoom, Fit and Tidy up are the page's CanvasControls, bottom left. The
+          minimap is lifted clear of the collapsed Live logs bar (40px), which
+          floats along the bottom of the canvas card. */}
       <MiniMap
+        pannable
         nodeColor={(n) => {
           if (n.type === 'source') return 'var(--mantine-color-blue-6)';
           if (n.type === 'sink') return 'var(--mantine-color-green-6)';
           return 'var(--mantine-color-violet-6)';
         }}
+        maskColor={isDark ? 'rgba(0, 0, 0, 0.45)' : undefined}
         style={{
           backgroundColor: isDark ? 'var(--mantine-color-dark-7)' : 'var(--mantine-color-body)',
-          bottom: 52,
+          bottom: 40,
+          width: 168,
+          height: 96,
+          border: '1px solid var(--mantine-color-default-border)',
+          borderRadius: 'var(--mantine-radius-md)',
+          overflow: 'hidden',
         }}
       />
     </ReactFlow>

@@ -1,8 +1,9 @@
 import { Position, type Node as FlowNode } from '@xyflow/react';
 import { 
-  Text, Badge, Group, ThemeIcon, Paper, useMantineColorScheme, ActionIcon 
+  Text, Group, Paper, ActionIcon, rem
 } from '@mantine/core';
-import { BaseNode, PlusHandle, TargetHandle } from './BaseNode';
+import { transformationLabel } from './transformationLabel';
+import { BaseNode, BranchOutputs, PlusHandle, TargetHandle } from './BaseNode';
 import { branchHandleId } from './branchHandleId';
 import { useState, memo } from 'react';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
@@ -63,53 +64,7 @@ const TransformationNodeImpl = ({ id, data, selected }: any) => {
     }
   };
 
-  const getLabel = () => {
-    switch (data.transType) {
-      case 'mapping': return 'Mapping';
-      case 'set': return 'Set Fields';
-      case 'filter_data': return 'Filter';
-      case 'mask': return 'Mask';
-      case 'encrypt': return 'Encrypt';
-      case 'decrypt': return 'Decrypt';
-      case 'db_lookup': return 'DB Lookup';
-      case 'api_lookup': return 'API Lookup';
-      case 'redis_lookup': return 'Redis Lookup';
-      case 'redis_set': return 'Redis Set';
-      case 'panmail_providers': return 'Panmail Providers';
-      case 'fuzzy_lookup': return 'Fuzzy Lookup';
-      case 'char_map': return 'Char Map';
-      case 'data_conversion': return 'Data Conversion';
-      case 'execute_sql': return 'Execute SQL';
-      case 'parallel_pipeline': return 'Parallel Pipeline';
-      case 'pipeline': return 'Pipeline';
-      case 'advanced': return 'Advanced';
-      case 'lua': return 'Lua Script';
-      case 'aggregate': return 'Aggregate';
-      case 'sampling': return 'Sampling';
-      case 'foreach': return 'Foreach';
-      case 'fanout': return 'Fanout';
-      case 'validator': return 'Validator';
-      case 'stat_validator': return 'Statistical Validation';
-      case 'dq_scorer': return 'Data Quality Scorer';
-      case 'ai_prompt': return 'AI Prompt';
-      case 'ai_extract': return 'AI Extract';
-      case 'ai_embed': return 'AI Embed';
-      case 'ai_retrieve': return 'AI Retrieve';
-      case 'flatten': return 'Flatten';
-      case 'unflatten': return 'Unflatten';
-      case 'parse_field': return 'Parse Field';
-      case 'template_render': return 'Template';
-      case 'field_diff': return 'Field Diff';
-      case 'reference_lookup': return 'Reference Lookup';
-      case 'geo': return 'Geo';
-      case 'scale': return 'Scale';
-      case 'encode': return 'Encode';
-      case 'bucketize': return 'Bucketize';
-      case 'rolling': return 'Rolling Features';
-      case 'anomaly_score': return 'Anomaly Score';
-      default: return 'Transformation';
-    }
-  };
+  const getLabel = () => transformationLabel(data.transType);
 
   return (
     <BaseNode id={id} type={getLabel()} color="violet" icon={getIcon()} data={data} selected={selected}>
@@ -128,33 +83,16 @@ const SwitchNodeImpl = ({ id, data, selected }: any) => {
   return (
     <BaseNode id={id} type="Switch" color="orange" icon={IconGitBranch} data={data} selected={selected}>
       <TargetHandle position={Position.Left} color="orange" />
-      {cases.map((c: any, idx: number) => (
-        <PlusHandle 
-          key={idx}
-          type="source" 
-          position={Position.Right} 
-          id={branchHandleId('switch', c.label, idx)}
-          nodeId={id} 
-          color="orange"
-          style={{ top: 30 + (idx * 25) }}
-        />
-      ))}
-      {cases.length > 0 && (
-        <Group gap={4} mt="xs">
-          {cases.map((c: any, i: number) => (
-            <Badge key={i} size="xs" variant="outline" color="orange">{c.label}</Badge>
-          ))}
-        </Group>
-      )}
-      <PlusHandle 
-          type="source" 
-          position={Position.Right} 
-          id="default"
-          nodeId={id} 
-          color="gray"
-          style={{ top: 30 + (cases.length * 25) }}
-        />
-        <Badge size="xs" variant="outline" color="gray" mt={4}>default</Badge>
+      <BranchOutputs
+        nodeId={id}
+        branches={[
+          ...cases.map((c: any, idx: number) => {
+            const branch = branchHandleId('switch', c.label, idx);
+            return { id: branch, label: branch, color: 'orange' };
+          }),
+          { id: 'default', label: 'default', color: 'gray' },
+        ]}
+      />
     </BaseNode>
   );
 };
@@ -168,33 +106,16 @@ const RouterNodeImpl = ({ id, data, selected }: any) => {
   return (
     <BaseNode id={id} type="Router" color="indigo" icon={IconArrowsSplit} data={data} selected={selected}>
       <TargetHandle position={Position.Left} color="indigo" />
-      {rules.map((rule: any, idx: number) => (
-        <PlusHandle 
-          key={idx}
-          type="source" 
-          position={Position.Right} 
-          id={branchHandleId('router', rule.label, idx)}
-          nodeId={id} 
-          color="indigo"
-          style={{ top: 30 + (idx * 25) }}
-        />
-      ))}
-      <PlusHandle 
-        type="source" 
-        position={Position.Right} 
-        id="default"
-        nodeId={id} 
-        color="gray"
-        style={{ top: 30 + (rules.length * 25) }}
+      <BranchOutputs
+        nodeId={id}
+        branches={[
+          ...rules.map((rule: any, idx: number) => {
+            const branch = branchHandleId('router', rule.label, idx);
+            return { id: branch, label: branch, color: 'indigo' };
+          }),
+          { id: 'default', label: 'default', color: 'gray' },
+        ]}
       />
-      {rules.length > 0 && (
-        <Group gap={4} mt="xs">
-          {rules.map((r: any, i: number) => (
-            <Badge key={i} size="xs" variant="outline" color="indigo">{r.label}</Badge>
-          ))}
-          <Badge size="xs" variant="outline" color="gray">default</Badge>
-        </Group>
-      )}
     </BaseNode>
   );
 };
@@ -230,8 +151,10 @@ const ForeachNodeImpl = ({ id, data, selected }: any) => {
   return (
     <BaseNode id={id} type="Foreach" color="teal" icon={IconPlaylist} data={data} selected={selected}>
       <TargetHandle position={Position.Left} color="teal" />
-      <PlusHandle type="source" position={Position.Right} nodeId={id} color="teal" />
-      <PlusHandle type="source" position={Position.Right} id="error" nodeId={id} color="red" style={{ top: 'auto', bottom: 10 }} />
+      <BranchOutputs nodeId={id} branches={[
+        { id: null, label: 'Each item', color: 'teal' },
+        { id: 'error', label: 'Error', color: 'red' },
+      ]} />
     </BaseNode>
   );
 };
@@ -267,15 +190,15 @@ const DeduplicateNodeImpl = ({ id, data, selected }: any) => {
   return (
     <BaseNode id={id} type="Deduplicate" color="violet" icon={IconCopy} data={data} selected={selected}>
       <TargetHandle position={Position.Left} color="violet" />
-      <PlusHandle type="source" position={Position.Right} nodeId={id} color="violet" />
-      <PlusHandle type="source" position={Position.Right} id="duplicate" nodeId={id} color="gray" style={{ top: 'auto', bottom: 10 }} />
+      <BranchOutputs nodeId={id} branches={[
+        { id: null, label: 'Unique', color: 'violet' },
+        { id: 'duplicate', label: 'Duplicate', color: 'gray' },
+      ]} />
     </BaseNode>
   );
 };
 
 const NoteNodeImpl = ({ id, data, selected }: any) => {
-  const { colorScheme } = useMantineColorScheme();
-  const isDark = colorScheme === 'dark';
   const [hovered, setHovered] = useState(false);
   const setNodes = useWorkflowStore((s: any) => s.setNodes);
   const setSelectedNode = useWorkflowStore((s: any) => s.setSelectedNode);
@@ -304,25 +227,14 @@ const NoteNodeImpl = ({ id, data, selected }: any) => {
           <IconTrash size="0.7rem" />
         </ActionIcon>
       )}
-      <Paper
-        p="sm"
-        radius="md"
-        style={{
-          background: isDark ? 'var(--mantine-color-yellow-9)' : 'var(--mantine-color-yellow-1)',
-          border: selected ? '2px solid var(--mantine-color-blue-6)' : '1px dashed var(--mantine-color-yellow-6)',
-          minWidth: '150px',
-          maxWidth: '250px',
-          boxShadow: selected ? '0 0 10px rgba(0,0,0,0.1)' : 'none',
-          transition: 'all 0.2s ease',
-        }}
-      >
-        <Group gap="xs" mb={4}>
-          <ThemeIcon variant="subtle" color="yellow" size="sm">
-            <IconNote size="0.8rem" />
-          </ThemeIcon>
-          <Text size="xs" fw={700}>NOTE</Text>
+      <Paper className="hermod-note" data-selected={selected || undefined} radius="md" px={14} py={12}>
+        <Group gap={8} mb={6} wrap="nowrap">
+          <IconNote size="0.9rem" color="var(--mantine-color-yellow-7)" />
+          <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: rem(0.6) }}>Note</Text>
         </Group>
-        <Text size="sm">{data.label || 'Empty note...'}</Text>
+        {data.label
+          ? <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{data.label}</Text>
+          : <Text size="sm" c="dimmed">Empty note</Text>}
       </Paper>
     </div>
   );

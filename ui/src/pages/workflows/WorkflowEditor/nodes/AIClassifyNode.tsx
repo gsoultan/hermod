@@ -1,8 +1,8 @@
 import { memo } from 'react';
 import { Position } from '@xyflow/react';
-import { Badge, Group, Text } from '@mantine/core';
+import { Text } from '@mantine/core';
 import { IconTags } from '@tabler/icons-react';
-import { BaseNode, PlusHandle, TargetHandle } from './BaseNode';
+import { BaseNode, BranchOutputs, TargetHandle } from './BaseNode';
 import { classifyBranchIds, UNSURE_BRANCH } from './branchHandleId';
 
 /**
@@ -19,29 +19,19 @@ const AIClassifyNodeImpl = ({ id, data, selected }: any) => {
   return (
     <BaseNode id={id} type="AI Classify" color="grape" icon={IconTags} data={data} selected={selected}>
       <TargetHandle position={Position.Left} color="grape" />
-      {branches.map((branch, idx) => (
-        <PlusHandle
-          key={branch}
-          type="source"
-          position={Position.Right}
-          id={branch}
-          nodeId={id}
-          color={branch === UNSURE_BRANCH ? 'gray' : 'grape'}
-          style={{ top: 30 + idx * 25 }}
-        />
-      ))}
       {labelCount === 0 ? (
-        <Text size="xs" c="dimmed" mt="xs">
+        <Text size="xs" c="dimmed" px={14} pb={8}>
           No labels yet
         </Text>
       ) : null}
-      <Group gap={4} mt="xs">
-        {branches.map((branch) => (
-          <Badge key={branch} size="xs" variant="outline" color={branch === UNSURE_BRANCH ? 'gray' : 'grape'}>
-            {branch}
-          </Badge>
-        ))}
-      </Group>
+      <BranchOutputs
+        nodeId={id}
+        branches={branches.map((branch) => ({
+          id: branch,
+          label: branch,
+          color: branch === UNSURE_BRANCH ? 'gray' : 'grape',
+        }))}
+      />
     </BaseNode>
   );
 };

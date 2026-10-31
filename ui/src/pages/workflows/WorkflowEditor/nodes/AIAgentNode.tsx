@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Position } from '@xyflow/react';
-import { Badge, Group } from '@mantine/core';
+import { Badge } from '@mantine/core';
 import { IconAlertTriangle, IconHandStop, IconRobot } from '@tabler/icons-react';
 import {
   isWriteTool,
@@ -20,25 +20,28 @@ const AIAgentNodeImpl = ({ id, data, selected }: any) => {
   const pauses = tools.some(needsApproval);
   const unreviewed = tools.some((t) => isWriteTool(t) && !needsApproval(t));
 
+  const badge = (
+    <>
+      <Badge size="xs" variant="outline" color="grape">
+        {tools.length === 1 ? '1 tool' : `${tools.length} tools`}
+      </Badge>
+      {pauses && (
+        <Badge size="xs" variant="light" color="yellow" leftSection={<IconHandStop size={10} />}>
+          Waits for approval
+        </Badge>
+      )}
+      {unreviewed && (
+        <Badge size="xs" variant="light" color="red" leftSection={<IconAlertTriangle size={10} />}>
+          Writes unreviewed
+        </Badge>
+      )}
+    </>
+  );
+
   return (
-    <BaseNode id={id} type="AI Agent" color="grape" icon={IconRobot} data={data} selected={selected}>
+    <BaseNode id={id} type="AI Agent" color="grape" icon={IconRobot} data={data} selected={selected} badge={badge}>
       <TargetHandle position={Position.Left} color="grape" />
       <PlusHandle type="source" position={Position.Right} nodeId={id} color="grape" />
-      <Group gap={4} mt="xs">
-        <Badge size="xs" variant="outline" color="grape">
-          {tools.length === 1 ? '1 tool' : `${tools.length} tools`}
-        </Badge>
-        {pauses && (
-          <Badge size="xs" variant="light" color="yellow" leftSection={<IconHandStop size={10} />}>
-            Waits for approval
-          </Badge>
-        )}
-        {unreviewed && (
-          <Badge size="xs" variant="light" color="red" leftSection={<IconAlertTriangle size={10} />}>
-            Writes unreviewed
-          </Badge>
-        )}
-      </Group>
     </BaseNode>
   );
 };

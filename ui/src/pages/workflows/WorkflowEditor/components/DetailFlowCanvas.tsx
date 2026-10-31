@@ -1,180 +1,139 @@
-import { useCallback } from 'react';
-import { 
-  ReactFlow, 
-  Background, 
-  Controls, 
+import { memo, useCallback, useEffect, useMemo } from 'react';
+import { useMediaQuery } from '@mantine/hooks';
+import {
+  ReactFlow,
+  Background,
   MiniMap,
+  Position,
+  Handle,
+  useReactFlow,
+  useStore,
   type Node,
   type Edge
 } from '@xyflow/react';
-import { useMantineColorScheme, Box, ActionIcon, Tooltip } from '@mantine/core';
-import { IconLayoutGrid } from '@tabler/icons-react';
-import dagre from 'dagre';
-
-// Reusing Node components from WorkflowDetailPage logic or similar
-import { useMantineColorScheme as useMantineTheme } from '@mantine/core';
-import { Paper, Stack, Group, ThemeIcon, Text, Badge } from '@mantine/core';
-import { Position, Handle } from '@xyflow/react';
-import { 
-  IconWorld, IconSettingsAutomation, IconFileSpreadsheet, 
-  IconCircles, IconList, IconDatabase, IconGitBranch, IconVariable, IconServer, IconCloud 
+import { Box, Group, Paper, Stack, Text, ThemeIcon, rem, useMantineColorScheme } from '@mantine/core';
+import {
+  IconCircles, IconCloud, IconDatabase, IconEye, IconFileSpreadsheet, IconGitBranch, IconList, IconServer,
+  IconSettingsAutomation, IconVariable, IconWorld
 } from '@tabler/icons-react';
+import dagre from 'dagre';
+import { CanvasControls } from '@/components/flows/CanvasControls';
+import { stepTitle } from '@/components/flows/stepTitle';
+import { transformationLabel } from '../nodes/transformationLabel';
 
-const SourceNode = ({ data }: any) => {
-  const { colorScheme } = useMantineTheme();
-  const isDark = colorScheme === 'dark';
-
-  const getIcon = () => {
-    if (data.type === 'webhook') return <IconWorld size="0.8rem" />;
-    if (data.type === 'cron') return <IconSettingsAutomation size="0.8rem" />;
-    if (data.type === 'csv') return <IconFileSpreadsheet size="0.8rem" />;
-    if (data.type === 'kafka') return <IconCircles size="0.8rem" />;
-    if (data.type === 'rabbitmq' || data.type === 'rabbitmq_queue') return <IconList size="0.8rem" />;
-    if (data.type === 'redis') return <IconDatabase size="0.8rem" />;
-    return <IconDatabase size="0.8rem" />;
-  };
-
-  const getColor = () => {
-    if (data.type === 'webhook') return 'cyan';
-    if (data.type === 'cron') return 'indigo';
-    if (data.type === 'csv') return 'orange';
-    if (data.type === 'kafka' || data.type === 'rabbitmq' || data.type === 'rabbitmq_queue' || data.type === 'nats') return 'red';
-    if (data.type === 'redis' || data.type === 'pulsar' || data.type === 'kinesis') return 'grape';
-    if (['postgres', 'mysql', 'mssql', 'mongodb', 'sqlite', 'mariadb', 'oracle', 'db2'].includes(data.type)) return 'teal';
-    return 'blue';
-  };
-
+/**
+ * A step as the read-only view draws it: the same card as the editor's (see
+ * BaseNode and .hermod-step), its kind, its name and one detail line.
+ */
+function StepCard({ color, icon: Icon, kind, title, detail, inbound, outbound, vertical }: {
+  color: string; icon: any; kind: string; title: string; detail?: string; inbound?: boolean; outbound?: boolean;
+  /** On a phone the flow runs top to bottom, so lines enter at the top and leave at the bottom. */
+  vertical?: boolean;
+}) {
   return (
-    <Paper 
-      withBorder 
-      p={8} 
-      radius="md" 
-      shadow="sm"
-      style={{ 
-        minWidth: 140, 
-        maxWidth: 220,
-        borderLeft: `4px solid var(--mantine-color-${getColor()}-6)`,
-        backgroundColor: isDark ? 'var(--mantine-color-dark-7)' : 'var(--mantine-color-body)',
-      }}
-    >
-      <Handle type="source" position={Position.Right} style={{ visibility: 'hidden' }} />
-      <Stack gap={2}>
-        <Group justify="space-between">
-          <Group gap={4}>
-            <ThemeIcon color={getColor()} variant="light" size="sm">
-               {getIcon()}
-            </ThemeIcon>
-            <Text size="xs" fw={700} c={getColor()}>TRIGGER</Text>
-          </Group>
-          {data.type && <Badge size="xs" variant="light">{data.type}</Badge>}
+    <Paper radius="md" className="hermod-step">
+      {inbound && <Handle type="target" position={vertical ? Position.Top : Position.Left} style={{ visibility: 'hidden' }} />}
+      {outbound && <Handle type="source" position={vertical ? Position.Bottom : Position.Right} style={{ visibility: 'hidden' }} />}
+      <Stack gap={4} px={14} py={12}>
+        <Group gap={8} wrap="nowrap">
+          <ThemeIcon color={color} variant="light" size={22} radius="sm">
+            <Icon size="0.85rem" />
+          </ThemeIcon>
+          <Text size="xs" fw={600} c="dimmed" tt="uppercase" truncate style={{ letterSpacing: rem(0.6) }}>{kind}</Text>
         </Group>
-        <Text size="sm" fw={600} truncate>{data.label || 'Untitled'}</Text>
+        <Text size="sm" fw={600} lh={1.3} lineClamp={2} title={title}>{title}</Text>
+        {detail && <Text size="xs" c="dimmed" truncate>{detail}</Text>}
       </Stack>
     </Paper>
   );
+}
+
+const SOURCE_ICONS: Record<string, any> = {
+  webhook: IconWorld, cron: IconSettingsAutomation, csv: IconFileSpreadsheet, kafka: IconCircles,
+  rabbitmq: IconList, rabbitmq_queue: IconList,
 };
 
-const TransformationNode = ({ data }: any) => {
-  const { colorScheme } = useMantineTheme();
-  const isDark = colorScheme === 'dark';
+const SourceNode = memo(({ data }: any) => (
+  <StepCard
+    color="blue"
+    icon={SOURCE_ICONS[data.type] ?? IconDatabase}
+    kind="Source"
+    title={stepTitle(data, 'Source', data.connectionName)}
+    detail={data.description || data.type}
+    outbound
+    vertical={data.vertical}
+  />
+));
 
+const SinkNode = memo(({ data }: any) => {
+  const icon = data.type === 'http' ? IconWorld
+    : ['s3', 's3-parquet', 'ftp'].includes(data.type) ? IconCloud
+    : ['postgres', 'mysql', 'mssql', 'mongodb', 'sqlite', 'mariadb', 'oracle', 'clickhouse', 'yugabyte'].includes(data.type) ? IconDatabase
+    : IconServer;
   return (
-    <Paper 
-      withBorder 
-      p={8} 
-      radius="md" 
-      shadow="sm"
-      style={{ 
-        minWidth: 140, 
-        maxWidth: 220,
-        borderLeft: `4px solid var(--mantine-color-violet-6)`,
-        backgroundColor: isDark ? 'var(--mantine-color-dark-7)' : 'var(--mantine-color-body)',
-      }}
-    >
-      <Handle type="target" position={Position.Left} style={{ visibility: 'hidden' }} />
-      <Handle type="source" position={Position.Right} style={{ visibility: 'hidden' }} />
-      <Stack gap={2}>
-        <Group justify="space-between">
-          <Group gap={4}>
-            <ThemeIcon color="violet" variant="light" size="sm">
-              {data.isGroup ? <IconGitBranch size="0.8rem" /> : <IconVariable size="0.8rem" />}
-            </ThemeIcon>
-            <Text size="xs" fw={700} c="violet">{data.isGroup ? 'GROUP' : 'TRANSFORM'}</Text>
-          </Group>
-          <Badge size="xs" variant="light" color="violet">{data.type || 'map'}</Badge>
-        </Group>
-        <Text size="sm" fw={600} truncate>{data.label || 'Untitled'}</Text>
-      </Stack>
-    </Paper>
+    <StepCard
+      color="green"
+      icon={icon}
+      kind="Sink"
+      title={stepTitle(data, 'Sink', data.connectionName)}
+      detail={data.description || data.type}
+      inbound
+      vertical={data.vertical}
+    />
   );
-};
+});
 
-const SinkNode = ({ data }: any) => {
-  const { colorScheme } = useMantineTheme();
-  const isDark = colorScheme === 'dark';
+/** The editor's name for the kind of step; the kind line is uppercased by CSS. */
+function kindOf(type: string | undefined, data: any): string {
+  if (data.isGroup) return 'Group';
+  if (type === 'transformation' || !type) return transformationLabel(data.transType);
+  return type.charAt(0).toUpperCase() + type.slice(1).replace(/[_-]+/g, ' ');
+}
 
-  const getIcon = () => {
-    if (data.type === 'http') return <IconWorld size="0.8rem" />;
-    if (['postgres', 'mysql', 'mssql', 'mongodb', 'sqlite', 'mariadb', 'oracle', 'clickhouse', 'yugabyte'].includes(data.type)) return <IconDatabase size="0.8rem" />;
-    if (['s3', 's3-parquet', 'ftp'].includes(data.type)) return <IconCloud size="0.8rem" />;
-    return <IconServer size="0.8rem" />;
-  };
-
+const StepNode = memo(({ data, type }: any) => {
+  const kind = kindOf(type, data);
   return (
-    <Paper 
-      withBorder 
-      p={8} 
-      radius="md" 
-      shadow="sm"
-      style={{ 
-        minWidth: 140, 
-        maxWidth: 220,
-        borderLeft: `4px solid var(--mantine-color-green-6)`,
-        backgroundColor: isDark ? 'var(--mantine-color-dark-7)' : 'var(--mantine-color-body)',
-      }}
-    >
-      <Handle type="target" position={Position.Left} style={{ visibility: 'hidden' }} />
-      <Stack gap={2}>
-        <Group justify="space-between">
-          <Group gap={4}>
-            <ThemeIcon color="green" variant="light" size="sm">
-               {getIcon()}
-            </ThemeIcon>
-            <Text size="xs" fw={700} c="green.7">SINK</Text>
-          </Group>
-          {data.type && <Badge size="xs" variant="light" color="green">{data.type}</Badge>}
-        </Group>
-        <Text size="sm" fw={600} truncate>{data.label || 'Untitled'}</Text>
-      </Stack>
-    </Paper>
+    <StepCard
+      color="violet"
+      icon={data.isGroup ? IconGitBranch : IconVariable}
+      kind={kind}
+      title={stepTitle(data, kind)}
+      detail={data.description}
+      inbound
+      outbound
+      vertical={data.vertical}
+    />
   );
-};
+});
 
 export const detailNodeTypes = {
   source: SourceNode,
   sink: SinkNode,
-  transformation: TransformationNode,
-  condition: TransformationNode,
-  switch: TransformationNode,
-  router: TransformationNode,
-  merge: TransformationNode,
-  stateful: TransformationNode,
-  wait: TransformationNode,
-  foreach: TransformationNode,
-  explode: TransformationNode,
-  ml_recommend_build: TransformationNode,
-  ai_classify: TransformationNode,
-  ai_agent: TransformationNode,
+  transformation: StepNode,
+  condition: StepNode,
+  switch: StepNode,
+  router: StepNode,
+  merge: StepNode,
+  stateful: StepNode,
+  wait: StepNode,
+  foreach: StepNode,
+  explode: StepNode,
+  ml_recommend_build: StepNode,
+  ai_classify: StepNode,
+  ai_agent: StepNode,
   // Without these React Flow drew a bare default box, with no handles, for
   // node types the editor draws. detailCanvasNodeTypes.test.tsx keeps the
   // two maps in step.
-  validator: TransformationNode,
-  approval: TransformationNode,
-  log: TransformationNode,
-  collect: TransformationNode,
-  deduplicate: TransformationNode,
-  note: TransformationNode,
+  validator: StepNode,
+  approval: StepNode,
+  log: StepNode,
+  collect: StepNode,
+  deduplicate: StepNode,
+  note: StepNode,
 };
+
+/** The smallest a phone draws the flow: below this a step's name cannot be read. */
+const PHONE_MIN_ZOOM = 0.7;
 
 interface DetailFlowCanvasProps {
   nodes: Node[];
@@ -182,11 +141,57 @@ interface DetailFlowCanvasProps {
   onNodesChange: any;
   onEdgesChange: any;
   setNodes: (nds: any) => void;
+  /** Connection names by id, for steps that have no label of their own. */
+  connectionNames?: Record<string, string>;
 }
 
-export function DetailFlowCanvas({ nodes, edges, onNodesChange, onEdgesChange, setNodes }: DetailFlowCanvasProps) {
+export function DetailFlowCanvas({ nodes, edges, onNodesChange, onEdgesChange, setNodes, connectionNames }: DetailFlowCanvasProps) {
   const { colorScheme } = useMantineColorScheme();
   const isDark = colorScheme === 'dark';
+  const { zoomIn, zoomOut, fitView, setViewport, getNodesBounds } = useReactFlow();
+  const zoom = useStore((s) => s.transform[2]);
+  const paneWidth = useStore((s) => s.width);
+
+  const phone = useMediaQuery('(max-width: 47.99em)');
+
+  // On a phone the flow is drawn top to bottom, so it reads straight down
+  // without panning sideways. Display only: the view never saves positions.
+  const named = useMemo(() => {
+    const withNames = nodes.map((n: Node) => {
+      const name = connectionNames?.[(n.data as any)?.ref_id];
+      return name || phone ? { ...n, data: { ...n.data, ...(name ? { connectionName: name } : {}), vertical: phone || undefined } } : n;
+    });
+    if (!phone) return withNames;
+    const g = new dagre.graphlib.Graph();
+    g.setDefaultEdgeLabel(() => ({}));
+    g.setGraph({ rankdir: 'TB', nodesep: 24, ranksep: 36 });
+    withNames.forEach((n) => g.setNode(n.id, { width: 240, height: 76 }));
+    edges.forEach((e) => g.setEdge(e.source, e.target));
+    dagre.layout(g);
+    return withNames.map((n) => {
+      const p = g.node(n.id);
+      return p ? { ...n, position: { x: p.x - 120, y: p.y - 38 } } : n;
+    });
+  }, [nodes, edges, connectionNames, phone]);
+
+  // A phone opens at the top of the flow, where it starts, at a size that can
+  // be read. A flow with many branches is wider than the screen; shrinking it
+  // to fit would make every step unreadable, so it stays readable and the
+  // other branches are a swipe sideways.
+  const placePhone = useCallback(() => {
+    if (!named.length || !paneWidth) return;
+    const bounds = getNodesBounds(named);
+    const z = Math.min(1, Math.max(PHONE_MIN_ZOOM, (paneWidth - 24) / bounds.width));
+    const targets = new Set(edges.map((e) => e.target));
+    const root = named.find((n) => !targets.has(n.id)) ?? named[0];
+    const rootCentre = root.position.x + 120;
+    setViewport({ x: paneWidth / 2 - rootCentre * z, y: 60 - bounds.y * z, zoom: z });
+  }, [named, edges, paneWidth, getNodesBounds, setViewport]);
+
+  useEffect(() => {
+    const t = setTimeout(() => (phone ? placePhone() : fitView({ padding: 0.2 })), 0);
+    return () => clearTimeout(t);
+  }, [phone, placePhone, fitView]);
 
   const onLayout = useCallback(() => {
     const dagreGraph = new dagre.graphlib.Graph();
@@ -194,7 +199,7 @@ export function DetailFlowCanvas({ nodes, edges, onNodesChange, onEdgesChange, s
     dagreGraph.setGraph({ rankdir: 'LR', nodesep: 50, ranksep: 100 });
 
     nodes.forEach((node) => {
-      dagreGraph.setNode(node.id, { width: 140, height: 70 });
+      dagreGraph.setNode(node.id, { width: 240, height: 84 });
     });
 
     edges.forEach((edge) => {
@@ -209,8 +214,8 @@ export function DetailFlowCanvas({ nodes, edges, onNodesChange, onEdgesChange, s
         return {
           ...node,
           position: {
-            x: nodeWithPosition.x - 70,
-            y: nodeWithPosition.y - 35,
+            x: nodeWithPosition.x - 120,
+            y: nodeWithPosition.y - 42,
           },
         };
       })
@@ -220,32 +225,45 @@ export function DetailFlowCanvas({ nodes, edges, onNodesChange, onEdgesChange, s
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
       <ReactFlow
-        nodes={nodes}
+        nodes={named}
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         nodeTypes={detailNodeTypes}
         fitView
+        fitViewOptions={{ padding: 0.2 }}
       >
         <Background color={isDark ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-gray-3)'} gap={20} />
-        <Controls />
-        <MiniMap 
+        <MiniMap
+          pannable
           nodeColor={(n) => {
             if (n.type === 'source') return 'var(--mantine-color-blue-6)';
             if (n.type === 'sink') return 'var(--mantine-color-green-6)';
             return 'var(--mantine-color-violet-6)';
           }}
+          maskColor={isDark ? 'rgba(0, 0, 0, 0.45)' : undefined}
           style={{
             backgroundColor: isDark ? 'var(--mantine-color-dark-7)' : 'var(--mantine-color-body)',
+            width: 168,
+            height: 96,
+            border: '1px solid var(--mantine-color-default-border)',
+            borderRadius: 'var(--mantine-radius-md)',
+            overflow: 'hidden',
           }}
         />
       </ReactFlow>
-      <Box style={{ position: 'absolute', right: 10, top: 10, zIndex: 5 }}>
-        <Tooltip label="Smart Align">
-          <ActionIcon aria-label="Smart align" variant="light" size="lg" color="indigo" onClick={onLayout}>
-            <IconLayoutGrid size="1.2rem" />
-          </ActionIcon>
-        </Tooltip>
+      <Group gap={8} wrap="nowrap" className="hermod-canvas-note">
+        <IconEye size="0.95rem" aria-hidden />
+        <Text size="sm" c="dimmed">Read only. Use Edit flow to change steps.</Text>
+      </Group>
+      <Box className="hermod-canvas-bottom-left" style={{ bottom: 12 }}>
+        <CanvasControls
+          zoom={zoom}
+          onZoomIn={() => zoomIn()}
+          onZoomOut={() => zoomOut()}
+          onFit={() => (phone ? placePhone() : fitView({ padding: 0.2 }))}
+          onTidy={phone ? undefined : onLayout}
+        />
       </Box>
     </div>
   );

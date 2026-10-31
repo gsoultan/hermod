@@ -7,6 +7,41 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Changed — One layout for a flow, read only or editing, on desktop and phone
+
+The read-only view and the editor of a flow now share one frame: the page's
+own gutter, the same header, the tabs and a canvas card. The header is a back
+button, the flow's name (a field in the editor) with one line under it for its
+state and virtual host, and the page's actions on the right with ⋯ beside
+them. The editor no longer runs into the window edge, its name field no longer
+stretches across the bar, and its state reads Off, Stopped or Running, the same
+words as the view and the flows list.
+
+On the canvas, one control bar in the bottom-left corner holds zoom, Fit and,
+in the editor, Tidy up; it replaces React Flow's own buttons and the icons that
+crowded the header. Add step and Search steps sit in the top-left corner, Live
+logs docks along the bottom of the card, and the editor opens fitted to the
+whole flow. Every step is drawn as the same card on both pages: its kind, its
+name and one detail line. A source or sink with no label of its own is called
+by its connection's name, never by a step id like `n-src`, and the editor no
+longer repeats each step's name in a footer.
+
+On a phone the actions move to a bar along the bottom in place of the app's
+tabs, the tabs scroll sideways, and the read-only view draws the flow top to
+bottom. It opens at the top of the flow at a readable size; a flow with many
+branches stays readable and its other branches are a swipe sideways.
+
+- **Step cards.** A step with more than one way out (Condition, Approval, Switch, Router, AI
+  Classify, Foreach, Deduplicate) lists its branches in rows at the foot of the card, each with its
+  handle level with its name. The names used to float over the card at fixed offsets and ran into
+  a long step name. Long names wrap to two lines. A step's counts and warnings (processed, errors,
+  failed, circuit breaker, buffer) are one line inside the card instead of bubbles on its edges.
+  Notes and AI Agent steps use the same card. Tidy up now spaces steps by the size they are drawn
+  at, so a tall step no longer lands on the one below it.
+- **Live data on the card.** On a live run each step shows the newest record it passed on, on one
+  line in the card, in place of an unlabelled eye icon. Clicking it opens the record in full, with
+  a switch to the whole message (id, operation, table, metadata).
+
 ### Added — "Every database must get a row" and a view of each transaction's runs
 
 A transaction of sink nodes that commit together has a new switch, **Every

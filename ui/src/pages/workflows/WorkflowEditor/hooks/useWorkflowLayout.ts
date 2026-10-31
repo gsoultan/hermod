@@ -55,7 +55,7 @@ export function useWorkflowLayout() {
       workerRef.current.postMessage({
         id,
         direction,
-        nodes: nodes.map((n) => ({ id: n.id })),
+        nodes: nodes.map((n) => ({ id: n.id, width: n.measured?.width, height: n.measured?.height })),
         edges: edges.map((e) => ({ source: e.source, target: e.target })),
       });
     } catch {

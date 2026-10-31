@@ -4,12 +4,12 @@ import {
 import { useShallow } from 'zustand/react/shallow';
 import { 
   ReactFlowProvider,
-  useReactFlow
+  useReactFlow,
+  useStore
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { 
-  Paper,
-  Box, Button, Flex, Tabs, Text
+  Box, Button, Flex, Group, Kbd, Tabs, Text
 } from '@mantine/core';
 import { Spotlight, spotlight } from '@mantine/spotlight';
 import '@mantine/spotlight/styles.css';
@@ -31,6 +31,7 @@ import type { StepItem } from './WorkflowEditor/picker/stepChoices';
 import { useFlowActions } from './useFlowActions';
 import { FlowCanvas } from './WorkflowEditor/components/FlowCanvas';
 import { LiveLogPanel } from './WorkflowEditor/components/LiveLogPanel';
+import { CanvasControls } from '@/components/flows/CanvasControls';
 import { SidebarDrawer } from './WorkflowEditor/components/SidebarDrawer';
 import { NodeConfigDrawer } from './WorkflowEditor/components/NodeConfigDrawer';
 import { WorkflowContext } from './WorkflowEditor/nodes/BaseNode';
@@ -47,7 +48,7 @@ import { WorkflowModals } from './WorkflowEditor/components/WorkflowModals';
 import { WorkflowNodeSettingsModal } from './WorkflowEditor/components/WorkflowNodeSettingsModal';
 import { UnsavedChangesGuard } from './WorkflowEditor/components/UnsavedChangesGuard';
 import { deadLetterPageFor, wantsDeadLetterQueue } from './WorkflowEditor/utils/deadLetterLink';
-import { BOTTOM_TABS_HEIGHT } from '@/components/layout/nav';
+import { FLOW_ACTIONS_HEIGHT } from '@/components/layout/nav';
 
 const API_BASE = '/api';
 
@@ -55,6 +56,7 @@ function EditorInner() {
   const { id } = useParams({ strict: false }) as any;
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition, zoomIn, zoomOut, fitView: rfFitView } = useReactFlow();
+  const zoom = useStore((s) => s.transform[2]);
   const { onLayout } = useWorkflowLayout();
   const { selectedVHost } = useVHost();
 
@@ -179,6 +181,20 @@ function EditorInner() {
     setPickerOpened(true);
   };
 
+  // A source or sink step with no label of its own is called by its connection.
+  const refNames = useMemo(() => {
+    const names: Record<string, string> = {};
+    for (const c of [...((sources?.data as Source[]) || []), ...((sinks?.data as Sink[]) || [])]) {
+      if (c?.id && c.name) names[c.id] = c.name;
+    }
+    return names;
+  }, [sources, sinks]);
+
+  const openPicker = () => {
+    setQuickAddSource(null);
+    setPickerOpened(true);
+  };
+
   const addStep = (type: string, refId: string, label: string, subType: string, extraData?: any) => {
     const bounds = reactFlowWrapper.current?.getBoundingClientRect();
     const { nodes, quickAddSource: from } = useWorkflowStore.getState();
@@ -268,7 +284,7 @@ function EditorInner() {
   if (isLoading && !isNew) return <Box p="xl" ta="center"><Text>Loading...</Text></Box>;
 
   return (
-    <WorkflowContext.Provider value={{ onPlusClick: handlePlusClick }}>
+    <WorkflowContext.Provider value={{ onPlusClick: handlePlusClick, refNames }}>
       <Spotlight
         actions={spotlightActions}
         shortcut="mod + shift + K"
@@ -281,21 +297,17 @@ function EditorInner() {
       />
       {/* The screen less whatever the shell puts above and below the page.
           Above is Mantine's header offset, which is 0 now that the shell has no
-          header; this used to read the header height with a 60px fallback,
-          and that fallback left a blank strip under the live log panel once
-          the header went. Below, on a phone, are the bottom tabs.
-          Viewport-relative on purpose: a percentage height would need every
-          ancestor to have a definite height, and ErrorBoundary sits in that
-          chain without one, which collapses the canvas to zero. */}
+          header. Below, on a phone, is the flow's action bar, which takes the
+          place of the bottom tabs on a flow page. Viewport-relative on purpose:
+          a percentage height would need every ancestor to have a definite
+          height, and ErrorBoundary sits in that chain without one, which
+          collapses the canvas to zero. The shell gives flow pages no padding
+          or card, so the page brings its own gutter (.hermod-flow-page). */}
       <Box
+        className="hermod-flow-page hermod-editor-page"
         h={{
-          base: `calc(100dvh - var(--app-shell-header-offset, 0px) - ${BOTTOM_TABS_HEIGHT})`,
+          base: `calc(100dvh - var(--app-shell-header-offset, 0px) - ${FLOW_ACTIONS_HEIGHT})`,
           sm: 'calc(100dvh - var(--app-shell-header-offset, 0px))',
-        }}
-        style={{
-          minHeight: 0,
-          display: 'flex',
-          flexDirection: 'column',
         }}
       >
         <EditorToolbar 
@@ -322,22 +334,9 @@ function EditorInner() {
           onExport={flowActions.exportJson}
           onClone={flowActions.clone}
           onDelete={flowActions.remove}
-          onAutoLayout={() => {
-            try {
-              onLayout('LR');
-              notifications.show({ message: 'Auto-layout applied', color: 'blue' });
-            } catch (e: any) {
-              notifications.show({ message: e?.message || 'Failed to layout', color: 'red' });
-            }
-          }}
-          onSearch={() => spotlight.open()}
           isSaving={saveMutation.isPending}
           isTesting={testMutation.isPending}
           isToggling={toggleMutation.isPending}
-          zoom={1}
-          zoomIn={zoomIn}
-          zoomOut={zoomOut}
-          fitView={rfFitView}
           vhosts={vhosts?.data || []}
           workers={workers?.data || []}
         />
@@ -346,7 +345,7 @@ function EditorInner() {
         {!isNew && (
           <Tabs
             value="build"
-            mb="sm"
+            className="hermod-flow-tabs"
             onChange={(t) => { if (t && t !== 'build') navigate({ to: '/workflows/$id', params: { id }, search: { tab: t } } as any); }}
           >
             <Tabs.List>
@@ -355,28 +354,60 @@ function EditorInner() {
           </Tabs>
         )}
 
-        {/* position: relative makes this the containing block for the
-            SidebarDrawer, which floats over the canvas instead of consuming
-            400px of it as an inline sibling. */}
-        <Flex style={{ flex: 1, overflow: 'hidden', position: 'relative' }} gap="md">
-          <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', gap: 'var(--mantine-spacing-md)' }}>
-            <Paper withBorder radius="md" style={{ flex: 1, position: 'relative' }} ref={reactFlowWrapper}>
-              {/* The one way in to the step palette, on the canvas where the steps go. */}
-              <Button
-                leftSection={<IconPlus size="1rem" />}
-                size="sm"
-                style={{ position: 'absolute', top: 12, right: 12, zIndex: 5 }}
-                onClick={() => { setQuickAddSource(null); setPickerOpened(true); }}
-              >
-                Add step
-              </Button>
+        {/* The canvas card. position: relative (from .hermod-flow-canvas) makes
+            it the containing block for the SidebarDrawer and the Live logs
+            bar, which float over the canvas inside the card instead of
+            consuming its width and height as inline siblings. */}
+        <Flex className="hermod-flow-canvas" gap={0}>
+          <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+            <Box style={{ flex: 1, position: 'relative' }} ref={reactFlowWrapper}>
               <FlowCanvas 
                 onNodeClick={onNodeClick}
                 onEdgeClick={onEdgeClick}
                 onDragOver={onDragOver}
                 onDrop={onDrop}
               />
-            </Paper>
+              {/* The ways in to the step palette, on the canvas where the steps go. */}
+              <Group gap="xs" wrap="nowrap" className="hermod-canvas-top">
+                <Button
+                  variant="light"
+                  leftSection={<IconPlus size="1rem" />}
+                  onClick={openPicker}
+                  className="hermod-add-step"
+                >
+                  Add step
+                </Button>
+                <Button
+                  variant="default"
+                  color="gray"
+                  leftSection={<IconSearch size="1rem" />}
+                  rightSection={<Kbd size="xs" visibleFrom="sm">⌘⇧K</Kbd>}
+                  onClick={() => spotlight.open()}
+                  className="hermod-search-steps"
+                  justify="space-between"
+                  fw={400}
+                  c="dimmed"
+                >
+                  Search steps
+                </Button>
+              </Group>
+              <Box className="hermod-canvas-bottom-left">
+                <CanvasControls
+                  zoom={zoom}
+                  onZoomIn={() => zoomIn()}
+                  onZoomOut={() => zoomOut()}
+                  onFit={() => rfFitView({ padding: 0.2 })}
+                  onTidy={() => {
+                    try {
+                      onLayout('LR');
+                      notifications.show({ message: 'Auto-layout applied', color: 'blue' });
+                    } catch (e: any) {
+                      notifications.show({ message: e?.message || 'Failed to layout', color: 'red' });
+                    }
+                  }}
+                />
+              </Box>
+            </Box>
 
             {/* Node Config Drawer (enhanced right-side configuration) */}
             <NodeConfigDrawer 
