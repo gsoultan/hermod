@@ -14,6 +14,8 @@ caught it intermittently in `TestAWorkflowReplaysItsDeadLettersWhenItStarts`.
 `ReplayDeadLetter` now calls `ownNodes` first (copy of the slice and each
 top-level `Config`, which is as deep as the prepare writes);
 `TestReplayLeavesTheCallersNodesAlone` guards it. The other callers
-(StartWorkflow, manual runs, SimulateWorkflow) prepare a workflow they own.
-Any new caller that runs on a shared workflow, especially from a goroutine,
+(`StartWorkflow`, `RunWorkflowOnce`, `SimulateWorkflow`) still prepare the
+`wf.Nodes` they were handed in place; that is safe only while nothing else reads
+that workflow concurrently, which has not been audited for each of their
+callers. Any new caller that runs on a shared workflow, especially from a goroutine,
 must copy first.
