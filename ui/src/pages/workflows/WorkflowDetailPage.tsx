@@ -9,8 +9,8 @@ import {
 import '@xyflow/react/dist/style.css';
 import { 
   Title, Button, Group, Paper, Stack, Text, Box, Divider, Badge, ScrollArea, Flex,
-  ThemeIcon, Table, ActionIcon, Tooltip, Pagination, TextInput, Tabs, Modal, Code, Menu,
-  useMantineColorScheme, Loader, UnstyledButton, Alert, SimpleGrid
+  Table, ActionIcon, Tooltip, Pagination, TextInput, Tabs, Modal, Code, Menu,
+  useMantineColorScheme, Loader, UnstyledButton, Alert
 } from '@mantine/core';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
@@ -19,8 +19,8 @@ import { useDisclosure, useDebouncedValue, useMediaQuery } from '@mantine/hooks'
 import { formatDateTime } from '@/utils/dateUtils';
 import { JourneyStep, type TraceStep } from './traces/JourneyStep';
 import { 
-  IconArrowLeft, IconArrowsExchange, IconBrain, IconRotateDot, IconChevronRight, IconCircleX, IconClock, IconCopy, IconDots, IconEye, IconHistory, IconInfoCircle, IconPencil, IconRefresh, IconSearch, IconTimeline,
-  IconActivity, IconPlayerPlay, IconFirstAidKit, IconShieldLock, IconTrash,
+  IconArrowLeft, IconRotateDot, IconChevronRight, IconClock, IconCopy, IconDots, IconEye, IconHistory, IconInfoCircle, IconPencil, IconRefresh, IconSearch, IconTimeline,
+  IconPlayerPlay, IconFirstAidKit, IconShieldLock, IconTrash,
   IconDownload, IconRocket
 } from '@tabler/icons-react';
 import { WorkflowDebugger } from './WorkflowDebugger';
@@ -39,6 +39,7 @@ import { ExecutionsPanel } from './executions/ExecutionsPanel';
 import { TransactionRunsPanel } from './executions/TransactionRunsPanel';
 import { RunWithInputModal } from './executions/RunWithInputModal';
 import { ProposalsPanel } from './proposals/ProposalsPanel';
+import { TuningMetrics } from './tuning/TuningMetrics';
 import { ReleaseDialog } from '../environments/ReleaseDialog';
 import { useInstance } from '@/lib/environments';
 import { useProposals } from '@/lib/proposals';
@@ -673,66 +674,23 @@ export function WorkflowDetailPage() {
             <Tabs.Panel value="tuning" p="md" style={{ flex: 1, overflow: 'hidden' }}>
               <ScrollArea h="100%">
                 <Stack gap="xl">
+                  <Box>
+                    <Title order={4} mb="xs">Stability and optimization</Title>
+                    <Text size="sm" c="dimmed">Live readings from the running engine, refreshed every second.</Text>
+                  </Box>
+
+                  <TuningMetrics
+                    active={Boolean(workflow.active)}
+                    status={engineStatus}
+                    nodeNames={nodeNameById}
+                    connectionNames={connectionNames}
+                  />
+                  <Divider />
                   {/* Proposals and Optimization were two tabs; both are Hermod suggesting how the flow could run better, so they are one. */}
                   <Box>
                     <Title order={4} mb="xs">Suggested fixes</Title>
                     <Text size="sm" c="dimmed" mb="md">Settings changes Hermod proposes after repeated failures. Nothing changes until an editor approves one.</Text>
                     {activeTab === 'tuning' && <ProposalsPanel workflowId={id} canDecide={canEdit} />}
-                  </Box>
-                  <Divider />
-                  <Box>
-                    <Title order={4} mb="xs">Stability and optimization</Title>
-                    <Text size="sm" c="dimmed">Real-time performance metrics and AI-driven runtime tunings.</Text>
-                  </Box>
-
-                  <SimpleGrid cols={{ base: 1, md: 3 }} spacing="md">
-                    <Paper withBorder p="md" radius="md">
-                      <Text size="xs" c="dimmed" fw={700} tt="uppercase">Throughput</Text>
-                      <Group justify="space-between" align="flex-end" gap={0}>
-                        <Text size="xl" fw={700}>{engineStatus?.throughput?.toFixed(1) || '0.0'} msg/s</Text>
-                        <ThemeIcon color="blue" variant="light"><IconActivity size={16} /></ThemeIcon>
-                      </Group>
-                    </Paper>
-                    <Paper withBorder p="md" radius="md">
-                      <Text size="xs" c="dimmed" fw={700} tt="uppercase">Error Rate</Text>
-                      <Group justify="space-between" align="flex-end" gap={0}>
-                        <Text size="xl" fw={700} color={(engineStatus?.error_rate || 0) > 0.05 ? 'red' : 'inherit'}>
-                          {((engineStatus?.error_rate || 0) * 100).toFixed(2)}%
-                        </Text>
-                        <ThemeIcon color="red" variant="light"><IconCircleX size={16} /></ThemeIcon>
-                      </Group>
-                    </Paper>
-                    <Paper withBorder p="md" radius="md">
-                      <Text size="xs" c="dimmed" fw={700} tt="uppercase">Backpressure</Text>
-                      <Group justify="space-between" align="flex-end" gap={0}>
-                        <Text size="xl" fw={700} color={(engineStatus?.backpressure || 0) > 0.8 ? 'orange' : 'inherit'}>
-                          {((engineStatus?.backpressure || 0) * 100).toFixed(0)}%
-                        </Text>
-                        <ThemeIcon color="orange" variant="light"><IconArrowsExchange size={16} /></ThemeIcon>
-                      </Group>
-                    </Paper>
-                  </SimpleGrid>
-
-                  <Box>
-                    <Title order={5} mb="md">Optimization Log</Title>
-                    <Paper withBorder p="md" bg={isDark ? 'dark.8' : 'gray.0'}>
-                      <Stack gap="xs">
-                        {engineStatus?.backpressure > 0.8 && (
-                          <Alert icon={<IconBrain size={16} />} title="AI Insight: Scaling Required" color="blue">
-                            High backpressure detected. AI Optimizer is increasing concurrency to handle the load.
-                          </Alert>
-                        )}
-                        {engineStatus?.error_rate > 0.05 && (
-                          <Alert icon={<IconBrain size={16} />} title="AI Insight: Stability Issue" color="orange">
-                            High error rate detected. AI is analyzing node failures and suggesting circuit breaker tunings.
-                          </Alert>
-                        )}
-                        {!engineStatus && <Text c="dimmed" size="sm">Waiting for real-time optimization data...</Text>}
-                        {engineStatus && engineStatus.throughput > 0 && (
-                          <Text size="sm" c="green">✓ System performing within optimal parameters.</Text>
-                        )}
-                      </Stack>
-                    </Paper>
                   </Box>
                 </Stack>
               </ScrollArea>

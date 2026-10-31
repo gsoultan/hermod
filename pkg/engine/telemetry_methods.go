@@ -227,11 +227,13 @@ func (e *Engine) UpdateEdgeMetric(sourceNodeID string, targetNodeID string, coun
 }
 
 func (e *Engine) adaptiveThrottle(ctx context.Context, duration time.Duration) {
+	// The average is reported in every status frame, so it is kept whether
+	// or not adaptive throughput is on; only the throttling below is optional.
+	e.statusTracker.UpdateLatency(duration)
+
 	if !e.config.AdaptiveThroughput {
 		return
 	}
-
-	e.statusTracker.UpdateLatency(duration)
 
 	// Adjust polling interval every 5s based on latency and memory.
 	//

@@ -440,7 +440,11 @@ func (e *Engine) GetStatus() telemetry.StatusUpdate {
 		if sw.ch != nil {
 			capacity := cap(sw.ch)
 			if capacity > 0 {
-				update.SinkBufferFill[sw.sinkID] = float64(len(sw.ch)) / float64(capacity)
+				fill := float64(len(sw.ch)) / float64(capacity)
+				update.SinkBufferFill[sw.sinkID] = fill
+				// The fullest buffer, not the average: one jammed sink among
+				// idle ones is the reading somebody needs to act on.
+				update.Backpressure = max(update.Backpressure, fill)
 			}
 		}
 	}
@@ -453,6 +457,7 @@ func (e *Engine) GetStatus() telemetry.StatusUpdate {
 	if len(nodeErrorMetrics) > 0 {
 		update.NodeErrorMetrics = nodeErrorMetrics
 	}
+	update.ErrorRate = errorRate(processed, dlq, nodeErrorMetrics)
 	nodeSamples := e.statusTracker.GetNodeSamples()
 	if len(nodeSamples) > 0 {
 		update.NodeSamples = nodeSamples
@@ -484,6 +489,23 @@ func (e *Engine) GetStatus() telemetry.StatusUpdate {
 	}
 
 	return update
+}
+
+// errorRate is the share of messages that went wrong since the engine started.
+//
+// A message that fails in a node is never acknowledged, so it is not in
+// processed and joins the total here. A message parked in the dead-letter sink
+// is acknowledged, so it is already in processed and only counts as an error.
+func errorRate(processed, deadLettered uint64, nodeErrors map[string]uint64) float64 {
+	var failed uint64
+	for _, n := range nodeErrors {
+		failed += n
+	}
+	total := processed + failed
+	if total == 0 {
+		return 0
+	}
+	return min(1, float64(failed+deadLettered)/float64(total))
 }
 
 // Start begins the data transfer process.

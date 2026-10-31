@@ -45,7 +45,13 @@ func NewOptimizer(logger hermod.Logger, aiOpt AIOptimizer, notifier func(workflo
 		logger:   logger,
 		config: OptimizerConfig{
 			OptimizationInterval: 30 * time.Second,
-			EnableAI:             true,
+			// Off. Its triggers read the status frame's error rate and
+			// backpressure, which were always 0 until the frame started
+			// filling them in, so it never ran. Left on, a failing flow would
+			// send its status (payload samples included) to an LLM every cycle
+			// and discard the reply, and a busy one would have its concurrency
+			// raised with no ceiling.
+			EnableAI: false,
 		},
 		gate:        NewSelfCorrectionGate(logger, notifier),
 		aiOptimizer: aiOpt,
