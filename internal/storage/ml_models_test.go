@@ -154,3 +154,22 @@ func TestOnlyATrainedModelIsARecommender(t *testing.T) {
 		t.Errorf("a model served elsewhere was taken as a recommender: %v", err)
 	}
 }
+
+func TestAMimirModelNeedsItsKeySecretAndTakesNoInputName(t *testing.T) {
+	m := MLModel{VHost: "v", Name: "churn", Backend: inference.BackendMimir, URL: "http://mimir:8080", RemoteModel: "m-1", TokenSecret: "MIMIR_API_KEY"}
+	if err := ValidateMLModel(m); err != nil {
+		t.Fatalf("a complete mimir model was refused: %v", err)
+	}
+	m.TokenSecret = ""
+	if err := ValidateMLModel(m); err == nil || !strings.Contains(err.Error(), "API key") {
+		t.Errorf("a mimir model without a key secret was accepted: err = %v", err)
+	}
+	m.TokenSecret, m.RemoteModel = "MIMIR_API_KEY", ""
+	if err := ValidateMLModel(m); err == nil {
+		t.Error("a mimir model without the model's id was accepted")
+	}
+	m.RemoteModel, m.InputName, m.Features = "m-1", "input", []string{"a"}
+	if err := ValidateMLModel(m); err == nil {
+		t.Error("a mimir model with an input tensor name was accepted")
+	}
+}

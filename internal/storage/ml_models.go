@@ -24,9 +24,10 @@ import (
 )
 
 // MLModel is a model a vhost can call: where it is served and how to send it
-// rows. The model itself lives on a model server (hermod-ml, KServe, Triton,
-// MLServer, MLflow); Hermod keeps the address and calls it from the Predict
-// node and the serving endpoints.
+// rows. The model itself lives on a model server (hermod-ml, mimir-server,
+// KServe, Triton, MLServer, MLflow); Hermod keeps the address and calls it
+// from the Predict node and the serving endpoints. For a mimir server
+// RemoteModel is the model's id there and TokenSecret holds its API key.
 type MLModel struct {
 	VHost       string `json:"vhost"`
 	Name        string `json:"name"`
@@ -220,6 +221,9 @@ func ValidateMLModel(m MLModel) error {
 	}
 	if m.Backend == MLBackendWorker {
 		return validateWorkerModel(m)
+	}
+	if m.Backend == inference.BackendMimir && m.TokenSecret == "" {
+		return errors.New("a mimir server answers no one without an API key: name the secret that holds it")
 	}
 	return m.Target("").Validate()
 }

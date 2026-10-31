@@ -25,6 +25,11 @@ find a claim that outruns the code, fix the claim.
 
 ### Memories
 
+- [mimir-server as a model backend](mimir_server_model_backend.md) — `BackendMimir`
+  in `pkg/ml/inference` through the mimir Go SDK; one call per row by column
+  name, the API key is a vhost secret, `RemoteModel` is the server's opaque
+  model id, and `ListMimirModels` feeds the form's Fetch models button.
+
 - [prepareWorkflowNodes writes the nodes it is given](prepare_nodes_mutates_in_place.md)
   — copy `wf.Nodes` (`ownNodes`) before preparing a workflow you share; the
   dead-letter drain did not, and raced StartWorkflow.

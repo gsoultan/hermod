@@ -84,6 +84,35 @@ function sampleRow(model: MLModel): string {
 /** How many items the test asks a recommender for. */
 const TEST_K = 10
 
+/** A mimir label model's answer: every label with its probability, likeliest first. */
+type Guess = { label: string; probability: number }
+
+function guessesOf(answer: unknown): Guess[] | undefined {
+  if (!answer || typeof answer !== 'object') return undefined
+  const g = (answer as { guesses?: unknown }).guesses
+  if (!Array.isArray(g) || g.length === 0) return undefined
+  return g.filter((x): x is Guess => !!x && typeof x === 'object' && typeof (x as Guess).label === 'string' && typeof (x as Guess).probability === 'number')
+}
+
+/** The guesses as bars, so the sure answer and the close call look different at a glance. */
+function GuessList({ guesses }: { guesses: Guess[] }) {
+  return (
+    <Stack gap={4} role="list" aria-label="Guesses">
+      {guesses.map((g) => (
+        <Group key={g.label} gap="sm" wrap="nowrap" role="listitem">
+          <Text size="sm" style={{ width: '10rem', minWidth: 0 }} truncate>{g.label}</Text>
+          <div style={{ flex: 1, height: 8, borderRadius: 4, background: 'var(--mantine-color-default-border)' }} aria-hidden>
+            <div style={{ width: `${Math.round(Math.min(1, Math.max(0, g.probability)) * 100)}%`, height: '100%', borderRadius: 4, background: 'var(--mantine-primary-color-filled)' }} />
+          </div>
+          <Text size="sm" ff="var(--mantine-font-family-monospace)" style={{ width: '3.5rem', textAlign: 'right' }}>
+            {Math.round(g.probability * 100)}%
+          </Text>
+        </Group>
+      ))}
+    </Stack>
+  )
+}
+
 /**
  * Sends one row to the model, or asks a recommender, and shows what it
  * answered. `initialRow`, such as a row of the dataset it was trained on,
@@ -160,6 +189,7 @@ function RowTest({ vhost, model, initialRow }: { vhost: string; model: MLModel; 
       {run.data && (
         <Stack gap={4}>
           <Text size="sm" fw={500}>Prediction</Text>
+          {guessesOf(run.data[0]) && <GuessList guesses={guessesOf(run.data[0])!} />}
           <Code block>{JSON.stringify(run.data[0], null, 2)}</Code>
         </Stack>
       )}
