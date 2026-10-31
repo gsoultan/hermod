@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useWorkflowStore } from '../store/useWorkflowStore';
 import { connectWithReconnect } from '@/lib/reconnectingSocket';
 import { advanceFlows } from '../live/edgeFlow';
@@ -51,7 +51,20 @@ function shareEntries<T>(prev: Record<string, T>, next: Record<string, T>): Reco
   return changed ? out : prev;
 }
 
-export function useWorkflowWebSockets(id: string, active: boolean, logsPaused: boolean) {
+/**
+ * Fills the workflow store from the workflow's log and status feeds. The
+ * editor and the read-only view both use it, so each step's counts, samples
+ * and problems, and each edge's flow, read the same on either page.
+ *
+ * onStatus, when given, is handed every status frame for this workflow as it
+ * arrives, for what a page shows that the store does not keep.
+ */
+export function useWorkflowWebSockets(id: string, active: boolean, logsPaused: boolean, onStatus?: (update: any) => void) {
+  const onStatusRef = useRef(onStatus);
+  useEffect(() => {
+    onStatusRef.current = onStatus;
+  });
+
   // WebSocket for logs
   useEffect(() => {
     if (!id || id === 'new' || !active || logsPaused) return;
@@ -106,6 +119,7 @@ export function useWorkflowWebSockets(id: string, active: boolean, logsPaused: b
 
         updates.forEach(update => {
           if (update.workflow_id === id) {
+            onStatusRef.current?.(update);
             lastFrameAt = Date.now();
             const currentStore = useWorkflowStore.getState();
             const nextState: any = {};

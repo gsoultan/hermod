@@ -524,6 +524,25 @@
 @media (max-width: 47.99em) {
   .hermod-canvas-note { right: 12px; }
 }
+.hermod-canvas-note[data-state='live'] { border-color: var(--mantine-color-green-light-color); }
+.hermod-canvas-note[data-state='stale'] { border-color: var(--mantine-color-orange-light-color); }
+/* The read-only view's sign that what it shows is happening now. */
+.hermod-live-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--mantine-color-green-6);
+  box-shadow: 0 0 0 0 var(--mantine-color-green-6);
+  animation: hermod-live-pulse 1.6s ease-out infinite;
+}
+@keyframes hermod-live-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(64, 192, 87, 0.55); }
+  100% { box-shadow: 0 0 0 7px rgba(64, 192, 87, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hermod-live-dot { animation: none; }
+}
 @media (max-width: 47.99em) {
   .hermod-hide-phone { display: none; }
   .hermod-flow-actions .mantine-Button-group { display: flex; }

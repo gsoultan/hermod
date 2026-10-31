@@ -1,31 +1,12 @@
 import { createContext, useContext, type ReactNode, useState } from 'react';
 import { Handle, Position, type Node as FlowNode, type Edge as FlowEdge } from '@xyflow/react';
-import { Box, Text, ActionIcon, Tooltip, Paper, Group, Stack, ThemeIcon, rem, Badge, UnstyledButton } from '@mantine/core';
+import { Box, Text, ActionIcon, Tooltip, Paper, Group, Stack, ThemeIcon, rem, Badge } from '@mantine/core';
 import { useShallow } from 'zustand/react/shallow';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
-import { nodeSimulationResult } from '@/pages/workflows/WorkflowEditor/simulation/simulationPath';
-import { nodeLiveProblem } from '@/pages/workflows/WorkflowEditor/live/liveHealth';
 import { SIMULATION_STATUS_STYLE, SimulationStatusBadge } from '@/pages/workflows/WorkflowEditor/simulation/SimulationStatusBadge';
-import { IconEye, IconPlus, IconTrash } from '@tabler/icons-react';
+import { IconPlus, IconTrash } from '@tabler/icons-react';
 import { stepTitle } from '@/components/flows/stepTitle';
-import { latestRecord } from './latestRecord';
-/** The newest record a step has seen, on one line. */
-function samplePreview(sample: unknown): string {
-  const latest = latestRecord(sample);
-  if (typeof latest === 'string') return latest;
-  try {
-    return JSON.stringify(latest) ?? String(latest);
-  } catch {
-    return String(latest);
-  }
-}
-
-function problemFields(p: ReturnType<typeof nodeLiveProblem>) {
-  return {
-    problemSeverity: p?.severity ?? null,
-    problemText: p ? p.text.charAt(0).toUpperCase() + p.text.slice(1) : null,
-  };
-}
+import { StepProblem, StepSample, stepStats, useStepLive } from './stepLive';
 
 export const WorkflowContext = createContext<{
   onPlusClick: (nodeId: string, handleId: string | null) => void;
@@ -125,12 +106,10 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
   const context = useContext(WorkflowContext);
 
   // Actions are stable for the store's lifetime, so one shallow selection costs
-  // nothing to compare and replaces five separate subscriptions per node.
-  const { setSampleInspectorOpened, setSampleNodeId, setNodes, setEdges, setSelectedNode } =
+  // nothing to compare.
+  const { setNodes, setEdges, setSelectedNode } =
     useWorkflowStore(
       useShallow(state => ({
-        setSampleInspectorOpened: state.setSampleInspectorOpened,
-        setSampleNodeId: state.setSampleNodeId,
         setNodes: state.setNodes,
         setEdges: state.setEdges,
         setSelectedNode: state.setSelectedNode,
@@ -139,38 +118,8 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
 
   const [hovered, setHovered] = useState(false);
 
-  // One shallow subscription for this node's live telemetry instead of eight.
-  //
-  // Zustand evaluates every selector on every set(), so with N nodes on canvas
-  // these were 11N selector runs per store write — and the store is written on
-  // every telemetry frame. Selecting the scalars together under useShallow means
-  // one comparison per node, and a re-render only when this node's own numbers
-  // move rather than whenever any node's do.
-  const live = useWorkflowStore(
-    useShallow(state => ({
-      metric: state.nodeMetrics[id],
-      errorCount: state.nodeErrorMetrics[id],
-      sample: state.nodeSamples[id],
-      cbStatus: state.sinkCBStatuses[data.ref_id],
-      bufferFill: state.sinkBufferFill[data.ref_id],
-      sourceStatus: state.sourceStatus,
-      sinkStatus: state.sinkStatuses[data.ref_id],
-      // The same object until the next run, so a telemetry frame does not
-      // re-render the node on its account.
-      simulation: nodeSimulationResult(state.testResults, id),
-      // What is wrong here on a live run, as plain fields so useShallow
-      // compares them; null fields when nothing is.
-      ...problemFields(state.testResults ? null : nodeLiveProblem(state, id)),
-    }))
-  );
-
-  const metric = live.metric ?? data.metric;
-  const errorCount = live.errorCount ?? data.errorCount;
-  const sample = live.sample ?? data.sample;
-  const cbStatus = live.cbStatus ?? data.cbStatus;
-  const bufferFill = live.bufferFill ?? data.bufferFill;
-  const { sourceStatus, sinkStatus, simulation, problemSeverity, problemText } = live;
-  const problemColor = problemSeverity === 'error' ? 'red' : problemSeverity === 'warning' ? 'orange' : null;
+  const { metric, errorCount, sample, cbStatus, bufferFill, sourceStatus, sinkStatus, simulation, problemText, problemColor } =
+    useStepLive(id, data);
 
   const nodeStatus = type === 'Source' ? sourceStatus : (type === 'Sink' ? sinkStatus : null);
 
@@ -184,10 +133,7 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
   const borderStyle = 'solid';
   const borderWidth = errorCount > 0 ? '3px' : '2px';
   
-  // Reliability Indicators
   const cbOpen = cbStatus === 'open';
-  const cbHalfOpen = cbStatus === 'half-open';
-  const bufferHigh = bufferFill > 0.8;
 
   const onDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -196,19 +142,7 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
     setSelectedNode(null);
   };
 
-  // What the step has done and anything wrong with it, as one line in the
-  // card rather than bubbles hung off its edges.
-  const stats: ReactNode[] = [];
-  if (cbOpen) stats.push(<Badge key="cb" size="xs" variant="light" color="red">Circuit open</Badge>);
-  if (cbHalfOpen) stats.push(<Badge key="cb" size="xs" variant="light" color="orange">Circuit half-open</Badge>);
-  if (metric > 0) stats.push(<Text key="m" size="xs" c="dimmed">{`${metric.toLocaleString()} processed`}</Text>);
-  if (errorCount > 0) stats.push(<Text key="e" size="xs" c="red.7">{`${errorCount.toLocaleString()} ${errorCount === 1 ? 'error' : 'errors'}`}</Text>);
-  if (data.dlqCount > 0) stats.push(<Text key="d" size="xs" c="orange.7">{`${data.dlqCount.toLocaleString()} failed`}</Text>);
-  if (bufferFill > 0) {
-    stats.push(
-      <Text key="b" size="xs" c={bufferHigh ? 'red.7' : 'dimmed'}>{`Buffer ${Math.round(bufferFill * 100)}%`}</Text>,
-    );
-  }
+  const stats = stepStats({ cbStatus, metric, errorCount, dlqCount: data.dlqCount, bufferFill });
 
   const title = stepTitle(data, type, data.ref_id ? context?.refNames?.[data.ref_id] : undefined);
   const ringColor = cbOpen ? 'red' : (simulationColor ?? problemColor ?? (errorCount > 0 ? healthColor : null));
@@ -257,20 +191,7 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
         <Text fw={600} size="sm" lh={1.3} lineClamp={2} title={title}>{title}</Text>
         {data.description && <Text size="xs" c="dimmed" lineClamp={1}>{data.description}</Text>}
         {badge && <Group gap={4}>{badge}</Group>}
-        {sample != null && (
-          <UnstyledButton
-            className="hermod-step-sample"
-            aria-label="Latest record, open in full"
-            onClick={(e) => {
-              e.stopPropagation();
-              setSampleNodeId(id);
-              setSampleInspectorOpened(true);
-            }}
-          >
-            <IconEye size="0.85rem" aria-hidden />
-            <Text component="span" size="xs" ff="monospace" truncate>{samplePreview(sample)}</Text>
-          </UnstyledButton>
-        )}
+        {sample != null && <StepSample nodeId={id} sample={sample} />}
         {stats.length > 0 && (
           <Group className="hermod-step-stats" gap={6} wrap="wrap">
             {stats}
@@ -308,19 +229,7 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
 
       {/* On a live run, what is wrong here, above the node where it is seen
           first: stuck, hung, failing, stopped or falling behind. */}
-      {problemColor && problemText && (
-        <Badge
-          role="note"
-          aria-label={`Problem: ${problemText}`}
-          color={problemColor}
-          variant="filled"
-          size="sm"
-          radius="sm"
-          style={{ position: 'absolute', top: -12, left: 10, zIndex: 105, textTransform: 'none', maxWidth: 'calc(100% - 20px)' }}
-        >
-          {problemText}
-        </Badge>
-      )}
+      {problemColor && problemText && <StepProblem color={problemColor} text={problemText} />}
     </Paper>
   );
 };

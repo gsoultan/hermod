@@ -17,7 +17,7 @@ vi.mock('@tanstack/react-router', () => ({
   useSearch: () => ({}),
   useRouterState: () => ({ location: { pathname: '/' }, isLoading: false }),
 }))
-vi.mock('@/pages/workflows/WorkflowEditor/components/DetailFlowCanvas', () => ({ DetailFlowCanvas: () => null }))
+vi.mock('@/pages/workflows/WorkflowEditor/components/DetailFlowCanvas', () => ({ DetailFlowCanvas: () => null, toViewEdges: () => [] }))
 vi.mock('@/pages/workflows/WorkflowDebugger', () => ({ WorkflowDebugger: () => null }))
 
 /** A socket the test can drop, as a restarting server would. */

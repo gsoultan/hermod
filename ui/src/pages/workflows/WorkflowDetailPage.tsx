@@ -32,7 +32,11 @@ import { flowState } from '@/components/flows/FlowRow';
 import { FLOW_TABS, flowTab, type FlowTab } from './flowTabs';
 import { useFlowActions } from './useFlowActions';
 import { ComplianceReportModal } from './ComplianceReportModal';
-import { DetailFlowCanvas } from './WorkflowEditor/components/DetailFlowCanvas';
+import { DetailFlowCanvas, toViewEdges } from './WorkflowEditor/components/DetailFlowCanvas';
+import { SampleInspector } from './WorkflowEditor/components/SampleInspector';
+import { useWorkflowWebSockets } from './WorkflowEditor/hooks/useWorkflowWebSockets';
+import { noLiveState } from './WorkflowEditor/hooks/useWorkflowInitialization';
+import { useWorkflowStore } from './WorkflowEditor/store/useWorkflowStore';
 import { useConfirm } from '@/components/common/ConfirmProvider';
 import { useSessionStore } from '@/auth/session';
 import { ExecutionsPanel } from './executions/ExecutionsPanel';
@@ -249,21 +253,24 @@ export function WorkflowDetailPage() {
     });
   }, [id, activeTab]);
 
+  // The status feed fills the same store the editor reads, so each step's
+  // counts, latest record and problems, and each line's flow, show here too.
+  // It used to keep only the engine status and drop the rest of every frame.
+  // Cleared before the feed opens, so its first frame is not wiped by the
+  // reset and nothing is left over from the last flow opened: the store
+  // outlives the page.
   useEffect(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/api/ws/status?workflow_id=${encodeURIComponent(id)}`;
-    // Re-opened after a drop, or the status badge freezes on its last value.
-    return connectWithReconnect(() => wsUrl, (event) => {
-      try {
-        const payload = JSON.parse(event.data);
-        if (payload.workflow_id === id || !payload.workflow_id) {
-          setEngineStatus(payload);
-        }
-      } catch (err) {
-        console.error('Failed to parse status update', err);
-      }
+    useWorkflowStore.setState({
+      ...noLiveState(),
+      workflowStatus: '',
+      testResults: null,
+      testRunGraph: null,
+      simReplay: null,
+      sampleInspectorOpened: false,
+      sampleNodeId: null,
     });
   }, [id]);
+  useWorkflowWebSockets(id, false, true, setEngineStatus);
 
   const logs = useMemo(() => {
     const fetchedLogs = (logsResponse as any)?.data || [];
@@ -305,14 +312,15 @@ export function WorkflowDetailPage() {
         selectable: true,
       }));
 
-      const initialEdges = (workflow.edges || []).map((edge: any) => ({
-        id: edge.id,
-        source: edge.source_id,
-        target: edge.target_id,
-        data: edge.config,
-        animated: workflow.active,
-      }));
+      const initialEdges = toViewEdges(workflow);
 
+      // What the live view reads: the flow's steps and lines, and its saved
+      // status until the feed reports the engine's own.
+      useWorkflowStore.setState({
+        nodes: initialNodes,
+        edges: initialEdges,
+        workflowStatus: useWorkflowStore.getState().workflowStatus || workflow.status || 'Stopped',
+      });
       setNodes(initialNodes);
       setEdges(initialEdges);
     }
@@ -481,6 +489,7 @@ export function WorkflowDetailPage() {
                   setNodes={setNodes}
                 />
               </ReactFlowProvider>
+              <SampleInspector />
             </Tabs.Panel>
 
             <Tabs.Panel value="runs" style={{ flex: 1, overflow: 'hidden' }}>

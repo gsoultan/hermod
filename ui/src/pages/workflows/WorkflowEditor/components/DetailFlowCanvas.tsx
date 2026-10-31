@@ -6,44 +6,71 @@ import {
   MiniMap,
   Position,
   Handle,
+  MarkerType,
   useReactFlow,
   useStore,
   type Node,
   type Edge
 } from '@xyflow/react';
-import { Box, Group, Paper, Stack, Text, ThemeIcon, rem, useMantineColorScheme } from '@mantine/core';
+import { Badge, Box, Group, Paper, Stack, Text, ThemeIcon, rem, useMantineColorScheme } from '@mantine/core';
+import { useShallow } from 'zustand/react/shallow';
 import {
-  IconCircles, IconCloud, IconDatabase, IconEye, IconFileSpreadsheet, IconGitBranch, IconList, IconServer,
-  IconSettingsAutomation, IconVariable, IconWorld
+  IconCircles, IconCloud, IconDatabase, IconFileSpreadsheet, IconGitBranch, IconList, IconServer,
+  IconPlayerStop, IconPlugConnectedX, IconSettingsAutomation, IconVariable, IconWorld
 } from '@tabler/icons-react';
 import dagre from 'dagre';
 import { CanvasControls } from '@/components/flows/CanvasControls';
 import { stepTitle } from '@/components/flows/stepTitle';
 import { transformationLabel } from '../nodes/transformationLabel';
+import { StepProblem, StepSample, stepStats, useStepLive } from '../nodes/stepLive';
+import { useWorkflowStore } from '../store/useWorkflowStore';
+import { isEngineLive } from '../live/liveHealth';
+import { LiveEdge } from './LiveEdge';
 
 /**
  * A step as the read-only view draws it: the same card as the editor's (see
- * BaseNode and .hermod-step), its kind, its name and one detail line.
+ * BaseNode and .hermod-step), its kind, its name and one detail line, and on a
+ * live run what the editor shows of it: its counts, the newest record behind
+ * the eye, and anything wrong with it. Nothing on it edits the flow.
  */
-function StepCard({ color, icon: Icon, kind, title, detail, inbound, outbound, vertical }: {
+function StepCard({ id, data, color, icon: Icon, kind, title, detail, inbound, outbound, vertical, endpoint }: {
+  id: string; data: any;
   color: string; icon: any; kind: string; title: string; detail?: string; inbound?: boolean; outbound?: boolean;
   /** On a phone the flow runs top to bottom, so lines enter at the top and leave at the bottom. */
   vertical?: boolean;
+  /** A source or sink reports a status of its own. */
+  endpoint?: 'source' | 'sink';
 }) {
+  const live = useStepLive(id, data);
+  const stats = stepStats({ cbStatus: live.cbStatus, metric: live.metric, errorCount: live.errorCount, dlqCount: data.dlqCount, bufferFill: live.bufferFill });
+  const status = endpoint === 'source' ? live.sourceStatus : endpoint === 'sink' ? live.sinkStatus : null;
+  const ring = live.cbStatus === 'open' ? 'red' : live.problemColor ?? (live.errorCount > 0 ? 'orange' : null);
   return (
-    <Paper radius="md" className="hermod-step">
+    <Paper
+      radius="md"
+      className="hermod-step"
+      style={ring ? { border: `${live.problemColor ? 3 : 2}px solid var(--mantine-color-${ring}-6)` } : undefined}
+    >
       {inbound && <Handle type="target" position={vertical ? Position.Top : Position.Left} style={{ visibility: 'hidden' }} />}
       {outbound && <Handle type="source" position={vertical ? Position.Bottom : Position.Right} style={{ visibility: 'hidden' }} />}
-      <Stack gap={4} px={14} py={12}>
-        <Group gap={8} wrap="nowrap">
-          <ThemeIcon color={color} variant="light" size={22} radius="sm">
-            <Icon size="0.85rem" />
-          </ThemeIcon>
-          <Text size="xs" fw={600} c="dimmed" tt="uppercase" truncate style={{ letterSpacing: rem(0.6) }}>{kind}</Text>
+      <Stack className="hermod-step-body" gap={4} px={14} py={12}>
+        <Group justify="space-between" gap="xs" wrap="nowrap">
+          <Group gap={8} wrap="nowrap" style={{ minWidth: 0 }}>
+            <ThemeIcon color={color} variant="light" size={22} radius="sm">
+              <Icon size="0.85rem" />
+            </ThemeIcon>
+            <Text size="xs" fw={600} c="dimmed" tt="uppercase" truncate style={{ letterSpacing: rem(0.6) }}>{kind}</Text>
+          </Group>
+          {status && status !== 'running' && (
+            <Badge size="xs" variant="light" color={status.startsWith('error') ? 'red' : 'blue'}>{status}</Badge>
+          )}
         </Group>
         <Text size="sm" fw={600} lh={1.3} lineClamp={2} title={title}>{title}</Text>
         {detail && <Text size="xs" c="dimmed" truncate>{detail}</Text>}
+        {live.sample != null && <StepSample nodeId={id} sample={live.sample} />}
+        {stats.length > 0 && <Group className="hermod-step-stats" gap={6} wrap="wrap">{stats}</Group>}
       </Stack>
+      {live.problemColor && live.problemText && <StepProblem color={live.problemColor} text={live.problemText} />}
     </Paper>
   );
 }
@@ -53,8 +80,11 @@ const SOURCE_ICONS: Record<string, any> = {
   rabbitmq: IconList, rabbitmq_queue: IconList,
 };
 
-const SourceNode = memo(({ data }: any) => (
+const SourceNode = memo(({ id, data }: any) => (
   <StepCard
+    id={id}
+    data={data}
+    endpoint="source"
     color="blue"
     icon={SOURCE_ICONS[data.type] ?? IconDatabase}
     kind="Source"
@@ -65,13 +95,16 @@ const SourceNode = memo(({ data }: any) => (
   />
 ));
 
-const SinkNode = memo(({ data }: any) => {
+const SinkNode = memo(({ id, data }: any) => {
   const icon = data.type === 'http' ? IconWorld
     : ['s3', 's3-parquet', 'ftp'].includes(data.type) ? IconCloud
     : ['postgres', 'mysql', 'mssql', 'mongodb', 'sqlite', 'mariadb', 'oracle', 'clickhouse', 'yugabyte'].includes(data.type) ? IconDatabase
     : IconServer;
   return (
     <StepCard
+      id={id}
+      data={data}
+      endpoint="sink"
       color="green"
       icon={icon}
       kind="Sink"
@@ -90,10 +123,12 @@ function kindOf(type: string | undefined, data: any): string {
   return type.charAt(0).toUpperCase() + type.slice(1).replace(/[_-]+/g, ' ');
 }
 
-const StepNode = memo(({ data, type }: any) => {
+const StepNode = memo(({ id, data, type }: any) => {
   const kind = kindOf(type, data);
   return (
     <StepCard
+      id={id}
+      data={data}
       color="violet"
       icon={data.isGroup ? IconGitBranch : IconVariable}
       kind={kind}
@@ -132,6 +167,54 @@ export const detailNodeTypes = {
   note: StepNode,
 };
 
+/** Every line is a live one: it moves, at the rate messages cross it, only while they do. */
+export const detailEdgeTypes = { default: LiveEdge, live: LiveEdge };
+
+/**
+ * A saved flow's edges as the view draws them. Not deletable, which also keeps
+ * LiveEdge's breakpoint and remove buttons off. No handle ids: a view card has
+ * one way in and one way out. No React Flow `animated`: it ran its own dash on
+ * every line of an active flow, whether or not anything was moving.
+ */
+export function toViewEdges(workflow: { edges?: any[] } | undefined): Edge[] {
+  return (workflow?.edges || []).map((edge: any) => ({
+    id: edge.id,
+    source: edge.source_id,
+    target: edge.target_id,
+    type: 'live',
+    data: edge.config,
+    deletable: false,
+    markerEnd: { type: MarkerType.ArrowClosed, width: 20, height: 20, color: 'var(--mantine-color-gray-5)' },
+  }));
+}
+
+/**
+ * Whether what the canvas shows is happening now: live while the flow runs and
+ * its feed is current, paused when the feed has gone quiet, stopped otherwise.
+ * It took the place of a note that said only "Read only", so a running flow
+ * and a stopped one looked the same.
+ */
+export function LiveNote({ compact }: { compact?: boolean }) {
+  const { workflowStatus, stale } = useWorkflowStore(useShallow((s) => ({ workflowStatus: s.workflowStatus, stale: s.statusFeedStale })));
+  const state = !isEngineLive(workflowStatus) ? 'stopped' : stale ? 'stale' : 'live';
+  return (
+    <Group gap={8} wrap="nowrap" className="hermod-canvas-note" data-testid="flow-live-note" data-state={state} aria-live="polite">
+      {state === 'live' && <span className="hermod-live-dot" aria-hidden />}
+      {state === 'stale' && <IconPlugConnectedX size="0.95rem" color="var(--mantine-color-orange-6)" aria-hidden />}
+      {state === 'stopped' && <IconPlayerStop size="0.95rem" aria-hidden />}
+      <Text size="sm" fw={600} c={state === 'live' ? 'green.7' : state === 'stale' ? 'orange.7' : undefined}>
+        {state === 'live' ? 'Live' : state === 'stale' ? 'Live data paused' : 'Stopped'}
+      </Text>
+      <Text size="sm" c="dimmed" truncate>
+        {state === 'stale' ? 'Reconnecting…'
+          : compact ? 'Read only.'
+          : state === 'live' ? 'Read only. Each step shows its latest record.'
+          : 'Read only. Turn it on to see live data.'}
+      </Text>
+    </Group>
+  );
+}
+
 /** The smallest a phone draws the flow: below this a step's name cannot be read. */
 const PHONE_MIN_ZOOM = 0.7;
 
@@ -165,12 +248,15 @@ export function DetailFlowCanvas({ nodes, edges, onNodesChange, onEdgesChange, s
     const g = new dagre.graphlib.Graph();
     g.setDefaultEdgeLabel(() => ({}));
     g.setGraph({ rankdir: 'TB', nodesep: 24, ranksep: 36 });
-    withNames.forEach((n) => g.setNode(n.id, { width: 240, height: 76 }));
+    // Each step at its measured height: on a live run a card grows by its
+    // latest record and counts, and at a fixed height they overlapped.
+    const heightOf = (n: Node) => n.measured?.height ?? 76;
+    withNames.forEach((n) => g.setNode(n.id, { width: 240, height: heightOf(n) }));
     edges.forEach((e) => g.setEdge(e.source, e.target));
     dagre.layout(g);
     return withNames.map((n) => {
       const p = g.node(n.id);
-      return p ? { ...n, position: { x: p.x - 120, y: p.y - 38 } } : n;
+      return p ? { ...n, position: { x: p.x - 120, y: p.y - heightOf(n) / 2 } } : n;
     });
   }, [nodes, edges, connectionNames, phone]);
 
@@ -199,7 +285,7 @@ export function DetailFlowCanvas({ nodes, edges, onNodesChange, onEdgesChange, s
     dagreGraph.setGraph({ rankdir: 'LR', nodesep: 50, ranksep: 100 });
 
     nodes.forEach((node) => {
-      dagreGraph.setNode(node.id, { width: 240, height: 84 });
+      dagreGraph.setNode(node.id, { width: 240, height: node.measured?.height ?? 84 });
     });
 
     edges.forEach((edge) => {
@@ -215,7 +301,7 @@ export function DetailFlowCanvas({ nodes, edges, onNodesChange, onEdgesChange, s
           ...node,
           position: {
             x: nodeWithPosition.x - 120,
-            y: nodeWithPosition.y - 42,
+            y: nodeWithPosition.y - (node.measured?.height ?? 84) / 2,
           },
         };
       })
@@ -230,6 +316,8 @@ export function DetailFlowCanvas({ nodes, edges, onNodesChange, onEdgesChange, s
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         nodeTypes={detailNodeTypes}
+        edgeTypes={detailEdgeTypes}
+        nodesConnectable={false}
         fitView
         fitViewOptions={{ padding: 0.2 }}
       >
@@ -252,10 +340,7 @@ export function DetailFlowCanvas({ nodes, edges, onNodesChange, onEdgesChange, s
           }}
         />
       </ReactFlow>
-      <Group gap={8} wrap="nowrap" className="hermod-canvas-note">
-        <IconEye size="0.95rem" aria-hidden />
-        <Text size="sm" c="dimmed">Read only. Use Edit flow to change steps.</Text>
-      </Group>
+      <LiveNote compact={phone} />
       <Box className="hermod-canvas-bottom-left" style={{ bottom: 12 }}>
         <CanvasControls
           zoom={zoom}
