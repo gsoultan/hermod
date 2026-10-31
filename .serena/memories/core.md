@@ -30,6 +30,9 @@ find a claim that outruns the code, fix the claim.
   name, the API key is a vhost secret, `RemoteModel` is the server's opaque
   model id, and `ListMimirModels` feeds the form's Fetch models button.
 
+- [What an idle Hermod spends](idle_footprint.md) — the 2026-10-31 resource
+  audit: timers that re-wrote unchanged rows, an unindexed 5s scan, and maps
+  keyed by deleted workflows and sources; what was fixed and what was left.
 - [prepareWorkflowNodes writes the nodes it is given](prepare_nodes_mutates_in_place.md)
   — copy `wf.Nodes` (`ownNodes`) before preparing a workflow you share; the
   dead-letter drain did not, and raced StartWorkflow.
