@@ -49,9 +49,11 @@ Hermod is built for mission-critical enterprise data workloads, providing robust
 - **Global Schema Registry**: Enforce data contracts with built-in JSON Schema, Avro, and Protobuf support. Automatically tracks schema versions and ensures backward compatibility.
 - **Workflow Versioning & Rollback**: Every change to a workflow is automatically versioned. One-click rollback allows you to quickly revert to a known stable configuration.
 - **Distributed State & Coordination**: Native support for **Redis** and **Etcd** backends for consistent state management across multiple worker instances.
+- **Redis Lookup and Redis Set**: A Redis Lookup step enriches a record from a key, and Redis Set, as a sink or as a step in the middle of a flow, writes one: `SET` of a value or `HSET` of one field or a whole object, with templated keys, an optional TTL and, for `SET`, only-if-absent. A key whose template has no value on the record is refused rather than written to one shared key, and a batch goes out in one `MULTI`.
 - **Enterprise Secret Management**: Securely resolve credentials from **HashiCorp Vault**, **AWS Secrets Manager**, and **Azure Key Vault** using the `secret:key` prefix.
 - **Role-Based Access Control (RBAC)**: Granular permissions for Administrators, Editors, and Viewers, including VHost-level isolation.
-- **Message Tracing & Visual Journey**: Visualize the exact path of a single message through the DAG, including latency and data mutations at each step.
+- **Visual workflow editor**: A flow's read-only view and its editor share one layout, on a desktop and on a phone, where the flow is drawn top to bottom and the actions sit in a bottom bar. While a flow runs, both show it live: each step card carries its counts, errors, problems such as stuck or circuit open, and the newest record it passed on, and the lines move only while messages cross them. The **Tuning** tab shows the engine's real throughput, error rate, backpressure (the fullest sink buffer) and latency, with a table per sink and per step, and says when the flow is off instead of showing zeros.
+- **Message Tracing & Visual Journey**: Visualize the exact path of a single message through the DAG, including latency and data mutations at each step. The trace list and the journey scroll independently, and on a phone they are shown one at a time at full width.
 - **Pipeline Health Heatmaps**: Real-time visualization of throughput and error rates directly on the workflow canvas.
 - **WebAssembly (WASM) Transformations**: Run custom business logic written in Go, Rust, or C++ at near-native speed within the pipeline.
 - **Automated PII Scanning**: Built-in `mask` transformation detects and redacts sensitive data (PII/PHI) using a sophisticated regex-based discovery engine.
@@ -62,8 +64,9 @@ Hermod is built for mission-critical enterprise data workloads, providing robust
 - **Stateful Event Correlation (Join/Zip)**: Wait for and join messages from multiple sources based on a common key before downstream delivery.
 - **Circuit Breaker & Failure Recovery**: Protect downstream systems with a built-in Circuit Breaker node. Automatically routes messages to failure branches when error thresholds are exceeded.
 - **Interactive Workflow Debugger**: Real-time message pausing, stepping, and inspection directly from the UI. Pause messages at any node to inspect payload state and resume processing when ready.
+- **Previews that do not write**: Simulate, Run Preview and the SQL builder's preview run Execute SQL, DB Lookup and SCD steps inside one database transaction that is rolled back when the preview ends, so pressing a button in the editor never changes a real table. Statements that would escape the rollback (`COMMIT`, several statements, DDL on databases that commit it implicitly) are refused in a preview, and on ClickHouse, which cannot roll back, a preview runs reads only. See [Previews run in a rolled-back sandbox](docs/workflows.md#previews-run-in-a-rolled-back-sandbox).
 - **Visual Lineage with Data Diffs**: Enhanced message tracing with "Before and After" snapshots for every transformation node in the DAG. Visually debug exactly how data is mutated at each step.
-- **AIOps & Self-Healing Optimization**: AI-driven performance tuning that automatically adjusts concurrency, batch sizes, and retry policies based on real-time throughput and error patterns.
+- **Adaptive batch tuning**: A rule-based optimizer raises a sink's batch size and batch timeout when its buffer is under pressure and lowers the batch size again when it runs empty. The AI pass of the optimizer is **off by default**: left on, it would send a failing flow's status, payload samples included, to a language model every cycle.
 - **Intelligent Data Quality Alerts**: Automated detection of data quality drift using the `governance.Scorer`. Alerts trigger when schema adherence or DQ scores drift from historical averages.
 - **Global Mesh Governance (experimental)**: A cluster registry and an HTTP forwarding sink, letting one Hermod instance route messages to another. Scope check: it is roughly 320 lines, `Failover` marks a cluster's status and logs rather than redirecting traffic, and there are no health checks, retries or partition handling. Treat it as a foundation, not a control plane.
 - **WASM & Blueprint Marketplace**: Discover, version, and share custom WebAssembly transformers and Go-based workflow blueprints via an integrated Marketplace.
@@ -96,7 +99,7 @@ Hermod works by reading data from a `Source`, buffering it in a high-performance
 ## Install
 
 ```bash
-docker pull ghcr.io/gsoultan/hermod:1.21.0
+docker pull ghcr.io/gsoultan/hermod:1.23.0
 ```
 
 A Helm chart, Linux packages, building from source and `go get` are covered in
@@ -159,3 +162,6 @@ For a detailed view of planned features and future development ideas, please ref
   - If the UI is affected, verify the UI builds (`cd ui && bun run build`) or run the quick verify script on Windows: `pwsh -File scripts/quick-verify.ps1`.
   - Keep examples up to date. Add to the page that covers the topic; a new page is for a new topic,
     and gets a line in the [Documentation](#documentation) list.
+- When a change alters how a part of Hermod works, update the matching note in
+  `.serena/memories/` and its line in `.serena/memories/core.md`, the index, so the next
+  reader starts from the current design rather than the one before it.

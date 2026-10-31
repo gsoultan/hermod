@@ -2,7 +2,7 @@
 
 The container image, the Helm chart, packages, building from source, and `go get`.
 
-The current release is **`v1.21.0`**. See [CHANGELOG.md](../CHANGELOG.md) for what
+The current release is **`v1.23.0`**. See [CHANGELOG.md](../CHANGELOG.md) for what
 changed, what breaks, and the known gaps, and the
 [releases page](https://github.com/gsoultan/hermod/releases) for every version.
 
@@ -12,8 +12,8 @@ deployment reproducible, and it is what the examples below do.
 ## Container image
 
 ```bash
-docker pull ghcr.io/gsoultan/hermod:1.21.0
-docker run --rm ghcr.io/gsoultan/hermod:1.21.0 -version
+docker pull ghcr.io/gsoultan/hermod:1.23.0
+docker run --rm ghcr.io/gsoultan/hermod:1.23.0 -version
 ```
 
 `linux/amd64` and `linux/arm64` are both published under that one tag.
@@ -22,7 +22,7 @@ docker run --rm ghcr.io/gsoultan/hermod:1.21.0 -version
 
 ```bash
 helm install hermod oci://ghcr.io/gsoultan/charts/hermod \
-  --version 1.21.0 \
+  --version 1.23.0 \
   --set existingSecret=hermod-master-key
 ```
 
