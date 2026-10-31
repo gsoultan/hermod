@@ -1,5 +1,5 @@
 import { FormRow } from '@/components/common/FormRow';
-import { Stack, Group, Select, JsonInput, Text, Divider, Button, Badge, List, Paper, Box, Fieldset, Code } from '@mantine/core';
+import { Stack, Group, Select, MultiSelect, JsonInput, Text, Divider, Button, Badge, List, Paper, Box, Fieldset, Code } from '@mantine/core';
 import { PasswordInput, TextInput } from '@/components/shared/ReferenceInputs';
 import { CronInput } from '../../shared/CronInput';
 import { GenerateToken } from '../../shared/GenerateToken';
@@ -15,8 +15,33 @@ interface OtherSourceConfigProps {
   sourceType: string;
 }
 
+/** Who sends to a webhook source: anyone, or a mimir-server's webhook (internal/webhooks/transport/http/mimir.go). */
+const WEBHOOK_SENDERS = [
+  { value: '', label: 'Any sender' },
+  { value: 'mimir', label: 'mimir-server events' },
+];
+
+/** The events a mimir-server webhook sends (mimir-server-sdk/webhook). */
+export const MIMIR_EVENTS = [
+  { value: 'training.finished', label: 'Training finished' },
+  { value: 'training.failed', label: 'Training failed' },
+  { value: 'training.queued', label: 'Training queued' },
+  { value: 'model.accuracy_dropped', label: 'Model accuracy dropped' },
+  { value: 'model.created', label: 'Model created' },
+  { value: 'model.updated', label: 'Model updated' },
+  { value: 'model.deleted', label: 'Model deleted' },
+  { value: 'user.created', label: 'User created' },
+  { value: 'user.deleted', label: 'User deleted' },
+  { value: 'test', label: 'Test delivery' },
+];
+
+/** The saved events list is comma-separated text, as the endpoint reads it. */
+const eventsOf = (text: unknown): string[] =>
+  typeof text === 'string' && text.trim() ? text.split(',').map((e) => e.trim()).filter(Boolean) : [];
+
 export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSourceConfigProps) {
   const [builderOpened, setBuilderOpened] = useState(false);
+  const mimir = sourceType === 'webhook' && config.preset === 'mimir';
 
   const formFields: FormFieldItem[] = Array.isArray(config.fields) ? config.fields : [];
 
@@ -56,11 +81,33 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
           required 
         />
         {sourceType === 'webhook' && (
+          <Select
+            label="Sender"
+            description="mimir-server signs each event with the webhook's secret and retries it for a day; choosing it checks the Mimir-Signature header and drops repeated deliveries."
+            data={WEBHOOK_SENDERS}
+            value={config.preset || ''}
+            allowDeselect={false}
+            onChange={(val) => updateConfig('preset', val || '')}
+          />
+        )}
+        {sourceType === 'webhook' && !mimir && (
           <Select 
             label="HTTP Method" 
             data={['POST', 'PUT', 'GET']} 
             value={config.method || 'POST'} 
             onChange={(val) => updateConfig('method', val || 'POST')} 
+          />
+        )}
+        {mimir && (
+          <MultiSelect
+            label="Events"
+            description="Which events reach the workflow; the others are acknowledged and dropped. Empty takes every event."
+            placeholder={eventsOf(config.events).length ? undefined : 'All events'}
+            data={MIMIR_EVENTS}
+            value={eventsOf(config.events)}
+            onChange={(vals) => updateConfig('events', vals.join(','))}
+            searchable
+            clearable
           />
         )}
         
@@ -131,8 +178,8 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
           </Stack>
         )}
 
-        {/* A form source answers browsers and checks no key, so it is not offered one. */}
-        {sourceType !== 'form' && (
+        {/* A form source answers browsers and checks no key, so it is not offered one; mimir-server sends none. */}
+        {sourceType !== 'form' && !mimir && (
           <GenerateToken
             label="API Key (Optional)"
             value={config.api_key || ''}
@@ -150,6 +197,23 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
               hasApiKey={Boolean(config.api_key)}
               waits={config.response_mode === RESPONSE_MODE_SYNC}
             />
+          </>
+        ) : mimir ? (
+          <>
+            <PasswordInput
+              label="Webhook secret"
+              placeholder="whsec_…"
+              value={config.secret || ''}
+              onChange={(e) => updateConfig('secret', e.target.value)}
+              description="Shown once when the webhook is made on the mimir console. Every delivery is checked against it; without it no delivery is taken."
+              required
+            />
+            <Text size="xs" c="dimmed">
+              The signature travels in <Code>Mimir-Signature</Code>. Each message carries the event as sent (<Code>id</Code>,{' '}
+              <Code>type</Code>, <Code>time</Code>, <Code>data</Code>), with the type in the <Code>mimir_event</Code> metadata.
+            </Text>
+            <Divider my="xs" />
+            <ResponseModeFields config={config} updateConfig={updateConfig} />
           </>
         ) : sourceType === 'webhook' ? (
           <>

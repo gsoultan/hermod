@@ -29,6 +29,17 @@ the same way, with the same prediction log and drift checks.
   draws the guesses as bars.
 - A connected model's status badge now says what kind of server it is on.
 
+### Added — A webhook source for mimir-server events
+
+A webhook source whose **Sender** is **mimir-server events** (`"preset":
+"mimir"`) takes what a mimir-server's webhook sends: training finished or
+failed, a model's accuracy dropping in use, models and users created or
+deleted. It checks each delivery's `Mimir-Signature` with the webhook's
+`whsec_…` secret, answers a retried delivery (same event id) with
+`200 duplicate` without dispatching it again, and keeps only the event types
+chosen under **Events**. The event's type and id travel as `mimir_event`
+and `mimir_event_id` metadata. See [docs/api-sources.md](docs/api-sources.md).
+
 ### Added — Tell a mimir model what really happened, and ask it why
 
 - **Feedback** (*Machine Learning → Feedback*, `ml_feedback`) sends a mimir
