@@ -276,6 +276,9 @@ type activeEngine struct {
 	baseErrors    uint64
 	baseLag       uint64
 	startTime     time.Time
+	// flushed is what flushStatsToStorage last wrote for this engine, so a
+	// tick on which nothing moved writes nothing.
+	flushed flushedRows
 
 	// Live components
 	sinks []hermod.Sink
@@ -288,6 +291,63 @@ type activeEngine struct {
 	edgeBreakpoints map[string]bool
 	inDegree        map[string]int
 	sinkNodeToIndex map[string]int
+}
+
+// flushedRows remembers the stats and status rows the five-second flusher last
+// stored for one engine.
+//
+// The flusher used to issue UpdateWorkflowStats and UpdateWorkflowStatus for
+// every engine on every tick, whatever the engine had done. An idle deployment
+// with N workflows therefore made 2N UPDATEs every five seconds for ever, each
+// re-storing the value already in the row: an fsync each on SQLite, a dead
+// tuple each on PostgreSQL. Same shape, same fix as statusWriteGate. A write
+// that fails is forgotten so the next tick tries again, because remembering a
+// value storage refused would leave the row stale for the life of the engine.
+type flushedRows struct {
+	mu          sync.Mutex
+	statsKnown  bool
+	processed   uint64
+	errors      uint64
+	lag         uint64
+	statusKnown bool
+	status      string
+}
+
+// statsChanged reports whether the counters differ from the last ones written,
+// recording them when they do.
+func (f *flushedRows) statsChanged(processed, errors, lag uint64) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.statsKnown && f.processed == processed && f.errors == errors && f.lag == lag {
+		return false
+	}
+	f.statsKnown, f.processed, f.errors, f.lag = true, processed, errors, lag
+	return true
+}
+
+// statusChanged reports whether status differs from the last one written,
+// recording it when it does.
+func (f *flushedRows) statusChanged(status string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.statusKnown && f.status == status {
+		return false
+	}
+	f.statusKnown, f.status = true, status
+	return true
+}
+
+// forgetStats and forgetStatus drop the recorded value after a failed write.
+func (f *flushedRows) forgetStats() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.statsKnown = false
+}
+
+func (f *flushedRows) forgetStatus() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.statusKnown = false
 }
 
 func (r *Registry) CreateSource(ctx context.Context, cfg factory.SourceConfig) (hermod.Source, error) {
@@ -488,13 +548,21 @@ func (r *Registry) flushStatsToStorage() {
 		errors := ae.baseErrors + status.DeadLetterCount
 		lag := engineLag(status)
 
-		// Update stats in DB (fast path)
-		_ = store.UpdateWorkflowStats(r.ctx, ae.workflow.ID, processed, errors, lag)
+		// Only rows that moved. See flushedRows for what unconditional writes
+		// cost an idle deployment.
+		if ae.flushed.statsChanged(processed, errors, lag) {
+			if err := store.UpdateWorkflowStats(r.ctx, ae.workflow.ID, processed, errors, lag); err != nil {
+				ae.flushed.forgetStats()
+			}
+		}
 
-		// Also update status if it changed significantly (e.g. to/from error)
-		// We'll let the synchronous callback handle immediate status changes for notifications,
-		// but we ensure the DB is synced here too.
-		_ = store.UpdateWorkflowStatus(r.ctx, ae.workflow.ID, status.EngineStatus)
+		// The status-change callback writes status as it happens; this keeps
+		// the row in sync should that write have been refused.
+		if ae.flushed.statusChanged(status.EngineStatus) {
+			if err := store.UpdateWorkflowStatus(r.ctx, ae.workflow.ID, status.EngineStatus); err != nil {
+				ae.flushed.forgetStatus()
+			}
+		}
 	}
 }
 
@@ -570,6 +638,13 @@ func (r *Registry) purgeRetention() {
 			"listed", len(workflows), "total", total)
 	}
 
+	// audit_logs is one table for the whole deployment, so it gets one sweep at
+	// the most conservative window any workflow asks for. It used to be swept
+	// once per workflow at that workflow's own window: N full-range deletes an
+	// hour, and the shortest window among them deciding what every workflow's
+	// audit trail kept.
+	var auditCutoff time.Time
+
 	for _, wf := range workflows {
 		traces.Live[wf.ID] = struct{}{}
 		// parseDuration, not time.ParseDuration: these windows are written by
@@ -599,18 +674,13 @@ func (r *Registry) purgeRetention() {
 			}
 		}
 
-		// Purge Audit Logs (if we decide to per-workflow, but usually it's global or per-workflow entity)
-		// For now, let's use global if per-workflow is not specified, or just per-workflow if set.
 		if wf.AuditRetention != "" && wf.AuditRetention != "0" {
 			if duration, err := parseDuration(wf.AuditRetention); err != nil {
 				r.logger.Error("Registry: audit retention is not a duration, so audit "+
 					"logs are never purged",
 					"workflow_id", wf.ID, "audit_retention", wf.AuditRetention, "error", err)
-			} else if logStore != nil {
-				if err := logStore.PurgeAuditLogs(ctx, time.Now().Add(-duration)); err != nil {
-					r.logger.Error("Registry: purging audit logs failed",
-						"workflow_id", wf.ID, "error", err)
-				}
+			} else if cutoff := time.Now().Add(-duration); auditCutoff.IsZero() || cutoff.Before(auditCutoff) {
+				auditCutoff = cutoff
 			}
 		}
 
@@ -627,6 +697,12 @@ func (r *Registry) purgeRetention() {
 					WorkflowID: wf.ID,
 				})
 			}
+		}
+	}
+
+	if logStore != nil && !auditCutoff.IsZero() {
+		if err := logStore.PurgeAuditLogs(ctx, auditCutoff); err != nil {
+			r.logger.Error("Registry: purging audit logs failed", "error", err)
 		}
 	}
 
@@ -680,6 +756,54 @@ func (r *Registry) DeleteWorkflowTraces(ctx context.Context, workflowID string) 
 		r.logger.Error("Registry: could not delete the traces of a deleted workflow; "+
 			"the hourly retention sweep will reclaim them",
 			"workflow_id", workflowID, "error", err)
+	}
+}
+
+// ForgetWorkflow is what the delete handlers call once a workflow's row is
+// gone: its traces are removed from the log store and every in-process record
+// keyed by its ID is dropped.
+//
+// piiStats, the supervisor's restart history and the node-state cache are all
+// per workflow and nothing removed an entry when the workflow was deleted. Each
+// is small, but a deployment that creates and deletes workflows -- every CI
+// run does -- grew them for the life of the process.
+func (r *Registry) ForgetWorkflow(ctx context.Context, workflowID string) {
+	r.DeleteWorkflowTraces(ctx, workflowID)
+
+	r.piiStatsMu.Lock()
+	delete(r.piiStats, workflowID)
+	r.piiStatsMu.Unlock()
+
+	if r.supervisor != nil {
+		r.supervisor.clearStallHistory(workflowID)
+	}
+
+	prefix := workflowID + ":"
+	r.nodeStatesMu.Lock()
+	for key := range r.nodeStates {
+		if strings.HasPrefix(key, prefix) {
+			delete(r.nodeStates, key)
+		}
+	}
+	r.nodeStatesMu.Unlock()
+}
+
+// CloseSourcePools closes and drops every connection pool opened for a source.
+//
+// The delete handler calls it once the source's row is gone. GetOrOpenDB keeps
+// one *sql.DB per source and deleting the source removed the row and nothing
+// else: the pool, its idle connections and database/sql's opener goroutine
+// stayed until the process exited.
+func (r *Registry) CloseSourcePools(sourceID string) {
+	r.dbPoolMu.Lock()
+	defer r.dbPoolMu.Unlock()
+	for key, entry := range r.dbPool {
+		if entry.sourceID != sourceID {
+			continue
+		}
+		r.logger.Info("Closing database connection pool of a deleted source", "source_id", sourceID)
+		_ = entry.db.Close()
+		delete(r.dbPool, key)
 	}
 }
 
