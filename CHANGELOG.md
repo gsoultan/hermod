@@ -7,6 +7,25 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — Lines that split and meet again keep both halves, and a preview stops where it fails
+
+- **Engine**: a node that several lines lead into ran on whichever line's message
+  arrived first and dropped the other's work without a word, unless it was a Stateful
+  Join. Simulate merged them, so the preview showed a message the workflow never
+  produced. Both now merge what every line brought with one shared rule
+  (`traversal.MergeData`, honouring the node's `strategy`).
+- **Simulate**: a node that failed and still handed back a message sent it on, so the
+  nodes after a failure were shown running on its output. Nothing is sent past a failed
+  node, as in the live workflow; the nodes after it are reported skipped.
+- **Editor**: after a Test run, a node reconfigured or rewired since the run, and every
+  node after it, kept feeding the run's old output into Available Fields and the Live
+  Preview, so a field renamed upstream stayed listed under its old name and the preview
+  ran on the old input. Those steps are now passed over like an unrun node's, and the
+  input falls back to the nearest output that still holds.
+- **Execute SQL preview**: pinned by tests that the sandbox rolls a write back when a
+  later node fails, returns its connection, reports the failure on the failing node, skips
+  the nodes after it, and lets the same preview run again at once.
+
 ### Fixed — A flow's read-only view shows that it is running, and what each step is doing
 
 The read-only view drew its own plain step cards and lines and kept nothing of

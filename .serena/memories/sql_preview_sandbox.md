@@ -38,6 +38,20 @@ writes because they share the transaction.
 - The SQL builder preview (Available Fields) runs a query that may write in a
   one-shot sandbox, never on a component's own SQL path.
 
+## When a later node fails
+
+The run ends at the failing node: `SimulateWorkflow` defers `end()` (the
+sandbox's `Rollback`) so the write is rolled back whatever happened after it,
+the connection goes back to the pool (`db.Stats().InUse == 0`), the failure is
+on that node's step (`Error`), the nodes after it are `Skipped`, and the same
+preview can run again at once (the UNIQUE code is free again). Run Preview
+(`TestTransformationPipeline`) returns the error and rolls back the same way.
+Pinned by `TestSimulationRollsBackSQLWritesWhenALaterNodeFails` and
+`TestRunPreviewRollsBackSQLWritesWhenALaterStepFails`
+(`internal/engine/registry/preview_sandbox_failure_test.go`). The simulation
+used to forward whatever a failed node handed back; see
+[simulation_path_contract](simulation_path_contract.md).
+
 Docs: `docs/workflows.md#previews-run-in-a-rolled-back-sandbox`. See also
 [execute_sql returned rows](execute_sql_returned_rows.md), whose "Live Preview
 executes the statement for real" now means "inside the sandbox".

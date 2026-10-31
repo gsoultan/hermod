@@ -49,13 +49,16 @@ that happened is visible to the prune that completes the count.
   (`internal/engine/registry`) — `StartWorkflow` with the editor's condition
   shape and a sink fixture; without the fix seq 1..3 never arrive.
 
-## Still open (same function, not fixed, found by reading — no test yet)
+## Closed since
 
-A taken edge whose node emitted *no* messages (a filter that dropped it) is
-neither delivered nor pruned in `handleResults` — the `for _, msg := range msgs`
-loop runs zero times — so a join downstream of it never completes. A node that
-failed returns before resolving any edge, with the same effect. A condition
-alone cannot trigger it (one branch, one message); a multicast whose branches
-meet again after a filter should. Reproduce it before fixing it.
+- A taken edge whose node emitted nothing, or whose node failed, is pruned
+  (`handleResults`), so the join completes: `join_after_filter_test.go`,
+  `join_after_error_test.go`.
+- When *both* branches deliver into one node, `resolveEdge` kept the first
+  message and merged the second only into a `join` node; a plain node ran on
+  one branch's data and the other's was dropped silently. It now merges every
+  arrival with `traversal.MergeData` (`merge.go`), the same rule
+  `simulation.deliver` uses, honouring the node's `strategy`. Metadata is still
+  merged only for `join`. `split_merge_test.go`.
 
 See also [what a test run reports](simulation_path_contract.md).

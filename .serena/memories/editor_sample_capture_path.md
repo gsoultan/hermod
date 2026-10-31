@@ -19,7 +19,10 @@ never the bug — the source's sample is missing.
 4. `onSampleReady` persists it with `PUT /api/sources/{id}` as `sample`
    (a JSON *string*) and mirrors it into the node's `lastSample`.
 5. `useNodeContext` reads the last simulation first (`testResults`, the
-   upstream node's *output*), else walks edges back to the nearest node with
+   upstream node's *output*, unless that node is stale against `testRunGraph` —
+   reconfigured or rewired since the run, or downstream of one that was; see
+   `staleSimulationNodes` in [simulation_path_contract](simulation_path_contract.md)),
+   else walks edges back to the nearest node with
    a payload: its simulated output first, then what it holds itself
    (`sampleCapture.ownPayloadOf`, freshest first: `testResult.payload` →
    `nodeSamples[id]` (live engine) → the source record's stored `sample` →

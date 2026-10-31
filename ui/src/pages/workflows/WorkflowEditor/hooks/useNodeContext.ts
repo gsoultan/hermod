@@ -4,13 +4,15 @@ import { useWorkflowStore } from '../store/useWorkflowStore';
 import { useShallow } from 'zustand/react/shallow';
 import { getAllFieldsWithTypes, deepMergeSim, preparePayload, getValByPath, type FieldInfo } from '@/utils/transformationUtils';
 import { ownPayloadOf } from '../sampleCapture';
+import { staleSimulationNodes } from '../simulation/simulationPath';
 
 export function useNodeContext(selectedNode: Node | null, testResults: any[] | null, sources: any[], sinks: any[]) {
-  const { nodes, edges, nodeSamples, nodePreviews } = useWorkflowStore(useShallow(state => ({
+  const { nodes, edges, nodeSamples, nodePreviews, testRunGraph } = useWorkflowStore(useShallow(state => ({
     nodes: state.nodes,
     edges: state.edges,
     nodeSamples: state.nodeSamples,
-    nodePreviews: state.nodePreviews
+    nodePreviews: state.nodePreviews,
+    testRunGraph: state.testRunGraph,
   })));
 
   const contextDataRaw = useMemo(() => {
@@ -30,11 +32,19 @@ export function useNodeContext(selectedNode: Node | null, testResults: any[] | n
     // See ownPayloadOf for the order and why `lastSample` comes last.
     const ownPayload = (node: Node) => ownPayloadOf(node, sources, nodeSamples);
 
+    // The nodes the run no longer speaks for: reconfigured or rewired since,
+    // or after one that was. Their steps describe a message the workflow no
+    // longer produces, so they are passed over the way an unrun node is, and
+    // the walk falls back to the nearest output that still holds.
+    const stale = staleSimulationNodes(testResults, testRunGraph, nodes, edges);
+
     // What the last preview says a node emitted. A node can have two entries —
     // an error and a "filtered" one when it fails — so take the one carrying a
     // payload rather than the first.
     const simulatedOutput = (nodeId: string): any | null =>
-      (testResults?.find((r: any) => r.node_id === nodeId && r.payload) as any)?.payload ?? null;
+      stale.has(nodeId)
+        ? null
+        : (testResults?.find((r: any) => r.node_id === nodeId && r.payload) as any)?.payload ?? null;
 
     // What a node emitted, newest first. A node's own Run Preview exists only
     // when it ran after the last workflow run (setTestResults drops older ones)
@@ -278,7 +288,7 @@ export function useNodeContext(selectedNode: Node | null, testResults: any[] | n
     }
 
     return JSON.stringify({ incomingPayload, availableFields, sinkSchema, upstreamSource, inputSkipped });
-  }, [selectedNode?.id, edges, nodes, testResults, sources, sinks, nodeSamples, nodePreviews]);
+  }, [selectedNode?.id, edges, nodes, testResults, testRunGraph, sources, sinks, nodeSamples, nodePreviews]);
 
   return useMemo(() => JSON.parse(contextDataRaw), [contextDataRaw]);
 }
