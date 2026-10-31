@@ -188,6 +188,12 @@ var transformerReaders = map[string]func(r nodeReader, cfg map[string]any) []nod
 		}
 		return nil
 	},
+	"ml_feedback": func(r nodeReader, cfg map[string]any) []nodeIO {
+		if m := str(cfg, "model"); m != "" {
+			return []nodeIO{{asset: modelAsset(r.vhost, m), relation: RelPredicts}}
+		}
+		return nil
+	},
 	"ml_train":    nodeReader.train,
 	"ai_retrieve": nodeReader.retrieve,
 }

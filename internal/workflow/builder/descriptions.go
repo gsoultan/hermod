@@ -85,7 +85,9 @@ var descriptions = map[string]string{
 		`and "storeApiKey", each as a {{secret(\"NAME\")}} reference.`,
 	"transformation:ml_predict": `Calls a machine-learning model registered in the workflow's vhost and writes its ` +
 		`prediction onto the record. config: {"model":"<registered model name>","inputs":{"feature":"field.path"},` +
-		`"outputField":"prediction"}. Empty inputs send the whole record. For a recommendation model use ` +
+		`"outputField":"prediction","explain":"true|false"}. Empty inputs send the whole record. explain (a mimir model ` +
+		`only) also asks why and writes "explanation" {label,value,typical,contributions:[{column,value,typical,effect}]} ` +
+		`into the prediction object, one more round trip per record. For a recommendation model use ` +
 		`{"model","mode":"recommend","recommendFor":"user|item","idField":"customer_id","k":"10","excludeSeen":"true",` +
 		`"outputField":"recommendations"}: it reads the person's (or item's) id from idField and writes a list of ` +
 		`{"item","score","reason"} best first; reason "popular" marks the fallback for an id the model never saw. ` +
@@ -97,6 +99,12 @@ var descriptions = map[string]string{
 		`and subcategory) and "rules" (a JSON list); it writes {"id","score","rank","reasons",` +
 		`"fields","due_date","overdue","products","plan_date"} best first, a customer's fields with its segment, size, price_tier, channel and region, ` +
 		`a product's with its brand, subcategory, unit, pack_size and any suggested_qty and suggested_text.`,
+	"transformation:ml_feedback": `Tells a model on a mimir server the real answer to one of its earlier predictions, ` +
+		`once the record that knows it arrives, so the server tracks how often the model is right in use. config: ` +
+		`{"model":"<registered mimir model name>","predictionIdField":"prediction.prediction_id","actualField":"<field with ` +
+		`the real label or number>","outputField":"feedback"}. It writes {"right": bool, "prediction_id"}. The prediction id ` +
+		`is what the ml_predict node wrote for that record earlier, so the record must carry it (a lookup or the message ` +
+		`that reports the outcome). Only a model with backend "mimir" takes feedback.`,
 	"transformation:ml_train": `Trains a new version of a model on a dataset held by the vhost's ML worker and writes ` +
 		`the result (version, metrics, whether it went live) onto the record. config: {"model","dataset","target",` +
 		`"features":"a,b,c","task":"auto|classification|regression",` +

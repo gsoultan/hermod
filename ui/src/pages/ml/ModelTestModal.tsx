@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { Alert, Autocomplete, Button, Checkbox, Code, Group, Loader, Modal, NumberInput, Radio, Stack, Text, TextInput, Textarea } from '@mantine/core'
-import { IconAlertCircle, IconPlayerPlay } from '@tabler/icons-react'
+import { IconAlertCircle, IconHelpCircle, IconPlayerPlay } from '@tabler/icons-react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import {
-  isRecommender, listVersions, predict, recommend, versionsKey, type MLModel, type RecommendCall,
+  explain, isRecommender, listVersions, predict, recommend, versionsKey,
+  type Contribution, type Explanation, type MLModel, type RecommendCall,
 } from '@/lib/mlModels'
 import {
   DUE_WINDOWS, MAX_WITHIN_DAYS, isMissingRoute, isScenarioVersion, nextPeriod, recommendScenario, type RecommendRequest,
@@ -113,6 +114,57 @@ function GuessList({ guesses }: { guesses: Guess[] }) {
   )
 }
 
+/** A contribution as text: a number in points of chance for a label model, in its units otherwise. */
+function effectText(c: Contribution, why: Explanation): string {
+  const sign = c.effect > 0 ? '+' : ''
+  if (why.number) return `${sign}${Number(c.effect.toFixed(2))}`
+  return `${sign}${Math.round(c.effect * 100)} pts`
+}
+
+/**
+ * Why the model answered: each column's effect as a bar from the middle,
+ * pushing the answer up (to the right) or down, biggest first. Each row says
+ * the row's value and what a typical row has.
+ */
+function WhyList({ why }: { why: Explanation }) {
+  const max = Math.max(...why.contributions.map((c) => Math.abs(c.effect)), Number.EPSILON)
+  const answer = why.number
+    ? `${Number((why.value ?? 0).toFixed(2))} (typical ${Number((why.typical ?? 0).toFixed(2))})`
+    : `${why.label ?? ''} at ${Math.round((why.value ?? 0) * 100)}% (typical ${Math.round((why.typical ?? 0) * 100)}%)`
+  return (
+    <Stack gap={6}>
+      <Text size="sm" fw={500}>Why</Text>
+      <Text size="xs" c="dimmed">
+        {answer}.{why.exact === false ? ' An estimate: the model was sampled, not solved exactly.' : ''}
+      </Text>
+      {why.contributions.length === 0 && <Text size="sm" c="dimmed">The model gave no column a part in this answer.</Text>}
+      <Stack gap={4} role="list" aria-label="Contributions">
+        {why.contributions.map((c) => {
+          const half = Math.round((Math.abs(c.effect) / max) * 50)
+          return (
+            <Group key={c.column} gap="sm" wrap="nowrap" role="listitem">
+              <Stack gap={0} style={{ width: '12rem', minWidth: 0 }}>
+                <Text size="sm" truncate>{c.column}</Text>
+                <Text size="xs" c="dimmed" truncate>{c.value} · typical {c.typical}</Text>
+              </Stack>
+              <div style={{ flex: 1, position: 'relative', height: 8, borderRadius: 4, background: 'var(--mantine-color-default-border)' }} aria-hidden>
+                <div style={{
+                  position: 'absolute', top: 0, height: '100%', borderRadius: 4,
+                  left: c.effect >= 0 ? '50%' : `${50 - half}%`, width: `${half}%`,
+                  background: c.effect >= 0 ? 'var(--mantine-color-green-6)' : 'var(--mantine-color-red-6)',
+                }} />
+              </div>
+              <Text size="sm" ff="var(--mantine-font-family-monospace)" style={{ width: '5rem', textAlign: 'right' }}>
+                {effectText(c, why)}
+              </Text>
+            </Group>
+          )
+        })}
+      </Stack>
+    </Stack>
+  )
+}
+
 /**
  * Sends one row to the model, or asks a recommender, and shows what it
  * answered. `initialRow`, such as a row of the dataset it was trained on,
@@ -155,7 +207,10 @@ function RecommenderSwitch({ vhost, model, scenario }: { vhost: string; model: M
 function RowTest({ vhost, model, initialRow }: { vhost: string; model: MLModel; initialRow?: Record<string, unknown> }) {
   const [row, setRow] = useState(() => (initialRow ? JSON.stringify(initialRow, null, 2) : sampleRow(model)))
   const [parseError, setParseError] = useState<string | null>(null)
+  const [sent, setSent] = useState<Record<string, unknown> | null>(null)
   const run = useMutation({ mutationFn: (instance: Record<string, unknown>) => predict(vhost, model.name, [instance]) })
+  // "Why?" asks the mimir server about the row that was sent, for the label it answered.
+  const why = useMutation({ mutationFn: (instance: Record<string, unknown>) => explain(vhost, model.name, instance) })
 
   const submit = () => {
     let parsed: unknown
@@ -170,6 +225,8 @@ function RowTest({ vhost, model, initialRow }: { vhost: string; model: MLModel; 
       return
     }
     setParseError(null)
+    why.reset()
+    setSent(parsed as Record<string, unknown>)
     run.mutate(parsed as Record<string, unknown>)
   }
 
@@ -191,6 +248,20 @@ function RowTest({ vhost, model, initialRow }: { vhost: string; model: MLModel; 
           <Text size="sm" fw={500}>Prediction</Text>
           {guessesOf(run.data[0]) && <GuessList guesses={guessesOf(run.data[0])!} />}
           <Code block>{JSON.stringify(run.data[0], null, 2)}</Code>
+          {model.backend === 'mimir' && sent && !why.data && (
+            <Group>
+              <Button size="xs" variant="light" leftSection={<IconHelpCircle size="0.9rem" />} loading={why.isPending}
+                onClick={() => why.mutate(sent)}>
+                Why?
+              </Button>
+            </Group>
+          )}
+          {why.error && (
+            <Alert color="red" icon={<IconAlertCircle size="1rem" />} title="The model did not explain">
+              {(why.error as Error).message}
+            </Alert>
+          )}
+          {why.data && <WhyList why={why.data} />}
         </Stack>
       )}
     </Stack>

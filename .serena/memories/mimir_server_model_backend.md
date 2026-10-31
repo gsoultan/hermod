@@ -42,6 +42,32 @@ fills `remoteModel`, `features` (from columns), description and, when empty,
 the Hermod name (`hermodName` slugifies). Mantine Select in tests: query the
 `combobox` role and options with `hidden: true`.
 
+## Phase 2: feedback and explanations (branch `feat/mimir-feedback-explain`)
+
+- `inference.Client.SendFeedback(ctx, t, predictionID, actual)` (numbers →
+  `SendFeedbackValue`, anything else → label text) and
+  `Explain(ctx, t, row, label)` → `{label, number, value, typical, exact,
+  contributions[]{column, value, typical, effect}}`. Both return
+  `inference.ErrNotMimir` for another backend.
+- `internal/ml.Service.Feedback` / `.Explain`, `Registry.MLFeedback` /
+  `MLExplain` (`registry_ml.go`): the transformers find them through
+  `hermod.RegistryKey` as small interfaces (`feedbackCaller`, `explainer`).
+- `pkg/comm/transformer/ml/feedback.go`: `ml_feedback` node, config `model`,
+  `predictionIdField` (default `prediction.prediction_id`), `actualField`,
+  `outputField` (default `feedback`) → `{right, prediction_id}`.
+- `predict.go`: `explain` option (bool or "true") adds `explanation` to the
+  prediction object, or `<outputField>_explanation` for a bare value.
+- Route `POST /api/vhosts/{vhost}/ml/models/{name}/explain` (Editor), body
+  `{"instance", "label"}`; `ErrNotMimir` → 400, unknown model → 404.
+- Lineage: `ml_feedback` is `predicts` against the model, like `ml_predict`
+  (`internal/lineage/nodes.go`, `docs/lineage.md`). Builder description in
+  `internal/workflow/builder/descriptions.go`.
+- UI: `MLFeedbackConfig.tsx` (non-mimir models disabled in the Select),
+  "Explain each answer" checkbox in `MLPredictConfig.tsx` for a mimir model,
+  `explain()` + `Explanation` in `lib/mlModels.ts`, "Why?" + `WhyList` in
+  `ModelTestModal.tsx`. Tests: `mlFeedbackConfig.test.tsx`,
+  `mlModelTestModal.test.tsx`, `mlPredictConfig.test.tsx`.
+
 ## Traps
 
 - The SDK's `go get` bumped shared deps (pgx, modernc sqlite, prometheus,

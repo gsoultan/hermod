@@ -38,6 +38,7 @@ import { AIRetrieveConfig } from './ai-retrieve/AIRetrieveConfig'
 import { AIAgentConfig } from './ai-agent/AIAgentConfig'
 // machine learning
 import { MLPredictConfig } from './ml/MLPredictConfig'
+import { MLFeedbackConfig } from './ml/MLFeedbackConfig'
 import { MLTrainConfig } from './ml/MLTrainConfig'
 import { MLRecommendBuildConfig } from './ml/MLRecommendBuildConfig'
 // feature engineering
@@ -176,6 +177,7 @@ export const TRANSFORM_CONFIGS: Record<string, ConfigComponent> = {
   ai_retrieve: AIRetrieveConfig,
   // machine learning
   ml_predict: MLPredictConfig,
+  ml_feedback: MLFeedbackConfig,
   ml_train: MLTrainConfig,
   // feature engineering (pkg/comm/transformer/features)
   scale: ScaleConfig,

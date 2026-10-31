@@ -131,3 +131,59 @@ func TestPredictRefusesAMissingInputField(t *testing.T) {
 		t.Error("the model was called with a feature missing")
 	}
 }
+
+// fakeExplainer answers MLPredict and MLExplain.
+type fakeExplainer struct {
+	fakeModels
+	explainRow map[string]any
+	explainErr error
+	asked      map[string]any
+}
+
+func (f *fakeExplainer) MLExplain(_ context.Context, _, _ string, row map[string]any, _ string) (map[string]any, error) {
+	f.asked = row
+	return f.explainRow, f.explainErr
+}
+
+func TestPredictWithExplainOnAddsWhyToTheAnswer(t *testing.T) {
+	reg := &fakeExplainer{
+		fakeModels: fakeModels{reply: []map[string]any{{"prediction": "left", "confidence": 0.8, "prediction_id": "p-1"}}},
+		explainRow: map[string]any{"label": "left", "value": 0.8, "typical": 0.3,
+			"contributions": []map[string]any{{"column": "plan", "value": "monthly", "typical": "yearly", "effect": 0.4}}},
+	}
+	out, err := run(t, reg, "v", map[string]any{"model": "churn", "explain": true, "inputs": `{"plan":"plan"}`},
+		map[string]any{"plan": "monthly", "noise": 1.0})
+	if err != nil {
+		t.Fatalf("Transform: %v", err)
+	}
+	got, _ := out.Data()["prediction"].(map[string]any)
+	if got["prediction"] != "left" {
+		t.Fatalf("prediction = %v", out.Data()["prediction"])
+	}
+	why, _ := got["explanation"].(map[string]any)
+	if why["label"] != "left" || why["typical"] != 0.3 {
+		t.Errorf("explanation = %v, want the model's", got["explanation"])
+	}
+	if !reflect.DeepEqual(reg.asked, map[string]any{"plan": "monthly"}) {
+		t.Errorf("explain was asked with %v, want the same row the prediction used", reg.asked)
+	}
+}
+
+func TestPredictWithExplainOffAsksNothingMore(t *testing.T) {
+	reg := &fakeExplainer{fakeModels: fakeModels{reply: []map[string]any{{"prediction": 0.5}}}, explainErr: errors.New("asked")}
+	out, err := run(t, reg, "v", map[string]any{"model": "m", "explain": "false"}, map[string]any{"x": 1.0})
+	if err != nil {
+		t.Fatalf("Transform: %v", err)
+	}
+	if out.Data()["prediction"] != 0.5 {
+		t.Errorf("prediction = %v", out.Data()["prediction"])
+	}
+}
+
+func TestPredictWithExplainOnFailsWhenTheModelCannotExplain(t *testing.T) {
+	reg := &fakeExplainer{fakeModels: fakeModels{reply: []map[string]any{{"prediction": 0.5}}}, explainErr: errors.New("only a model on a mimir server")}
+	_, err := run(t, reg, "v", map[string]any{"model": "m", "explain": "true"}, map[string]any{"x": 1.0})
+	if err == nil || !strings.Contains(err.Error(), "mimir") {
+		t.Fatalf("err = %v, want the model's refusal", err)
+	}
+}

@@ -29,6 +29,20 @@ the same way, with the same prediction log and drift checks.
   draws the guesses as bars.
 - A connected model's status badge now says what kind of server it is on.
 
+### Added — Tell a mimir model what really happened, and ask it why
+
+- **Feedback** (*Machine Learning → Feedback*, `ml_feedback`) sends a mimir
+  model the real answer to one of its earlier predictions, read from the
+  record alongside the `prediction_id` the Predict node wrote, and writes
+  `{"right", "prediction_id"}`. The server then shows how often the model is
+  right in use. Only a mimir model takes feedback; the others cannot be chosen.
+- **Explain each answer** on the Predict node (`"explain": "true"`, mimir
+  models only) also asks why: each column's effect on the answer against a
+  typical row, written as `explanation` inside the prediction.
+- **Why?** in *Try it with one row* asks the same of the row just sent and
+  draws each column's effect as a bar. Behind it:
+  `POST /api/vhosts/{vhost}/ml/models/{name}/explain`.
+
 ### Fixed — A flow's read-only view shows that it is running, and what each step is doing
 
 The read-only view drew its own plain step cards and lines and kept nothing of
