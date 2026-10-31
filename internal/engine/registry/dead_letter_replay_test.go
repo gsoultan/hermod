@@ -200,3 +200,30 @@ func TestReplayPreviewWritesNothing(t *testing.T) {
 		t.Fatalf("fix step = %+v; all %+v", fix, steps)
 	}
 }
+
+// A replay prepares its own copy of the workflow's nodes. The drain runs
+// replays in the background while StartWorkflow still reads the same
+// workflow, and its Nodes slice is shared even when the Workflow is passed
+// by value: preparing the caller's nodes in place was a data race.
+func TestReplayLeavesTheCallersNodesAlone(t *testing.T) {
+	out := &pipeSink{name: "out"}
+	reg := manualRunRegistry(t, out)
+	wf := replayWorkflow()
+	before := make([]map[string]any, len(wf.Nodes))
+	for i, n := range wf.Nodes {
+		before[i] = n.Config
+	}
+
+	if _, err := reg.ReplayDeadLetter(t.Context(), wf, failedAtFix(), DeadLetterReplay{}); err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+
+	for i, n := range wf.Nodes {
+		if fmt.Sprintf("%p", n.Config) != fmt.Sprintf("%p", before[i]) {
+			t.Errorf("node %s: the replay replaced the caller's Config", n.ID)
+		}
+	}
+	if got := wf.Nodes[1].Config; len(got) != 2 {
+		t.Errorf("node stamp: the replay wrote into the caller's Config: %v", got)
+	}
+}
