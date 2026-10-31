@@ -25,6 +25,9 @@ find a claim that outruns the code, fix the claim.
 
 ### Memories
 
+- [prepareWorkflowNodes writes the nodes it is given](prepare_nodes_mutates_in_place.md)
+  — copy `wf.Nodes` (`ownNodes`) before preparing a workflow you share; the
+  dead-letter drain did not, and raced StartWorkflow.
 - [SQL previews run in a rolled-back sandbox](sql_preview_sandbox.md) — any node
   that runs SQL must get its database through `sqlutil.Use`, or its preview
   commits for real; savepoints per statement, the refused statements, and why
