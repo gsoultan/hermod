@@ -5,8 +5,8 @@ workflows and other applications. A model belongs to one vhost and is used
 three ways: the **Predict** node in a workflow, the REST API, and gRPC.
 
 A model is either **trained in Hermod**, on a dataset, by the `hermod-ml`
-worker; or **served elsewhere** (KServe, Triton, MLServer, MLflow) and
-registered by its address. Both are called the same way. A running workflow
+worker; or **served elsewhere** (mimir-server, KServe, Triton, MLServer,
+MLflow) and registered by its address. Both are called the same way. A running workflow
 keeps a dataset growing with the **Collect Dataset** sink, and a trained model
 can retrain by itself on a schedule or once enough new rows have arrived.
 
@@ -71,7 +71,7 @@ The page has one main button, **Add model**. It first asks how:
 - **Train a new model from my data** opens the Train dialog
   ([Train a model](#train-a-model)).
 - **Connect a model that's already running somewhere** opens a two-step form
-  for a model on KServe, Triton, MLServer or MLflow
+  for a model on mimir-server, KServe, Triton, MLServer or MLflow
   ([Register a model served elsewhere](#register-a-model-served-elsewhere)):
   **Where it runs** (its name in Hermod, the kind of server, the server
   address, and the model's name and version there), then **What it takes**
@@ -1572,8 +1572,10 @@ labels, and the API field each one sets:
 | Field (API) | Meaning |
 |---|---|
 | Name in Hermod (`name`) | How workflows and callers name it: a letter, then letters, digits, `-` or `_` |
-| Kind of server (`backend`) | **Open Inference** = `oip`, the Open Inference Protocol (KServe V2: KServe, Triton, Seldon MLServer, BentoML, TorchServe's V2 API); **MLflow** = `mlflow`, an MLflow scoring server (`/invocations`) |
+| Kind of server (`backend`) | **mimir-server** = `mimir`, a [mimir-server](https://github.com/gsoultan/mimir-server), asked through its Go SDK; **Open Inference** = `oip`, the Open Inference Protocol (KServe V2: KServe, Triton, Seldon MLServer, BentoML, TorchServe's V2 API); **MLflow** = `mlflow`, an MLflow scoring server (`/invocations`) |
 | Server address (`url`) | The model server's base URL, `http://` or `https://` |
+| API key secret (`token_secret`, `mimir` only) | The name of a vhost secret holding a `mimir_...` API key made on the mimir console. Required: a mimir server answers no one without one. The key never leaves the server side |
+| Model on the server (`remote_model`, `mimir` only) | The model's id on the mimir server. **Fetch models** lists what the key may see, with each model's kind, accuracy and whether it is ready; picking one fills the id, the inputs from the model's columns, its description and, when empty, the name in Hermod. The id can also be typed |
 | Model name on the server / Version (`remote_model`, `remote_version`) | The model's name and version on that server (`oip` only); an empty version is the server's default |
 | Inputs (`features`) | The features the model takes, in order. The Predict node offers a row for each |
 | Advanced: Access token secret (`token_secret`) | A vhost secret holding a bearer token for the server, if it needs one |
@@ -1582,6 +1584,25 @@ labels, and the API field each one sets:
 
 **Try it with one row**, in the model's **…** menu, sends a sample row and
 shows the answer.
+
+### What a mimir model answers
+
+A mimir model is asked one row per request, by column name, with every value
+as text (what a CSV cell would hold); with inputs declared only those columns
+go, and a missing one goes empty, which the server reads as the column's fill
+value. Up to four rows of a batch are in flight at once. The answer is an
+object, so the Predict node writes it whole into the output field:
+
+| Key | Meaning |
+|---|---|
+| `prediction` | The likeliest label, or the number for a model that answers with one |
+| `confidence` | That label's probability (label models) |
+| `guesses` | Every label with its `probability`, likeliest first (label models) |
+| `prediction_id` | The id mimir keeps for 30 days so the real outcome can be sent back as feedback |
+
+The server's refusals come back in its own words (`errors.Is` against
+`mimirsdk.ErrUnauthenticated`, `ErrNotFound`, ... works through the wrapping),
+and **Try it with one row** draws the guesses as bars above the raw answer.
 
 ## Predict node
 

@@ -4,13 +4,20 @@ import {
 } from '@mantine/core'
 import { IconAlertCircle, IconChevronDown, IconChevronRight } from '@tabler/icons-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { mlModelsKey, saveModel, type MLBackend, type MLModel } from '@/lib/mlModels'
+import { mlModelsKey, saveModel, type MLBackend, type MLModel, type MimirModel } from '@/lib/mlModels'
 import { inputProblems, whereProblems, type ConnectFields, type ConnectProblems } from './connectModel'
+import { MimirModelPicker } from './MimirModelPicker'
 
 const splitList = (s: string) => s.split(',').map((x) => x.trim()).filter(Boolean)
 
 /** Fields kept behind Advanced options; a problem in one opens it. */
 const ADVANCED: Array<keyof ConnectFields> = ['tokenSecret', 'inputName']
+
+/** A model's name on the server, as a name Hermod accepts (storage.ValidMLModelName). */
+export function hermodName(remote: string): string {
+  const cleaned = remote.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^[^a-z]+/, '').replace(/-+$/, '')
+  return cleaned.slice(0, 64)
+}
 
 /**
  * Connects a model that already runs on a model server, or edits one (`model`
@@ -27,7 +34,7 @@ export function ModelFormModal({ vhost, model, onClose }: { vhost: string; model
   const [step, setStep] = useState(0)
   const [fields, setFields] = useState<ConnectFields>({
     name: model?.name ?? '',
-    backend: model?.backend ?? 'oip',
+    backend: model?.backend ?? 'mimir',
     url: model?.url ?? '',
     remoteModel: model?.remote_model ?? '',
     remoteVersion: model?.remote_version ?? '',
@@ -40,6 +47,9 @@ export function ModelFormModal({ vhost, model, onClose }: { vhost: string; model
   const [problems, setProblems] = useState<ConnectProblems>({})
   const [advanced, setAdvanced] = useState(false)
   const oip = fields.backend === 'oip'
+  const mimir = fields.backend === 'mimir'
+  // What the picked mimir model answers with, to say so under the inputs.
+  const [picked, setPicked] = useState<MimirModel | undefined>()
 
   const set = (key: keyof ConnectFields) => (value: string) => {
     setFields((f) => ({ ...f, [key]: value }))
@@ -51,12 +61,33 @@ export function ModelFormModal({ vhost, model, onClose }: { vhost: string; model
     onChange: (e: React.ChangeEvent<HTMLInputElement>) => set(key)(e.currentTarget.value),
   })
 
+  // A mimir model picked from the server fills what the server knows: its
+  // id, its columns as the inputs, its description, and a name in Hermod
+  // when none is typed yet.
+  const pickMimir = (m: MimirModel) => {
+    setPicked(m)
+    setFields((f) => ({
+      ...f,
+      remoteModel: m.id,
+      name: editing || f.name.trim() ? f.name : hermodName(m.name),
+      features: m.columns?.length ? m.columns.map((c) => c.name).join(', ') : f.features,
+    }))
+    setProblems((p) => ({ ...p, remoteModel: undefined, name: undefined, features: undefined }))
+    if (!description.trim() && m.description) setDescription(m.description)
+  }
+
+  // Fetch models needs the address and the key secret to be in shape first.
+  const fetchBlocked = (() => {
+    const where = whereProblems({ ...fields, remoteModel: 'x' }, true)
+    return where.url ?? where.tokenSecret
+  })()
+
   const save = useMutation({
     mutationFn: () =>
       saveModel(vhost, editing ? model.name : fields.name.trim(), {
         backend: fields.backend,
         url: fields.url.trim(),
-        remote_model: oip ? fields.remoteModel.trim() : '',
+        remote_model: oip || mimir ? fields.remoteModel.trim() : '',
         remote_version: oip ? fields.remoteVersion.trim() : '',
         token_secret: fields.tokenSecret.trim(),
         input_name: oip ? fields.inputName.trim() : '',
@@ -121,17 +152,29 @@ export function ModelFormModal({ vhost, model, onClose }: { vhost: string; model
                   value={fields.backend}
                   onChange={(v) => set('backend')(v as MLBackend)}
                   data={[
+                    { value: 'mimir', label: 'mimir-server' },
                     { value: 'oip', label: 'Open Inference (KServe, Triton, MLServer)' },
                     { value: 'mlflow', label: 'MLflow' },
                   ]}
                 />
                 <Text size="xs" c="dimmed">
-                  Most model servers speak Open Inference. Pick MLflow for a model started with mlflow models serve.
+                  Pick mimir-server for a model uploaded to or trained on your mimir server. Most other model servers speak
+                  Open Inference; pick MLflow for a model started with mlflow models serve.
                 </Text>
               </Stack>
-              <TextInput label="Server address" required placeholder={oip ? 'http://kserve:8080' : 'http://mlflow-model:5000'}
+              <TextInput label="Server address" required
+                placeholder={mimir ? 'http://mimir:8080' : oip ? 'http://kserve:8080' : 'http://mlflow-model:5000'}
                 description="Where Hermod reaches the server, starting with http:// or https://. Leave out any path."
                 {...text('url')} />
+              {mimir && (
+                <>
+                  <TextInput label="API key secret" required placeholder="MIMIR_API_KEY"
+                    description={`The name of a secret of ${vhost} holding a key made on the mimir console under API keys. The key itself never goes in here.`}
+                    {...text('tokenSecret')} />
+                  <MimirModelPicker vhost={vhost} url={fields.url} tokenSecret={fields.tokenSecret} value={fields.remoteModel}
+                    error={problems.remoteModel} canFetch={fetchBlocked} onChange={set('remoteModel')} onPick={pickMimir} />
+                </>
+              )}
               {oip && (
                 <Group grow align="flex-start">
                   <TextInput label="Model name on the server" required placeholder="churn"
@@ -146,8 +189,18 @@ export function ModelFormModal({ vhost, model, onClose }: { vhost: string; model
           {step === 1 && (
             <Stack gap="md">
               <TextInput label="Inputs" placeholder="age, tenure, plan"
-                description="The fields the model needs, separated by commas, in the order it expects them. The Predict node asks for these."
+                description={mimir
+                  ? 'The columns the model reads, separated by commas: filled in from the server when the model was picked. The Predict node asks for these.'
+                  : 'The fields the model needs, separated by commas, in the order it expects them. The Predict node asks for these.'}
                 {...text('features')} data-autofocus />
+              {mimir && picked && (
+                <Text size="sm" c="dimmed">
+                  {picked.labels?.length
+                    ? `Answers with one of: ${picked.labels.join(', ')}.`
+                    : 'Answers with a number.'}
+                  {' '}Each answer also carries its confidence and a prediction id.
+                </Text>
+              )}
               <Textarea label="Description" autosize minRows={2} placeholder="Predicts whether a customer will cancel."
                 description="One sentence for the people who use it." value={description}
                 onChange={(e) => setDescription(e.currentTarget.value)} />
@@ -159,9 +212,11 @@ export function ModelFormModal({ vhost, model, onClose }: { vhost: string; model
               {advanced && (
                 <Stack gap="md">
                   <Group grow align="flex-start">
-                    <TextInput label="Access token secret" placeholder="ML_TOKEN"
-                      description={`Only if the server needs a token: the name of a secret of ${vhost} that holds it.`}
-                      {...text('tokenSecret')} />
+                    {!mimir && (
+                      <TextInput label="Access token secret" placeholder="ML_TOKEN"
+                        description={`Only if the server needs a token: the name of a secret of ${vhost} that holds it.`}
+                        {...text('tokenSecret')} />
+                    )}
                     <NumberInput label="Timeout (milliseconds)" placeholder="30000" min={0} max={600000}
                       description="How long to wait for an answer. Empty waits 30 seconds."
                       value={timeoutMs} onChange={setTimeoutMs} />

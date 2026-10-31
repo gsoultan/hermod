@@ -143,7 +143,7 @@ The README is the overview. Each topic has its own page under [`docs/`](docs/):
 - [Data lineage and impact](docs/lineage.md): The lineage graph and the downstream impact of changing a source.
 - [Oracle CDC with LogMiner](docs/oracle-cdc.md): Setting up log-based change capture from Oracle.
 - [AI automation](docs/ai-automation.md): The language-model nodes, the agent, retrieval, the MCP server and the workflow builder.
-- [Machine learning](docs/ml.md): Training models on your data and calling them from workflows, REST and gRPC.
+- [Machine learning](docs/ml.md): Training models on your data, connecting models served by mimir-server, KServe, Triton, MLServer or MLflow, and calling them from workflows, REST and gRPC.
 - [Expression functions](docs/expression-functions.md): The functions you can call in expressions, conditions and templates.
 - [Structural nodes](docs/structural-nodes.md): Nodes that reshape a record, parse text inside it, enrich it from a file, or do geometry on it.
 

@@ -7,6 +7,28 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — Connect a model served by mimir-server
+
+A model on a [mimir-server](https://github.com/gsoultan/mimir-server) can be
+connected on the Machine Learning page like one on KServe or MLflow, and is
+then called from the Predict node, the serving endpoints and the MCP server
+the same way, with the same prediction log and drift checks.
+
+- **mimir-server** is the first choice under *Kind of server* in Connect a
+  model. It takes the server address and the name of a vhost secret holding
+  a `mimir_...` API key; the key never leaves the server side.
+- **Fetch models** (`POST /api/vhosts/{vhost}/ml/mimir/models`) lists what the
+  key may see, with each model's kind, accuracy and whether it is ready; a
+  model that is not ready is listed with the server's reason and cannot be
+  picked. Picking one fills the model's id, its inputs from the server's
+  columns, its description and the name in Hermod. The id can also be typed.
+- Predictions go through the mimir Go SDK (`pkg/ml/inference.BackendMimir`):
+  one call per row, by column name, up to four in flight. A label model
+  answers with `prediction`, `confidence`, `guesses` and `prediction_id`; a
+  number model with `prediction` and `prediction_id`. **Try it with one row**
+  draws the guesses as bars.
+- A connected model's status badge now says what kind of server it is on.
+
 ### Fixed — An idle deployment no longer writes, scans and remembers things that have not changed
 
 Six places where Hermod spent disk, CPU or memory on work whose result was

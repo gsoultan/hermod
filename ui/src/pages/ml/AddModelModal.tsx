@@ -67,7 +67,7 @@ export function AddModelModal({ trainBlocked, onSetup, onTrain, onConnect, onClo
           Best when you do not have a model yet.
         </Choice>
         <Choice icon={<IconPlugConnected size="1.4rem" />} title="Connect a model that's already running somewhere" onClick={onConnect}>
-          Your team already serves a model on KServe, Triton, MLServer or MLflow. Hermod only needs its address.
+          Your team already serves a model on mimir-server, KServe, Triton, MLServer or MLflow. Hermod only needs its address.
         </Choice>
       </Stack>
     </Modal>

@@ -237,6 +237,7 @@ POST /api/vhosts
 POST /api/vhosts/
 POST /api/vhosts/{vhost}/ml/datasets/{name}/query
 POST /api/vhosts/{vhost}/ml/jobs/{id}/cancel
+POST /api/vhosts/{vhost}/ml/mimir/models
 POST /api/vhosts/{vhost}/ml/models/{name}/feedback
 POST /api/vhosts/{vhost}/ml/models/{name}/predict
 POST /api/vhosts/{vhost}/ml/models/{name}/recommend
