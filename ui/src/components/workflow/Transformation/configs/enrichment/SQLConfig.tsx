@@ -157,8 +157,9 @@ export function SQLConfig({ config, updateNodeConfig, nodeId, sources, available
               sampleMessage={incomingPayload}
             />
             <Text size="xs" c="dimmed" data-testid="execute-sql-manual-preview">
-              Live Preview does not run this node while you edit, because running it writes. Press
-              Run Preview to run it once on the sample message.
+              Live Preview does not run this node while you edit. Press Run Preview to run it once
+              on the sample message: it runs inside a transaction that is rolled back, so nothing is
+              saved, and the nodes after it still see the rows as if it had been.
             </Text>
           </Suspense>
         ) : (

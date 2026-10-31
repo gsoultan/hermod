@@ -1616,8 +1616,11 @@ func (r *Registry) SimulateWorkflow(ctx context.Context, wf storage.Workflow, in
 
 	sim := newSimulation(r, wf)
 	// Every node of one run shares one overlay, so a Join / Enrich that stores
-	// a record can be looked up further down the same Test.
-	sim.root = r.previewStateContext(context.Background())
+	// a record can be looked up further down the same Test -- and one SQL
+	// sandbox, so a DB Lookup sees the row an Execute SQL before it wrote.
+	root, end := r.previewContext(context.Background(), ctx)
+	defer end()
+	sim.root = root
 	defer sim.releaseAll()
 	if err := sim.seed(in); err != nil {
 		return nil, err

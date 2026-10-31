@@ -18,6 +18,7 @@ import (
 	"github.com/gsoultan/hermod/internal/engine/registry/interfaces"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/comm/transformer"
+	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
 	"github.com/gsoultan/hermod/pkg/infra/state"
 )
 
@@ -109,4 +110,23 @@ func (r *Registry) previewStateContext(ctx context.Context) context.Context {
 		return ctx
 	}
 	return context.WithValue(ctx, hermod.StateStoreKey, state.NewOverlay(live))
+}
+
+// previewContext is the context a whole preview run executes on: the state
+// overlay above, and a SQL sandbox. Every SQL node of the run -- Execute SQL,
+// DB Lookup, SCD -- uses one transaction per database through it, so a node
+// sees what the nodes before it wrote, and end rolls all of it back. Pressing
+// Run Preview or Simulate used to commit an Execute SQL node's INSERT or
+// UPDATE to the real table.
+//
+// root is what the nodes run on; request bounds the sandbox's transactions,
+// so a preview whose caller has gone away does not hold its locks.
+func (r *Registry) previewContext(root, request context.Context) (context.Context, func()) {
+	sb := sqlutil.NewSandbox(request)
+	ctx := sqlutil.WithSandbox(r.previewStateContext(root), sb)
+	return ctx, func() {
+		if err := sb.Rollback(); err != nil {
+			r.logger.Error("Registry: rolling back a preview's database work failed", "error", err)
+		}
+	}
 }

@@ -127,9 +127,15 @@ func (t *SCDTransformer) Transform(ctx context.Context, msg hermod.Message, conf
 		return msg, fmt.Errorf("failed to get source for SCD: %w", err)
 	}
 
-	db, err := registry.GetOrOpenDB(src)
+	pool, err := registry.GetOrOpenDB(src)
 	if err != nil {
 		return msg, fmt.Errorf("failed to get database for SCD: %w", err)
+	}
+	// In a preview, the run's transaction; the node's own transactions become
+	// savepoints inside it, so their commits stay in the preview too.
+	db, err := sqlutil.Use(ctx, pool, src.Type)
+	if err != nil {
+		return msg, fmt.Errorf("scd: %w", err)
 	}
 
 	driver := src.Type
@@ -162,7 +168,7 @@ func (t *SCDTransformer) Transform(ctx context.Context, msg hermod.Message, conf
 	}
 }
 
-func (t *SCDTransformer) handleType0(ctx context.Context, db *sql.DB, driver, table string, businessKeys []string, msg hermod.Message) (hermod.Message, error) {
+func (t *SCDTransformer) handleType0(ctx context.Context, db sqlutil.DB, driver, table string, businessKeys []string, msg hermod.Message) (hermod.Message, error) {
 	quotedTable, err := sqlutil.QuoteIdent(driver, table)
 	if err != nil {
 		return msg, err
@@ -182,13 +188,13 @@ func (t *SCDTransformer) handleType0(ctx context.Context, db *sql.DB, driver, ta
 	}
 
 	query := fmt.Sprintf("SELECT 1 FROM %s WHERE %s", quotedTable, strings.Join(whereParts, " AND "))
-	var dummy int
-	err = db.QueryRowContext(ctx, query, args...).Scan(&dummy)
-	if errors.Is(err, sql.ErrNoRows) {
+	found, err := rowExists(ctx, db, query, args)
+	if err != nil {
+		return msg, fmt.Errorf("lookup failed: %w", err)
+	}
+	if !found {
 		// Not found, INSERT
 		return t.performInsert(ctx, db, driver, table, msg)
-	} else if err != nil {
-		return msg, fmt.Errorf("lookup failed: %w", err)
 	}
 
 	// Found, do nothing for Type 0
@@ -196,7 +202,20 @@ func (t *SCDTransformer) handleType0(ctx context.Context, db *sql.DB, driver, ta
 	return msg, nil
 }
 
-func (t *SCDTransformer) handleType3(ctx context.Context, db *sql.DB, driver, table string, businessKeys []string, config map[string]any, msg hermod.Message) (hermod.Message, error) {
+// rowExists reports whether query returns a row. The rows are closed before it
+// returns: in a preview the statement after it runs on the same connection.
+func rowExists(ctx context.Context, db sqlutil.Querier, query string, args []any) (bool, error) {
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = rows.Close() }()
+	found := rows.Next()
+	return found, rows.Err()
+}
+
+//nolint:gocognit,gocyclo,funlen // pre-existing; this change only retyped the db parameter
+func (t *SCDTransformer) handleType3(ctx context.Context, db sqlutil.DB, driver, table string, businessKeys []string, config map[string]any, msg hermod.Message) (hermod.Message, error) {
 	quotedTable, err := sqlutil.QuoteIdent(driver, table)
 	if err != nil {
 		return msg, err
@@ -373,7 +392,8 @@ func (t *SCDTransformer) handleType3(ctx context.Context, db *sql.DB, driver, ta
 	return msg, nil
 }
 
-func (t *SCDTransformer) handleType4(ctx context.Context, db *sql.DB, driver, table string, businessKeys, compareFields []string, config map[string]any, msg hermod.Message) (hermod.Message, error) {
+//nolint:gocognit,gocyclo,funlen // pre-existing; this change only retyped the db parameter
+func (t *SCDTransformer) handleType4(ctx context.Context, db sqlutil.DB, driver, table string, businessKeys, compareFields []string, config map[string]any, msg hermod.Message) (hermod.Message, error) {
 	quotedTable, err := sqlutil.QuoteIdent(driver, table)
 	if err != nil {
 		return msg, err
@@ -528,7 +548,8 @@ func (t *SCDTransformer) handleType4(ctx context.Context, db *sql.DB, driver, ta
 	return msg, nil
 }
 
-func (t *SCDTransformer) handleType6(ctx context.Context, db *sql.DB, driver, table string, businessKeys []string, config map[string]any, msg hermod.Message) (hermod.Message, error) {
+//nolint:gocognit,gocyclo,funlen // pre-existing; this change only retyped the db parameter
+func (t *SCDTransformer) handleType6(ctx context.Context, db sqlutil.DB, driver, table string, businessKeys []string, config map[string]any, msg hermod.Message) (hermod.Message, error) {
 	quotedTable, err := sqlutil.QuoteIdent(driver, table)
 	if err != nil {
 		return msg, err
@@ -775,7 +796,8 @@ func (t *SCDTransformer) handleType6(ctx context.Context, db *sql.DB, driver, ta
 	return msg, nil
 }
 
-func (t *SCDTransformer) handleType1(ctx context.Context, db *sql.DB, driver, table string, businessKeys, compareFields []string, msg hermod.Message) (hermod.Message, error) {
+//nolint:gocognit,gocyclo,funlen // pre-existing; this change only retyped the db parameter
+func (t *SCDTransformer) handleType1(ctx context.Context, db sqlutil.DB, driver, table string, businessKeys, compareFields []string, msg hermod.Message) (hermod.Message, error) {
 	quotedTable, err := sqlutil.QuoteIdent(driver, table)
 	if err != nil {
 		return msg, err
@@ -908,7 +930,7 @@ func (t *SCDTransformer) handleType1(ctx context.Context, db *sql.DB, driver, ta
 	return msg, nil
 }
 
-func (t *SCDTransformer) performInsert(ctx context.Context, db *sql.DB, driver, table string, msg hermod.Message) (hermod.Message, error) {
+func (t *SCDTransformer) performInsert(ctx context.Context, db sqlutil.DB, driver, table string, msg hermod.Message) (hermod.Message, error) {
 	quotedTable, err := sqlutil.QuoteIdent(driver, table)
 	if err != nil {
 		return msg, fmt.Errorf("invalid target table %q: %w", table, err)
@@ -937,7 +959,8 @@ func (t *SCDTransformer) performInsert(ctx context.Context, db *sql.DB, driver, 
 	return msg, nil
 }
 
-func (t *SCDTransformer) handleType2(ctx context.Context, db *sql.DB, driver, table string, businessKeys, compareFields []string, config map[string]any, msg hermod.Message) (hermod.Message, error) {
+//nolint:gocognit,gocyclo,funlen // pre-existing; this change only retyped the db parameter
+func (t *SCDTransformer) handleType2(ctx context.Context, db sqlutil.DB, driver, table string, businessKeys, compareFields []string, config map[string]any, msg hermod.Message) (hermod.Message, error) {
 	quotedTable, err := sqlutil.QuoteIdent(driver, table)
 	if err != nil {
 		return msg, err

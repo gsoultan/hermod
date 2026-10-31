@@ -73,9 +73,15 @@ func (t *ExecuteSQLTransformer) Transform(ctx context.Context, msg hermod.Messag
 	// this for the same reason; see TestValidateWorkflowLeavesExecuteSQLAlone in
 	// internal/workflow/transport/http. Refusing here and not there would also
 	// mean a workflow that validates clean and then fails on every message.
-	db, driver, err := registry.GetOrOpenDBByID(ctx, sourceID)
+	pool, driver, err := registry.GetOrOpenDBByID(ctx, sourceID)
 	if err != nil {
 		return msg, fmt.Errorf("failed to get database for execute_sql: %w", err)
+	}
+	// In a preview this is the run's transaction, rolled back when the run
+	// ends: the write is seen by the nodes after this one and never committed.
+	db, err := sqlutil.Use(ctx, pool, driver)
+	if err != nil {
+		return msg, fmt.Errorf("execute_sql: %w", err)
 	}
 
 	// Resolved through the message, not through its data map. The map is the
@@ -133,7 +139,7 @@ func (t *ExecuteSQLTransformer) Transform(ctx context.Context, msg hermod.Messag
 // resultField: the first row as an object, or every row as a list when
 // resultRows is "all". The shape follows the setting and never the row count,
 // so a template written against one message holds for the next.
-func (t *ExecuteSQLTransformer) queryInto(ctx context.Context, db *sql.DB, msg hermod.Message, config map[string]any, resultField, sqlText string, args []any) error {
+func (t *ExecuteSQLTransformer) queryInto(ctx context.Context, db sqlutil.Querier, msg hermod.Message, config map[string]any, resultField, sqlText string, args []any) error {
 	rows, err := db.QueryContext(ctx, sqlText, args...)
 	if err != nil {
 		return fmt.Errorf("failed to execute SQL: %w", err)

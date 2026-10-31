@@ -452,7 +452,7 @@ func (r *Registry) RunWorkflowNodeContext(ctx context.Context, workflowID string
 
 // runWorkflowNode is RunWorkflowNode on a root context the caller chooses. A
 // running workflow uses its own lifetime context; a simulation adds its overlay
-// on the state store to it (see previewStateContext).
+// on the state store and its SQL sandbox to it (see previewContext).
 func (r *Registry) runWorkflowNode(root context.Context, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
 	if msg == nil {
 		return nil, "", nil
