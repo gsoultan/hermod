@@ -47,6 +47,10 @@ RUN go build -trimpath \
 # Fail the build rather than ship a binary that serves a blank page.
 RUN test -f ./internal/api/static/index.html
 
+# The config directory, made here because the runtime image has no shell to
+# make it with. See the COPY below for why it has to exist in the image.
+RUN mkdir -p /out/config
+
 # --- Runtime ------------------------------------------------------------------
 FROM gcr.io/distroless/static-debian12:nonroot
 
@@ -60,6 +64,14 @@ COPY --from=build /out/hermod /usr/local/bin/hermod
 # directory, which defaults to ~/.hermod — not writable for uid 65532 here. The
 # chart mounts a volume at this path; without one, first-run setup cannot
 # persist and the container comes up asking to be configured on every restart.
+#
+# The directory is in the image, owned by 65532, before VOLUME declares it.
+# Docker gives a new named or anonymous volume the owner of the image's
+# directory at that path, and with none there it was root's: `docker run` and
+# deploy/compose both came up live and then failed first-run setup with
+# "open /var/lib/hermod/db_config.yaml: permission denied". Kubernetes never
+# saw it because the chart's fsGroup chowns the volume.
+COPY --from=build --chown=65532:65532 /out/config /var/lib/hermod
 ENV HERMOD_CONFIG_DIR=/var/lib/hermod
 VOLUME /var/lib/hermod
 
