@@ -31,6 +31,7 @@ describe('the AI palette category', () => {
       ['Translate', 'transformation', 'ai_prompt'],
       ['AI Embed', 'transformation', 'ai_embed'],
       ['AI Retrieve', 'transformation', 'ai_retrieve'],
+      ['Ask Documents', 'transformation', 'mimir_ask'],
     ])
     expect(aiCategory()?.group).toBe('transformations')
   })

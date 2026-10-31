@@ -83,6 +83,11 @@ var descriptions = map[string]string{
 		`store. config: {"provider","model","apiKey":"{{secret(\"NAME\")}}","store":"pgvector|pinecone","query" or ` +
 		`"queryField","topK","minScore","targetField"}; pgvector also needs "connectionString" and "table", pinecone "indexHost" ` +
 		`and "storeApiKey", each as a {{secret(\"NAME\")}} reference.`,
+	"transformation:mimir_ask": `Asks a mimir-server's document collection a question about the record and writes the ` +
+		`answer with the passages it cites. config: {"url":"http://mimir:8080","apiKey":"{{secret(\"NAME\")}}","collection":` +
+		`"<collection id>","mode":"ask|search","question":"a template over the record" or "questionField":"field.path",` +
+		`"sources":"3","limit":"5","maxTokens":"","targetField":"answer"}. mode ask writes {"text","finished","sources":[{"document",` +
+		`"document_id","passage_id","number","score","text"}]}; mode search writes {"sources":[...]} alone, for an ai_prompt to use.`,
 	"transformation:ml_predict": `Calls a machine-learning model registered in the workflow's vhost and writes its ` +
 		`prediction onto the record. config: {"model":"<registered model name>","inputs":{"feature":"field.path"},` +
 		`"outputField":"prediction","explain":"true|false"}. Empty inputs send the whole record. explain (a mimir model ` +

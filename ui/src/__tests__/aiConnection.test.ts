@@ -21,7 +21,7 @@ describe('AI provider catalogue', () => {
     expect(AI_PROVIDERS.map((p) => p.value).sort()).toEqual(
       [
         'anthropic', 'openai', 'gemini', 'deepseek', 'ollama', 'mistral', 'groq',
-        'openrouter', 'together', 'xai', 'openai_compatible',
+        'openrouter', 'together', 'xai', 'openai_compatible', 'mimir',
       ].sort(),
     )
     expect(providerLabel('anthropic')).toBe('Claude (Anthropic)')
@@ -30,6 +30,7 @@ describe('AI provider catalogue', () => {
     expect(providerLabel('ollama')).toBe('Ollama (local)')
     expect(providerLabel('xai')).toBe('xAI (Grok)')
     expect(providerLabel('openai_compatible')).toBe('Other OpenAI-compatible')
+    expect(providerLabel('mimir')).toBe('mimir-server')
   })
 
   it('suggests claude-opus-5-5 for Claude and hard-codes no model for the others', () => {
@@ -48,8 +49,12 @@ describe('AI provider catalogue', () => {
     expect(requiresApiKey('groq')).toBe(true)
   })
 
-  it('requires a base URL only for the generic OpenAI-compatible kind', () => {
+  // connect: openai_compatible needs its API root; mimir the server's address
+  // (connect adds /v1) and, unlike openai_compatible, an API key.
+  it('requires a base URL for the generic OpenAI-compatible kind and for mimir', () => {
     expect(requiresBaseUrl('openai_compatible')).toBe(true)
+    expect(requiresBaseUrl('mimir')).toBe(true)
+    expect(requiresApiKey('mimir')).toBe(true)
     expect(requiresBaseUrl('ollama')).toBe(false)
     expect(requiresBaseUrl('openai')).toBe(false)
   })

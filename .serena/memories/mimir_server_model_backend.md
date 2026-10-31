@@ -87,9 +87,51 @@ the Hermod name (`hermodName` slugifies). Mantine Select in tests: query the
   `webhookCredentials.test.tsx`. Docs: `docs/api-sources.md` "mimir-server
   events".
 
+## Phase 4: documents, datasets, chat (branch `feat/mimir-documents-datasets-chat`)
+
+- `pkg/comm/transformer/genai/mimirask`: `mimir_ask` transformer. Config
+  `url`, `apiKey` (both `ResolveTemplateScoped`), `collection`, `mode`
+  (`ask`|`search`), `question`/`questionField`, `sources`, `maxTokens`,
+  `limit`, `targetField` (default `answer`), `timeout`. Uses
+  `client.Documents.AskText` / `.Search`. Blank imports in
+  `internal/workflow/builder/catalogue.go` and `cmd/hermod/main.go`;
+  description in `descriptions.go`. Test fake embeds
+  `mimirv1connect.UnimplementedDocumentServiceHandler`; Ask is a server
+  stream.
+- Dataset to mimir: `POST /api/vhosts/{vhost}/ml/datasets/{name}/mimir`
+  (Editor) → `Service.SendDatasetToMimir` (`internal/ml/mimir_dataset.go`):
+  worker `ExportDataset` (parquet) → `parquetToCSV` (`parquetcsv.go`, flat
+  columns, 4096-row chunks) → `inference.Client.UploadMimirDataset`
+  (`pkg/ml/inference/mimir_data.go`, `Datasets.UploadCSV`). 200 MB cap.
+  **mimir has no dataset append**: each send is a new dataset there; the
+  design doc's "mimir destination on the ml_dataset sink" was replaced by
+  this one-shot action for that reason.
+- LLM provider `mimir` in `pkg/llm/connect` (`Kinds()`): OpenAI-compatible
+  under `<BaseURL>/v1` (`client.OpenAIBaseURL()`), `JSONObject` mode,
+  `LegacyMaxTokens`, key required (not keyless). UI `aiProviders.ts`
+  (`requiresBaseUrl`, `showsBaseUrl` include mimir),
+  `AIConnectionSection.tsx` placeholder/description.
+- UI: `configs/ai-retrieve/MimirAskConfig.tsx` (palette "Ask Documents",
+  grape, `IconFileSearch`), `pages/ml/datasets/SendToMimirModal.tsx`
+  (`IconSend` action in `DatasetsPanel.tsx`; prefills from connected mimir
+  models via `useVHostModels`), `lib/mlModels.ts` `sendDatasetToMimir`.
+  Tests: `mimirAskConfig.test.tsx`, `mlSendToMimir.test.tsx`,
+  `aiConnection.test.ts`, `paletteAI.test.tsx`.
+- Docs: `docs/ml.md` (Send to mimir-server, Ask documents node),
+  `docs/ai-automation.md` (provider table, `mimir_ask` row).
+
 ## Traps
+
+- CI's `check_pr_base.sh` fails a PR that targets another PR's branch
+  unless it carries the `stacked` label; retarget at `main` once the base
+  merges.
+- golangci-lint (CI v2.14.0) findings seen so far: errorlint wants `%w`
+  for every error in an `fmt.Errorf`; gosec G101 flags any constant whose
+  name ends in `Secret`; funlen > 50 lines; gocognit > 20.
 
 - The SDK's `go get` bumped shared deps (pgx, modernc sqlite, prometheus,
   aws-sdk). Run `go test -race -short ./...` after any SDK upgrade.
-- `golangci-lint` built with Go 1.25 refuses this module's `go 1.27.3`; use a
-  lint binary built with 1.27+.
+- `golangci-lint` built with an older Go refuses this module's `go 1.27.3`.
+  What works: `GOTOOLCHAIN=go1.27.3 GOFLAGS=-mod=mod go run
+  github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 run
+  --new-from-rev=origin/main ./...`.

@@ -40,6 +40,25 @@ deleted. It checks each delivery's `Mimir-Signature` with the webhook's
 chosen under **Events**. The event's type and id travel as `mimir_event`
 and `mimir_event_id` metadata. See [docs/api-sources.md](docs/api-sources.md).
 
+### Added — Ask a mimir-server's documents, send it a dataset, use it as an AI provider
+
+- **Ask Documents** (*AI → Ask Documents*, `mimir_ask`) asks a
+  [mimir-server](https://github.com/gsoultan/mimir-server) document
+  collection a question about each record and writes the answer with the
+  passages it cites (`{"text", "finished", "sources"}`), or with
+  `"mode": "search"` the best passages alone for an AI Prompt to use. The
+  key is a vhost secret resolved for the record's vhost.
+- **Send to mimir-server**, on a dataset's row on the Machine Learning
+  page, copies the dataset to a mimir server as CSV so a model can be
+  trained on it there and connected back here. The address and key secret
+  of a connected mimir model are offered, the column to predict comes from
+  the dataset, and the server's verdict on the rows is shown. Behind it:
+  `POST /api/vhosts/{vhost}/ml/datasets/{name}/mimir`.
+- **mimir-server** is an AI provider (`"provider": "mimir"`): the AI nodes
+  and the agent speak to the server's OpenAI-compatible API, with a
+  language model's name or a collection's API name as the model. The base
+  URL is the server's address; `/v1` is added.
+
 ### Added — Tell a mimir model what really happened, and ask it why
 
 - **Feedback** (*Machine Learning → Feedback*, `ml_feedback`) sends a mimir

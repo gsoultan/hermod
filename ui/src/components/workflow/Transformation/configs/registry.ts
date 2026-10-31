@@ -35,6 +35,7 @@ import { AIExtractConfig } from './ai/AIExtractConfig'
 import { AIEmbedConfig } from './ai/AIEmbedConfig'
 import { AIClassifyConfig } from './ai/AIClassifyConfig'
 import { AIRetrieveConfig } from './ai-retrieve/AIRetrieveConfig'
+import { MimirAskConfig } from './ai-retrieve/MimirAskConfig'
 import { AIAgentConfig } from './ai-agent/AIAgentConfig'
 // machine learning
 import { MLPredictConfig } from './ml/MLPredictConfig'
@@ -175,6 +176,7 @@ export const TRANSFORM_CONFIGS: Record<string, ConfigComponent> = {
   ai_extract: AIExtractConfig,
   ai_embed: AIEmbedConfig,
   ai_retrieve: AIRetrieveConfig,
+  mimir_ask: MimirAskConfig,
   // machine learning
   ml_predict: MLPredictConfig,
   ml_feedback: MLFeedbackConfig,
