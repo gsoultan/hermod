@@ -78,6 +78,13 @@ describe('execute_sql live preview', () => {
     expect(await screen.findByTestId('execute-sql-manual-preview')).toHaveTextContent(/run preview/i)
   })
 
+  // Run Preview and Simulate run the statement in a transaction that is rolled
+  // back, so the reader is not left thinking the button writes to the table.
+  it('says a preview saves nothing', async () => {
+    setup({ transType: 'execute_sql', sourceId: 'ops', queryTemplate: 'DELETE FROM t' })
+    expect(await screen.findByTestId('execute-sql-manual-preview')).toHaveTextContent(/nothing is saved/i)
+  })
+
   // With no sample the panel offers to fetch one. For every other node the
   // preview then runs by itself; saying so here would promise a run that this
   // node, on purpose, does not make.

@@ -131,6 +131,13 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 	if err != nil {
 		return msg, fmt.Errorf("db_lookup: %w", err)
 	}
+	// A preview reads through its own uncommitted writes. The cache is shared
+	// with live workflows, so it can neither answer a preview (the row may have
+	// changed earlier in the same run) nor keep what a preview read (a row
+	// that is about to be rolled back).
+	if sqlutil.Sandboxed(ctx) {
+		ttl.cache = false
+	}
 
 	// Every template below -- queryTemplate, whereClause, and the cache key
 	// derived from both -- resolves through these two and nothing else, so the
@@ -195,7 +202,11 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 	// There is no version of this that both batches and filters correctly, so
 	// such a node takes the per-message path below, which already resolves its
 	// templates for the message in hand.
-	if useBatching && nodeID != "" && mode != "query" && queryTemplate == "" &&
+	//
+	// A preview does not batch either: the batcher queries the pool from its
+	// own goroutine, outside the preview's transaction, and so would not see
+	// a row written earlier in the run.
+	if useBatching && nodeID != "" && mode != "query" && queryTemplate == "" && !sqlutil.Sandboxed(ctx) &&
 		src.Type != "mongodb" && !strings.Contains(whereClause, "{{") {
 		batchSize := configInt(config, "batchSize")
 		if batchSize <= 0 {
@@ -503,11 +514,16 @@ func lookupDialect(ctx context.Context, registry any, src storage.Source) string
 func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface {
 	GetOrOpenDB(src storage.Source) (*sql.DB, error)
 }, src storage.Source, table, keyColumn string, keyVal any, whereClause, valueColumn string, clause clauseResolver) (any, error) {
-	db, err := registry.GetOrOpenDB(src)
+	pool, err := registry.GetOrOpenDB(src)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get database for lookup: %w", err)
 	}
 	driver := lookupDialect(ctx, registry, src)
+	// In a preview, the run's transaction: it sees what earlier nodes wrote.
+	db, err := sqlutil.Use(ctx, pool, driver)
+	if err != nil {
+		return nil, fmt.Errorf("db_lookup: %w", err)
+	}
 
 	// Quote table and columns safely
 	quotedTable, err := sqlutil.QuoteIdent(driver, table)
@@ -840,12 +856,16 @@ func (t *DBLookupTransformer) lookupSQLBatch(ctx context.Context, registry inter
 func (t *DBLookupTransformer) lookupSQLWithTemplate(ctx context.Context, registry interface {
 	GetOrOpenDB(src storage.Source) (*sql.DB, error)
 }, src storage.Source, queryTemplate string, valueColumn string, resolve sqlutil.Resolver) (any, error) {
-	db, err := registry.GetOrOpenDB(src)
+	pool, err := registry.GetOrOpenDB(src)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get database for lookup: %w", err)
 	}
 
 	driver := lookupDialect(ctx, registry, src)
+	db, err := sqlutil.Use(ctx, pool, driver)
+	if err != nil {
+		return nil, fmt.Errorf("db_lookup: %w", err)
+	}
 
 	b := sqlutil.ParameterizeTemplateWith(driver, queryTemplate, resolve)
 	if b.Err != nil {

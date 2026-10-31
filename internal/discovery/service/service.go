@@ -509,6 +509,10 @@ func (s *DiscoveryService) ExecuteSQL(ctx context.Context, cfg factory.SourceCon
 
 		parameterizedQuery, args := bindSample(driver, query, sampleData)
 
+		if sqlutil.StatementMayWrite(driver, parameterizedQuery) {
+			return s.queryRolledBack(ctx, cfg.Type, cfg.Config, driver, parameterizedQuery, args)
+		}
+
 		if len(args) == 0 {
 			src, err := s.openSource(ctx, cfg)
 			if err == nil {
@@ -545,6 +549,41 @@ func (s *DiscoveryService) ExecuteSQL(ctx context.Context, cfg factory.SourceCon
 	return discoveryValue[[]map[string]any](val, "running that query on source type "+cfg.Type+"")
 }
 
+// queryRolledBack runs a query that may write, for the SQL builder's preview,
+// in a transaction that is rolled back once its rows are read. The rows are
+// what the editor needs -- a RETURNING clause is how Available Fields learns
+// an Execute SQL node's output -- and the write is not: the preview used to
+// commit it, every time the query was previewed while being written.
+//
+// It never takes a source's or sink's own SQL path, which runs on that
+// component's connection and commits.
+func (s *DiscoveryService) queryRolledBack(ctx context.Context, typeName string, config map[string]string, driver, query string, args []any) (out []map[string]any, err error) {
+	db, err := s.creator.GetDB(ctx, typeName, config)
+	if err != nil {
+		return nil, err
+	}
+	sb := sqlutil.NewSandbox(ctx)
+	defer func() {
+		if rerr := sb.Rollback(); rerr != nil && err == nil {
+			out, err = nil, rerr
+		}
+	}()
+	q, err := sqlutil.Use(sqlutil.WithSandbox(ctx, sb), db, driver)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := q.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out, err = sqlutil.ScanRows(rows)
+	if err != nil {
+		return nil, err
+	}
+	return out, rows.Err()
+}
+
 func (s *DiscoveryService) ExecuteSinkSQL(ctx context.Context, cfg factory.SinkConfig, query string, userSample map[string]any) ([]map[string]any, error) {
 	key := s.discoveryKey("exec-sink-sql", struct {
 		Cfg    factory.SinkConfig
@@ -563,6 +602,10 @@ func (s *DiscoveryService) ExecuteSinkSQL(ctx context.Context, cfg factory.SinkC
 		}
 
 		parameterizedQuery, args := bindSample(cfg.Type, query, sampleData)
+
+		if sqlutil.StatementMayWrite(cfg.Type, parameterizedQuery) {
+			return s.queryRolledBack(ctx, cfg.Type, cfg.Config, cfg.Type, parameterizedQuery, args)
+		}
 
 		if len(args) == 0 {
 			snk, err := s.openSink(ctx, cfg)

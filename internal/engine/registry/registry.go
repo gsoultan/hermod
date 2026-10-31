@@ -1673,7 +1673,9 @@ func (r *Registry) TestTransformationPipeline(ctx context.Context, transformatio
 	// Optimization: Pass a shared snapshot pointer in context to avoid redundant ToMap() calls
 	// during the pipeline traversal. doApplyTransformation will update this pointer.
 	var lastSnapshot map[string]any
-	pipelineCtx := context.WithValue(r.previewStateContext(ctx), hermod.LastTraceSnapshotKey, &lastSnapshot)
+	previewCtx, end := r.previewContext(ctx, ctx)
+	defer end()
+	pipelineCtx := context.WithValue(previewCtx, hermod.LastTraceSnapshotKey, &lastSnapshot)
 
 	for i, t := range transformations {
 		if currentInput == nil {
