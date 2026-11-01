@@ -72,7 +72,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/gsoultan/gsmail v0.4.0
-	github.com/gsoultan/metis-sdk v0.1.0
+	github.com/gsoultan/metis-sdk v0.3.1
 	github.com/gsoultan/mimir-server v0.3.0
 	github.com/gsoultan/mimir-server-sdk v0.2.0
 	github.com/gsoultan/panmail-sdk v0.1.1
