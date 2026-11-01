@@ -384,6 +384,14 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 	if err := r.ValidateWorkflow(ctx, wf); err != nil {
 		return fmt.Errorf("workflow validation failed: %w", err)
 	}
+	// The engine runs the caller with its sub-flows spliced in. The worker
+	// compares what it reads from storage against the workflow as saved, so
+	// that is what GetWorkflowConfig reports.
+	saved := wf
+	wf, err := r.ExpandSubflows(ctx, wf)
+	if err != nil {
+		return fmt.Errorf("workflow validation failed: %w", err)
+	}
 
 	// Load node states for stateful transformations
 	nodeStates, err := r.store().GetNodeStates(ctx, id)
@@ -551,6 +559,7 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 		snkConfigs:      snkConfigs,
 		isWorkflow:      true,
 		workflow:        wf,
+		saved:           saved,
 		baseProcessed:   wf.TotalProcessed,
 		baseErrors:      wf.TotalErrors,
 		baseLag:         wf.TotalLag,
@@ -1174,6 +1183,9 @@ func (r *Registry) RebuildWorkflow(ctx context.Context, workflowID string, fromO
 	if err != nil {
 		return err
 	}
+	if wf, err = r.ExpandSubflows(ctx, wf); err != nil {
+		return err
+	}
 
 	// 1. Find Event Store sink
 	var eventStoreNode *storage.WorkflowNode
@@ -1437,6 +1449,10 @@ func (r *Registry) ResumeApproval(ctx context.Context, app storage.Approval, bra
 	if err != nil {
 		return err
 	}
+	// An approval inside a sub-flow names a spliced node.
+	if wf, err = r.ExpandSubflows(ctx, wf); err != nil {
+		return err
+	}
 
 	nodeMap, adj := workflowGraph(wf)
 	sinks, sinkNodeToIndex, err := r.buildWalkSinks(ctx, wf)
@@ -1609,6 +1625,10 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 // and a workflow is missing its sink exactly while its nodes are being set up,
 // which is when the editor needs the preview.
 func (r *Registry) SimulateWorkflow(ctx context.Context, wf storage.Workflow, in SimulationInput) ([]WorkflowStepResult, error) {
+	wf, err := r.ExpandSubflows(ctx, wf)
+	if err != nil {
+		return nil, err
+	}
 	if err := r.validateForSimulation(ctx, wf, in.Partial); err != nil {
 		return nil, err
 	}

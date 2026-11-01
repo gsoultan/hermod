@@ -191,6 +191,11 @@ func (r *Registry) CheckCommitTogether(ctx context.Context, wf storage.Workflow)
 		_, err := (*Registry)(nil).planWorkflowSinks(wf)
 		return err
 	}
+	// A call that cannot be expanded is reported by the sub-flow check, and
+	// the workflow is checked as it is drawn.
+	if expanded, err := r.ExpandSubflows(ctx, wf); err == nil {
+		wf = expanded
+	}
 	return r.checkCommitTogether(ctx, wf)
 }
 

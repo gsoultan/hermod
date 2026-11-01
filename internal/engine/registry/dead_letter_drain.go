@@ -190,6 +190,10 @@ func (r *Registry) DrainWorkflowDLQ(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("workflow %s: %w", id, err)
 	}
+	// A dead letter from inside a sub-flow names a spliced node.
+	if wf, err = r.ExpandSubflows(ctx, wf); err != nil {
+		return fmt.Errorf("workflow %s: %w", id, err)
+	}
 	r.drainDeadLetters(wf, "Drain DLQ")
 	return nil
 }

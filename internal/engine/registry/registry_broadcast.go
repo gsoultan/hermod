@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/engine/registry/subflow"
 	"github.com/gsoultan/hermod/internal/storage"
 	pkgengine "github.com/gsoultan/hermod/pkg/engine"
 	"github.com/gsoultan/hermod/pkg/engine/telemetry"
@@ -660,6 +661,8 @@ func (r *Registry) RecordStep(ctx context.Context, workflowID, messageID string,
 	r.mu.RUnlock()
 
 	if ls != nil {
+		step.Before = subflow.WithoutFrames(step.Before)
+		step.After = subflow.WithoutFrames(step.After)
 		_ = ls.RecordTraceStep(ctx, workflowID, messageID, step)
 	}
 }

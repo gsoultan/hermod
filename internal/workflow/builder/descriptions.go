@@ -60,11 +60,12 @@ var descriptions = map[string]string{
 		`"for":"all_salesmen|all_customers|all_products","periodDays":"7","withinDays":"14","k":"20","targetSourceId","targetTable",` +
 		`"targetMode":"replace|append","maxRows":"10000"}. withinDays (reorder only) keeps the customers due to order ` +
 		`within that many days, overdue ones included.`,
-	"foreach":  `Splits an array into one record per item; downstream nodes run for each. config: {"arrayPath":"items"}.`,
-	"join":     "Stateful join: waits for related events from several paths and joins them by key.",
-	"log":      "Writes the record to the workflow log; passes it on unchanged.",
-	"router":   "Content router: sends the record down the branch whose pattern rule it matches.",
-	"stateful": "Stores and recalls workflow state (counters, last values) between records.",
+	"foreach":      `Splits an array into one record per item; downstream nodes run for each. config: {"arrayPath":"items"}.`,
+	"call_subflow": "Runs a saved sub-flow (a reusable workflow that starts at a Sub-flow input step) on the record and waits for its result. Config: subflow_id, version (a saved version number), inputs and outputs as lists of {from, to} field paths.",
+	"join":         "Stateful join: waits for related events from several paths and joins them by key.",
+	"log":          "Writes the record to the workflow log; passes it on unchanged.",
+	"router":       "Content router: sends the record down the branch whose pattern rule it matches.",
+	"stateful":     "Stores and recalls workflow state (counters, last values) between records.",
 	"switch": `Multi-way branch on one field. config: {"field":"status","cases":[{"value":"open"},{"value":"closed"}]}. ` +
 		`Branch names are the case values, plus "default".`,
 	"validator": "Validates required fields and formats; invalid records fail the node.",

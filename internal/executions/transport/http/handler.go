@@ -16,6 +16,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"slices"
 
 	"github.com/gsoultan/hermod/internal/api/handlers"
 	"github.com/gsoultan/hermod/internal/storage"
@@ -62,6 +63,34 @@ func (h *ExecutionsHandler) loadWorkflow(w http.ResponseWriter, r *http.Request)
 		return storage.Workflow{}, false
 	}
 	return wf, true
+}
+
+// withSubflowSteps adds the steps of the sub-flows wf calls, so a run lists
+// each step inside a sub-flow with its own name and type. The steps wf draws
+// itself keep theirs: a Run sub-flow step is listed as that, not as the step
+// the engine turns it into. A call that no longer expands leaves wf as it is;
+// its steps are still listed, unnamed.
+func (h *ExecutionsHandler) withSubflowSteps(ctx context.Context, wf storage.Workflow) storage.Workflow {
+	if h.Registry == nil {
+		return wf
+	}
+	expanded, err := h.Registry.ExpandSubflows(ctx, wf)
+	if err != nil {
+		return wf
+	}
+	drawn := make(map[string]bool, len(wf.Nodes))
+	for _, n := range wf.Nodes {
+		drawn[n.ID] = true
+	}
+	out := wf
+	out.Nodes = slices.Clone(wf.Nodes)
+	for _, n := range expanded.Nodes {
+		if !drawn[n.ID] {
+			out.Nodes = append(out.Nodes, n)
+		}
+	}
+	out.Edges = expanded.Edges
+	return out
 }
 
 // runContext bounds a run started from a request. The run stops if the caller

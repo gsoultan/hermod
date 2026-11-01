@@ -19,6 +19,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/engine/registry/subflow"
 	"github.com/gsoultan/hermod/internal/storage"
 )
 
@@ -79,7 +80,7 @@ func (m *manualRun) record(ctx context.Context, node *storage.WorkflowNode, star
 		NodeID:    node.ID,
 		Timestamp: time.Now(),
 		Duration:  time.Since(start),
-		After:     payload.ToMap(),
+		After:     subflow.WithoutFrames(payload.ToMap()),
 		Lineage:   "manual_run",
 	}
 	if err != nil {
@@ -130,6 +131,10 @@ func (m *manualRun) result() RunResult {
 func (r *Registry) RunWorkflowOnce(ctx context.Context, wf storage.Workflow, msg hermod.Message, sourceNodeID string) (RunResult, error) {
 	if msg == nil {
 		return RunResult{}, errors.New("a run needs an input message")
+	}
+	wf, err := r.ExpandSubflows(ctx, wf)
+	if err != nil {
+		return RunResult{}, err
 	}
 	source, err := runSourceNode(wf, sourceNodeID)
 	if err != nil {

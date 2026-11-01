@@ -17,6 +17,7 @@ import (
 	"slices"
 
 	"github.com/gsoultan/hermod/internal/engine/registry/interfaces"
+	"github.com/gsoultan/hermod/internal/engine/registry/subflow"
 	"github.com/gsoultan/hermod/pkg/comm/transformer"
 
 	// The catalogue is read from the node and transformer registries, which
@@ -68,6 +69,9 @@ func Catalogue() []Kind {
 	for _, t := range interfaces.NodeExecutorTypes() {
 		if t == TypeTransformation {
 			continue // the dispatcher for the transformer kinds below
+		}
+		if t == subflow.TypeEnter || t == subflow.TypeExit {
+			continue // what a Run sub-flow step becomes when it runs; never drawn
 		}
 		kinds = append(kinds, Kind{Key: t, NodeType: t, Description: descriptions[t]})
 	}

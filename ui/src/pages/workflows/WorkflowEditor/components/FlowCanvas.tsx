@@ -39,6 +39,7 @@ import { ConditionNode } from '../nodes/ConditionNode';
 import { ApprovalNode } from '../nodes/ApprovalNode';
 import { AIClassifyNode } from '../nodes/AIClassifyNode';
 import { AIAgentNode } from '../nodes/AIAgentNode';
+import { SubflowCallNode, SubflowInputNode, SubflowReturnNode } from '../nodes/SubflowNodes';
 
 /**
  * The renderer for each node type. A type missing here is drawn as React
@@ -66,6 +67,9 @@ export const canvasNodeTypes = {
   ai_classify: AIClassifyNode,
   ai_agent: AIAgentNode,
   ml_recommend_build: TransformationNode,
+  call_subflow: SubflowCallNode,
+  subflow_input: SubflowInputNode,
+  subflow_return: SubflowReturnNode,
 };
 
 interface FlowCanvasProps {
