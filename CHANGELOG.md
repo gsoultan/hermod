@@ -26,6 +26,61 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
   later node fails, returns its connection, reports the failure on the failing node, skips
   the nodes after it, and lets the same preview run again at once.
 
+### Added — Connect a model served by mimir-server
+
+A model on a [mimir-server](https://github.com/gsoultan/mimir-server) can be
+connected on the Machine Learning page like one on KServe or MLflow, and is
+then called from the Predict node, the serving endpoints and the MCP server
+the same way, with the same prediction log and drift checks.
+
+- **mimir-server** is the first choice under *Kind of server* in Connect a
+  model. It takes the server address and the name of a vhost secret holding
+  a `mimir_...` API key; the key never leaves the server side.
+- **Fetch models** (`POST /api/vhosts/{vhost}/ml/mimir/models`) lists what the
+  key may see, with each model's kind, accuracy and whether it is ready; a
+  model that is not ready is listed with the server's reason and cannot be
+  picked. Picking one fills the model's id, its inputs from the server's
+  columns, its description and the name in Hermod. The id can also be typed.
+- Predictions go through the mimir Go SDK (`pkg/ml/inference.BackendMimir`):
+  one call per row, by column name, up to four in flight. A label model
+  answers with `prediction`, `confidence`, `guesses` and `prediction_id`; a
+  number model with `prediction` and `prediction_id`. **Try it with one row**
+  draws the guesses as bars.
+- A connected model's status badge now says what kind of server it is on.
+
+### Fixed — An idle deployment no longer writes, scans and remembers things that have not changed
+
+Six places where Hermod spent disk, CPU or memory on work whose result was
+already known, each caught by a test that fails on the old behaviour:
+
+- **The five-second stats flusher wrote every workflow's rows whether or not
+  they had moved.** `UpdateWorkflowStats` and `UpdateWorkflowStatus` ran for
+  every running workflow on every tick: 2N UPDATEs every five seconds for ever
+  on an idle worker, each an fsync on SQLite and a dead tuple on PostgreSQL.
+  The flusher now remembers what it last stored and writes only a row that
+  changed; a refused write is forgotten so the next tick retries it.
+- **Audit logs were purged once per workflow, at that workflow's window.**
+  `audit_logs` is one table for the deployment, so N workflows meant N
+  full-range deletes an hour and the shortest window among them decided what
+  every workflow's audit trail kept. One sweep per hour now, at the longest
+  window any workflow asks for.
+- **The due-message check scanned the whole `suspended_messages` table.** The
+  reconciliation loop asks every five seconds, on every worker, for messages
+  whose `resume_at` has passed, and the table had no index on that column.
+  `idx_suspended_messages_resume_at` (and the same index on MongoDB) turns
+  each tick into an index range scan.
+- **A deleted workflow left its PII statistics, stall-restart history and
+  node-state cache in memory** for the life of the process. The delete
+  handlers now call `Registry.ForgetWorkflow`, which removes the traces as
+  before and every in-process record keyed by the workflow's ID.
+- **A deleted source left its connection pool open**: the `*sql.DB`, its idle
+  connections and database/sql's opener goroutine stayed until restart. The
+  delete handler now closes it through `Registry.CloseSourcePools`.
+- **The alert dedupe map only grew.** Every alert left a `workflow:title`
+  entry that enforced a five-minute repeat window and was never removed. Entries
+  past the window are now swept, every 256 alerts on a busy service and at least
+  once a window on a quiet one.
+
 ### Fixed — A flow's read-only view shows that it is running, and what each step is doing
 
 The read-only view drew its own plain step cards and lines and kept nothing of

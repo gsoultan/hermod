@@ -22,6 +22,8 @@
 //   - BackendOIP, the Open Inference Protocol (KServe "V2"), spoken by KServe,
 //     Triton, MLServer and hermod-ml: POST {url}/v2/models/{model}[/versions/{v}]/infer.
 //   - BackendMLflow, the MLflow scoring server: POST {url}/invocations.
+//   - BackendMimir, a mimir-server, through its Go SDK (mimir.go): one Connect
+//     call per row, by column name, with an API key.
 package inference
 
 import (
@@ -48,6 +50,10 @@ const (
 	// BackendMLflow is the MLflow scoring server protocol.
 	BackendMLflow Backend = "mlflow"
 )
+
+// Backends are the wire protocols this package speaks, as Validate accepts
+// them. BackendMimir is declared in mimir.go.
+var Backends = []Backend{BackendOIP, BackendMLflow, BackendMimir}
 
 // Row is one record sent to a model, or one prediction read back.
 type Row = map[string]any
@@ -83,13 +89,16 @@ type Target struct {
 // Validate reports what is wrong with a target before anything is sent to it.
 func (t Target) Validate() error {
 	switch t.Backend {
-	case BackendOIP, BackendMLflow:
+	case BackendOIP, BackendMLflow, BackendMimir:
 	default:
-		return fmt.Errorf("unknown model server protocol %q: use %q or %q", t.Backend, BackendOIP, BackendMLflow)
+		return fmt.Errorf("unknown model server protocol %q: use %q, %q or %q", t.Backend, BackendOIP, BackendMLflow, BackendMimir)
 	}
 	u, err := url.Parse(t.URL)
 	if t.URL == "" || err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return errors.New("the model server URL must be an http:// or https:// address")
+	}
+	if t.Backend == BackendMimir {
+		return t.validateMimir()
 	}
 	if t.Backend == BackendOIP {
 		if !validPathSegment(t.Model) {
@@ -143,6 +152,8 @@ func (c *Client) Predict(ctx context.Context, t Target, rows []Row) ([]Row, erro
 	switch t.Backend {
 	case BackendMLflow:
 		return c.predictMLflow(ctx, t, rows)
+	case BackendMimir:
+		return c.predictMimir(ctx, t, rows)
 	default:
 		return c.predictOIP(ctx, t, rows)
 	}

@@ -228,7 +228,7 @@ func (s *mongoStorage) Ping(ctx context.Context) error {
 
 func (s *mongoStorage) Init(ctx context.Context) error {
 	// Create indexes
-	collections := []string{"sources", "sinks", "users", "vhosts", "workflows", "workers", "logs", "settings", "audit_logs", "webhook_requests", "schemas", "message_traces", "workflow_versions", "ml_prediction_logs", mlJobsCollection, mlJobResultsCollection, mlBlobsCollection, deadLettersCollection}
+	collections := []string{"sources", "sinks", "users", "vhosts", "workflows", "workers", "logs", "settings", "audit_logs", "webhook_requests", "schemas", "message_traces", "workflow_versions", "ml_prediction_logs", mlJobsCollection, mlJobResultsCollection, mlBlobsCollection, deadLettersCollection, "suspended_messages"}
 
 	for _, collName := range collections {
 		coll := s.db.Collection(collName)
@@ -337,6 +337,13 @@ func (s *mongoStorage) Init(ctx context.Context) error {
 			indexModels = append(indexModels,
 				mongo.IndexModel{Keys: bson.D{{Key: "timestamp", Value: -1}}},
 				mongo.IndexModel{Keys: bson.D{{Key: "path", Value: 1}}},
+			)
+		case "suspended_messages":
+			// The reconciliation loop asks every five seconds for the
+			// messages that are due; see the SQL backend's
+			// idx_suspended_messages_resume_at.
+			indexModels = append(indexModels,
+				mongo.IndexModel{Keys: bson.D{{Key: "resume_at", Value: 1}}},
 			)
 		}
 

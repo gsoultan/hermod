@@ -360,6 +360,12 @@ func (h *SourceHandler) DeleteSource(w http.ResponseWriter, r *http.Request) {
 		h.JsonError(w, "Failed to delete source: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// The pool GetOrOpenDB holds for this source is unreachable now; without
+	// this it, its idle connections and database/sql's opener goroutine stayed
+	// until the process exited.
+	if h.Registry != nil {
+		h.Registry.CloseSourcePools(id)
+	}
 
 	h.RecordAuditLog(r, "INFO", "Deleted source "+src.Name, "delete", "", id, "", nil)
 	w.WriteHeader(http.StatusNoContent)

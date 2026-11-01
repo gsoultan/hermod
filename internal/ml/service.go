@@ -22,6 +22,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gsoultan/hermod/internal/ml/monitor"
@@ -54,6 +55,9 @@ var (
 	ErrNoLiveVersion = errors.New("no version of this model is live yet")
 	// ErrVersionNotFound is returned for a version the model does not have.
 	ErrVersionNotFound = errors.New("model version not found")
+	// ErrBadMimirRequest is returned when a mimir server cannot be asked as
+	// requested: no address, or a key secret that is not a secret's name.
+	ErrBadMimirRequest = errors.New("the mimir server request is incomplete")
 	// ErrSourceNotFound is returned for a database source a dataset is read
 	// from that the vhost does not hold: missing, or another vhost's, whose
 	// credentials are not this vhost's to use.
@@ -289,17 +293,44 @@ func (s *Service) token(ctx context.Context, m storage.MLModel) (string, error) 
 	if m.TokenSecret == "" {
 		return "", nil
 	}
-	if s.secrets == nil {
-		return "", fmt.Errorf("model %q needs secret %q, and no secret store is available", m.Name, m.TokenSecret)
-	}
-	v, err := s.secrets.GetScoped(ctx, m.VHost, m.TokenSecret)
+	v, err := s.secret(ctx, m.VHost, m.TokenSecret)
 	if err != nil {
-		return "", fmt.Errorf("model %q: reading secret %q: %w", m.Name, m.TokenSecret, err)
-	}
-	if v == "" {
-		return "", fmt.Errorf("model %q needs secret %q, which vhost %q does not hold", m.Name, m.TokenSecret, m.VHost)
+		return "", fmt.Errorf("model %q %w", m.Name, err)
 	}
 	return v, nil
+}
+
+// secret reads one of the vhost's secrets, and says which one is missing
+// when it cannot.
+func (s *Service) secret(ctx context.Context, vhost, name string) (string, error) {
+	if s.secrets == nil {
+		return "", fmt.Errorf("needs secret %q, and no secret store is available", name)
+	}
+	v, err := s.secrets.GetScoped(ctx, vhost, name)
+	if err != nil {
+		return "", fmt.Errorf("reading secret %q: %w", name, err)
+	}
+	if v == "" {
+		return "", fmt.Errorf("needs secret %q, which vhost %q does not hold", name, vhost)
+	}
+	return v, nil
+}
+
+// ListMimirModels asks the mimir server at url which models the API key in
+// the vhost's secret tokenSecret may see, for a person to pick one from when
+// connecting a model. The key never leaves the server side.
+func (s *Service) ListMimirModels(ctx context.Context, vhost, url, tokenSecret string) ([]inference.RemoteModel, error) {
+	if strings.TrimSpace(url) == "" {
+		return nil, fmt.Errorf("%w: enter the server's address", ErrBadMimirRequest)
+	}
+	if !storage.ValidVHostSecretName(tokenSecret) {
+		return nil, fmt.Errorf("%w: %q is not the name of a secret", ErrBadMimirRequest, tokenSecret)
+	}
+	token, err := s.secret(ctx, vhost, tokenSecret)
+	if err != nil {
+		return nil, fmt.Errorf("%w: the mimir server %w", ErrBadMimirRequest, err)
+	}
+	return s.client.ListMimirModels(ctx, strings.TrimSpace(url), token)
 }
 
 // RotateServingKey makes a new serving key for the model, replacing any

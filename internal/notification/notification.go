@@ -184,7 +184,21 @@ type Service struct {
 	deadLetters *deadLetterDigest
 	inflight    inflight
 	mu          sync.RWMutex
+	// now is the clock the dedupe window is measured by; tests set it.
+	now func() time.Time
+	// admitted counts dedupe entries added since the last sweep of expired
+	// ones, and lastSweep is when that was.
+	admitted  int
+	lastSweep time.Time
 }
+
+// dedupeWindow is how long a repeat of the same alert for the same workflow
+// is swallowed.
+const dedupeWindow = 5 * time.Minute
+
+// dedupeSweepEvery is how many new dedupe entries are admitted between sweeps
+// of the ones whose window has passed.
+const dedupeSweepEvery = 256
 
 // inflight counts dispatched notifications still sending.
 //
@@ -234,6 +248,7 @@ func NewService(s storage.Storage) *Service {
 		storage:     s,
 		lastSent:    make(map[string]time.Time),
 		deadLetters: newDeadLetterDigest(),
+		now:         time.Now,
 	}
 }
 
@@ -311,6 +326,28 @@ func (s *Service) Notify(ctx context.Context, title, message string, wf storage.
 	s.NotifyLevel(ctx, LevelError, title, message, wf)
 }
 
+// sweepDedupeLocked drops the dedupe entries whose window has passed: once
+// every dedupeSweepEvery admissions on a busy service, and at least once a
+// window on a quiet one. The caller holds s.mu.
+//
+// lastSent is keyed by workflow ID and title and nothing removed an entry, so a
+// deployment that creates and deletes workflows grew it for the life of the
+// process. An entry older than the window can never swallow anything again,
+// and a sweep amortised over admissions keeps the map proportional to the
+// alerts of the last five minutes rather than to every workflow ever alerted on.
+func (s *Service) sweepDedupeLocked(now time.Time) {
+	s.admitted++
+	if s.admitted < dedupeSweepEvery && now.Sub(s.lastSweep) < dedupeWindow {
+		return
+	}
+	s.admitted, s.lastSweep = 0, now
+	for key, last := range s.lastSent {
+		if now.Sub(last) >= dedupeWindow {
+			delete(s.lastSent, key)
+		}
+	}
+}
+
 // NotifyLevel raises an alert at an explicit severity.
 func (s *Service) NotifyLevel(ctx context.Context, level, title, message string, wf storage.Workflow) {
 	s.mu.Lock()
@@ -322,14 +359,16 @@ func (s *Service) NotifyLevel(ctx context.Context, level, title, message string,
 		s.mu.Unlock()
 		return
 	}
+	now := s.now()
 	key := wf.ID + ":" + title
 	if last, ok := s.lastSent[key]; ok {
-		if time.Since(last) < 5*time.Minute {
+		if now.Sub(last) < dedupeWindow {
 			s.mu.Unlock()
 			return
 		}
 	}
-	s.lastSent[key] = time.Now()
+	s.lastSent[key] = now
+	s.sweepDedupeLocked(now)
 	providers := s.providers
 	logger := s.logger
 	s.mu.Unlock()

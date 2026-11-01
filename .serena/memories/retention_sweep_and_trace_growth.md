@@ -194,8 +194,9 @@ B/step (+1.6%).
 
 **Traces of deleted workflows.** `DeleteWorkflow` deletes one row, so every
 workflow ever deleted left unreachable rows forever. Now the Registry deletes
-them — `Registry.DeleteWorkflowTraces`, called from both the single and batch
-delete handlers. **Not** a cascade inside `sqlStorage.DeleteWorkflow`:
+them — `Registry.DeleteWorkflowTraces`, reached through `Registry.ForgetWorkflow`
+from both the single and batch delete handlers (ForgetWorkflow also drops the
+workflow's in-process state; see [idle_footprint](idle_footprint.md)). **Not** a cascade inside `sqlStorage.DeleteWorkflow`:
 `SetLogStorage` may point traces at a different database from the one holding
 workflows (`infra.go` passes either `newLogStore` or `newStore`), so a cascade
 in the workflow store deletes from the wrong place and silently leaves the rows.

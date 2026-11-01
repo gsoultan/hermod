@@ -27,6 +27,7 @@ import (
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/ml/inference"
 	"github.com/gsoultan/hermod/pkg/ml/worker"
+	"github.com/gsoultan/hermod/pkg/security/secrets"
 )
 
 // maxModelBody bounds a model definition; maxPredictBody bounds a prediction
@@ -47,8 +48,11 @@ type Handler struct {
 	worker      *worker.Client
 	noEnvWorker bool
 	workers     *worker.Provider
-	pools       *ml.Pools
-	monitor     *monitor.Monitor
+	// secrets answers a vhost's secrets when there is no registry to ask
+	// (tests); with a registry, its vhost secrets are used.
+	secrets secrets.ScopedManager
+	pools   *ml.Pools
+	monitor *monitor.Monitor
 	// syncTimeout replaces the sync time limit HERMOD_ML_SYNC_TIMEOUT sets.
 	syncTimeout *time.Duration
 }
@@ -71,6 +75,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/vhosts/{vhost}/ml/models/{name}/serving-key", h.EditorOnly(h.RotateServingKey))
 	mux.Handle("DELETE /api/vhosts/{vhost}/ml/models/{name}/serving-key", h.EditorOnly(h.DisableServing))
 	mux.Handle("PUT /api/vhosts/{vhost}/ml/models/{name}/mcp", h.EditorOnly(h.SetMCPExposure))
+	mux.Handle("POST /api/vhosts/{vhost}/ml/mimir/models", h.EditorOnly(h.ListMimirModels))
 	mux.HandleFunc("GET /api/vhosts/{vhost}/ml/quotas", h.GetQuotas)
 	mux.Handle("PUT /api/vhosts/{vhost}/ml/quotas", h.AdminOnly(h.PutQuotas))
 	mux.HandleFunc("POST /api/ml/serve/{vhost}/{name}", h.Serve)
@@ -132,7 +137,7 @@ func (h *Handler) service() *ml.Service {
 	if h.Registry != nil {
 		svc = h.Registry.MLService()
 	} else {
-		svc = ml.NewService(func() any { return h.Storage }, nil, nil).WithLogStore(func() any { return h.LogStorage })
+		svc = ml.NewService(func() any { return h.Storage }, h.secrets, nil).WithLogStore(func() any { return h.LogStorage })
 	}
 	switch {
 	case h.worker != nil:
