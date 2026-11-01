@@ -14,6 +14,7 @@ const AddSinkPage = lazy(async () => ({ default: (await import('./pages/sinks/Ad
 const EditSinkPage = lazy(async () => ({ default: (await import('./pages/sinks/EditSinkPage')).EditSinkPage }))
 const UsersPage = lazy(async () => ({ default: (await import('./pages/admin/UsersPage')).UsersPage }))
 const ProfilePage = lazy(async () => ({ default: (await import('./pages/system/ProfilePage')).ProfilePage }))
+const AboutPage = lazy(async () => ({ default: (await import('./pages/system/AboutPage')).AboutPage }))
 const AddUserPage = lazy(async () => ({ default: (await import('./pages/admin/AddUserPage')).AddUserPage }))
 const EditUserPage = lazy(async () => ({ default: (await import('./pages/admin/EditUserPage')).EditUserPage }))
 const VHostsPage = lazy(async () => ({ default: (await import('./pages/admin/VHostsPage')).VHostsPage }))
@@ -430,6 +431,16 @@ const editUserRoute = createRoute({
   ),
 })
 
+const aboutRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/about',
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <AboutPage />
+    </Suspense>
+  ),
+})
+
 const profileRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/profile',
@@ -787,6 +798,7 @@ const routeTree = rootRoute.addChildren([
     editUserRoute,
   ]),
   profileRoute,
+  aboutRoute,
   settingsRoute,
   connectionsRoute,
   activityRoute,

@@ -165,3 +165,9 @@ For a detailed view of planned features and future development ideas, please ref
 - When a change alters how a part of Hermod works, update the matching note in
   `.serena/memories/` and its line in `.serena/memories/core.md`, the index, so the next
   reader starts from the current design rather than the one before it.
+
+## License
+
+Copyright (c) 2025 Gembit Soultan Shirazi. All rights reserved. Hermod is proprietary software
+under the [Hermod Proprietary License](LICENSE). The same notice, with the running version, is on
+the **About Hermod** page of the web UI (Settings → About Hermod, or the account menu).

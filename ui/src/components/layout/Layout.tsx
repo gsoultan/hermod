@@ -10,7 +10,7 @@ import { getSessionRole, getSessionUser, clearSession } from '@/auth/session';
 import { Spotlight, spotlight } from '@mantine/spotlight';
 import '@mantine/spotlight/styles.css';
 import { notifications } from '@mantine/notifications';
-import { IconActivity, IconBolt, IconBraces, IconChevronLeft, IconChevronRight, IconCloudUpload, IconDatabase, IconGitBranch, IconGitMerge, IconHistory, IconHome, IconList, IconLogout, IconMoon, IconPlug, IconPlus, IconPuzzle, IconRocket, IconSearch, IconSettings, IconShieldLock, IconSun, IconUser, IconWorld } from '@tabler/icons-react';
+import { IconActivity, IconBolt, IconBraces, IconChevronLeft, IconChevronRight, IconCloudUpload, IconDatabase, IconGitBranch, IconGitMerge, IconHistory, IconHome, IconInfoCircle, IconList, IconLogout, IconMoon, IconPlug, IconPlus, IconPuzzle, IconRocket, IconSearch, IconSettings, IconShieldLock, IconSun, IconUser, IconWorld } from '@tabler/icons-react';
 import type { Workflow } from '@/types';
 import { ErrorBoundary } from './ErrorBoundary';
 import { useConfirm } from '@/components/common/ConfirmProvider';
@@ -567,6 +567,9 @@ export function Layout({ children }: LayoutProps) {
             Settings
           </Menu.Item>
         )}
+        <Menu.Item leftSection={<IconInfoCircle size="1rem" stroke={1.5} />} onClick={() => navigate({ to: '/about' })}>
+          About Hermod
+        </Menu.Item>
         <Menu.Divider />
         <Menu.Item color="red" leftSection={<IconLogout size="1rem" stroke={1.5} />} onClick={handleLogout}>
           Sign out
