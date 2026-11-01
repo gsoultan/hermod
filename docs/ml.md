@@ -373,6 +373,30 @@ dialog on its first rows, and the clock button refreshes it on a schedule.
 An uploaded file is analyzed as soon as it is in, and **From a database**
 offers **Check this data** once the rows are read.
 
+#### Send to mimir-server
+
+The paper-plane button on a dataset copies it to a
+[mimir-server](https://github.com/gsoultan/mimir-server), where a model can
+be trained on it and then connected back here (see [Register a model served
+elsewhere](#register-a-model-served-elsewhere)). The dialog takes the server's
+address and the name of the vhost secret holding a `mimir_...` API key (the
+address and secret of a mimir model already connected are offered), the name
+the dataset gets on the server (the Hermod name when empty) and the column a
+model will learn to predict (the server takes the last column when empty).
+The rows are read from the ML worker and sent as CSV; the key never passes
+through the browser. The answer shows how many rows arrived and the server's
+verdict on the data (good, warn or bad).
+
+Behind it: `POST /api/vhosts/{vhost}/ml/datasets/{name}/mimir` (Editor) with
+`{"url", "token_secret", "name", "target"}`, answering the server's dataset
+(`id`, `name`, `rows`, `target`, `columns`, `verdict`). A dataset is at most
+200 MB as parquet; a nested column cannot be sent.
+
+mimir has no "append" for a dataset, so each send makes a new dataset there:
+send again after the rows change here. For data the server should keep fresh
+on its own, make the dataset on the server from a database query instead and
+let its refresh run.
+
 ### Analyzing a dataset
 
 **Analyze** checks a dataset before you train on it, in four tabs:
@@ -1639,6 +1663,32 @@ A mimir-server also tells Hermod what happens on its side: a training that
 finished or failed, a model whose accuracy dropped in use. Make a webhook on
 the mimir console pointing at a Hermod webhook source whose **Sender** is
 **mimir-server events**; see [mimir-server events](api-sources.md#mimir-server-events).
+
+## Ask documents node
+
+*AI → Ask Documents* (`mimir_ask`). Where [AI Retrieve](ai-automation.md#nodes)
+searches a vector store Hermod filled, this node uses the files a team already
+keeps on its mimir server: it asks a document collection a question about each
+record and writes the answer with the passages it cites. It speaks to the server
+directly, so it takes the server's settings rather than an AI connection:
+
+| Setting | Config key | Default | Means |
+|---|---|---|---|
+| Server address | `url` | required | The mimir server, as a connected model has it; `{{secret.NAME}}` works |
+| API key secret | `apiKey` | required | `{{secret.NAME}}` holding a `mimir_...` key. Resolved for the record's vhost only |
+| Collection | `collection` | required | The collection's id on the server |
+| What to do | `mode` | `ask` | `ask` answers the question and cites passages; `search` returns the best passages alone, for an AI Prompt to use |
+| Question | `question` or `questionField` | one required | A template over the record (`{{.field}}`), or a field read as it is |
+| Sources | `sources` | 3 | Passages an answer may cite (`ask`) |
+| Longest answer | `maxTokens` | the server's | An answer cut short says `finished: false` (`ask`) |
+| Passages | `limit` | 5, at most 50 | Passages a search returns (`search`) |
+| Target field | `targetField` | `answer` | Receives `{"text", "finished", "sources"}` for an answer, `{"sources"}` for a search; each source is `{document, document_id, passage_id, number, score, text}` |
+| Timeout | `timeout` | 60s | One question |
+
+The server's refusals come back in its own words, and On Error decides what
+happens to the record. The same documents can be chatted with through an AI
+Prompt or AI Agent whose provider is **mimir-server**, with a collection's
+API name as the model; see [Connections and keys](ai-automation.md#connections-and-keys).
 
 ## Feedback node
 

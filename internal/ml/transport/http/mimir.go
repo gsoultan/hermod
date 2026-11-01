@@ -17,6 +17,7 @@ import (
 
 	"github.com/gsoultan/hermod/internal/ml"
 	"github.com/gsoultan/hermod/pkg/ml/inference"
+	"github.com/gsoultan/hermod/pkg/ml/worker"
 	mimirsdk "github.com/gsoultan/mimir-server-sdk"
 )
 
@@ -115,4 +116,37 @@ func (h *Handler) failExplain(w http.ResponseWriter, err error) {
 	default:
 		h.failMimir(w, err)
 	}
+}
+
+// SendDatasetToMimir copies one of the vhost's datasets to a mimir server as
+// a new dataset there, for the Datasets panel's "Send to mimir-server". Body:
+// {"url", "token_secret", "name", "target"}. Editor role, as reading the rows
+// needs. It answers the dataset as the server now holds it, with its id and
+// the server's verdict on the data.
+func (h *Handler) SendDatasetToMimir(w http.ResponseWriter, r *http.Request) {
+	vhost, _, ok := h.access(w, r, true)
+	if !ok {
+		return
+	}
+	var req ml.MimirDatasetRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxModelBody)).Decode(&req); err != nil {
+		h.JsonError(w, `the body must be {"url": "http://mimir:8080", "token_secret": "MIMIR_API_KEY", "name": "optional", "target": "optional"}`, http.StatusBadRequest)
+		return
+	}
+	dataset := r.PathValue("name")
+	ds, err := h.service().SendDatasetToMimir(r.Context(), vhost, dataset, req)
+	if err != nil {
+		switch {
+		case errors.Is(err, ml.ErrNoWorker):
+			h.JsonError(w, err.Error(), http.StatusServiceUnavailable)
+		case errors.Is(err, worker.ErrNotFound):
+			h.JsonError(w, "this vhost has no dataset by that name", http.StatusNotFound)
+		default:
+			h.failMimir(w, err)
+		}
+		return
+	}
+	h.RecordAuditLog(r, "INFO", "Sent dataset "+dataset+" of vhost "+vhost+" to a mimir server", "export", vhost, "vhost", "",
+		map[string]any{"dataset": dataset, "mimir_dataset": ds.ID, "rows": ds.Rows})
+	writeJSON(w, ds)
 }

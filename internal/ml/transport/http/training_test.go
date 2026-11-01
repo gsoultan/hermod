@@ -44,6 +44,8 @@ type workerStub struct {
 	// capabilities answers /v1/capabilities; empty answers 404, like a
 	// worker from before that route.
 	capabilities string
+	// exported answers a dataset export, as parquet.
+	exported []byte
 }
 
 func (s *workerStub) start(t *testing.T) *worker.Client {
@@ -60,6 +62,8 @@ func (s *workerStub) start(t *testing.T) *worker.Client {
 			_, _ = io.WriteString(w, s.capabilities)
 		case r.Method == http.MethodGet && p == "/v1/datasets/tenant-a":
 			_, _ = io.WriteString(w, `{"datasets":[{"name":"customers","rows":2,"columns":[{"name":"age","type":"number"}],"updated_at":"2026-10-10T00:00:00Z"}]}`)
+		case r.Method == http.MethodGet && strings.HasSuffix(p, "/export") && s.exported != nil:
+			_, _ = w.Write(s.exported)
 		case r.Method == http.MethodGet && p == "/v1/datasets/tenant-a/customers":
 			_, _ = io.WriteString(w, `{"name":"customers","rows":2,"columns":[],"updated_at":"2026-10-10T00:00:00Z","sample":[{"age":30}]}`)
 		case r.Method == http.MethodPut && p == "/v1/datasets/tenant-a/customers/file":

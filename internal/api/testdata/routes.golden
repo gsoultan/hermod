@@ -235,6 +235,7 @@ POST /api/users
 POST /api/utils/token
 POST /api/vhosts
 POST /api/vhosts/
+POST /api/vhosts/{vhost}/ml/datasets/{name}/mimir
 POST /api/vhosts/{vhost}/ml/datasets/{name}/query
 POST /api/vhosts/{vhost}/ml/jobs/{id}/cancel
 POST /api/vhosts/{vhost}/ml/mimir/models
