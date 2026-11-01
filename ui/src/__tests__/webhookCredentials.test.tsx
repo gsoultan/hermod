@@ -52,3 +52,31 @@ describe('the credentials on a form source', () => {
     expect(screen.queryByLabelText(/Signing secret/i)).not.toBeInTheDocument()
   })
 })
+
+describe('a webhook source that takes mimir-server events', () => {
+  it('asks for the webhook secret, offers the event list and drops the credentials mimir never sends', () => {
+    const updateConfig = renderConfig('webhook', { path: '/api/webhooks/mimir', preset: 'mimir' })
+    expect(screen.queryByText(/API Key \(Optional\)/)).not.toBeInTheDocument()
+    expect(screen.queryByText('X-Hub-Signature-256')).not.toBeInTheDocument()
+    expect(screen.getByText('Mimir-Signature')).toBeInTheDocument()
+
+    const secret = screen.getByLabelText(/Webhook secret/i)
+    expect(secret).toBeRequired()
+    fireEvent.change(secret, { target: { value: 'whsec_abc' } })
+    expect(updateConfig).toHaveBeenCalledWith('secret', 'whsec_abc')
+    expect(screen.getByText('Events')).toBeInTheDocument()
+  })
+
+  it('shows the events already chosen and saves them as the endpoint reads them', () => {
+    renderConfig('webhook', { path: '/api/webhooks/mimir', preset: 'mimir', events: 'training.finished,model.accuracy_dropped' })
+    const pills = Array.from(document.querySelectorAll('.mantine-Pill-label')).map((p) => p.textContent)
+    expect(pills).toEqual(['Training finished', 'Model accuracy dropped'])
+  })
+
+  it('is chosen with the Sender field', () => {
+    const updateConfig = renderConfig('webhook', { path: '/api/webhooks/x' })
+    expect(screen.getByText('Sender')).toBeInTheDocument()
+    expect(screen.getByText('X-Hub-Signature-256')).toBeInTheDocument()
+    expect(updateConfig).not.toHaveBeenCalled()
+  })
+})

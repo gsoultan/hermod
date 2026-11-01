@@ -7,7 +7,8 @@
  *    openai presets in pkg/llm/openai);
  *  - ollama and openai_compatible are connect's `keyless` kinds, every other
  *    kind fails with "an API key is required";
- *  - openai_compatible fails without a base URL;
+ *  - openai_compatible and mimir fail without a base URL (mimir takes the
+ *    server's address and connect adds /v1);
  *  - the key is resolved with evaluator.ResolveTemplateScoped, so a vhost
  *    secret is referenced as {{secret.NAME}};
  *  - a key without "{{" is the plaintext key workflow_validation_ai.go warns
@@ -34,6 +35,7 @@ export const AI_PROVIDERS: AIProvider[] = [
   { value: 'openrouter', label: 'OpenRouter', example: 'vendor/model, as OpenRouter lists it', embeds: true },
   { value: 'together', label: 'Together', example: 'The model name from your Together account', embeds: true },
   { value: 'xai', label: 'xAI (Grok)', example: 'The model name from your xAI console', embeds: true },
+  { value: 'mimir', label: 'mimir-server', example: "A language model's name, or a collection's API name", embeds: true },
   { value: 'openai_compatible', label: 'Other OpenAI-compatible', example: 'The model name your server serves', embeds: true },
 ]
 
@@ -71,13 +73,14 @@ export function requiresApiKey(provider: string | undefined): boolean {
   return !!provider && !KEYLESS.has(provider)
 }
 
+/** mimir needs the server's address (connect adds /v1); openai_compatible the API root. */
 export function requiresBaseUrl(provider: string | undefined): boolean {
-  return provider === 'openai_compatible'
+  return provider === 'openai_compatible' || provider === 'mimir'
 }
 
 /** Whether the base URL is shown up front rather than under Advanced. */
 export function showsBaseUrl(provider: string | undefined): boolean {
-  return provider === 'ollama' || provider === 'openai_compatible'
+  return provider === 'ollama' || provider === 'openai_compatible' || provider === 'mimir'
 }
 
 export function canEmbed(provider: string | undefined): boolean {
