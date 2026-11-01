@@ -25,6 +25,11 @@ describe('whereProblems', () => {
     { name: 'no model on an Open Inference server', fields: { remoteModel: '' }, want: { remoteModel: /enter the model's name on the server/i } },
     { name: 'a model path', fields: { remoteModel: 'team/churn' }, want: { remoteModel: /leave out slashes/i } },
     { name: 'a version path', fields: { remoteVersion: 'v1/2' }, want: { remoteVersion: /leave out slashes/i } },
+    { name: 'a complete mimir model', fields: { backend: 'mimir', remoteModel: 'm-1', tokenSecret: 'MIMIR_API_KEY' }, want: {} },
+    { name: 'a mimir model needs its API key secret', fields: { backend: 'mimir', remoteModel: 'm-1' }, want: { tokenSecret: /name of the secret/i } },
+    { name: 'a mimir model refuses a pasted key', fields: { backend: 'mimir', remoteModel: 'm-1', tokenSecret: 'mimir_abc.def' }, want: { tokenSecret: /name of a secret/i } },
+    { name: 'a mimir model needs the model picked', fields: { backend: 'mimir', remoteModel: '', tokenSecret: 'K' }, want: { remoteModel: /pick the model/i } },
+    { name: 'a mimir model id with a slash', fields: { backend: 'mimir', remoteModel: 'a/b', tokenSecret: 'K' }, want: { remoteModel: /leave out slashes/i } },
   ]
   for (const c of cases) {
     it(c.name, () => {
@@ -43,6 +48,7 @@ describe('inputProblems', () => {
     { name: 'a single input tensor without inputs', fields: { inputName: 'input' }, want: { features: /list the inputs/i } },
     { name: 'a single input tensor with inputs', fields: { inputName: 'input', features: 'age' }, want: {} },
     { name: 'MLflow ignores the tensor name', fields: { backend: 'mlflow', inputName: 'input' }, want: {} },
+    { name: 'mimir ignores the tensor name', fields: { backend: 'mimir', inputName: 'input' }, want: {} },
   ]
   for (const c of cases) {
     it(c.name, () => {

@@ -3,10 +3,31 @@ import { apiFetch } from '@/api'
 import type { SourceColumn } from './mlQueryBuilder'
 
 /**
- * The wire protocols a model server can speak (pkg/ml/inference.Backend), and
- * 'hermod-ml' for a model Hermod trained, served by its own ML worker.
+ * The wire protocols a model server can speak (pkg/ml/inference.Backend):
+ * 'mimir' for a mimir-server, 'oip' for Open Inference, 'mlflow' for an
+ * MLflow scoring server; and 'hermod-ml' for a model Hermod trained, served
+ * by its own ML worker.
  */
-export type MLBackend = 'oip' | 'mlflow' | 'hermod-ml'
+export type MLBackend = 'mimir' | 'oip' | 'mlflow' | 'hermod-ml'
+
+/** What each kind of server is called where a model's kind is shown. */
+export const BACKEND_LABEL: Record<MLBackend, string> = {
+  mimir: 'mimir-server', oip: 'Open Inference', mlflow: 'MLflow', 'hermod-ml': 'Trained in Hermod',
+}
+
+/** One model as a mimir server lists it (pkg/ml/inference.RemoteModel). */
+export interface MimirModel {
+  id: string
+  name: string
+  architecture?: string
+  description?: string
+  /** Whether it answers now; status says why not when it does not. */
+  ready: boolean
+  status?: string
+  accuracy?: number
+  labels?: string[]
+  columns?: Array<{ name: string; kind?: string }>
+}
 
 /** Whether the model was trained by Hermod rather than registered by address. */
 export const isTrainedModel = (m: Pick<MLModel, 'backend'>) => m.backend === 'hermod-ml'
@@ -94,6 +115,23 @@ export async function saveModel(vhost: string, name: string, model: MLModelInput
     silent: true,
   })
   return (await res.json()) as MLModel
+}
+
+/**
+ * The models a mimir server offers the API key held in the vhost's secret
+ * `tokenSecret`, for the Connect form to pick from. The key stays on the
+ * server side; the browser only ever names the secret.
+ */
+export async function listMimirModels(vhost: string, url: string, tokenSecret: string, signal?: AbortSignal): Promise<MimirModel[]> {
+  const res = await apiFetch(`/api/vhosts/${encodeURIComponent(vhost)}/ml/mimir/models`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url, token_secret: tokenSecret }),
+    signal,
+    silent: true,
+  })
+  const body = await res.json()
+  return (body?.models ?? []) as MimirModel[]
 }
 
 export async function deleteModel(vhost: string, name: string): Promise<void> {

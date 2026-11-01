@@ -15,6 +15,7 @@ export interface ConnectFields {
 export type ConnectProblems = Partial<Record<keyof ConnectFields, string>>
 
 const SECRET_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
+const secretProblem = 'Enter the name of a secret, such as ML_TOKEN, not the token itself: letters, digits and "_", not starting with a digit.'
 const hasSlash = (s: string) => /[/\\?#%]/.test(s) || s === '.' || s === '..'
 
 function urlProblem(raw: string): string | undefined {
@@ -46,6 +47,14 @@ export function whereProblems(f: ConnectFields, editing: boolean): ConnectProble
   }
   const url = urlProblem(f.url)
   if (url) p.url = url
+  if (f.backend === 'mimir') {
+    const secret = f.tokenSecret.trim()
+    if (!secret) p.tokenSecret = 'Enter the name of the secret that holds the API key, such as MIMIR_API_KEY. A mimir server answers no one without one.'
+    else if (!SECRET_NAME.test(secret)) p.tokenSecret = secretProblem
+    const model = f.remoteModel.trim()
+    if (!model) p.remoteModel = 'Pick the model on the server, or enter its id.'
+    else if (hasSlash(model)) p.remoteModel = "Leave out slashes: enter only the model's id, as the server lists it."
+  }
   if (f.backend === 'oip') {
     const model = f.remoteModel.trim()
     if (!model) p.remoteModel = "Enter the model's name on the server. It is often the same as the name above."
@@ -60,9 +69,7 @@ export function whereProblems(f: ConnectFields, editing: boolean): ConnectProble
 export function inputProblems(f: ConnectFields): ConnectProblems {
   const p: ConnectProblems = {}
   const secret = f.tokenSecret.trim()
-  if (secret && !SECRET_NAME.test(secret)) {
-    p.tokenSecret = 'Enter the name of a secret, such as ML_TOKEN, not the token itself: letters, digits and "_", not starting with a digit.'
-  }
+  if (secret && !SECRET_NAME.test(secret)) p.tokenSecret = secretProblem
   if (f.backend === 'oip' && f.inputName.trim() && !f.features.trim()) {
     p.features = 'List the inputs: a single input tensor needs them, in the order the model expects.'
   }

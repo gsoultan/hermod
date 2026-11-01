@@ -11,7 +11,7 @@ import { useConfirm } from '@/components/common/ConfirmProvider'
 import { EmptyState } from '@/components/common/EmptyState'
 import { useSessionStore } from '@/auth/session'
 import {
-  deleteModel, isModelVHost, isTrainedModel, listModels, mlModelsKey, setMCPExposure, trainBlockedReason, useVHostDatasets, useWorkerStatus,
+  BACKEND_LABEL, deleteModel, isModelVHost, isTrainedModel, listModels, mlModelsKey, setMCPExposure, trainBlockedReason, useVHostDatasets, useWorkerStatus,
   workerState, type MLModel,
 } from '@/lib/mlModels'
 import { useAnalyzed, type TrainStart } from '@/lib/mlDataProfile'
@@ -35,7 +35,9 @@ import { VersionsModal } from './VersionsModal'
 import { WorkerSetupModal } from './WorkerSetupModal'
 import { SectionHeader } from '@/components/rows';
 
-const SERVER_LABEL: Record<string, string> = { oip: 'On an Open Inference server', mlflow: 'On an MLflow server' }
+const SERVER_LABEL: Record<string, string> = {
+  mimir: 'On a mimir server', oip: 'On an Open Inference server', mlflow: 'On an MLflow server',
+}
 
 /** Where a model runs, in words, and the address of one served elsewhere. */
 function WhereItRuns({ m }: { m: MLModel }) {
@@ -49,9 +51,11 @@ function WhereItRuns({ m }: { m: MLModel }) {
   )
 }
 
-/** Whether a model answers predictions now, in one badge. */
+/** Whether a model answers predictions now, in one badge; a connected model's says what kind of server. */
 function StatusBadge({ m }: { m: MLModel }) {
-  if (!isTrainedModel(m)) return <Badge color="blue" variant="light" tt="none">Connected</Badge>
+  if (!isTrainedModel(m)) {
+    return <Badge color="blue" variant="light" tt="none">Connected · {BACKEND_LABEL[m.backend] ?? m.backend}</Badge>
+  }
   if (m.remote_version) return <Badge color="green" variant="light" tt="none">Version {m.remote_version} live</Badge>
   return (
     <Tooltip label="Open … → Versions and going live to put a version live.">

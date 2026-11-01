@@ -122,7 +122,7 @@ describe('Models page', () => {
     const dialog = await screen.findByRole('dialog', { name: /add a model/i })
     expect(within(dialog).getByRole('button', { name: /train a new model from my data/i })).toHaveAccessibleDescription(/learns/i)
     const connect = within(dialog).getByRole('button', { name: /connect a model that's already running somewhere/i })
-    expect(connect).toHaveAccessibleDescription(/kserve|mlflow/i)
+    expect(connect).toHaveAccessibleDescription(/mimir-server/i)
     await user.click(connect)
     expect(await screen.findByRole('dialog', { name: /connect a model/i })).toBeInTheDocument()
   })
@@ -135,7 +135,8 @@ describe('Models page', () => {
     await user.click((await screen.findAllByRole('button', { name: /^add model$/i }))[0])
     await user.click(await screen.findByRole('button', { name: /connect a model/i }))
     const dialog = await screen.findByRole('dialog', { name: /connect a model/i })
-    expect(within(dialog).getByRole('radio', { name: /open inference/i })).toBeChecked()
+    expect(within(dialog).getByRole('radio', { name: /mimir-server/i })).toBeChecked()
+    await user.click(within(dialog).getByRole('radio', { name: /open inference/i }))
     await user.type(within(dialog).getByRole('textbox', { name: /^name in hermod/i }), 'churn')
     await user.type(within(dialog).getByRole('textbox', { name: /^server address/i }), 'http://ml:8080')
     await user.type(within(dialog).getByRole('textbox', { name: /^model name on the server/i }), 'churn')
@@ -154,6 +155,86 @@ describe('Models page', () => {
     expect(await screen.findByText('churn')).toBeInTheDocument()
   })
 
+  it('connects a mimir model by fetching the server\'s models and picking one', async () => {
+    const writes = modelsApi([])
+    const asked: unknown[] = []
+    server.use(
+      http.post('/api/vhosts/:vhost/ml/mimir/models', async ({ request }) => {
+        asked.push(await request.json())
+        return HttpResponse.json({ models: [
+          { id: 'm-1', name: 'Churn 2026', architecture: 'table', ready: true, accuracy: 0.94, description: 'Who leaves',
+            labels: ['stayed', 'left'], columns: [{ name: 'plan', kind: 'category' }, { name: 'tenure', kind: 'number' }] },
+          { id: 'm-2', name: 'broken', architecture: 'mim', ready: false, status: 'the file is not a model' },
+        ] })
+      }),
+    )
+    renderPage()
+    const user = userEvent.setup()
+
+    await user.click((await screen.findAllByRole('button', { name: /^add model$/i }))[0])
+    await user.click(await screen.findByRole('button', { name: /connect a model/i }))
+    const dialog = await screen.findByRole('dialog', { name: /connect a model/i })
+    // The server has to be reachable before its models can be fetched.
+    expect(within(dialog).getByRole('button', { name: /fetch models/i })).toBeDisabled()
+    await user.type(within(dialog).getByRole('textbox', { name: /^server address/i }), 'http://mimir:8080')
+    await user.type(within(dialog).getByRole('textbox', { name: /^api key secret/i }), 'MIMIR_API_KEY')
+    await user.click(within(dialog).getByRole('button', { name: /fetch models/i }))
+
+    expect(await within(dialog).findByText(/2 models found/i)).toBeInTheDocument()
+    expect(asked).toEqual([{ url: 'http://mimir:8080', token_secret: 'MIMIR_API_KEY' }])
+    await user.click(within(dialog).getByRole('combobox', { name: /^model on the server/i, hidden: true }))
+    expect(await screen.findByRole('option', { name: /broken · mim · the file is not a model/i, hidden: true })).toHaveAttribute('data-combobox-disabled', 'true')
+    await user.click(screen.getByRole('option', { name: /churn 2026 · table · 94% right · ready/i, hidden: true }))
+    // The pick fills the name, the inputs and the description from the server.
+    expect(within(dialog).getByRole('textbox', { name: /^name in hermod/i })).toHaveValue('churn-2026')
+    await user.click(within(dialog).getByRole('button', { name: /^next$/i }))
+    expect(within(dialog).getByRole('textbox', { name: /^inputs/i })).toHaveValue('plan, tenure')
+    expect(within(dialog).getByText(/answers with one of: stayed, left/i)).toBeInTheDocument()
+    expect(within(dialog).getByRole('textbox', { name: /^description/i })).toHaveValue('Who leaves')
+    await user.click(within(dialog).getByRole('button', { name: /save model/i }))
+
+    await waitFor(() => expect(writes.find((w) => w.method === 'PUT')).toBeTruthy())
+    expect(writes.find((w) => w.method === 'PUT')).toEqual({
+      method: 'PUT', path: 'tenant-a/churn-2026', body: {
+        backend: 'mimir', url: 'http://mimir:8080', remote_model: 'm-1', remote_version: '', token_secret: 'MIMIR_API_KEY',
+        input_name: '', features: ['plan', 'tenure'], timeout_ms: 0, description: 'Who leaves',
+      },
+    })
+    expect(await screen.findByText(/connected · mimir-server/i)).toBeInTheDocument()
+  })
+
+  it('says what went wrong when the mimir server cannot be asked, and still takes an id typed in', async () => {
+    const writes = modelsApi([])
+    server.use(
+      http.post('/api/vhosts/:vhost/ml/mimir/models', () =>
+        HttpResponse.json({ error: 'the mimir server refused the API key: the API key is wrong or revoked' }, { status: 400 })),
+    )
+    renderPage()
+    const user = userEvent.setup()
+
+    await user.click((await screen.findAllByRole('button', { name: /^add model$/i }))[0])
+    await user.click(await screen.findByRole('button', { name: /connect a model/i }))
+    const dialog = await screen.findByRole('dialog', { name: /connect a model/i })
+    await user.type(within(dialog).getByRole('textbox', { name: /^name in hermod/i }), 'churn')
+    await user.type(within(dialog).getByRole('textbox', { name: /^server address/i }), 'http://mimir:8080')
+    await user.click(within(dialog).getByRole('button', { name: /^next$/i }))
+    expect(within(dialog).getByText(/name of the secret that holds the api key/i)).toBeInTheDocument()
+    expect(within(dialog).getByText(/pick the model on the server, or enter its id/i)).toBeInTheDocument()
+    await user.type(within(dialog).getByRole('textbox', { name: /^api key secret/i }), 'MIMIR_API_KEY')
+    await user.click(within(dialog).getByRole('button', { name: /fetch models/i }))
+    expect(await within(dialog).findByText(/wrong or revoked/i)).toBeInTheDocument()
+
+    await user.type(within(dialog).getByLabelText(/^model on the server/i), '01HZX')
+    await user.click(within(dialog).getByRole('button', { name: /^next$/i }))
+    await user.type(within(dialog).getByRole('textbox', { name: /^inputs/i }), 'plan')
+    await user.click(within(dialog).getByRole('button', { name: /save model/i }))
+
+    await waitFor(() => expect(writes.find((w) => w.method === 'PUT')).toBeTruthy())
+    expect(writes.find((w) => w.method === 'PUT')!.body).toMatchObject({
+      backend: 'mimir', url: 'http://mimir:8080', remote_model: '01HZX', token_secret: 'MIMIR_API_KEY', features: ['plan'],
+    })
+  })
+
   it('says how to fix each field before moving on', async () => {
     const writes = modelsApi([])
     renderPage()
@@ -162,6 +243,7 @@ describe('Models page', () => {
     await user.click((await screen.findAllByRole('button', { name: /^add model$/i }))[0])
     await user.click(await screen.findByRole('button', { name: /connect a model/i }))
     const dialog = await screen.findByRole('dialog', { name: /connect a model/i })
+    await user.click(within(dialog).getByRole('radio', { name: /open inference/i }))
     await user.click(within(dialog).getByRole('button', { name: /^next$/i }))
 
     expect(within(dialog).getByRole('textbox', { name: /^name in hermod/i })).toHaveAccessibleDescription(/give the model a name, such as churn/i)
@@ -254,7 +336,7 @@ describe('Models page', () => {
     const table = await screen.findByRole('table', { name: /models/i })
     const row = (name: string) => within(table).getByText(name).closest('tr') as HTMLElement
     await within(table).findByText('upsell')
-    expect(within(row('fraud')).getByText(/^connected$/i)).toBeInTheDocument()
+    expect(within(row('fraud')).getByText(/^connected · mlflow$/i)).toBeInTheDocument()
     expect(within(row('churn')).getByText(/^version 2 live$/i)).toBeInTheDocument()
     expect(within(row('upsell')).getByText(/^not live yet$/i)).toBeInTheDocument()
     expect(within(row('fraud')).getAllByRole('button')).toHaveLength(1)
