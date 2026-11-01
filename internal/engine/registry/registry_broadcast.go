@@ -256,20 +256,12 @@ func (r *Registry) DebuggerCommand(workflowID, pauseID, action string) {
 }
 
 func (r *Registry) broadcastDebuggerEvent(ev DebuggerEvent) {
+	// Sent under the read lock: UnsubscribeDebugger closes a channel under the
+	// write lock, so a channel is never sent on while, or after, it is closed.
+	// The sends never block, so holding the lock costs nothing.
 	r.debuggerSubsMu.RLock()
-	subs := r.debuggerSubs[ev.WorkflowID]
-	if len(subs) == 0 {
-		r.debuggerSubsMu.RUnlock()
-		return
-	}
-	// Copy to avoid holding lock while sending
-	chans := make([]chan DebuggerEvent, 0, len(subs))
-	for ch := range subs {
-		chans = append(chans, ch)
-	}
-	r.debuggerSubsMu.RUnlock()
-
-	for _, ch := range chans {
+	defer r.debuggerSubsMu.RUnlock()
+	for ch := range r.debuggerSubs[ev.WorkflowID] {
 		select {
 		case ch <- ev:
 		default:
@@ -605,8 +597,10 @@ func (r *Registry) PauseAtEdge(ctx context.Context, workflowID, edgeID, targetNo
 func (r *Registry) holdForDebugger(ctx context.Context, ev DebuggerEvent, msg hermod.Message) {
 	ev.Data = r.getConsistentData(msg)
 	ev.State = "paused"
-	r.broadcastDebuggerEvent(ev)
 
+	// The pause is answerable before it is announced: a debugger may answer the
+	// moment it hears of it, and an answer to a pause not yet registered is
+	// dropped, leaving the message held until debuggerPauseLimit.
 	key := ev.WorkflowID + ":" + ev.PauseID
 	ch := make(chan string, 1)
 
@@ -614,6 +608,8 @@ func (r *Registry) holdForDebugger(ctx context.Context, ev DebuggerEvent, msg he
 	r.debugChans[key] = ch
 	r.debugHeld[key] = ev
 	r.debugChansMu.Unlock()
+
+	r.broadcastDebuggerEvent(ev)
 
 	defer func() {
 		r.debugChansMu.Lock()

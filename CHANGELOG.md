@@ -18,6 +18,12 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 - **Safe saves**: saving a sub-flow is refused when it would stop a workflow on "Latest saved"
   from starting, naming that workflow and why. Pinned callers are not affected.
 
+### Fixed
+
+- **Debugger**: a breakpoint pause is answerable before it is announced. A resume sent the moment
+  the editor heard of a pause could arrive first and be dropped, holding the message for five
+  minutes. Announcing a pause no longer races a debugger detaching.
+
 ### Changed
 
 - A new sub-flow is saved as version 1 when it is created, so a caller can pin it straight away
