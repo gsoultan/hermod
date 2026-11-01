@@ -7,6 +7,22 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — Sub-flows: editor tools
+
+- **Turn selection into sub-flow**: select steps on the canvas and turn them into a new sub-flow,
+  saved as version 1, with a Run sub-flow step pinned to it in their place, wired as they were.
+- **Used by**: the Sub-flow input step lists the workflows that run the sub-flow and the version
+  each runs, from the new `GET /api/workflows/{id}/callers`.
+- **What it runs**: the Run sub-flow step lists the steps of the version it pins, and says when a
+  newer version is saved, with a button to move to it.
+- **Safe saves**: saving a sub-flow is refused when it would stop a workflow on "Latest saved"
+  from starting, naming that workflow and why. Pinned callers are not affected.
+
+### Changed
+
+- A new sub-flow is saved as version 1 when it is created, so a caller can pin it straight away
+  instead of after a second save.
+
 ### Added — Sub-flows: reuse one workflow inside others
 
 - **Editor**: a workflow that starts at a new **Sub-flow input** step and ends at one or more

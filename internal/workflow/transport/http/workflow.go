@@ -29,6 +29,7 @@ import (
 	"github.com/gsoultan/hermod/internal/ai"
 	"github.com/gsoultan/hermod/internal/api/handlers"
 	"github.com/gsoultan/hermod/internal/engine/registry"
+	"github.com/gsoultan/hermod/internal/engine/registry/subflow"
 	"github.com/gsoultan/hermod/internal/governance"
 	"github.com/gsoultan/hermod/internal/lineage"
 	lineagehttp "github.com/gsoultan/hermod/internal/lineage/transport/http"
@@ -79,6 +80,7 @@ func (h *WorkflowHandler) RegisterWorkflowRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/workflows/{id}/versions", h.ListWorkflowVersions)
 	mux.HandleFunc("GET /api/workflows/{id}/versions/{version}", h.GetWorkflowVersion)
 	mux.HandleFunc("GET /api/workflows/{id}/validate", h.HandleValidateWorkflow)
+	mux.HandleFunc("GET /api/workflows/{id}/callers", h.ListSubflowCallers)
 	mux.Handle("POST /api/workflows/{id}/rollback/{version}", h.EditorOnly(http.HandlerFunc(h.RollbackWorkflow)))
 	mux.HandleFunc("GET /api/workflows/pii-stats", h.GetPIIStats)
 	mux.Handle("POST /api/ai/analyze-error", h.EditorOnly(http.HandlerFunc(h.HandleAIAnalyzeError)))
@@ -1004,6 +1006,17 @@ func (h *WorkflowHandler) CreateWorkflow(w http.ResponseWriter, r *http.Request)
 	if err := h.Storage.CreateWorkflow(r.Context(), wf); err != nil {
 		h.JsonError(w, "Failed to create workflow: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// A caller pins a saved version of a sub-flow, so a new one is saved as
+	// version 1 straight away instead of only on its first update.
+	if subflow.IsSubflow(wf) {
+		user, _ := r.Context().Value(handlers.UserContextKey).(*storage.User)
+		username := "System"
+		if user != nil {
+			username = user.Username
+		}
+		_ = h.recordVersion(r.Context(), wf, 1, username, "Created")
 	}
 
 	h.RecordAuditLog(r, "INFO", "Created workflow "+wf.Name, "CREATE", wf.ID, "", "", wf)

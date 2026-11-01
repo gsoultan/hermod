@@ -1,6 +1,60 @@
-import { ActionIcon, Alert, Button, Checkbox, Group, Stack, Text } from '@mantine/core';
+import { ActionIcon, Alert, Anchor, Badge, Button, Checkbox, Group, Stack, Text } from '@mantine/core';
 import { IconInfoCircle, IconPlus, IconTrash } from '@tabler/icons-react';
+import { useParams } from '@tanstack/react-router';
+import { useQuery } from '@tanstack/react-query';
+import { apiFetch } from '@/api';
 import { TextInput } from '@/components/shared/ReferenceInputs';
+import { versionLabel } from '@/lib/subflow';
+
+/** A Run sub-flow step that runs this sub-flow (GET /api/workflows/{id}/callers). */
+interface SubflowCaller {
+  workflow_id: string;
+  workflow_name: string;
+  node_id: string;
+  step: string;
+  version: number;
+  latest: boolean;
+}
+
+/** Which workflows run this sub-flow, and which version each runs. */
+function UsedBy({ id }: { id: string }) {
+  const { data: callers, isLoading, isError } = useQuery({
+    queryKey: ['subflow-callers', id],
+    queryFn: async (): Promise<SubflowCaller[]> => {
+      const res = await apiFetch(`/api/workflows/${encodeURIComponent(id)}/callers`, { silent: true });
+      if (!res.ok) throw new Error('Could not load the workflows that use this sub-flow');
+      return (await res.json())?.data ?? [];
+    },
+  });
+
+  return (
+    <Stack gap={6}>
+      <Text size="sm" fw={500}>Used by</Text>
+      {isLoading && <Text size="sm" c="dimmed">Loading…</Text>}
+      {isError && <Text size="sm" c="red">Could not load the workflows that use this sub-flow.</Text>}
+      {callers && callers.length === 0 && (
+        <Text size="sm" c="dimmed">No workflow runs this sub-flow yet.</Text>
+      )}
+      {callers?.map((c) => (
+        <Group key={`${c.workflow_id}/${c.node_id}`} gap="xs" wrap="nowrap" justify="space-between">
+          <Stack gap={0} style={{ minWidth: 0 }}>
+            <Anchor href={`/workflows/${c.workflow_id}`} size="sm" truncate>{c.workflow_name || c.workflow_id}</Anchor>
+            <Text size="xs" c="dimmed" truncate>at step {c.step}</Text>
+          </Stack>
+          <Badge variant="light" color={c.latest ? 'orange' : 'gray'} tt="none" radius="sm" style={{ flex: 'none' }}>
+            {versionLabel(c.latest ? 'latest' : c.version || undefined)}
+          </Badge>
+        </Group>
+      ))}
+      {callers?.some((c) => c.latest) && (
+        <Text size="xs" c="dimmed">
+          A workflow on the latest save picks up each save of this sub-flow when it next starts. A save that would
+          stop one from starting is refused.
+        </Text>
+      )}
+    </Stack>
+  );
+}
 
 interface SubflowInputConfigProps {
   config: any;
@@ -10,6 +64,7 @@ interface SubflowInputConfigProps {
 
 /** The fields a sub-flow takes. A caller must map every required one. */
 export function SubflowInputConfig({ config, updateNodeConfig, nodeId }: SubflowInputConfigProps) {
+  const { id } = useParams({ strict: false }) as { id?: string };
   const fields: { name: string; required?: boolean }[] = Array.isArray(config.fields) ? config.fields : [];
   const set = (next: typeof fields) => updateNodeConfig(nodeId, { fields: next });
 
@@ -50,6 +105,7 @@ export function SubflowInputConfig({ config, updateNodeConfig, nodeId }: Subflow
       >
         Add input
       </Button>
+      {id && id !== 'new' && <UsedBy id={id} />}
     </Stack>
   );
 }

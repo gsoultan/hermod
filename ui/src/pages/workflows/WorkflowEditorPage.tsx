@@ -30,6 +30,7 @@ import { AddStepPicker } from './WorkflowEditor/picker/AddStepPicker';
 import type { StepItem } from './WorkflowEditor/picker/stepChoices';
 import { useFlowActions } from './useFlowActions';
 import { FlowCanvas } from './WorkflowEditor/components/FlowCanvas';
+import { ExtractSubflowButton } from './WorkflowEditor/components/ExtractSubflow';
 import { LiveLogPanel } from './WorkflowEditor/components/LiveLogPanel';
 import { CanvasControls } from '@/components/flows/CanvasControls';
 import { SidebarDrawer } from './WorkflowEditor/components/SidebarDrawer';
@@ -390,6 +391,7 @@ function EditorInner() {
                 >
                   Search steps
                 </Button>
+                <ExtractSubflowButton />
               </Group>
               <Box className="hermod-canvas-bottom-left">
                 <CanvasControls

@@ -52,9 +52,19 @@ at one or more **Return** steps. Another workflow runs it with a **Run sub-flow*
   way out of the Run sub-flow step. Every Run sub-flow step also has an `error` way out, taken by a
   failure inside the sub-flow that the sub-flow does not handle itself, with the caller's record as
   it was before the call.
-- **Versions.** A Run sub-flow step pins a saved version of the sub-flow (every save makes one), so
-  changing the sub-flow never changes a caller until the caller picks the new version. "Latest
-  saved" follows the sub-flow instead, and is picked up the next time the caller starts.
+- **Versions.** A Run sub-flow step pins a saved version of the sub-flow (creating it makes version
+  1 and every save after makes the next), so changing the sub-flow never changes a caller until the
+  caller picks the new version. The step lists the steps of the version it pins and says when a
+  newer one is saved. "Latest saved" follows the sub-flow instead, and is picked up the next time
+  the caller starts. A save of the sub-flow that would stop a caller on "Latest saved" from starting
+  (an input it does not map, a return it branches on that is gone) is refused, naming the caller.
+- **Used by.** The Sub-flow input step lists every workflow in the virtual host that runs the
+  sub-flow, and the version each runs (`GET /api/workflows/{id}/callers`).
+- **Turn selection into sub-flow.** Select steps on the canvas and choose **Turn N steps into a
+  sub-flow**. They move into a new sub-flow, saved as version 1, and a Run sub-flow step pinned to
+  it takes their place, wired as they were: each distinct way out becomes a Return, and an error
+  edge becomes the step's `error` way out. You list the fields the steps read (its inputs) and the
+  fields copied back (its outputs); the sub-flow sees nothing else, so list every field it needs.
 - **How it runs.** When the caller starts, the pinned version's steps are spliced into the caller in
   place of the Run sub-flow step. A sub-flow therefore runs on the caller's worker, in the caller's
   run, with no network hop, and the source record is acknowledged only once every sink inside and

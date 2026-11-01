@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { callDepth, isSubflow, subflowFields, subflowReturns, versionLabel } from '@/lib/subflow'
+import { callDepth, isSubflow, newestVersion, subflowFields, subflowReturns, subflowSteps, versionLabel } from '@/lib/subflow'
 
 const nodes = [
   { id: 'in', type: 'subflow_input', config: { fields: [{ name: 'zip', required: true }, { name: 'street' }, { name: '' }] } },
@@ -44,5 +44,25 @@ describe('sub-flow helpers', () => {
     expect(versionLabel('latest')).toBe('Latest saved (not pinned)')
     expect(versionLabel(4)).toBe('v4')
     expect(versionLabel(undefined)).toBe('Not pinned')
+  })
+})
+
+describe('what a Run sub-flow step shows of its sub-flow', () => {
+  it('lists the steps it runs, without its input, returns or notes', () => {
+    const steps = subflowSteps([
+      ...nodes,
+      { id: 'n', type: 'note', config: { label: 'remember' } },
+      { id: 'w', type: 'sink', config: { label: 'Audit row' } },
+    ])
+    expect(steps).toEqual([
+      { id: 'geo', type: 'transformation', label: 'geo' },
+      { id: 'w', type: 'sink', label: 'Audit row' },
+    ])
+    expect(subflowSteps(null)).toEqual([])
+  })
+
+  it('finds the newest saved version', () => {
+    expect(newestVersion([{ version: 2 }, { version: 5 }, { version: 3 }])).toBe(5)
+    expect(newestVersion([])).toBe(0)
   })
 })

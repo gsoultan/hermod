@@ -65,3 +65,19 @@ export function versionLabel(version: unknown): string {
   if (typeof version === 'number' && version > 0) return `v${version}`
   return 'Not pinned'
 }
+
+/**
+ * The steps a sub-flow runs, by name, in the order drawn: what the Run
+ * sub-flow step shows of the version it pins. The input, the returns and
+ * canvas notes are left out.
+ */
+export function subflowSteps(nodes?: SavedNode[] | null): { id: string; type: string; label: string }[] {
+  return (nodes ?? [])
+    .filter((n) => n.type !== SUBFLOW_INPUT && n.type !== SUBFLOW_RETURN && n.type !== 'note')
+    .map((n) => ({ id: n.id, type: n.type, label: String(n.config?.label || n.id) }))
+}
+
+/** The newest saved version, or 0 when there is none. */
+export function newestVersion(versions: { version: number }[]): number {
+  return versions.reduce((max, v) => Math.max(max, v.version), 0)
+}
