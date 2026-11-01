@@ -7,6 +7,12 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — About page
+
+- **About Hermod** (`/about`): the version and build the server is running, and the copyright
+  notice from LICENSE — © 2025 Gembit Soultan Shirazi, all rights reserved, under the Hermod
+  Proprietary License. Open it from the last row of Settings or from the account menu.
+
 ### Added — Sub-flows: editor tools
 
 - **Turn selection into sub-flow**: select steps on the canvas and turn them into a new sub-flow,

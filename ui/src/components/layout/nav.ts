@@ -37,7 +37,7 @@ const SECTION_PREFIXES: ReadonlyArray<[Section, string[]]> = [
   ],
   [
     'settings',
-    ['/settings', '/users', '/vhosts', '/workers', '/environments', '/promotions', '/profile', '/schemas', '/secrets', '/developer'],
+    ['/settings', '/users', '/vhosts', '/workers', '/environments', '/promotions', '/profile', '/schemas', '/secrets', '/developer', '/about'],
   ],
 ]
 
@@ -180,5 +180,6 @@ export function settingsRows(role: Role): SettingsRow[] {
     rows.push({ key: 'audit', label: 'Audit log', detail: 'Who changed what, and when', to: '/activity', search: { tab: 'audit' } })
   }
   rows.push({ key: 'account', label: 'My account', detail: 'Your profile, password and theme', to: '/profile' })
+  rows.push({ key: 'about', label: 'About Hermod', detail: 'Version, copyright and license', to: '/about' })
   return rows
 }

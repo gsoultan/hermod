@@ -46,6 +46,7 @@ describe('primary navigation', () => {
     expect(sectionOf('/schemas')).toBe('settings')
     expect(sectionOf('/secrets')).toBe('settings')
     expect(sectionOf('/developer')).toBe('settings')
+    expect(sectionOf('/about')).toBe('settings')
     expect(sectionOf('/login')).toBeNull()
   })
 })
@@ -118,10 +119,11 @@ describe('hub tabs follow the role', () => {
 
   it('offers each settings row to the roles that may use it', () => {
     const viewer = settingsRows('Viewer').map((r) => r.label)
-    expect(viewer).toEqual(['Releases', 'Developer', 'My account'])
-    expect(settingsRows('Editor').map((r) => r.label)).toEqual(['Releases', 'Developer', 'My account'])
+    expect(viewer).toEqual(['Releases', 'Developer', 'My account', 'About Hermod'])
+    expect(settingsRows('Editor').map((r) => r.label)).toEqual(['Releases', 'Developer', 'My account', 'About Hermod'])
     expect(settingsRows('Administrator').map((r) => r.label)).toEqual([
-      'Workspace', 'People', 'Notifications', 'Security', 'Releases', 'Developer', 'Audit log', 'My account',
+      'Workspace', 'People', 'Notifications', 'Security', 'Releases', 'Developer', 'Audit log', 'My account', 'About Hermod',
     ])
+    expect(settingsRows('Viewer').at(-1)?.to).toBe('/about')
   })
 })
