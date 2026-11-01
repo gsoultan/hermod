@@ -13,6 +13,8 @@ package registry
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -215,5 +217,85 @@ func TestRunningWorkflowWritesThroughASubflow(t *testing.T) {
 	}
 	if n := message.OverReleaseCount(); n != 0 {
 		t.Fatalf("over-released %d message reference(s)", n)
+	}
+}
+
+func (s *subflowStore) ListWorkflows(_ context.Context, _ storage.CommonFilter) ([]storage.Workflow, int, error) {
+	out := make([]storage.Workflow, 0, len(s.workflows))
+	for _, id := range slices.Sorted(maps.Keys(s.workflows)) {
+		out = append(out, s.workflows[id])
+	}
+	return out, len(out), nil
+}
+
+// callersRegistry holds the audit sub-flow and three callers: one pinned to
+// version 2, one on the latest save, and one on the latest save in another
+// vhost.
+func callersRegistry() (*Registry, storage.Workflow) {
+	r := subflowRegistry("")
+	store := r.storage.(*subflowStore)
+	pinned := callerWorkflow("cdc", "pg")
+	latest := callersRefunds(store)
+	elsewhere := latest
+	elsewhere.ID, elsewhere.VHost = "billing", "finance"
+	store.workflows["orders"], store.workflows["refunds"], store.workflows["billing"] = pinned, latest, elsewhere
+	return r, store.workflows["audit"]
+}
+
+func callersRefunds(_ *subflowStore) storage.Workflow {
+	latest := callerWorkflow("cdc", "pg")
+	latest.ID, latest.Name = "refunds", "Refunds"
+	latest.Nodes[1].Config["version"] = "latest"
+	return latest
+}
+
+func TestSubflowCallersListsTheStepsInItsVHost(t *testing.T) {
+	r, sub := callersRegistry()
+	got, err := r.SubflowCallers(context.Background(), sub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, c := range got {
+		ids = append(ids, c.WorkflowID+"/"+c.NodeID)
+	}
+	if strings.Join(ids, ",") != "orders/C,refunds/C" {
+		t.Fatalf("callers = %v, want orders/C and refunds/C only", ids)
+	}
+}
+
+func TestBrokenCallersNamesALatestCallerAChangeWouldBreak(t *testing.T) {
+	r, sub := callersRegistry()
+
+	// A new required input that no caller maps.
+	changed := sub
+	changed.Nodes = slices.Clone(sub.Nodes)
+	changed.Nodes[0].Config = map[string]any{"fields": []any{
+		map[string]any{"name": "zip", "required": true},
+		map[string]any{"name": "country", "required": true},
+	}}
+	broken, err := r.BrokenCallers(context.Background(), changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(broken) != 1 || broken[0].WorkflowID != "refunds" || !strings.Contains(broken[0].Reason, `"country"`) {
+		t.Fatalf("broken = %+v, want only refunds, for the unmapped country", broken)
+	}
+
+	// A caller that was broken already is not this change's doing.
+	store := r.storage.(*subflowStore)
+	refunds := store.workflows["refunds"]
+	refunds.Nodes = slices.Clone(refunds.Nodes)
+	refunds.Nodes[1] = storage.WorkflowNode{ID: "C", Type: subflow.TypeCall, Config: map[string]any{
+		"subflow_id": "audit", "version": "latest"}}
+	store.workflows["refunds"] = refunds
+	if broken, err := r.BrokenCallers(context.Background(), changed); err != nil || len(broken) != 0 {
+		t.Fatalf("broken = %+v, err = %v; a caller that never mapped zip was broken before", broken, err)
+	}
+	store.workflows["refunds"] = callersRefunds(store)
+
+	// The sub-flow saved as it is breaks nobody.
+	if broken, err := r.BrokenCallers(context.Background(), sub); err != nil || len(broken) != 0 {
+		t.Fatalf("broken = %+v, err = %v; an unchanged sub-flow breaks no caller", broken, err)
 	}
 }

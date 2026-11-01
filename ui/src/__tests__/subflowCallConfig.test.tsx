@@ -49,3 +49,23 @@ describe('Run sub-flow editor', () => {
     expect(screen.getByDisplayValue('customer.zip')).toBeInTheDocument()
   })
 })
+
+describe('Run sub-flow editor, what it runs', () => {
+  it('lists the steps of the pinned version and says when a newer one is saved', async () => {
+    signInAs('Editor')
+    const v3 = [...subflowNodes, { id: 'geo', type: 'transformation', config: { label: 'Geo lookup' } }]
+    server.use(
+      http.get('/api/workflows', () => HttpResponse.json({ data: [{ id: 'sf', name: 'Clean address', nodes: v3 }], total: 1 })),
+      http.get('/api/workflows/sf/versions', () => HttpResponse.json([
+        { version: 3, nodes: null }, { version: 4, nodes: null },
+      ])),
+      http.get('/api/workflows/sf/versions/3', () => HttpResponse.json({ version: 3, nodes: v3 })),
+    )
+
+    renderConfig({ subflow_id: 'sf', version: 3, inputs: [] })
+
+    expect(await screen.findByText('Geo lookup')).toBeInTheDocument()
+    expect(await screen.findByText(/v4 is saved/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Use v4' })).toBeInTheDocument()
+  })
+})

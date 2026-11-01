@@ -1,12 +1,12 @@
 import { useMemo } from 'react';
 import { useParams } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ActionIcon, Alert, Anchor, Autocomplete, Button, Group, Select, Stack, Text } from '@mantine/core';
-import { IconArrowRight, IconBoxMultiple, IconExternalLink, IconInfoCircle, IconPlus, IconTrash } from '@tabler/icons-react';
+import { ActionIcon, Alert, Anchor, Autocomplete, Badge, Button, Group, Paper, Select, Stack, Text } from '@mantine/core';
+import { IconArrowRight, IconBoxMultiple, IconChevronRight, IconExternalLink, IconInfoCircle, IconPlus, IconTrash } from '@tabler/icons-react';
 import { apiFetch } from '@/api';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
 import {
-  isSubflow, subflowFields, subflowReturns, versionLabel,
+  isSubflow, newestVersion, subflowFields, subflowReturns, subflowSteps, versionLabel,
   type SavedNode, type SubflowMapping,
 } from '@/lib/subflow';
 
@@ -85,6 +85,9 @@ export function SubflowCallConfig({ config, updateNodeConfig, nodeId, availableF
   const { data: pinnedVersion } = useQuery({ ...versionQuery(config.subflow_id, pinned), enabled: pinned > 0 });
   const pinnedNodes: SavedNode[] | null | undefined = config.version === 'latest' ? chosen?.nodes : pinnedVersion?.nodes;
   const fields = subflowFields(pinnedNodes);
+  const steps = subflowSteps(pinnedNodes);
+  const newest = newestVersion(versions);
+  const behind = typeof config.version === 'number' && newest > config.version ? newest : 0;
   const inputs = mappings(config.inputs);
   const outputs = mappings(config.outputs);
 
@@ -161,6 +164,37 @@ export function SubflowCallConfig({ config, updateNodeConfig, nodeId, availableF
           description="Each save of the sub-flow is a version. A pinned version never changes under you."
           required
         />
+      )}
+
+      {behind > 0 && (
+        <Alert color="blue" icon={<IconInfoCircle size="1rem" />}>
+          <Group justify="space-between" wrap="nowrap" gap="xs">
+            <Text size="sm">v{behind} is saved. This step keeps running v{config.version} until you choose otherwise.</Text>
+            <Button size="xs" variant="light" onClick={() => pickVersion(String(behind))}>Use v{behind}</Button>
+          </Group>
+        </Alert>
+      )}
+
+      {pinnedNodes && (
+        <Stack gap={6}>
+          <Text size="sm" fw={500}>What it runs</Text>
+          <Paper withBorder radius="md" p="xs" aria-label="Steps of the sub-flow">
+            {steps.length === 0 ? (
+              <Text size="sm" c="dimmed">No steps between its input and its return.</Text>
+            ) : (
+              <Group gap={4}>
+                {steps.map((step, i) => (
+                  <Group key={step.id} gap={4} wrap="nowrap">
+                    {i > 0 && <IconChevronRight size="0.8rem" color="var(--mantine-color-dimmed)" aria-hidden />}
+                    <Badge variant="light" color={step.type === 'sink' ? 'green' : 'violet'} tt="none" radius="sm">
+                      {step.label}
+                    </Badge>
+                  </Group>
+                ))}
+              </Group>
+            )}
+          </Paper>
+        </Stack>
       )}
 
       {pinnedNodes && (

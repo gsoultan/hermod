@@ -315,6 +315,7 @@ func (h *WorkflowHandler) ValidateWorkflow(ctx context.Context, wf storage.Workf
 	isSubflow := subflow.IsSubflow(wf)
 	if isSubflow {
 		issues = append(issues, subflowShapeIssues(wf)...)
+		issues = append(issues, h.brokenCallerIssues(ctx, wf)...)
 		hasSource, hasSink = true, true
 	}
 	issues = append(issues, h.subflowCallIssues(ctx, wf)...)
@@ -357,6 +358,33 @@ func subflowShapeIssues(wf storage.Workflow) []ValidationIssue {
 		Recommendation: "A sub-flow starts at one Sub-flow input step, which takes the data a caller maps to it, " +
 			"and ends at one or more Return steps. It has no source of its own.",
 	}}
+}
+
+// brokenCallerIssues refuses a change to a sub-flow that would stop a workflow
+// running its latest save from starting: an input it does not map, a return it
+// branches on that is gone. A caller that pins a version is not affected.
+func (h *WorkflowHandler) brokenCallerIssues(ctx context.Context, sub storage.Workflow) (issues []ValidationIssue) {
+	if h.Registry == nil || sub.ID == "" {
+		return nil
+	}
+	broken, err := h.Registry.BrokenCallers(ctx, sub)
+	if err != nil {
+		return []ValidationIssue{{
+			Severity:       "warning",
+			Message:        "Could not check the workflows that run this sub-flow: " + err.Error(),
+			Recommendation: "Save again, or check the workflows that use it before turning them back on.",
+		}}
+	}
+	for _, b := range broken {
+		issues = append(issues, ValidationIssue{
+			Severity: "error",
+			Message: fmt.Sprintf("Workflow %q runs the latest save of this sub-flow at step %q, and would no longer start: %s",
+				b.WorkflowName, b.Step, b.Reason),
+			Recommendation: fmt.Sprintf("Pin %q's step to the version it runs now, or change it to match, then save this sub-flow.",
+				b.WorkflowName),
+		})
+	}
+	return issues
 }
 
 // subflowCallIssues refuses a Run sub-flow step that would not run: a sub-flow

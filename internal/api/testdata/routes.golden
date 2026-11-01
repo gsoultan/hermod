@@ -121,6 +121,7 @@ GET /api/workflows
 GET /api/workflows/pii-stats
 GET /api/workflows/{export_id}/export
 GET /api/workflows/{id}
+GET /api/workflows/{id}/callers
 GET /api/workflows/{id}/executions
 GET /api/workflows/{id}/executions/{run_id}
 GET /api/workflows/{id}/health

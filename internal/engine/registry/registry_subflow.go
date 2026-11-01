@@ -69,3 +69,70 @@ func (r *Registry) subflowLoader(vhost string) subflow.Loader {
 		return pinned, nil
 	}
 }
+
+// SubflowCallers returns every Run sub-flow step in sub's vhost that runs sub.
+func (r *Registry) SubflowCallers(ctx context.Context, sub storage.Workflow) ([]subflow.Caller, error) {
+	st := r.store()
+	if st == nil {
+		return nil, errors.New("storage is not initialized")
+	}
+	all, _, err := st.ListWorkflows(ctx, storage.CommonFilter{VHost: sub.VHost})
+	if err != nil {
+		return nil, err
+	}
+	// An empty filter lists every vhost, so the vhost is checked here too.
+	same := all[:0:0]
+	for _, wf := range all {
+		if wf.VHost == sub.VHost && wf.ID != sub.ID {
+			same = append(same, wf)
+		}
+	}
+	return subflow.Callers(same, sub.ID), nil
+}
+
+// BrokenCaller is a caller that would no longer start, and why.
+type BrokenCaller struct {
+	subflow.Caller
+	Reason string `json:"reason"`
+}
+
+// BrokenCallers returns the callers that run sub's latest save and would no
+// longer start if sub were saved as it is now: an input they do not map, a
+// return they branch on that is gone. A caller that pins a version is never
+// broken by a save, so it is not checked, and neither is one that cannot
+// start already.
+func (r *Registry) BrokenCallers(ctx context.Context, sub storage.Workflow) ([]BrokenCaller, error) {
+	callers, err := r.SubflowCallers(ctx, sub)
+	if err != nil {
+		return nil, err
+	}
+	st := r.store()
+	base := r.subflowLoader(sub.VHost)
+	// The latest save of sub reads as the change about to be saved.
+	load := func(ctx context.Context, id string, version int) (storage.Workflow, error) {
+		if id == sub.ID && version == 0 {
+			return sub, nil
+		}
+		return base(ctx, id, version)
+	}
+	var out []BrokenCaller
+	checked := map[string]bool{}
+	for _, c := range callers {
+		if !c.Latest || checked[c.WorkflowID] {
+			continue
+		}
+		checked[c.WorkflowID] = true
+		wf, err := st.GetWorkflow(ctx, c.WorkflowID)
+		if err != nil {
+			return nil, err
+		}
+		// A caller that cannot start as things are was not broken by this save.
+		if _, err := subflow.Expand(ctx, wf, base); err != nil {
+			continue
+		}
+		if _, err := subflow.Expand(ctx, wf, load); err != nil {
+			out = append(out, BrokenCaller{Caller: c, Reason: err.Error()})
+		}
+	}
+	return out, nil
+}
