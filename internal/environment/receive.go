@@ -452,6 +452,12 @@ func (s *Service) deploy(ctx context.Context, id, by string) (Promotion, error) 
 	if err != nil {
 		return Promotion{}, err
 	}
+	// Receiving it checked the connections it names were here, but approval
+	// can come hours later, and a connection deleted or moved to another
+	// vhost since would be deployed as a dangling reference.
+	if err := s.hasConnections(ctx, s.sender(ctx, p), wf); err != nil {
+		return s.fail(ctx, id, by, err)
+	}
 	msg := fmt.Sprintf("Promoted from %s version %d", p.FromEnv, p.FromVersion)
 
 	var previous, applied int
@@ -489,6 +495,19 @@ func (s *Service) deploy(ctx context.Context, id, by string) (Promotion, error) 
 		p.Reason = ""
 		return nil
 	})
+}
+
+// sender is the linked instance p came from, as hasConnections needs it.
+// One revoked since, or unreadable, is taken as one limited to the vhost p
+// lands in, which never allows more than the link itself did.
+func (s *Service) sender(ctx context.Context, p Promotion) Peer {
+	peers, err := loadPeers(ctx, s.store)
+	if err == nil {
+		if i := slices.IndexFunc(peers, func(x Peer) bool { return x.ID == p.PeerID }); i >= 0 {
+			return peers[i]
+		}
+	}
+	return Peer{ID: p.PeerID, Name: p.FromEnv, VHost: vhostOf(p.VHost)}
 }
 
 func (s *Service) fail(ctx context.Context, id, by string, cause error) (Promotion, error) {

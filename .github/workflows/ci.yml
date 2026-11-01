@@ -500,8 +500,12 @@ jobs:
       # CrashLoopBackOff in a cluster.
       - name: Container starts and serves its probes
         run: |
+          # The image's own config directory on a named volume, as `docker
+          # run -v` and deploy/compose use it. Pointing HERMOD_CONFIG_DIR at
+          # /tmp here once hid that a fresh volume was root's and first-run
+          # setup could not write to it.
           docker run -d --name hermod-ci -p 4000:4000 \
-            -e HERMOD_CONFIG_DIR=/tmp/hermod hermod:ci
+            -v hermod-ci-config:/var/lib/hermod hermod:ci
           for i in $(seq 1 60); do
             if curl -fsS http://localhost:4000/livez >/dev/null 2>&1; then
               echo "livez OK after ${i}s"; break
@@ -516,6 +520,19 @@ jobs:
           # The embedded UI: a blank page here is the failure this guards.
           curl -fsS http://localhost:4000/ | grep -qi "<!doctype html" \
             || { echo "the embedded UI did not render"; docker logs hermod-ci; exit 1; }
+
+      # Live is not usable: first-run setup writes db_config.yaml into the
+      # config volume, and a container that cannot is stuck on the setup page.
+      - name: First-run setup persists on the config volume
+        run: |
+          key=$(openssl rand -hex 16)
+          code=$(curl -sS -o /tmp/setup.json -w '%{http_code}' -X POST \
+            http://localhost:4000/api/config/setup -H 'Content-Type: application/json' \
+            -d "{\"db\":{\"type\":\"sqlite\",\"conn\":\"/var/lib/hermod/hermod.db\",\"crypto_master_key\":\"$key\"},
+                 \"admin\":{\"username\":\"ci\",\"password\":\"Ci-Passw0rd-$key\",\"full_name\":\"CI\",\"email\":\"ci@example.com\"}}")
+          cat /tmp/setup.json; echo
+          test "$code" = 200 || { echo "first-run setup failed: HTTP $code"; docker logs hermod-ci; exit 1; }
+          curl -fsS http://localhost:4000/api/config/status | tee /dev/stderr | grep -q '"configured":true'
 
       - name: Container drains rather than being killed on SIGTERM
         run: |

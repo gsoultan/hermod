@@ -97,6 +97,8 @@ Production lists each release under **Environments › Waiting for you**: where 
 vhost it lands in, the sender, the note, and each workflow's changes. An administrator clicks
 **Approve and go live** or **Reject**, once for the whole release.
 
+Approving checks once more that every connection a workflow uses still exists in production, in its vhost. A connection deleted or moved while the release waited fails the release with the connection's ID as the reason, instead of deploying a workflow that cannot start.
+
 A release goes live whole or not at all. If one workflow fails to deploy, the ones before it are
 put back as they were, and the rest are marked failed with the reason.
 
