@@ -23,6 +23,7 @@ import (
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/engine/telemetry"
 	"github.com/gsoultan/hermod/pkg/infra/evaluator"
+	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
 	"github.com/gsoultan/hermod/pkg/infra/tracing"
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -459,6 +460,10 @@ func (r *Registry) runWorkflowNode(root context.Context, workflowID string, node
 	}
 
 	ctx := context.WithValue(root, hermod.RegistryKey, r)
+	// In a preview or a dry run, nodes that use the database take turns on
+	// the message's sandbox connection; see sqlutil.EnterNode.
+	ctx, leave := sqlutil.EnterNode(ctx)
+	defer leave()
 	// Background is a fresh root, so without this every node was its own
 	// trace and a message passing through five nodes produced five unrelated
 	// traces. The link comes off the message because the node runs on a
