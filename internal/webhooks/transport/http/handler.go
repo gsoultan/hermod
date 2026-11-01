@@ -16,8 +16,11 @@ import (
 
 type WebhookHandler struct {
 	*handlers.Handler
+
+	// seen is the mimir event ids each path has taken (mimir.go).
+	seen *recentEvents
 }
 
 func NewWebhookHandler(h *handlers.Handler) *WebhookHandler {
-	return &WebhookHandler{Handler: h}
+	return &WebhookHandler{Handler: h, seen: newRecentEvents()}
 }

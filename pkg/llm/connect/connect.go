@@ -29,7 +29,9 @@ import (
 type Spec struct {
 	// Kind is anthropic (claude), openai (chatgpt), gemini (google), one of
 	// the OpenAI-compatible presets (deepseek, ollama, mistral, groq,
-	// openrouter, together, xai) or openai_compatible with a BaseURL.
+	// openrouter, together, xai), openai_compatible with a BaseURL, or
+	// mimir: a mimir-server's OpenAI-compatible API, with the server's
+	// address as BaseURL and a mimir_ API key.
 	Kind string
 	// Name labels an openai_compatible connection; presets name themselves.
 	Name    string
@@ -51,7 +53,7 @@ type Spec struct {
 
 // Kinds lists the accepted Kind values (without aliases).
 func Kinds() []string {
-	return append([]string{"anthropic", "openai", "gemini", "openai_compatible"}, compatiblePresets()...)
+	return append([]string{"anthropic", "openai", "gemini", "openai_compatible", "mimir"}, compatiblePresets()...)
 }
 
 func compatiblePresets() []string {
@@ -115,6 +117,20 @@ func buildOne(s Spec, isFallback bool) (llm.Provider, error) {
 		p = anthropic.New(anthropic.Config{BaseURL: s.BaseURL, APIKey: s.APIKey})
 	case "gemini":
 		p = gemini.New(gemini.Config{BaseURL: s.BaseURL, APIKey: s.APIKey})
+	case "mimir":
+		// A mimir-server speaks the OpenAI API under /v1 of its one port
+		// (mimirsdk.Client.OpenAIBaseURL), so the server's address is enough.
+		if s.BaseURL == "" {
+			return nil, errors.New("mimir: the server's address is required")
+		}
+		base := strings.TrimRight(s.BaseURL, "/")
+		if !strings.HasSuffix(base, "/v1") {
+			base += "/v1"
+		}
+		p = openai.New(openai.Config{
+			Name: "mimir", BaseURL: base, APIKey: s.APIKey, AuthHeader: s.AuthHeader,
+			JSONMode: openai.JSONObject, LegacyMaxTokens: true,
+		})
 	case "openai_compatible":
 		if s.BaseURL == "" {
 			return nil, errors.New("openai_compatible: a base URL is required")

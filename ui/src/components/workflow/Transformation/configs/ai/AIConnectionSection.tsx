@@ -35,7 +35,7 @@ const asText = (v: string | number) => (v === '' ? '' : String(v))
 const str = (v: unknown) => (typeof v === 'string' ? v : v == null ? '' : String(v))
 
 const baseUrlPlaceholder = (provider: string | undefined) =>
-  provider === 'ollama' ? 'http://localhost:11434/v1' : 'https://your-server.example/v1'
+  provider === 'ollama' ? 'http://localhost:11434/v1' : provider === 'mimir' ? 'http://mimir:8080' : 'https://your-server.example/v1'
 
 /**
  * Which model to call and how to reach it, shared by every AI node.
@@ -105,7 +105,9 @@ export function AIConnectionSection({ config, nodeId, updateNodeConfig, embeddin
               description={
                 provider === 'ollama'
                   ? 'Where Ollama listens. Leave empty for http://localhost:11434/v1.'
-                  : 'The server’s OpenAI-compatible API root, ending in /v1.'
+                  : provider === 'mimir'
+                    ? 'The mimir server’s address, as a model connected on the Machine Learning page has it; /v1 is added. The key is a mimir_… API key.'
+                    : 'The server’s OpenAI-compatible API root, ending in /v1.'
               }
             />
           )}

@@ -37,6 +37,7 @@ import (
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/core"
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/features"
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/genai"
+	_ "github.com/gsoultan/hermod/pkg/comm/transformer/genai/mimirask"
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/genai/retrieve"
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/geo"
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/logic"
