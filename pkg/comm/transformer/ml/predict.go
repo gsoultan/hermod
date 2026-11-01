@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/transformer"
@@ -39,6 +40,12 @@ type modelCaller interface {
 	MLPredict(ctx context.Context, vhost, model string, rows []map[string]any) ([]map[string]any, error)
 }
 
+// explainer is the registry's call for why a model answered as it did; only
+// a model on a mimir server has one (inference.Client.Explain).
+type explainer interface {
+	MLExplain(ctx context.Context, vhost, model string, row map[string]any, label string) (map[string]any, error)
+}
+
 // Predict calls a model registered in the workflow's vhost with fields of the
 // message and writes the prediction back onto it.
 //
@@ -49,6 +56,10 @@ type modelCaller interface {
 //     sends the whole record.
 //   - outputField: where the prediction goes, default "prediction". A model
 //     with one output writes that value; one with several writes an object.
+//   - explain: true also asks the model why (a mimir model only): each
+//     column's effect on the answer against a typical row, written as
+//     "explanation" inside the object, or as "<outputField>_explanation" when
+//     the prediction is a bare value. One more round trip per record.
 //
 // The engine's onError ("fail", "continue", "drop") and statusField apply as
 // for every transformer.
@@ -99,7 +110,23 @@ func (p *Predict) Transform(ctx context.Context, msg hermod.Message, config map[
 	if field == "" {
 		field = defaultOutputField
 	}
-	msg.SetData(field, outputValue(preds[0]))
+	value := outputValue(preds[0])
+	if explainOn(config) {
+		ex, ok := caller.(explainer)
+		if !ok {
+			return msg, errors.New("ml_predict: this model registry cannot explain answers")
+		}
+		why, err := ex.MLExplain(ctx, vhost, model, row, "")
+		if err != nil {
+			return msg, fmt.Errorf("ml_predict: %w", err)
+		}
+		if obj, isObj := value.(map[string]any); isObj {
+			obj["explanation"] = why
+		} else {
+			msg.SetData(field+"_explanation", why)
+		}
+	}
+	msg.SetData(field, value)
 	return msg, nil
 }
 
@@ -160,4 +187,16 @@ func outputValue(pred map[string]any) any {
 		}
 	}
 	return pred
+}
+
+// explainOn reads the "explain" option: the bool, or the strings "true"/"false"
+// a form writes.
+func explainOn(config map[string]any) bool {
+	switch v := config["explain"].(type) {
+	case bool:
+		return v
+	case string:
+		return strings.EqualFold(strings.TrimSpace(v), "true")
+	}
+	return false
 }

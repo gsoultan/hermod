@@ -24,6 +24,7 @@ The graph comes from stored configuration only. Each asset is identified by the 
 | `execute_sql` | The database of its `sourceId` (`writes`). The statement itself is free SQL and is not parsed |
 | `scd` | `targetTable` and `historyTable` in the database of `targetSourceId` (`writes`) |
 | `ml_predict` | The model of the workflow's vhost (`predicts`) |
+| `ml_feedback` | The model of the workflow's vhost (`predicts`): the node tells it its real answers |
 | `ml_train` | Its dataset (`reads`) and its model (`trains`). If `sourceId` is set, also that database (`reads`) and the dataset it refills (`writes`) |
 | `ai_retrieve` | The pgvector table at `connectionString` + `table`, or the Pinecone index at `indexHost` + `namespace` (`retrieves`) |
 | Pipeline steps, agent read tools | The same as each step or tool's own transformer |

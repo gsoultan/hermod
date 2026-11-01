@@ -16,6 +16,7 @@ import (
 	"net/http"
 
 	"github.com/gsoultan/hermod/internal/ml"
+	"github.com/gsoultan/hermod/pkg/ml/inference"
 	mimirsdk "github.com/gsoultan/mimir-server-sdk"
 )
 
@@ -72,4 +73,46 @@ func sdkMessage(err error) string {
 		return sdkErr.Message
 	}
 	return err.Error()
+}
+
+// explainRequest is the body of an explanation call: the row, and for a
+// label model the label to explain, empty for the one the model gives.
+type explainRequest struct {
+	Instance map[string]any `json:"instance"`
+	Label    string         `json:"label"`
+}
+
+// Explain answers why a model predicts what it does for one row: each
+// column's effect on the answer against a typical row. Only a model on a
+// mimir server explains itself; the Test modal's "Why?" asks here. Editor
+// role, as a test prediction needs.
+func (h *Handler) Explain(w http.ResponseWriter, r *http.Request) {
+	vhost, _, ok := h.access(w, r, true)
+	if !ok {
+		return
+	}
+	var req explainRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxPredictBody)).Decode(&req); err != nil || req.Instance == nil {
+		h.JsonError(w, `the body must be {"instance": {...}, "label": "optional"}`, http.StatusBadRequest)
+		return
+	}
+	why, err := h.service().Explain(r.Context(), vhost, r.PathValue("name"), req.Instance, req.Label)
+	if err != nil {
+		h.failExplain(w, err)
+		return
+	}
+	writeJSON(w, map[string]any{"model": r.PathValue("name"), "explanation": why})
+}
+
+// failExplain tells a missing model and a model that cannot explain apart
+// from a server that would not answer.
+func (h *Handler) failExplain(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, ml.ErrModelNotFound):
+		h.JsonError(w, "this vhost has no model by that name", http.StatusNotFound)
+	case errors.Is(err, inference.ErrNotMimir):
+		h.JsonError(w, err.Error(), http.StatusBadRequest)
+	default:
+		h.failMimir(w, err)
+	}
 }

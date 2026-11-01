@@ -76,6 +76,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/vhosts/{vhost}/ml/models/{name}/serving-key", h.EditorOnly(h.DisableServing))
 	mux.Handle("PUT /api/vhosts/{vhost}/ml/models/{name}/mcp", h.EditorOnly(h.SetMCPExposure))
 	mux.Handle("POST /api/vhosts/{vhost}/ml/mimir/models", h.EditorOnly(h.ListMimirModels))
+	mux.Handle("POST /api/vhosts/{vhost}/ml/models/{name}/explain", h.EditorOnly(h.Explain))
 	mux.HandleFunc("GET /api/vhosts/{vhost}/ml/quotas", h.GetQuotas)
 	mux.Handle("PUT /api/vhosts/{vhost}/ml/quotas", h.AdminOnly(h.PutQuotas))
 	mux.HandleFunc("POST /api/ml/serve/{vhost}/{name}", h.Serve)

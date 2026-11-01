@@ -1613,6 +1613,49 @@ several writes an object. A mapped field the record lacks fails the record
 rather than sending a null; the node's On Error setting (fail, continue, drop)
 decides what happens next.
 
+### Explain each answer (mimir)
+
+For a model on mimir-server the Predict node offers **Explain each answer**
+(`"explain": "true"` in the config). The node then also asks the server why,
+one more call per record, and writes the answer as `explanation` inside the
+prediction object (or as `<outputField>_explanation` when the prediction is a
+bare value):
+
+| Key | Meaning |
+|---|---|
+| `label`, `value`, `typical` | The answer explained, its chance (or the number), and what a typical row gets |
+| `exact` | Whether the server solved the explanation exactly or sampled it |
+| `contributions` | Each column with the row's `value`, the `typical` value and its `effect` on the answer, biggest first; effects are in chance (0.18 is 18 points) for a label model and in the number's units otherwise |
+
+The same question can be asked by hand: in **Try it with one row**, **Why?**
+appears under a mimir model's answer and draws each column's effect as a bar,
+and `POST /api/vhosts/{vhost}/ml/models/{name}/explain` with
+`{"instance": {...}, "label": "optional"}` (Editor) answers
+`{"model", "explanation"}`. A model on another kind of server answers 400.
+
+## Feedback node
+
+*Machine Learning → Feedback.* Once the record that knows what really
+happened comes through, this node tells the mimir model the real answer to
+one of its earlier predictions, so the server tracks how often the model is
+right in use (its console shows the running accuracy). Only a model on
+mimir-server takes feedback: the others are listed but cannot be chosen.
+
+| Setting | Config key | Default | Means |
+|---|---|---|---|
+| Model | `model` | required | A connected mimir model of the workflow's vhost |
+| Prediction id field | `predictionIdField` | `prediction.prediction_id` | Where the record carries the id the prediction came with. The Predict node writes it there; a record that reports an outcome later has to bring it along (a lookup, or the outcome message carrying the id) |
+| Real answer field | `actualField` | required | The label that turned out true, or the real number for a model that answers with one |
+| Output field | `outputField` | `feedback` | Written as `{"right": bool, "prediction_id": id}` |
+
+mimir keeps a prediction for 30 days; feedback on an older id fails the
+record, and On Error decides what happens then. The lineage view shows the
+node as `predicts` against the model, like the Predict node.
+
+```json
+{"transType": "ml_feedback", "model": "churn", "actualField": "outcome"}
+```
+
 ## Recommendations
 
 A recommendation model learns **who had what** from rows such as order

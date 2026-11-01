@@ -8,7 +8,7 @@ import {
   IconBrandFacebook, IconBrandInstagram, IconBrandLinkedin, IconBrandTiktok, IconExternalLink, IconLock, IconLockOpen, IconSitemap,
   IconSparkles, IconTextScan2, IconTags, IconFileDescription, IconLanguage, IconVector, IconDatabaseSearch, IconRobot, IconBrain, IconSchool,
   IconLayoutList, IconStack2, IconArrowsMaximize, IconBraces, IconTemplate, IconGitCompare, IconFileSearch, IconMapPin,
-  IconScale, IconBinary, IconChartHistogram, IconTimeline, IconAlertTriangle, IconBolt
+  IconScale, IconBinary, IconChartHistogram, IconTimeline, IconAlertTriangle, IconBolt, IconMessageCheck
 } from '@tabler/icons-react';
 
 export const NODE_CATEGORIES = [
@@ -100,6 +100,7 @@ export const NODE_CATEGORIES = [
     group: 'transformations',
     items: [
       { type: 'transformation', refId: 'new', label: 'Predict', subType: 'ml_predict', icon: IconBrain, color: 'grape', description: 'Score each record with a registered model' },
+      { type: 'transformation', refId: 'new', label: 'Feedback', subType: 'ml_feedback', icon: IconMessageCheck, color: 'grape', description: 'Tell a mimir model the real answer to an earlier prediction' },
       { type: 'transformation', refId: 'new', label: 'Train Model', subType: 'ml_train', icon: IconSchool, color: 'grape', description: 'Train a new model version on a dataset' },
       { type: 'ml_recommend_build', refId: 'new', label: 'Build Recommendations', subType: 'ml_recommend_build', icon: IconTableExport, color: 'grape', description: 'Every list of a recommendation model, one message per row' },
     ]

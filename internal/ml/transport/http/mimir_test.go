@@ -119,3 +119,83 @@ func TestListMimirModelsSaysWhatIsWrong(t *testing.T) {
 		t.Errorf("another vhost's editor was allowed: %d", w.Code)
 	}
 }
+
+// mimirPredictor is a mimir server that explains one model's answer.
+type mimirPredictor struct {
+	mimirv1connect.UnimplementedPredictServiceHandler
+	key   string
+	asked *mimirv1.ExplainRequest
+}
+
+func (m *mimirPredictor) Explain(_ context.Context, req *connect.Request[mimirv1.ExplainRequest]) (*connect.Response[mimirv1.ExplainResponse], error) {
+	if req.Header().Get("Authorization") != "Bearer "+m.key {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("the API key is wrong or revoked"))
+	}
+	m.asked = req.Msg
+	return connect.NewResponse(&mimirv1.ExplainResponse{
+		Label: "left", Value: 0.8, Typical: 0.3, Exact: true,
+		Contributions: []*mimirv1.Contribution{{Column: "plan", Value: "monthly", Typical: "yearly", Effect: 0.4}},
+	}), nil
+}
+
+func TestExplainAsksTheMimirModelAboutOneRow(t *testing.T) {
+	h, _ := newModelAPI()
+	h.secrets = vhostSecrets{"tenant-a/MIMIR_API_KEY": "mimir_k"}
+	server := &mimirPredictor{key: "mimir_k"}
+	mux := http.NewServeMux()
+	mux.Handle(mimirv1connect.NewPredictServiceHandler(server))
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	def, _ := json.Marshal(map[string]any{"backend": "mimir", "url": srv.URL, "remote_model": "m-1", "token_secret": "MIMIR_API_KEY"})
+	if w := call(h.PutModel, editorA, http.MethodPut, "tenant-a", "churn", string(def)); w.Code != http.StatusOK {
+		t.Fatalf("put: %d %s", w.Code, w.Body)
+	}
+
+	w := call(h.Explain, editorA, http.MethodPost, "tenant-a", "churn", `{"instance":{"plan":"monthly","tenure":3},"label":"left"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("explain: %d %s", w.Code, w.Body)
+	}
+	if server.asked.GetModelId() != "m-1" || server.asked.GetFields()["tenure"] != "3" || server.asked.GetLabel() != "left" {
+		t.Errorf("the server was asked %+v", server.asked)
+	}
+	var reply struct {
+		Model       string `json:"model"`
+		Explanation struct {
+			Label         string  `json:"label"`
+			Typical       float64 `json:"typical"`
+			Contributions []struct {
+				Column string  `json:"column"`
+				Effect float64 `json:"effect"`
+			} `json:"contributions"`
+		} `json:"explanation"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &reply); err != nil {
+		t.Fatal(err)
+	}
+	if reply.Model != "churn" || reply.Explanation.Label != "left" || reply.Explanation.Typical != 0.3 ||
+		len(reply.Explanation.Contributions) != 1 || reply.Explanation.Contributions[0].Column != "plan" {
+		t.Errorf("reply = %s", w.Body)
+	}
+
+	if w := call(h.Explain, viewerA, http.MethodPost, "tenant-a", "churn", `{"instance":{}}`); w.Code != http.StatusForbidden {
+		t.Errorf("a viewer was allowed: %d", w.Code)
+	}
+	if w := call(h.Explain, editorA, http.MethodPost, "tenant-a", "churn", `{"label":"x"}`); w.Code != http.StatusBadRequest {
+		t.Errorf("no instance: %d %s", w.Code, w.Body)
+	}
+	if w := call(h.Explain, editorA, http.MethodPost, "tenant-a", "nobody", `{"instance":{}}`); w.Code != http.StatusNotFound {
+		t.Errorf("unknown model: %d %s", w.Code, w.Body)
+	}
+}
+
+func TestExplainRefusesAModelThatIsNotOnAMimirServer(t *testing.T) {
+	h, _ := newModelAPI()
+	if w := call(h.PutModel, editorA, http.MethodPut, "tenant-a", "double", modelBody(doubler(t))); w.Code != http.StatusOK {
+		t.Fatalf("put: %d %s", w.Code, w.Body)
+	}
+	w := call(h.Explain, editorA, http.MethodPost, "tenant-a", "double", `{"instance":{"x":1}}`)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "mimir") {
+		t.Fatalf("%d %s, want 400 saying only a mimir model explains", w.Code, w.Body)
+	}
+}

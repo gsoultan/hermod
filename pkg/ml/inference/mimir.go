@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	mimirsdk "github.com/gsoultan/mimir-server-sdk"
 	"golang.org/x/sync/errgroup"
@@ -217,4 +218,98 @@ func (c *Client) ListMimirModels(ctx context.Context, url, token string) ([]Remo
 		out = append(out, rm)
 	}
 	return out, nil
+}
+
+// ErrNotMimir is returned when feedback or an explanation is asked of a model
+// that is not on a mimir server: the other protocols have no such call.
+var ErrNotMimir = errors.New("only a model on a mimir server can do this")
+
+// SendFeedback tells the mimir server what the right answer to one earlier
+// prediction was: predictionID is the "prediction_id" that prediction came
+// with, actual the real label, or the real number for a model that answers
+// with one. It reports whether the model had been right. mimir keeps a
+// prediction for feedback for 30 days; after that the server answers not
+// found.
+func (c *Client) SendFeedback(ctx context.Context, t Target, predictionID string, actual any) (bool, error) {
+	if t.Backend != BackendMimir {
+		return false, ErrNotMimir
+	}
+	if err := t.Validate(); err != nil {
+		return false, err
+	}
+	if predictionID == "" {
+		return false, errors.New("feedback needs the prediction id the answer came with")
+	}
+	client, err := c.mimirClient(t.URL, t.Token)
+	if err != nil {
+		return false, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, t.timeout())
+	defer cancel()
+	var right bool
+	switch v := actual.(type) {
+	case float64:
+		right, err = client.Models.SendFeedbackValue(ctx, predictionID, v)
+	case float32:
+		right, err = client.Models.SendFeedbackValue(ctx, predictionID, float64(v))
+	case int:
+		right, err = client.Models.SendFeedbackValue(ctx, predictionID, float64(v))
+	case int64:
+		right, err = client.Models.SendFeedbackValue(ctx, predictionID, float64(v))
+	case json.Number:
+		n, convErr := v.Float64()
+		if convErr != nil {
+			return false, fmt.Errorf("the real answer %q is not a number", v)
+		}
+		right, err = client.Models.SendFeedbackValue(ctx, predictionID, n)
+	default:
+		right, err = client.Models.SendFeedback(ctx, predictionID, mimirText(actual))
+	}
+	if err != nil {
+		return false, fmt.Errorf("the mimir server did not take the feedback: %w", err)
+	}
+	return right, nil
+}
+
+// Explain asks why the model answers as it does for one row: each column's
+// effect on the answer against a typical row. label names the answer to
+// explain for a label model, empty for the one it gives. The row read back
+// has "label", "number", "value", "typical", "exact" and "contributions",
+// each contribution {"column", "value", "typical", "effect"}, biggest effect
+// first. Effects are in chance (0.18 is 18 points) or in the number's units.
+func (c *Client) Explain(ctx context.Context, t Target, row Row, label string) (Row, error) {
+	if t.Backend != BackendMimir {
+		return nil, ErrNotMimir
+	}
+	if err := t.Validate(); err != nil {
+		return nil, err
+	}
+	client, err := c.mimirClient(t.URL, t.Token)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, t.timeout())
+	defer cancel()
+	why, err := client.Models.Explain(ctx, t.Model, mimirFields(row, t.Features), label)
+	if err != nil {
+		return nil, fmt.Errorf("the mimir server did not explain the answer: %w", err)
+	}
+	contributions := make([]map[string]any, len(why.GetContributions()))
+	for i, con := range why.GetContributions() {
+		contributions[i] = map[string]any{
+			"column": con.GetColumn(), "value": con.GetValue(), "typical": con.GetTypical(), "effect": con.GetEffect(),
+		}
+	}
+	return Row{
+		"label": why.GetLabel(), "number": why.GetNumber(), "value": why.GetValue(), "typical": why.GetTypical(),
+		"exact": why.GetExact(), "contributions": contributions,
+	}, nil
+}
+
+// timeout is the target's timeout, or the default.
+func (t Target) timeout() time.Duration {
+	if t.Timeout <= 0 {
+		return DefaultTimeout
+	}
+	return t.Timeout
 }

@@ -211,6 +211,50 @@ func (s *Service) Predict(ctx context.Context, vhost, name string, rows []infere
 	return out, nil
 }
 
+// Feedback tells the vhost's model what the right answer to one of its
+// predictions was, and reports whether it had been right. Only a model on a
+// mimir server takes feedback (inference.ErrNotMimir otherwise).
+func (s *Service) Feedback(ctx context.Context, vhost, name, predictionID string, actual any) (bool, error) {
+	m, err := s.Model(ctx, vhost, name)
+	if err != nil {
+		return false, err
+	}
+	if m.Backend != inference.BackendMimir {
+		return false, fmt.Errorf("model %q: %w", name, inference.ErrNotMimir)
+	}
+	target, err := s.target(ctx, m)
+	if err != nil {
+		return false, err
+	}
+	right, err := s.client.SendFeedback(ctx, target, predictionID, actual)
+	if err != nil {
+		return false, fmt.Errorf("model %q: %w", name, err)
+	}
+	return right, nil
+}
+
+// Explain asks the vhost's model why it answers as it does for one row:
+// each column's effect against a typical row (inference.Client.Explain).
+// Only a model on a mimir server can explain itself.
+func (s *Service) Explain(ctx context.Context, vhost, name string, row inference.Row, label string) (inference.Row, error) {
+	m, err := s.Model(ctx, vhost, name)
+	if err != nil {
+		return nil, err
+	}
+	if m.Backend != inference.BackendMimir {
+		return nil, fmt.Errorf("model %q: %w", name, inference.ErrNotMimir)
+	}
+	target, err := s.target(ctx, m)
+	if err != nil {
+		return nil, err
+	}
+	why, err := s.client.Explain(ctx, target, row, label)
+	if err != nil {
+		return nil, fmt.Errorf("model %q: %w", name, err)
+	}
+	return why, nil
+}
+
 // observed tells the monitor of a prediction, wherever it was scored, for
 // the prediction log and drift.
 func (s *Service) observed(ctx context.Context, m storage.MLModel, rows, out []inference.Row, start time.Time, took time.Duration) {

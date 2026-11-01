@@ -38,6 +38,8 @@ type fakeMimir struct {
 	fields   []map[string]string
 	answer   func(fields map[string]string) *mimirv1.PredictResponse
 	models   []*mimirv1.Model
+	feedback []*mimirv1.SendFeedbackRequest
+	labels   []string
 	fail     error
 }
 
@@ -211,5 +213,88 @@ func TestListMimirModelsRefusesABadAddress(t *testing.T) {
 	}
 	if _, err := NewClient(nil).ListMimirModels(context.Background(), "http://m:8080", ""); err == nil {
 		t.Fatal("a call without a key was attempted")
+	}
+}
+
+func (f *fakeMimir) SendFeedback(_ context.Context, req *connect.Request[mimirv1.SendFeedbackRequest]) (*connect.Response[mimirv1.SendFeedbackResponse], error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.auth = append(f.auth, req.Header().Get("Authorization"))
+	f.feedback = append(f.feedback, req.Msg)
+	if f.fail != nil {
+		return nil, f.fail
+	}
+	return connect.NewResponse(&mimirv1.SendFeedbackResponse{Correct: req.Msg.GetLabel() == "left" || req.Msg.GetValue() == 41.5}), nil
+}
+
+func (f *fakeMimir) Explain(_ context.Context, req *connect.Request[mimirv1.ExplainRequest]) (*connect.Response[mimirv1.ExplainResponse], error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.modelIDs = append(f.modelIDs, req.Msg.GetModelId())
+	f.fields = append(f.fields, req.Msg.GetFields())
+	f.labels = append(f.labels, req.Msg.GetLabel())
+	if f.fail != nil {
+		return nil, f.fail
+	}
+	return connect.NewResponse(&mimirv1.ExplainResponse{
+		Label: "left", Value: 0.8, Typical: 0.3, Exact: true,
+		Contributions: []*mimirv1.Contribution{
+			{Column: "plan", Value: "monthly", Typical: "yearly", Effect: 0.4},
+			{Column: "tenure", Value: "3", Typical: "18", Effect: 0.1},
+		},
+	}), nil
+}
+
+func TestMimirFeedbackSendsALabelOrANumberAndReadsWhetherTheModelWasRight(t *testing.T) {
+	f := &fakeMimir{}
+	target := Target{Backend: BackendMimir, URL: f.serve(t), Model: "m-1", Token: "k"}
+	c := NewClient(nil)
+
+	right, err := c.SendFeedback(context.Background(), target, "p-3", "left")
+	if err != nil || !right {
+		t.Fatalf("label feedback: right=%v err=%v", right, err)
+	}
+	right, err = c.SendFeedback(context.Background(), target, "p-4", 41.5)
+	if err != nil || !right {
+		t.Fatalf("number feedback: right=%v err=%v", right, err)
+	}
+	right, err = c.SendFeedback(context.Background(), target, "p-5", "stayed")
+	if err != nil || right {
+		t.Fatalf("wrong label: right=%v err=%v", right, err)
+	}
+	if len(f.feedback) != 3 || f.feedback[0].GetPredictionId() != "p-3" || f.feedback[0].GetLabel() != "left" ||
+		f.feedback[1].GetValue() != 41.5 || f.feedback[1].GetLabel() != "" {
+		t.Fatalf("feedback sent = %v", f.feedback)
+	}
+	if _, err := c.SendFeedback(context.Background(), target, "", "left"); err == nil {
+		t.Fatal("feedback without a prediction id was sent")
+	}
+	if _, err := c.SendFeedback(context.Background(), Target{Backend: BackendOIP, URL: "http://m", Model: "x"}, "p", "left"); !errors.Is(err, ErrNotMimir) {
+		t.Fatalf("err = %v, want ErrNotMimir for an Open Inference model", err)
+	}
+}
+
+func TestMimirExplainReadsEachColumnsEffect(t *testing.T) {
+	f := &fakeMimir{}
+	target := Target{Backend: BackendMimir, URL: f.serve(t), Model: "m-1", Token: "k", Features: []string{"plan", "tenure"}}
+	got, err := NewClient(nil).Explain(context.Background(), target, Row{"plan": "monthly", "tenure": 3, "noise": 1}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Row{
+		"label": "left", "number": false, "value": 0.8, "typical": 0.3, "exact": true,
+		"contributions": []map[string]any{
+			{"column": "plan", "value": "monthly", "typical": "yearly", "effect": 0.4},
+			{"column": "tenure", "value": "3", "typical": "18", "effect": 0.1},
+		},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("explanation = %#v\nwant %#v", got, want)
+	}
+	if !reflect.DeepEqual(f.fields[0], map[string]string{"plan": "monthly", "tenure": "3"}) {
+		t.Fatalf("sent %v, want the declared columns only", f.fields[0])
+	}
+	if _, err := NewClient(nil).Explain(context.Background(), Target{Backend: BackendMLflow, URL: "http://m"}, Row{}, ""); !errors.Is(err, ErrNotMimir) {
+		t.Fatalf("err = %v, want ErrNotMimir", err)
 	}
 }

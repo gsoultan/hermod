@@ -149,6 +149,38 @@ export async function predict(vhost: string, name: string, instances: Record<str
   return (body?.predictions ?? []) as unknown[]
 }
 
+/** One column's part in a mimir model's answer, against a typical row. */
+export interface Contribution {
+  column: string
+  value: string
+  typical: string
+  /** In chance (0.18 is 18 points) for a label model, in the number's units otherwise. */
+  effect: number
+}
+
+/** Why a mimir model answers as it does for one row. */
+export interface Explanation {
+  label?: string
+  number?: boolean
+  value?: number
+  typical?: number
+  exact?: boolean
+  contributions: Contribution[]
+}
+
+/** Asks a mimir model why it answers as it does for one row; `label` names the answer to explain, empty for the one it gives. */
+export async function explain(vhost: string, name: string, instance: Record<string, unknown>, label = ''): Promise<Explanation> {
+  const res = await apiFetch(`${modelUrl(vhost, name)}/explain`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ instance, label }),
+    silent: true,
+  })
+  const body = await res.json()
+  const why = (body?.explanation ?? {}) as Partial<Explanation>
+  return { ...why, contributions: Array.isArray(why.contributions) ? why.contributions : [] }
+}
+
 /** A recommendation model's task. */
 export const RECOMMENDATION = 'recommendation'
 
