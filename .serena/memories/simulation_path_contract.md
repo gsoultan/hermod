@@ -21,6 +21,37 @@ A node can be reported more than once: a failure is an `error` step followed by 
 `filtered` one. The UI ranks a node's steps (error > emitted > skipped >
 filtered) rather than taking the last.
 
+A failed node sends nothing on, whatever its executor handed back. The live
+traversal prunes every edge out of a failed node (`handleResults`); `simulation.run`
+used to forward `msgs[0]` even with an error, so the preview showed the nodes
+after a failure running on its output. Now the error step keeps that payload (for
+the editor to show) and `run` returns nil, so what follows is `skipped`.
+`TestSimulationSendsNothingPastANodeThatFailed`.
+
+## Where branches meet
+
+A node with several in-edges fires once, and what every delivering branch
+brought is merged into the waiting message by one rule, `traversal.MergeData`
+(deep by default, the node's `strategy` can say `overwrite`/`shallow` or
+`if_missing`). `simulation.deliver` and the live `resolveEdge` both call it.
+The traversal used to keep the first arrival and merge only into a `join`
+(Stateful Join) node, so a line split in two and drawn back together ran the
+meeting node on one half's data and dropped the other's silently while the
+preview showed both. `TestWorkflowTraversal_BranchesThatBothDeliverMergeWhereTheyMeet`.
+
+## What the editor reads from the run, and when it stops
+
+`useNodeContext` reads a predecessor's step as a node's input ahead of every
+stored sample — but only while the run still speaks for it. `staleSimulationNodes`
+(`simulation/simulationPath.ts`, next to `simulationOutdated`) marks a node stale
+when its `data` object or type differs from `testRunGraph`, when an edge into it
+was added, removed or rewired, and everything downstream of either. A stale node's
+step is passed over like an unrun node's, so the walk falls back to the nearest
+output that still holds and `inputSkipped` counts the gap. Without `testRunGraph`
+(tests that set `testResults` alone) nothing is stale. Before this, renaming a
+`targetField` after a Test left the old name in the next node's Available Fields
+and ran its Live Preview on the old payload. `useNodeContextStaleRun.test.tsx`.
+
 ## Why this existed as a bug
 
 The highlight was deleted with the legacy `useStyledFlow` (`ce5d533`) and nothing

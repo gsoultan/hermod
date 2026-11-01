@@ -14,6 +14,7 @@ Hermod provides a suite of advanced nodes for complex data orchestration:
 - **Approval Node (HITL)**: Halts the workflow and creates a manual approval request. Supports custom form definitions (JSON) that users fill out in the Approvals UI.
 - **Log Node**: Explicitly sends data or fields to the live logging system, helpful for debugging production workflows.
 - **Error Branching**: All nodes support an `error` output branch. If a node fails, the engine automatically routes the message along the `error` edge if configured.
+- **Splitting and merging lines**: a node may feed several nodes (one line split into many) and several nodes may feed one (many lines merged into one). A node that several lines lead into runs once, after every line into it has either delivered or been ruled out by a branch that was not taken. When more than one line delivers, what each brought is merged into one message before the node runs (nested objects key by key; the node's `strategy` setting can ask for `overwrite` or `if_missing` instead), so a line split in two and drawn back together loses neither half. Simulate merges the same way, with the same rule (`traversal.MergeData`).
 
 ## Execution‑Level Fan‑out (Foreach Node)
 
@@ -136,3 +137,8 @@ wrote, because they share the transaction, and nothing reaches the real table.
   back to the pool).
 - DB Lookup skips the shared lookup cache and batching in a preview, so it never answers
   with, or keeps, a row the preview is about to roll back.
+- A preview that fails after a write still rolls the write back. When a node after an
+  Execute SQL fails, the run ends there: the failure is reported on that node, the nodes
+  after it are reported skipped rather than run on its output, the transaction is rolled
+  back and its connection returned to the pool, and the same preview can be run again
+  straight away.

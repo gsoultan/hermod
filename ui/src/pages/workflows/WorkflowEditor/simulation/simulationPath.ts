@@ -315,3 +315,51 @@ export function describeSimulationResult(result: SimulationNodeResult): string {
   if (result.error) text += `. ${result.error}`;
   return text;
 }
+
+let staleCache: { steps: Steps; graph: RunGraph; nodes: readonly Node[]; edges: readonly Edge[]; stale: ReadonlySet<string> } | null = null;
+
+const EMPTY_SET: ReadonlySet<string> = new Set();
+
+/**
+ * The nodes whose step in the shown simulation no longer describes what the
+ * workflow would hand on: a node reconfigured, replaced or added since the
+ * run, a node whose in-edges were added, removed or rewired, and every node
+ * after one of those. Their steps are not read for a node's input or field
+ * list. Without the graph the run was on, nothing is stale.
+ */
+export function staleSimulationNodes(
+  steps: Steps,
+  graph: RunGraph | null,
+  nodes: readonly Node[],
+  edges: readonly Edge[],
+): ReadonlySet<string> {
+  if (!Array.isArray(steps) || !graph) return EMPTY_SET;
+  if (staleCache && staleCache.steps === steps && staleCache.graph === graph && staleCache.nodes === nodes && staleCache.edges === edges) {
+    return staleCache.stale;
+  }
+  const changed = new Set<string>();
+  const ranNodes = new Map(graph.nodes.map((n) => [n.id, n]));
+  for (const n of nodes) {
+    const ran = ranNodes.get(n.id);
+    if (!ran || ran.type !== n.type || ran.data !== n.data) changed.add(n.id);
+  }
+  const ranEdges = new Map(graph.edges.map((e) => [e.id, e]));
+  for (const e of edges) {
+    const ran = ranEdges.get(e.id);
+    if (!ran || !sameWiring(ran, e)) changed.add(e.target);
+  }
+  const drawnEdges = new Set(edges.map((e) => e.id));
+  for (const e of graph.edges) {
+    if (!drawnEdges.has(e.id)) changed.add(e.target);
+  }
+  const stale = new Set<string>();
+  const pending = [...changed];
+  while (pending.length > 0) {
+    const id = pending.pop() as string;
+    if (stale.has(id)) continue;
+    stale.add(id);
+    for (const e of edges) if (e.source === id) pending.push(e.target);
+  }
+  staleCache = { steps, graph, nodes, edges, stale };
+  return stale;
+}

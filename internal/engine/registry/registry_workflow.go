@@ -1795,6 +1795,14 @@ func (s *simulation) run(id string, node *storage.WorkflowNode) (hermod.Message,
 	}
 	if err != nil {
 		s.steps = append(s.steps, WorkflowStepResult{NodeID: id, NodeType: node.Type, Error: err.Error()})
+		// A failed node sends nothing on, whatever it handed back: the live
+		// traversal prunes every edge out of it (handleResults). What it did
+		// emit stays on its step for the editor to show; forwarding it ran the
+		// nodes after a failure on its output.
+		if len(msgs) > 0 {
+			s.recordOutput(id, node, msgs[0], branch)
+		}
+		return nil, branch
 	}
 	if len(msgs) == 0 {
 		s.steps = append(s.steps, WorkflowStepResult{NodeID: id, NodeType: node.Type, Filtered: true, Branch: branch})

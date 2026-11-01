@@ -750,14 +750,18 @@ func (t *WorkflowTraversal) resolveEdge(ctx context.Context, targetID string, ms
 	if t.CurrentMessages[idx] == nil {
 		msg.Retain()
 		t.CurrentMessages[idx] = msg
-	} else if targetNode != nil && targetNode.Type == "join" {
-		// For join nodes, we must merge the data into the already-waiting message.
+	} else {
+		// A second branch has arrived at a node that fires once. Its work is
+		// merged into the message waiting there, whatever the node is: keeping
+		// only the first arrival ran the node on one branch's data and dropped
+		// the other's with nothing to say so, while the editor's simulation
+		// merged them (simulation.deliver) and showed both.
 		dest := t.CurrentMessages[idx]
-		for k, v := range msg.Data() {
-			dest.SetData(k, v)
-		}
-		for k, v := range msg.Metadata() {
-			dest.SetMetadata(k, v)
+		mergeInto(dest, targetNode, msg)
+		if targetNode != nil && targetNode.Type == "join" {
+			for k, v := range msg.Metadata() {
+				dest.SetMetadata(k, v)
+			}
 		}
 	}
 	t.MsgMu.Unlock()
