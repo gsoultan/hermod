@@ -39,6 +39,7 @@ import (
 	"github.com/gsoultan/hermod/pkg/engine/telemetry"
 	"github.com/gsoultan/hermod/pkg/infra/compression"
 	"github.com/gsoultan/hermod/pkg/infra/schema"
+	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
 )
 
 // --- StartWorkflow sub-functions ---
@@ -368,6 +369,11 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 		for _, problem := range unroutedBranches(wf) {
 			r.broadcastLog(id, "WARN", problem)
 		}
+		if wf.DryRun {
+			r.broadcastLog(id, "INFO", "[DRY-RUN] Execute SQL, DB Lookup and SCD run inside a transaction per message "+
+				"that is rolled back when the message is done: the nodes after a write see it, nothing is saved, "+
+				"and a later message does not see an earlier message's rows.")
+		}
 	}()
 
 	r.mu.Lock()
@@ -656,7 +662,25 @@ func (r *Registry) setupWorkflowRouter(
 		msg.Retain()
 		t.CurrentMessages[nodeIndex[sourceNodeID]] = msg
 
-		t.Traverse(ctx, sourceNodeID)
+		// A dry run writes to no sink, and Execute SQL and SCD are nodes, not
+		// sinks: without this they inserted and updated real rows. The
+		// message's SQL runs in a transaction per database that its own nodes
+		// share and that is rolled back once its walk is over.
+		walkCtx := ctx
+		var sandbox *sqlutil.Sandbox
+		if eng.IsDryRun() {
+			sandbox = sqlutil.NewSandbox(ctx)
+			walkCtx = sqlutil.WithSandbox(ctx, sandbox)
+		}
+
+		t.Traverse(walkCtx, sourceNodeID)
+
+		if sandbox != nil {
+			if err := sandbox.Rollback(); err != nil {
+				r.BroadcastLog(id, "WARN", fmt.Sprintf(
+					"[DRY-RUN] Rolling back this message's database work failed: %v", err), msg.ID())
+			}
+		}
 
 		// Clone the routed messages slice before releasing the traversal back to
 		// the pool. This avoids a data race where a subsequent message reuse

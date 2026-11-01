@@ -52,7 +52,67 @@ func Use(ctx context.Context, db *sql.DB, driver string) (DB, error) {
 	if sb == nil {
 		return poolDB{db}, nil
 	}
+	if sc, _ := ctx.Value(nodeScopeKey{}).(*nodeScope); sc != nil {
+		sc.take(sb)
+	}
 	return sb.use(db, driver)
+}
+
+type nodeScopeKey struct{}
+
+// EnterNode marks ctx as one node's run and returns the call that ends it.
+//
+// A workflow walks its branches on separate goroutines, but a sandbox has one
+// connection per database, and a connection runs one statement at a time --
+// with a result still being read, a second query on it fails. So the first
+// time a node uses the sandbox it takes the sandbox's turn, and keeps it until
+// leave: nodes that use the database run one after another, the rest stay
+// parallel. A node must close its rows before it returns.
+//
+// Outside a sandbox it does nothing.
+func EnterNode(ctx context.Context) (context.Context, func()) {
+	if sandboxFrom(ctx) == nil {
+		return ctx, func() {}
+	}
+	parent, _ := ctx.Value(nodeScopeKey{}).(*nodeScope)
+	sc := &nodeScope{parent: parent}
+	return context.WithValue(ctx, nodeScopeKey{}, sc), sc.leave
+}
+
+type nodeScope struct {
+	parent *nodeScope
+	mu     sync.Mutex
+	held   *Sandbox
+}
+
+// take gives the node the sandbox's turn, unless it, or a node it runs inside
+// (a sub-flow), already has it: waiting there would wait on itself.
+func (sc *nodeScope) take(sb *Sandbox) {
+	for p := sc; p != nil; p = p.parent {
+		if p.holds(sb) {
+			return
+		}
+	}
+	sb.turn.Lock()
+	sc.mu.Lock()
+	sc.held = sb
+	sc.mu.Unlock()
+}
+
+func (sc *nodeScope) holds(sb *Sandbox) bool {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	return sc.held == sb
+}
+
+func (sc *nodeScope) leave() {
+	sc.mu.Lock()
+	sb := sc.held
+	sc.held = nil
+	sc.mu.Unlock()
+	if sb != nil {
+		sb.turn.Unlock()
+	}
 }
 
 type poolDB struct{ *sql.DB }
@@ -83,13 +143,15 @@ func sandboxFrom(ctx context.Context) *Sandbox {
 	return sb
 }
 
-// Sandbox is one preview run's view of its databases: a transaction per pool,
+// Sandbox is one preview run's -- or one dry-run message's -- view of its
+// databases: a transaction per pool,
 // opened the first time a node uses that pool and rolled back when the run
 // ends. Nothing a preview writes is committed, and every node of the run sees
 // what the nodes before it wrote, because they all share the transaction.
 //
-// The nodes of a run execute one after another, which is what lets them
-// share one connection. A node must close its rows before it returns.
+// Nodes share one connection per database. A preview runs its nodes one
+// after another; a dry run walks branches in parallel and takes turns through
+// EnterNode. A node must close its rows before it returns.
 type Sandbox struct {
 	// base is what each transaction is bound to. When the request behind the
 	// run goes away, database/sql rolls the transaction back on its own.
@@ -98,6 +160,10 @@ type Sandbox struct {
 	mu     sync.Mutex
 	txs    map[*sql.DB]*sandboxTx
 	closed bool
+
+	// turn is held by the one node using the sandbox's connections; see
+	// EnterNode.
+	turn sync.Mutex
 }
 
 // NewSandbox starts a run's sandbox. Its transactions are bound to ctx; the

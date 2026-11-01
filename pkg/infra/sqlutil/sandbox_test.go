@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -306,5 +307,80 @@ func TestSandboxRollbackIsIdempotent(t *testing.T) {
 	}
 	if Sandboxed(context.Background()) {
 		t.Error("Sandboxed is true on a bare context")
+	}
+}
+
+// A dry run walks branches on separate goroutines, and the sandbox has one
+// connection per database. A node that uses it holds the turn until it
+// leaves, so a second node waits rather than talking over the first.
+func TestEnterNodeTakesTurnsOnTheSandbox(t *testing.T) {
+	db := newSandboxDB(t)
+	sb := NewSandbox(t.Context())
+	t.Cleanup(func() { _ = sb.Rollback() })
+	ctx := WithSandbox(t.Context(), sb)
+
+	first, leaveFirst := EnterNode(ctx)
+	if _, err := Use(first, db, "sqlite"); err != nil {
+		t.Fatalf("Use: %v", err)
+	}
+
+	entered := make(chan struct{})
+	go func() {
+		second, leaveSecond := EnterNode(ctx)
+		defer leaveSecond()
+		if _, err := Use(second, db, "sqlite"); err != nil {
+			t.Errorf("Use: %v", err)
+		}
+		close(entered)
+	}()
+
+	select {
+	case <-entered:
+		t.Fatal("a second node used the sandbox while the first still had its turn")
+	case <-time.After(50 * time.Millisecond):
+	}
+	leaveFirst()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the second node never got its turn after the first left")
+	}
+}
+
+// A node that runs others inside it (a sub-flow) already holds the turn; the
+// nodes inside must not wait on it, or the run waits on itself.
+func TestEnterNodeInsideANodeThatHoldsTheTurn(t *testing.T) {
+	db := newSandboxDB(t)
+	sb := NewSandbox(t.Context())
+	t.Cleanup(func() { _ = sb.Rollback() })
+	ctx := WithSandbox(t.Context(), sb)
+
+	outer, leaveOuter := EnterNode(ctx)
+	defer leaveOuter()
+	if _, err := Use(outer, db, "sqlite"); err != nil {
+		t.Fatalf("Use: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		inner, leaveInner := EnterNode(outer)
+		defer leaveInner()
+		if _, err := Use(inner, db, "sqlite"); err != nil {
+			t.Errorf("Use: %v", err)
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a node inside one holding the turn waited on it")
+	}
+}
+
+func TestEnterNodeOutsideASandboxDoesNothing(t *testing.T) {
+	ctx, leave := EnterNode(context.Background())
+	leave()
+	if ctx.Value(nodeScopeKey{}) != nil {
+		t.Error("EnterNode marked a context with no sandbox")
 	}
 }

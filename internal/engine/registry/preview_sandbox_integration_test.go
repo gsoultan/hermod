@@ -94,3 +94,29 @@ func TestRunPreviewOnPostgresSeesItsWritesAndCommitsNone(t *testing.T) {
 		t.Errorf("the preview wrote %d row(s) to PostgreSQL", n)
 	}
 }
+
+// A dry run on PostgreSQL: several messages in flight, each with its own
+// transaction, two branches per message sharing it, and nothing committed.
+func TestDryRunOnPostgresSeesItsWritesPerMessageAndCommitsNone(t *testing.T) {
+	dsn := os.Getenv("POSTGRES_DSN")
+	if os.Getenv("HERMOD_INTEGRATION") != "1" || dsn == "" {
+		t.Skip("integration: set HERMOD_INTEGRATION=1 and POSTGRES_DSN to run")
+	}
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("open postgres: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	for _, q := range []string{
+		"DROP TABLE IF EXISTS orders",
+		"CREATE TABLE orders (id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, code TEXT UNIQUE, status TEXT)",
+	} {
+		if _, err := db.ExecContext(t.Context(), q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	t.Cleanup(func() { _, _ = db.ExecContext(context.Background(), "DROP TABLE IF EXISTS orders") })
+
+	assertDryRunWritesNothing(t, db, storage.Source{ID: "orders-db", Name: "orders", Type: "postgres",
+		Config: map[string]string{"connection_string": dsn, "use_cdc": "false"}})
+}
