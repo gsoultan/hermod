@@ -68,6 +68,25 @@ the Hermod name (`hermodName` slugifies). Mantine Select in tests: query the
   `ModelTestModal.tsx`. Tests: `mlFeedbackConfig.test.tsx`,
   `mlModelTestModal.test.tsx`, `mlPredictConfig.test.tsx`.
 
+## Phase 3: mimir events on the webhook source (branch `feat/mimir-webhook-events`)
+
+- `internal/webhooks/transport/http/mimir.go`: source config `preset: "mimir"`
+  switches `HandleWebhook` to `mimirwebhook.Parse` (SDK `webhook` package)
+  on the `Mimir-Signature` header with the source's `secret`; the plain
+  `X-Hub-Signature-256` check steps aside (`authenticateWebhook` returns OK
+  for the preset). No secret → 503 `msgMimirNeedsSecret`.
+- De-dup: `recentEvents` on `WebhookHandler.seen`, keyed path+Event.ID,
+  25 h TTL, 10k cap, per process. Repeat → `200 {"status":"duplicate"}`;
+  unwanted type (`events` comma list) → `200 {"status":"ignored"}`. Both 2xx
+  on purpose: mimir retries anything else for a day.
+- Message: body as sent, metadata `mimir_event` / `mimir_event_id`. Replay
+  (`internal/source/transport/http` ReplayWebhookRequest) bypasses all of it.
+- UI: `OtherSourceConfig.tsx` **Sender** Select (`preset`), `MIMIR_EVENTS`
+  MultiSelect (`events`, saved comma-joined), **Webhook secret** required,
+  API key / HTTP method hidden for the preset. Tests in
+  `webhookCredentials.test.tsx`. Docs: `docs/api-sources.md` "mimir-server
+  events".
+
 ## Traps
 
 - The SDK's `go get` bumped shared deps (pgx, modernc sqlite, prometheus,
