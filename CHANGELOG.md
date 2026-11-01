@@ -7,6 +7,22 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — Sub-flows: reuse one workflow inside others
+
+- **Editor**: a workflow that starts at a new **Sub-flow input** step and ends at one or more
+  **Return** steps is a sub-flow. Another workflow runs it with a **Run sub-flow** step, which
+  pins a saved version, maps the caller's fields onto the sub-flow's inputs and maps the result
+  back. Each named Return is its own way out of the step, and `error` takes a failure the
+  sub-flow does not handle.
+- **Engine**: the pinned version is spliced into the caller when it starts, so a sub-flow runs in
+  the caller's run and acknowledgement. Commit together and the Kafka exactly-once rule are
+  checked with the sub-flow's sinks included, and a sink inside a sub-flow keys its writes on the
+  caller's idempotency key plus the step's ID. Saving refuses a call that is not pinned, misses a
+  required input, calls itself or nests more than five deep.
+- **Runs**: the steps inside a sub-flow are listed, named and indented, under the step that ran it.
+- **Workers**: a remote worker reads the pinned sub-flow version from the platform; its storage
+  adapter answered every version "not found" before.
+
 ### Fixed — Lines that split and meet again keep both halves, and a preview stops where it fails
 
 - **Engine**: a node that several lines lead into ran on whichever line's message

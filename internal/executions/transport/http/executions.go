@@ -70,13 +70,14 @@ func (h *ExecutionsHandler) ListExecutions(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	resp := listResponse{Executions: make([]executions.Execution, 0, len(traces))}
+	steps := h.withSubflowSteps(r.Context(), wf)
 	for _, summary := range traces {
 		full, err := h.LogStorage.GetMessageTrace(r.Context(), wf.ID, summary.MessageID)
 		if err != nil {
 			// Swept by retention between the two reads: not a run any more.
 			continue
 		}
-		resp.Executions = append(resp.Executions, executions.FromTrace(wf, full, false))
+		resp.Executions = append(resp.Executions, executions.FromTrace(steps, full, false))
 	}
 	if len(traces) == filter.Limit {
 		resp.NextBefore = traces[len(traces)-1].CreatedAt.Format(time.RFC3339Nano)
@@ -96,7 +97,7 @@ func (h *ExecutionsHandler) GetExecution(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(executions.FromTrace(wf, trace, true))
+	_ = json.NewEncoder(w).Encode(executions.FromTrace(h.withSubflowSteps(r.Context(), wf), trace, true))
 }
 
 // ReplayExecution runs a past run's input through the workflow again, from

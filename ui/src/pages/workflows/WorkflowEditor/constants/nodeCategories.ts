@@ -8,7 +8,8 @@ import {
   IconBrandFacebook, IconBrandInstagram, IconBrandLinkedin, IconBrandTiktok, IconExternalLink, IconLock, IconLockOpen, IconSitemap,
   IconSparkles, IconTextScan2, IconTags, IconFileDescription, IconLanguage, IconVector, IconDatabaseSearch, IconRobot, IconBrain, IconSchool,
   IconLayoutList, IconStack2, IconArrowsMaximize, IconBraces, IconTemplate, IconGitCompare, IconFileSearch, IconMapPin,
-  IconScale, IconBinary, IconChartHistogram, IconTimeline, IconAlertTriangle, IconBolt, IconMessageCheck
+  IconScale, IconBinary, IconChartHistogram, IconTimeline, IconAlertTriangle, IconBolt, IconMessageCheck,
+  IconBoxMultiple, IconLogin, IconLogout,
 } from '@tabler/icons-react';
 
 export const NODE_CATEGORIES = [
@@ -44,6 +45,9 @@ export const NODE_CATEGORIES = [
       { type: 'wait', refId: 'new', label: 'Wait (Pause)', subType: 'wait', icon: IconHistory, color: 'indigo', description: 'Pause execution for a specific duration (supports long-running)' },
       { type: 'transformation', refId: 'new', label: 'Aggregate', subType: 'aggregate', icon: IconDatabase, color: 'pink', description: 'Group and summarize records' },
       { type: 'stateful', refId: 'new', label: 'Stateful', subType: 'stateful', icon: IconDatabase, color: 'pink', description: 'Store and recall workflow state' },
+      { type: 'call_subflow', refId: 'new', label: 'Run sub-flow', subType: 'call_subflow', icon: IconBoxMultiple, color: 'violet', description: 'Run a reusable sub-flow on the record and use its result' },
+      { type: 'subflow_input', refId: 'new', label: 'Sub-flow input', subType: 'subflow_input', icon: IconLogin, color: 'violet', description: 'Start a sub-flow here: the fields a caller passes in' },
+      { type: 'subflow_return', refId: 'new', label: 'Return', subType: 'subflow_return', icon: IconLogout, color: 'violet', description: 'End a sub-flow here and hand the record back to its caller' },
       { type: 'approval', refId: 'new', label: 'Approval (Human Gate)', subType: 'approval', icon: IconCircleCheck, color: 'green', description: 'Pause execution until approved or rejected' },
     ]
   },

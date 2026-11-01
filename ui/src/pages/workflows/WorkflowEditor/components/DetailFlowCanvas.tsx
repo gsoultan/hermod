@@ -165,6 +165,9 @@ export const detailNodeTypes = {
   collect: StepNode,
   deduplicate: StepNode,
   note: StepNode,
+  call_subflow: StepNode,
+  subflow_input: StepNode,
+  subflow_return: StepNode,
 };
 
 /** Every line is a live one: it moves, at the rate messages cross it, only while they do. */

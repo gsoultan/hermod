@@ -243,7 +243,7 @@ func (a *apiStorage) ListWorkflowVersions(ctx context.Context, workflowID string
 	return nil, nil
 }
 func (a *apiStorage) GetWorkflowVersion(ctx context.Context, workflowID string, version int) (storage.WorkflowVersion, error) {
-	return storage.WorkflowVersion{}, storage.ErrNotFound
+	return a.WorkerAPIClient.GetWorkflowVersion(ctx, workflowID, version)
 }
 
 // --- Transactional outbox ---

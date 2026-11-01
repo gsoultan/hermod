@@ -19,6 +19,7 @@ import (
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/engine/registry/noderetry"
+	"github.com/gsoultan/hermod/internal/engine/registry/subflow"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/infra/evaluator"
 )
@@ -264,7 +265,7 @@ func orphanIssues(wf storage.Workflow) (issues []ValidationIssue) {
 	for _, n := range wf.Nodes {
 		nodeType := effectiveNodeType(n)
 
-		if nodeType != "source" && incoming[n.ID] == 0 {
+		if nodeType != "source" && nodeType != subflow.TypeInput && incoming[n.ID] == 0 {
 			issues = append(issues, ValidationIssue{
 				Severity:       "warning",
 				Message:        fmt.Sprintf("Node '%s' is not connected to any input.", n.ID),
@@ -272,7 +273,7 @@ func orphanIssues(wf storage.Workflow) (issues []ValidationIssue) {
 				NodeID:         n.ID,
 			})
 		}
-		if nodeType != "sink" && outgoing[n.ID] == 0 {
+		if nodeType != "sink" && nodeType != subflow.TypeReturn && outgoing[n.ID] == 0 {
 			issues = append(issues, ValidationIssue{
 				Severity:       "warning",
 				Message:        fmt.Sprintf("Node '%s' has no outgoing connections.", n.ID),
@@ -309,6 +310,15 @@ func (h *WorkflowHandler) ValidateWorkflow(ctx context.Context, wf storage.Workf
 	nodeIssues, hasSource, hasSink := nodeConfigIssues(wf)
 	issues = append(issues, nodeIssues...)
 
+	// A sub-flow starts at its Sub-flow input step and need not write anywhere:
+	// what it returns goes back to the step that called it.
+	isSubflow := subflow.IsSubflow(wf)
+	if isSubflow {
+		issues = append(issues, subflowShapeIssues(wf)...)
+		hasSource, hasSink = true, true
+	}
+	issues = append(issues, h.subflowCallIssues(ctx, wf)...)
+
 	if !hasSource {
 		issues = append(issues, ValidationIssue{
 			Severity:       "error",
@@ -332,6 +342,53 @@ func (h *WorkflowHandler) ValidateWorkflow(ctx context.Context, wf storage.Workf
 	issues = append(issues, h.commitTogetherIssues(ctx, wf)...)
 	issues = append(issues, h.kafkaExactlyOnceIssues(ctx, wf)...)
 
+	return issues
+}
+
+// subflowShapeIssues refuses a sub-flow its callers could not run.
+func subflowShapeIssues(wf storage.Workflow) []ValidationIssue {
+	err := subflow.CheckShape(wf)
+	if err == nil {
+		return nil
+	}
+	return []ValidationIssue{{
+		Severity: "error",
+		Message:  "Sub-flow: " + err.Error() + ".",
+		Recommendation: "A sub-flow starts at one Sub-flow input step, which takes the data a caller maps to it, " +
+			"and ends at one or more Return steps. It has no source of its own.",
+	}}
+}
+
+// subflowCallIssues refuses a Run sub-flow step that would not run: a sub-flow
+// that is missing, not pinned, calls itself, or needs an input the step does
+// not map. The engine splices each sub-flow in when the workflow starts; this
+// does the same when it is saved, so the mistake shows on the step.
+func (h *WorkflowHandler) subflowCallIssues(ctx context.Context, wf storage.Workflow) (issues []ValidationIssue) {
+	if !subflow.HasCalls(wf) || h.Registry == nil {
+		return nil
+	}
+	// Each call is checked on its own so the issue can name its step.
+	for _, n := range wf.Nodes {
+		if n.Type != subflow.TypeCall {
+			continue
+		}
+		one := wf
+		one.Nodes = nil
+		for _, m := range wf.Nodes {
+			if m.Type != subflow.TypeCall || m.ID == n.ID {
+				one.Nodes = append(one.Nodes, m)
+			}
+		}
+		if _, err := h.Registry.ExpandSubflows(ctx, one); err != nil {
+			issues = append(issues, ValidationIssue{
+				Severity: "error",
+				Message:  err.Error(),
+				Recommendation: "Open the Run sub-flow step, pick a saved version of the sub-flow, and map every " +
+					"required input to a field of this workflow.",
+				NodeID: n.ID,
+			})
+		}
+	}
 	return issues
 }
 

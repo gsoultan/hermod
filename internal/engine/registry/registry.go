@@ -37,6 +37,7 @@ import (
 	"github.com/gsoultan/hermod/internal/aibudget"
 	"github.com/gsoultan/hermod/internal/discovery/service"
 	"github.com/gsoultan/hermod/internal/engine/registry/interfaces"
+	"github.com/gsoultan/hermod/internal/engine/registry/subflow"
 	"github.com/gsoultan/hermod/internal/engine/registry/traversal"
 	"github.com/gsoultan/hermod/internal/factory"
 	"github.com/gsoultan/hermod/internal/governance"
@@ -266,12 +267,17 @@ type activeEngine struct {
 	// its background flusher does not outlive the run. The supervisor restarts
 	// workflows automatically, so a per-start goroutine that is never released
 	// accumulates for as long as the worker is up.
-	dbLogger      *DatabaseLogger
-	cancel        context.CancelFunc
-	done          <-chan struct{}
-	srcConfigs    []factory.SourceConfig
-	snkConfigs    []factory.SinkConfig
-	isWorkflow    bool
+	dbLogger   *DatabaseLogger
+	cancel     context.CancelFunc
+	done       <-chan struct{}
+	srcConfigs []factory.SourceConfig
+	snkConfigs []factory.SinkConfig
+	isWorkflow bool
+	// saved is the workflow as stored, before its sub-flows were spliced in;
+	// workflow is what the engine runs. The worker compares storage against
+	// saved — against workflow, a caller would differ on every sync and be
+	// restarted each time.
+	saved         storage.Workflow
 	workflow      storage.Workflow
 	baseProcessed uint64
 	baseErrors    uint64
@@ -2181,6 +2187,9 @@ func (r *Registry) GetWorkflowConfig(id string) (storage.Workflow, bool) {
 	if !ok || !ae.isWorkflow {
 		return storage.Workflow{}, false
 	}
+	if ae.saved.ID != "" {
+		return ae.saved, true
+	}
 	return ae.workflow, true
 }
 
@@ -2301,6 +2310,17 @@ func (g *graphWalk) checkEdges(edges []storage.WorkflowEdge) error {
 }
 
 func (r *Registry) ValidateWorkflow(ctx context.Context, wf storage.Workflow) error {
+	// 0. A sub-flow runs inside its callers, never alone; a caller is checked
+	// with its sub-flows spliced in, so nothing below can be got around by
+	// moving a step into one.
+	if subflow.IsSubflow(wf) {
+		return errSubflowStarted
+	}
+	wf, err := r.ExpandSubflows(ctx, wf)
+	if err != nil {
+		return err
+	}
+
 	// 1. Check if all nodes are configured and exist
 	if err := r.checkNodeRefs(ctx, wf.Nodes); err != nil {
 		return err

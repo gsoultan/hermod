@@ -76,6 +76,8 @@ var paletteNotOffered = map[string]string{
 	"merge":                   "an editor-only join point; the engine passes messages through it",
 	"note":                    "a canvas annotation, not a processing step",
 	"transformation:pipeline": "a composite of other steps; a draft lays the steps out as nodes instead",
+	"subflow_input":           "starts a sub-flow, which has no source; a draft is a workflow that starts at one",
+	"subflow_return":          "ends a sub-flow; a draft is a workflow that ends at its sinks",
 }
 
 var paletteItem = regexp.MustCompile(`\{\s*type:\s*'([a-z_0-9]+)'[^}]*?subType:\s*'([a-z_0-9]+)'`)

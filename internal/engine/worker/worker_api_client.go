@@ -19,6 +19,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -169,6 +170,28 @@ func (c *WorkerAPIClient) GetWorkflow(ctx context.Context, id string) (storage.W
 	var wf storage.Workflow
 	err = json.NewDecoder(resp.Body).Decode(&wf)
 	return wf, err
+}
+
+// GetWorkflowVersion reads one saved version of a workflow: the sub-flow
+// version a caller pins.
+func (c *WorkerAPIClient) GetWorkflowVersion(ctx context.Context, id string, version int) (storage.WorkflowVersion, error) {
+	resp, err := c.doRequest(ctx, "GET", "/api/workflows/"+url.PathEscape(id)+"/versions/"+strconv.Itoa(version), nil)
+	if err != nil {
+		return storage.WorkflowVersion{}, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusNotFound:
+		return storage.WorkflowVersion{}, storage.ErrNotFound
+	default:
+		return storage.WorkflowVersion{}, fmt.Errorf("API error: %s", resp.Status)
+	}
+
+	var v storage.WorkflowVersion
+	err = json.NewDecoder(resp.Body).Decode(&v)
+	return v, err
 }
 
 func (c *WorkerAPIClient) UpdateWorkflow(ctx context.Context, wf storage.Workflow) error {

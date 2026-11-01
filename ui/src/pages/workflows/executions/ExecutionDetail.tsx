@@ -7,6 +7,7 @@ import { notifications } from '@mantine/notifications'
 import { IconAlertCircle, IconCircleCheck, IconCircleX, IconPlayerPlay, IconSparkles } from '@tabler/icons-react'
 import { useConfirm } from '@/components/common/ConfirmProvider'
 import { formatDateTime } from '@/utils/dateUtils'
+import { callDepth } from '@/lib/subflow'
 import {
   ApiRequestError, executionsKey, formatDuration, formatTokens, getExecution, replayExecution, statusMeta,
   type ExecutionStep,
@@ -139,12 +140,15 @@ export function ExecutionDetail({ workflowId, runId, canReplay, onOpenRun }: Exe
 
 function StepCard({ step }: { step: ExecutionStep }) {
   const failed = !!step.error
+  // A step inside a sub-flow sits under the Run sub-flow step that called it.
+  const depth = callDepth(step.node_id)
   return (
     <Paper
       component="li"
       withBorder
       p="sm"
       radius="md"
+      ml={depth ? `calc(${depth} * var(--mantine-spacing-lg))` : undefined}
       style={{ borderLeft: `4px solid var(--mantine-color-${failed ? 'red' : 'green'}-filled)` }}
     >
       <Stack gap={6}>

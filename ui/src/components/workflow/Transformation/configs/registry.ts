@@ -63,6 +63,9 @@ import { ConditionConfig } from './logic/ConditionConfig'
 import { SwitchConfig } from './logic/SwitchConfig'
 import { RouterConfig } from './logic/RouterConfig'
 import { WaitConfig } from './logic/WaitConfig'
+import { SubflowCallConfig } from './logic/SubflowCallConfig'
+import { SubflowInputConfig } from './logic/SubflowInputConfig'
+import { SubflowReturnConfig } from './logic/SubflowReturnConfig'
 import { JoinConfig } from './logic/JoinConfig'
 import { ForeachConfig } from './logic/ForeachConfig'
 import { CollectConfig } from './logic/CollectConfig'
@@ -233,6 +236,9 @@ export const TRANSFORM_CONFIGS: Record<string, ConfigComponent> = {
  */
 export const NODE_TYPE_CONFIGS: Record<string, ConfigComponent> = {
   wait: WaitConfig,
+  call_subflow: SubflowCallConfig,
+  subflow_input: SubflowInputConfig,
+  subflow_return: SubflowReturnConfig,
   join: JoinConfig,
   circuit_breaker: CircuitBreakerConfig,
   foreach: ForeachConfig,

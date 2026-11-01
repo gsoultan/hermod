@@ -37,6 +37,37 @@ Notes:
 
 Default is 15000 ms. WAL mode and other safe pragmas are enabled by default.
 
+## Sub-flows
+
+A **sub-flow** is a workflow you reuse inside other workflows: a shared address clean-up, a
+validation, a write-and-audit. It starts at a **Sub-flow input** step instead of a source and ends
+at one or more **Return** steps. Another workflow runs it with a **Run sub-flow** step.
+
+- **Inputs.** The Sub-flow input step lists the fields the sub-flow takes, each optionally
+  required. The Run sub-flow step maps the caller's fields onto them (`customer.zip → zip`). The
+  sub-flow sees only those inputs, not the rest of the caller's record.
+- **Outputs.** The Run sub-flow step maps fields of the result back into the caller's record
+  (`normalized → customer.address`). With no outputs, the whole result is added under `subflow`.
+- **Returns.** With more than one Return step, each named one (`valid`, `needs_review`) is its own
+  way out of the Run sub-flow step. Every Run sub-flow step also has an `error` way out, taken by a
+  failure inside the sub-flow that the sub-flow does not handle itself, with the caller's record as
+  it was before the call.
+- **Versions.** A Run sub-flow step pins a saved version of the sub-flow (every save makes one), so
+  changing the sub-flow never changes a caller until the caller picks the new version. "Latest
+  saved" follows the sub-flow instead, and is picked up the next time the caller starts.
+- **How it runs.** When the caller starts, the pinned version's steps are spliced into the caller in
+  place of the Run sub-flow step. A sub-flow therefore runs on the caller's worker, in the caller's
+  run, with no network hop, and the source record is acknowledged only once every sink inside and
+  outside the sub-flow has written. Run history lists the steps inside a sub-flow under the Run
+  sub-flow step, with IDs such as `call~normalize`.
+- **Delivery guarantees.** Everything checked about a workflow is checked with its sub-flows spliced
+  in: commit together, the Kafka exactly-once rule, cycles. A sink inside a sub-flow writes with the
+  caller's idempotency key plus the Run sub-flow step's ID, so the same sub-flow called twice writes
+  two rows and a redelivery overwrites the rows it wrote the first time.
+- **Limits.** A sub-flow cannot have a source, cannot be turned on by itself, cannot call itself
+  (directly or through another sub-flow), and sub-flows nest at most five deep. A sub-flow must be
+  in the same virtual host as its caller.
+
 ## Workflow Versioning & Rollback
 
 Every time you save a workflow, Hermod automatically creates an immutable version in the database. This provides a complete audit trail and enables safe, rapid recovery:

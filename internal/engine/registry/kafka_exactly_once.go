@@ -82,5 +82,10 @@ func (r *Registry) CheckKafkaExactlyOnce(ctx context.Context, wf storage.Workflo
 	if r == nil {
 		return nil
 	}
+	// A call that cannot be expanded is reported by the sub-flow check, and
+	// the workflow is checked as it is drawn.
+	if expanded, err := r.ExpandSubflows(ctx, wf); err == nil {
+		wf = expanded
+	}
 	return r.checkKafkaExactlyOnce(ctx, wf)
 }

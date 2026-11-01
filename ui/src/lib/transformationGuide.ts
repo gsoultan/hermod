@@ -196,6 +196,21 @@ const GUIDES: Record<string, TransformationGuide> = {
     what: 'Gathers records into batches before passing them on.',
     firstStep: 'Set the batch size or time window.',
   },
+  call_subflow: {
+    title: 'Run sub-flow',
+    what: 'Runs a reusable sub-flow on each record and brings its result back into the record.',
+    firstStep: 'Choose the sub-flow, pin a version, then map your fields onto its inputs.',
+  },
+  subflow_input: {
+    title: 'Sub-flow input',
+    what: 'Makes this workflow a sub-flow: it starts here with the fields a caller passes in.',
+    firstStep: 'List the inputs the sub-flow needs.',
+  },
+  subflow_return: {
+    title: 'Return',
+    what: 'Ends the sub-flow and hands the record back to the step that called it.',
+    firstStep: 'Name it when the sub-flow has more than one Return.',
+  },
   wait: {
     title: 'Wait',
     what: 'Holds each record for a fixed time before passing it on.',
