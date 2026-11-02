@@ -367,3 +367,119 @@ func TestMetisDecideRefusesBadSettingsWithoutCallingMetis(t *testing.T) {
 		t.Errorf("Metis was called %d times for refused settings", n)
 	}
 }
+
+func TestMetisDecideRefusesCredentialsInTheURL(t *testing.T) {
+	f := newFakeMetis(t)
+	withUser := strings.Replace(f.srv.URL, "http://", "http://svc:hunter2@", 1)
+	_, err := runMetisDecide(t, NewMetisDecideTransformer(), f.config(map[string]any{"url": withUser}), orderFields())
+	if err == nil || !errors.Is(err, hermod.ErrPermanent) {
+		t.Fatalf("a url carrying a password should be refused, got %v", err)
+	}
+	if strings.Contains(err.Error(), "hunter2") {
+		t.Errorf("the error repeats the password: %v", err)
+	}
+	if n := f.evaluations.Load(); n != 0 {
+		t.Errorf("Metis was called %d times", n)
+	}
+}
+
+func TestMetisDecideRefusesATimeoutOverTheCap(t *testing.T) {
+	f := newFakeMetis(t)
+	_, err := runMetisDecide(t, NewMetisDecideTransformer(), f.config(map[string]any{"timeout": "10m"}), orderFields())
+	if err == nil || !errors.Is(err, hermod.ErrPermanent) {
+		t.Fatalf("a 10m timeout should be refused, got %v", err)
+	}
+}
+
+func TestMetisDecideDoesNotFollowRedirects(t *testing.T) {
+	var elsewhere atomic.Int32
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		elsewhere.Add(1)
+		_, _ = w.Write([]byte(approvalTierReply))
+	}))
+	t.Cleanup(other.Close)
+	redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, other.URL+r.URL.Path, http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(redirector.Close)
+
+	cfg := map[string]any{"url": redirector.URL, "token": "tok", "projectId": "p", "decisionKey": "k"}
+	_, err := runMetisDecide(t, NewMetisDecideTransformer(), cfg, orderFields())
+	if err == nil {
+		t.Fatal("a redirect was followed to an answer")
+	}
+	if n := elsewhere.Load(); n != 0 {
+		t.Fatalf("the token was carried to the redirect target %d times", n)
+	}
+	if !errors.Is(err, hermod.ErrPermanent) {
+		t.Errorf("a redirect is a settings problem, not worth a retry: %v", err)
+	}
+}
+
+func TestMetisDecideStopsSigningInAfterTheServerRefusesTheAccount(t *testing.T) {
+	// Every record of a stream signing in again with a wrong password is how
+	// an account gets locked out. A refused sign-in is remembered for a while.
+	f := newFakeMetis(t)
+	tr := NewMetisDecideTransformer()
+	cfg := f.config(map[string]any{"token": "", "username": "svc", "password": "wrong"})
+	for range 5 {
+		_, err := runMetisDecide(t, tr, cfg, orderFields())
+		if err == nil || !errors.Is(err, hermod.ErrPermanent) {
+			t.Fatalf("a refused sign-in should be a permanent error, got %v", err)
+		}
+	}
+	if n := f.logins.Load(); n != 1 {
+		t.Fatalf("signed in %d times with a refused password, want once", n)
+	}
+}
+
+func TestMetisDecideMergeNeverOverwritesHermodMarkers(t *testing.T) {
+	f := newFakeMetis(t)
+	f.reply = `{"result":{"values":{"tier":"manager","_hermod_failed_at":"now","_HERMOD_safe_mode":true},
+	  "matched_rules":[0],"decision_key":"approval-tier","decision_version":1}}`
+	out, err := runMetisDecide(t, NewMetisDecideTransformer(), f.config(map[string]any{"mergeOutputs": true}), orderFields())
+	if err != nil {
+		t.Fatalf("Transform: %v", err)
+	}
+	if _, ok := out.Data()["_hermod_failed_at"]; ok {
+		t.Error("a decision output marked the record as failed")
+	}
+	if _, ok := out.Data()["_HERMOD_safe_mode"]; ok {
+		t.Error("a decision output wrote a Hermod marker in another case")
+	}
+	if out.Data()["tier"] != "manager" {
+		t.Errorf("an ordinary output was not merged: %v", out.Data())
+	}
+}
+
+func TestMetisDecideCutsALongRefusal(t *testing.T) {
+	f := newFakeMetis(t)
+	f.status, f.reply = http.StatusBadRequest, `{"error":"`+strings.Repeat("x", 20000)+`"}`
+	_, err := runMetisDecide(t, NewMetisDecideTransformer(), f.config(nil), orderFields())
+	if err == nil {
+		t.Fatal("no error")
+	}
+	if len(err.Error()) > 2048 {
+		t.Errorf("error is %d bytes; a refusal's text goes to logs and dead letters, so it is bounded", len(err.Error()))
+	}
+	if !errors.Is(err, hermod.ErrPermanent) {
+		t.Errorf("cutting the text lost the permanent mark: %v", err)
+	}
+}
+
+func TestMetisDecideBoundsItsClientCache(t *testing.T) {
+	f := newFakeMetis(t)
+	tr := NewMetisDecideTransformer()
+	for i := range metisMaxClients * 2 {
+		cfg := f.config(map[string]any{"token": "tok-" + strconv.Itoa(i)})
+		if _, err := runMetisDecide(t, tr, cfg, orderFields()); err != nil {
+			t.Fatalf("Transform: %v", err)
+		}
+	}
+	tr.mu.Lock()
+	n := len(tr.clients)
+	tr.mu.Unlock()
+	if n > metisMaxClients {
+		t.Fatalf("holds %d clients, want at most %d", n, metisMaxClients)
+	}
+}

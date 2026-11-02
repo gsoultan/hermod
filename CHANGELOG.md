@@ -14,7 +14,9 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
   matched and which version of the table decided. Send the whole record or map chosen fields to
   the table's inputs, pin a version, copy the outputs to the top of the record, and choose whether
   a record no rule matches is kept, dropped or failed. Nothing changes on the Metis server, so
-  retries and dry runs are safe; Test runs it on the sample record.
+  retries and dry runs are safe; Test runs it on the sample record. Redirects are refused, a
+  refused sign-in is not retried for 30 seconds, and a decision cannot set Hermod's own
+  `_hermod…` fields.
 
 ### Changed
 

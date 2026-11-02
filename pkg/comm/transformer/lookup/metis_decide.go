@@ -23,6 +23,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/transformer"
@@ -81,6 +82,23 @@ const (
 	defaultMetisDecideField   = "decision"
 	defaultMetisDecideTimeout = 10 * time.Second
 
+	// metisMaxClients bounds the client cache. Each entry is one server and
+	// account; a rotated secret mints a new one, so the old ones are dropped.
+	metisMaxClients = 32
+
+	// metisMaxTimeout bounds the timeout a node may set: a record waits on
+	// the call, and so does every record behind it.
+	metisMaxTimeout = 2 * time.Minute
+
+	// metisLoginBackoff is how long a refused sign-in is remembered. Without
+	// it every record signs in again with the same wrong password, which is
+	// how an account gets locked.
+	metisLoginBackoff = 30 * time.Second
+
+	// metisMaxErrorText bounds what Metis's answer adds to an error, which
+	// goes to the workflow log and the dead letter.
+	metisMaxErrorText = 512
+
 	metisNoMatchKeep = "keep"
 	metisNoMatchDrop = "drop"
 	metisNoMatchFail = "fail"
@@ -105,8 +123,10 @@ type metisInput struct{ name, field string }
 type metisClient struct {
 	client *sdk.Client
 
-	authMu sync.Mutex
-	authed bool
+	authMu      sync.Mutex
+	authed      bool
+	loginErr    error
+	loginFailed time.Time
 }
 
 // metisSettingsError marks a setting problem: permanent, since every retry of
@@ -191,6 +211,9 @@ func (req *metisDecideRequest) readOptions(config map[string]any) error {
 		if err != nil || d <= 0 {
 			return metisSettingsError("timeout %q is not a duration (e.g. %q)", s, "10s")
 		}
+		if d > metisMaxTimeout {
+			return metisSettingsError("timeout %q is longer than %s", s, metisMaxTimeout)
+		}
 		req.timeout = d
 	}
 	return nil
@@ -223,7 +246,14 @@ func valueOr(v, def any) any {
 func metisRefusePlaintext(raw string) error {
 	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return metisSettingsError("the Metis address %q is not a URL like https://metis.example.com", raw)
+		// The address is not repeated: it may hold a credential.
+		return metisSettingsError("the Metis address is not a URL like https://metis.example.com")
+	}
+	if parsed.User != nil {
+		return metisSettingsError("the Metis address carries a user or password; put the token or password in its own setting")
+	}
+	if parsed.Scheme != "https" && parsed.Scheme != "http" {
+		return metisSettingsError("the Metis address must start with https://")
 	}
 	if parsed.Scheme != "http" {
 		return nil
@@ -236,6 +266,20 @@ func metisRefusePlaintext(raw string) error {
 		return nil
 	}
 	return metisSettingsError("refusing plain http to %q: the token travels in a header, so use https", host)
+}
+
+// errMetisRedirect is what a redirect from the Metis server becomes.
+var errMetisRedirect = errors.New("the Metis server answered with a redirect, which is not followed: check the server address")
+
+// metisHTTPClient is Hermod's data client without redirects. A redirect
+// carries the request, and on the same host the token, to wherever the server
+// points, and the Metis API has no reason to send one. It is refused rather
+// than returned: the SDK reads a 3xx with an empty body as an empty answer.
+var metisHTTPClient = &http.Client{
+	Transport: httpclient.DataClient.Transport,
+	CheckRedirect: func(*http.Request, []*http.Request) error {
+		return errMetisRedirect
+	},
 }
 
 // clientFor is the shared client for the request's server and account. The
@@ -251,7 +295,12 @@ func (t *MetisDecideTransformer) clientFor(req metisDecideRequest) *metisClient 
 	if c, ok := t.clients[key]; ok {
 		return c
 	}
-	opts := []sdk.Option{sdk.WithHTTPClient(httpclient.DataClient)}
+	if len(t.clients) >= metisMaxClients {
+		// Old servers and rotated secrets. Dropping them all is simpler than
+		// an LRU, and costs at most one sign-in per node still in use.
+		clear(t.clients)
+	}
+	opts := []sdk.Option{sdk.WithHTTPClient(metisHTTPClient)}
 	if req.token != "" {
 		opts = append(opts, sdk.WithToken(req.token))
 	}
@@ -274,11 +323,20 @@ func (c *metisClient) login(ctx context.Context, req metisDecideRequest, force b
 	if c.authed && !force {
 		return nil
 	}
+	if c.loginErr != nil && time.Since(c.loginFailed) < metisLoginBackoff {
+		return c.loginErr
+	}
 	if err := c.client.Login(ctx, req.username, req.password); err != nil {
 		c.authed = false
+		var apiErr *sdk.APIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 {
+			// Metis refused the account: remember it, so the next records
+			// do not try the same password again.
+			c.loginErr, c.loginFailed = err, time.Now()
+		}
 		return err
 	}
-	c.authed = true
+	c.authed, c.loginErr = true, nil
 	return nil
 }
 
@@ -303,14 +361,47 @@ func (c *metisClient) evaluate(ctx context.Context, req metisDecideRequest, vars
 
 // metisCallError says what Metis answered, marked permanent when Metis stated
 // a refusal: a 4xx is about this record or these settings, and asking again
-// gets the same answer. A transport failure or 5xx is left retryable.
+// gets the same answer, and a redirect is a server sending the token elsewhere. A
+// transport failure or 5xx is left retryable. Metis's text is cut to
+// metisMaxErrorText, since the error goes to logs and dead letters.
 func metisCallError(err error) error {
-	var apiErr *sdk.APIError
-	if errors.As(err, &apiErr) && apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 &&
-		apiErr.StatusCode != http.StatusRequestTimeout && apiErr.StatusCode != http.StatusTooManyRequests {
-		return fmt.Errorf("metis_decide: Metis refused the decision: %w (%w)", err, hermod.ErrPermanent)
+	if errors.Is(err, errMetisRedirect) {
+		return &metisError{msg: "metis_decide: " + errMetisRedirect.Error(), err: err, permanent: true}
 	}
-	return fmt.Errorf("metis_decide: Metis did not answer: %w", err)
+	var apiErr *sdk.APIError
+	if errors.As(err, &apiErr) {
+		if code := apiErr.StatusCode; code < 500 && code != http.StatusRequestTimeout && code != http.StatusTooManyRequests {
+			return &metisError{msg: "metis_decide: Metis refused the decision: " + cutText(err.Error()), err: err, permanent: true}
+		}
+	}
+	return &metisError{msg: "metis_decide: Metis did not answer: " + cutText(err.Error()), err: err}
+}
+
+// metisError keeps the SDK's error in the chain while its text is bounded.
+type metisError struct {
+	msg       string
+	err       error
+	permanent bool
+}
+
+func (e *metisError) Error() string { return e.msg }
+
+func (e *metisError) Unwrap() []error {
+	if e.permanent {
+		return []error{e.err, hermod.ErrPermanent}
+	}
+	return []error{e.err}
+}
+
+func cutText(s string) string {
+	if len(s) <= metisMaxErrorText {
+		return s
+	}
+	cut := s[:metisMaxErrorText]
+	for !utf8.ValidString(cut) {
+		cut = cut[:len(cut)-1]
+	}
+	return cut + "... (cut)"
 }
 
 func (req metisDecideRequest) variables(msg hermod.Message) sdk.Variables {
@@ -354,6 +445,11 @@ func (t *MetisDecideTransformer) Transform(ctx context.Context, msg hermod.Messa
 	msg.SetData(req.targetField, result)
 	if values, ok := result["values"].(map[string]any); ok && req.mergeOutputs {
 		for k, v := range values {
+			// Hermod's own markers say whether a record failed or was dead
+			// lettered; a decision table must not be able to set them.
+			if strings.HasPrefix(strings.ToLower(k), "_hermod") {
+				continue
+			}
 			msg.SetData(k, v)
 		}
 	}

@@ -164,7 +164,14 @@ cannot choose where the token goes; the table's key may follow the record. A
 refusal (a 4xx: unknown table, missing input, bad credentials) is permanent and
 goes to the dead-letter path at once; a network failure or 5xx is left to the
 node's retry policy. Accounts that sign in with a username and password are
-signed in once per server and account and again when the session expires.
+signed in once per server and account and again when the session expires; a
+refused sign-in is remembered for 30 seconds, so a wrong password cannot lock
+the account by being tried once per record. Redirects are refused rather than
+followed, so the token never travels to another address; an address carrying a
+user or password is refused; the timeout is at most 2 minutes; Metis's error
+text is cut to 512 bytes before it reaches logs and dead letters; and with
+"copy outputs to the top of the record" on, an output named `_hermod…` is
+skipped, so a decision table cannot mark a record failed or dead-lettered.
 
 The incidents stream has a limitation worth knowing before you rely on it: the
 engine lists incidents per instance rather than per project, so the source finds

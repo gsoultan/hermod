@@ -92,7 +92,7 @@ export function MetisDecideConfig({
         secretsOnly
         mono
         error={missing(config.url)}
-        description="Plain http is allowed to localhost only. Record values are never read here; a secret is."
+        description="https, or http to localhost only, with no user or password in it. Record values are never read here; a secret is."
       />
       <Input.Wrapper label="Sign in with">
         <SegmentedControl
@@ -266,7 +266,7 @@ export function MetisDecideConfig({
           placeholder={METIS_DECIDE_DEFAULTS.timeout}
           value={str(config.timeout)}
           onChange={(e) => set({ timeout: e.currentTarget.value })}
-          description="How long one decision may take, e.g. 5s."
+          description="How long one decision may take, e.g. 5s. At most 2m."
         />
       </FormRow>
 
