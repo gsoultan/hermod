@@ -1268,6 +1268,25 @@ jobs:
         # peak affordable.
         run: go test -tags=integration -race -short -count=1 -timeout 30m ./...
 
+      # The branching load test, which the -short pass above skips: 300
+      # concurrent producers into a Postgres CDC source and a RabbitMQ source,
+      # through a split and merge of lookups and an HTTP API, out to a Postgres
+      # and a RabbitMQ sink, every record checked. No -race, for the same
+      # memory reason as the worker load tests; the -race coverage of the same
+      # code paths is the pass above. It holds at most LOAD_PG_CONNS (40)
+      # producer connections, so it fits a stock max_connections of 100.
+      - name: Test (integration, branching load)
+        env:
+          HERMOD_INTEGRATION: "1"
+          POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/hermod_it?sslmode=disable
+          RABBITMQ_URL: amqp://guest:guest@127.0.0.1:5672/
+          HERMOD_ADMISSION_CPU_THRESHOLD: "1"
+          HERMOD_ADMISSION_MEM_THRESHOLD: "1"
+        run: >-
+          go test -tags=integration -count=1 -timeout 15m
+          -run '^TestBranchingWorkflowUnderConcurrentLoad$'
+          ./internal/engine/registry/
+
   # The browser E2E job that used to live here is gone, and so is the last spec
   # in it. production_grade.spec.ts was the only one left: its UI half was
   # already covered by multi_pipeline_editor_e2e and workflow_surface_e2e, and

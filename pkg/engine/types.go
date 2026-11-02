@@ -12,6 +12,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/engine/config"
@@ -40,6 +41,13 @@ type RoutedMessage struct {
 	SinkIndex int
 	Message   hermod.Message
 }
+
+// ErrWalkInterrupted is what a router returns when the engine stopping cut its
+// walk short: a node could not start, or failed because the context ended.
+// Some branches may have routed the message and others not, so it is neither
+// delivered nor acknowledged, and the source redelivers it on the next run.
+var ErrWalkInterrupted = errors.New("the workflow stopped before every branch finished; " +
+	"left unacknowledged for redelivery")
 
 // MetaDeliveredInline marks a message that a sink node already wrote itself.
 //
