@@ -172,6 +172,7 @@ POST /api/config/databases
 POST /api/config/setup
 POST /api/dead-letters/discard
 POST /api/dead-letters/replay
+POST /api/dead-letters/{id}/check
 POST /api/dead-letters/{id}/replay
 POST /api/environments/links
 POST /api/environments/links/{id}/preview
