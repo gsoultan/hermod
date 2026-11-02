@@ -57,7 +57,8 @@ func (s pingSink) Write(context.Context, hermod.Message) error { return nil }
 func (s pingSink) Ping(context.Context) error                  { return s.err }
 func (s pingSink) Close() error                                { return nil }
 
-func serveWithRegistry(t *testing.T, st storage.Storage, ping error, user *storage.User, method, path string) *httptest.ResponseRecorder {
+// serveWithRegistry POSTs path, the only method the check route accepts.
+func serveWithRegistry(t *testing.T, st storage.Storage, ping error, user *storage.User, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	reg := registry.NewRegistry(st)
 	t.Cleanup(reg.Close)
@@ -65,7 +66,7 @@ func serveWithRegistry(t *testing.T, st storage.Storage, ping error, user *stora
 	h := NewHandler(&handlers.Handler{Storage: st, LogStorage: st, Registry: reg})
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
-	req := httptest.NewRequestWithContext(context.Background(), method, path, nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, path, nil)
 	req = req.WithContext(context.WithValue(req.Context(), handlers.UserContextKey, user))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -131,7 +132,7 @@ func TestExportCarriesTheFailureCount(t *testing.T) {
 // Before replaying, the page asks whether the sink the record failed at
 // answers now.
 func TestCheckSaysWhetherTheFailedSinkIsReachable(t *testing.T) {
-	rec := serveWithRegistry(t, newGroupedStore(), nil, editorA, http.MethodPost, "/api/dead-letters/dl-many/check")
+	rec := serveWithRegistry(t, newGroupedStore(), nil, editorA, "/api/dead-letters/dl-many/check")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}
@@ -141,7 +142,7 @@ func TestCheckSaysWhetherTheFailedSinkIsReachable(t *testing.T) {
 		t.Fatalf("check = %+v, want a reachable Panmail", ok)
 	}
 
-	rec = serveWithRegistry(t, newGroupedStore(), errors.New("dial tcp: connection refused"), editorA, http.MethodPost, "/api/dead-letters/dl-many/check")
+	rec = serveWithRegistry(t, newGroupedStore(), errors.New("dial tcp: connection refused"), editorA, "/api/dead-letters/dl-many/check")
 	var down checkResult
 	_ = json.NewDecoder(rec.Body).Decode(&down)
 	if !down.Checked || down.Reachable || !strings.Contains(down.Error, "connection refused") {
@@ -151,7 +152,7 @@ func TestCheckSaysWhetherTheFailedSinkIsReachable(t *testing.T) {
 
 // A record that failed at a node has no destination to check.
 func TestCheckOfANodeFailureChecksNothing(t *testing.T) {
-	rec := serveWithRegistry(t, newGroupedStore(), nil, editorA, http.MethodPost, "/api/dead-letters/dl-a/check")
+	rec := serveWithRegistry(t, newGroupedStore(), nil, editorA, "/api/dead-letters/dl-a/check")
 	var got checkResult
 	_ = json.NewDecoder(rec.Body).Decode(&got)
 	if rec.Code != http.StatusOK || got.Checked {
@@ -160,7 +161,7 @@ func TestCheckOfANodeFailureChecksNothing(t *testing.T) {
 }
 
 func TestViewersCannotCheck(t *testing.T) {
-	rec := serveWithRegistry(t, newGroupedStore(), nil, viewerA, http.MethodPost, "/api/dead-letters/dl-many/check")
+	rec := serveWithRegistry(t, newGroupedStore(), nil, viewerA, "/api/dead-letters/dl-many/check")
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403", rec.Code)
 	}
