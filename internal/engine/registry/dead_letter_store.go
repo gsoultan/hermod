@@ -43,17 +43,24 @@ func (r *Registry) deadLetterQueue(wf storage.Workflow) hermod.Sink {
 			"workflow_id", wf.ID)
 		return nil
 	}
-	return &deadLetterSink{store: ds, workflowID: wf.ID, vhost: wf.VHost}
+	return &deadLetterSink{store: ds, workflowID: wf.ID, vhost: wf.VHost, fields: wf.DeadLetterKeyFields, open: &r.openDLs}
 }
 
 // deadLetterSink keeps each message the engine parks in Hermod's own store,
 // where the Dead Letters page lists it. The write is synchronous and its error
 // is the engine's: a message is acknowledged to its source only once it is
 // kept, because the page is the only copy.
+//
+// A record that is already waiting at the same place is counted into its row
+// rather than kept again (storage.KeepDeadLetter), so a source that re-sends a
+// record every few seconds fills one row, not hundreds.
 type deadLetterSink struct {
 	store      storage.DeadLetterStore
 	workflowID string
 	vhost      string
+	// fields name the payload fields that say which record a message is.
+	fields []string
+	open   *openDeadLetters
 }
 
 func (s *deadLetterSink) Write(ctx context.Context, m hermod.Message) error {
@@ -62,7 +69,16 @@ func (s *deadLetterSink) Write(ctx context.Context, m hermod.Message) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, deadLetterWriteTimeout)
 	defer cancel()
-	return s.store.PutDeadLetter(ctx, deadLetterRecord(s.workflowID, s.vhost, m))
+	rec := deadLetterRecord(s.workflowID, s.vhost, m)
+	rec.RecordKey = storage.DeadLetterRecordKey(rec.Payload, rec.Origin, s.fields)
+	id, err := storage.KeepDeadLetter(ctx, s.store, rec, s.fields)
+	if err != nil {
+		return err
+	}
+	if rec.SinkID != "" && s.open != nil {
+		s.open.add(rec.GroupKey(), id)
+	}
+	return nil
 }
 
 func (s *deadLetterSink) Ping(context.Context) error { return nil }
@@ -89,7 +105,7 @@ func deadLetterRecord(workflowID, vhost string, m hermod.Message) storage.DeadLe
 		Origin: storage.DeadLetterOrigin{
 			Operation: string(m.Operation()), Table: m.Table(), Schema: m.Schema(), Before: m.Before(),
 		},
-		Status:  storage.DeadLetterQueued,
+		Status: storage.DeadLetterQueued, FailureCount: 1, FirstFailedAt: failedAt,
 		History: []storage.DeadLetterEvent{{At: failedAt, Action: "failed", Detail: where}},
 	}
 }
@@ -107,6 +123,11 @@ func (r *Registry) purgeDeadLetters(ctx context.Context, store any) {
 	ds, ok := store.(storage.DeadLetterStore)
 	if !ok {
 		return
+	}
+	if merged, err := storage.GroupUngroupedDeadLetters(ctx, ds); err != nil {
+		r.logger.Error("Registry: grouping dead letters failed", "error", err)
+	} else if merged > 0 {
+		r.logger.Info("Registry: folded repeated dead letters into their records", "merged", merged)
 	}
 	if _, err := ds.PurgeDeadLetters(ctx, time.Now().Add(-deadLetterRetention())); err != nil &&
 		!errors.Is(err, storage.ErrDeadLettersUnsupported) {

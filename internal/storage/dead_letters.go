@@ -18,13 +18,20 @@ import (
 )
 
 // DeadLetterStatus is where a dead letter is in its life: still waiting in
-// the queue, or dealt with by a replay or a discard.
+// the queue, or dealt with by a replay, a discard, a later delivery of the same
+// record, or by being folded into the group of its record.
 type DeadLetterStatus string
 
 const (
 	DeadLetterQueued    DeadLetterStatus = "queued"
 	DeadLetterReplayed  DeadLetterStatus = "replayed"
 	DeadLetterDiscarded DeadLetterStatus = "discarded"
+	// DeadLetterDelivered: the source sent the same record again and that
+	// attempt was delivered, so there is nothing left to replay.
+	DeadLetterDelivered DeadLetterStatus = "delivered"
+	// DeadLetterMerged: a copy an earlier release kept as a row of its own,
+	// folded into its record's group. The page does not list it.
+	DeadLetterMerged DeadLetterStatus = "merged"
 )
 
 // DeadLetterPayloadCap bounds the payload kept with a dead letter. A larger
@@ -42,13 +49,22 @@ const (
 // replayed or discarded, so a second action cannot act on it again.
 var ErrDeadLetterSettled = errors.New("this dead letter has already been replayed or discarded")
 
+// ErrDeadLetterConflict is returned by UpdateDeadLetter when the group changed
+// or was settled since it was read, so the caller reads it again.
+var ErrDeadLetterConflict = errors.New("the dead letter changed while it was being updated")
+
 // ErrDeadLettersUnsupported is returned when the configured backend cannot
 // keep dead letters.
 var ErrDeadLettersUnsupported = errors.New("this storage backend cannot keep dead letters")
 
-// DeadLetter is one message a workflow could not deliver, as Hermod keeps it
-// for the Dead Letters page: what failed, where, why, and
-// the message itself, so it can be read, replayed or discarded from the UI.
+// DeadLetter is one record a workflow could not deliver, as Hermod keeps it
+// for the Dead Letters page: what failed, where, why, and the message itself,
+// so it can be read, replayed or discarded from the UI.
+//
+// A record that fails again at the same place while it is still waiting does
+// not get a row of its own: it is counted into this one (see KeepDeadLetter).
+// FailedAt, MessageID, Error and the payload are then those of the latest
+// attempt, and FirstFailedAt is when the first one failed.
 type DeadLetter struct {
 	ID         string `json:"id"`
 	VHost      string `json:"vhost"`
@@ -60,6 +76,14 @@ type DeadLetter struct {
 	SinkID   string    `json:"sink_id,omitempty"`
 	Error    string    `json:"error"`
 	FailedAt time.Time `json:"failed_at"`
+
+	// RecordKey says which record this is (see DeadLetterRecordKey). Empty on
+	// a row an earlier release kept, until GroupUngroupedDeadLetters runs.
+	RecordKey string `json:"record_key,omitempty"`
+	// FailureCount is how many attempts at this record failed here while it
+	// was waiting. Read it through Attempts: a row from before counting has 0.
+	FailureCount  int       `json:"failure_count"`
+	FirstFailedAt time.Time `json:"first_failed_at"`
 
 	Payload []byte `json:"payload,omitempty"`
 	// PayloadSize is the size of the whole payload, which is more than
@@ -84,12 +108,16 @@ type DeadLetterOrigin struct {
 	Before    []byte `json:"before,omitempty"`
 }
 
-// DeadLetterEvent is one thing that happened to a dead letter.
+// DeadLetterEvent is one thing that happened to a dead letter. Identical
+// failures in a row are one event: Count says how many, Until when the last
+// one was.
 type DeadLetterEvent struct {
-	At     time.Time `json:"at"`
-	Action string    `json:"action"`
-	By     string    `json:"by,omitempty"`
-	Detail string    `json:"detail,omitempty"`
+	At     time.Time  `json:"at"`
+	Action string     `json:"action"`
+	By     string     `json:"by,omitempty"`
+	Detail string     `json:"detail,omitempty"`
+	Count  int        `json:"count,omitempty"`
+	Until  *time.Time `json:"until,omitempty"`
 }
 
 // DeadLetterFilter narrows a list of dead letters. VHosts nil means every
@@ -106,11 +134,18 @@ type DeadLetterFilter struct {
 	Until  time.Time
 	Limit  int
 	Offset int
+	// Ungrouped keeps only rows with no record key yet.
+	Ungrouped bool
+	// OldestFirst sorts by FailedAt ascending instead of newest first.
+	OldestFirst bool
 }
 
-// DeadLetterStats is the summary the dead letter page leads with.
+// DeadLetterStats is the summary the dead letter page leads with. Counts are
+// of records; QueuedAttempts is how many failed attempts the waiting records
+// stand for.
 type DeadLetterStats struct {
 	Queued           int    `json:"queued"`
+	QueuedAttempts   int    `json:"queued_attempts"`
 	Last24h          int    `json:"last_24h"`
 	TopError         string `json:"top_error,omitempty"`
 	TopErrorCount    int    `json:"top_error_count"`
@@ -122,9 +157,17 @@ type DeadLetterStats struct {
 type DeadLetterStore interface {
 	PutDeadLetter(ctx context.Context, d DeadLetter) error
 	GetDeadLetter(ctx context.Context, id string) (DeadLetter, error)
+	// FindDeadLetterGroup returns the waiting dead letter of g, whole, or
+	// ErrNotFound when the record has none waiting.
+	FindDeadLetterGroup(ctx context.Context, g DeadLetterGroupKey) (DeadLetter, error)
+	// UpdateDeadLetter rewrites what a new failure changes on a waiting
+	// dead letter: the record key, the counts and times, the latest message
+	// and the history. It only applies while the dead letter is waiting and
+	// still has prevCount attempts, and otherwise returns ErrDeadLetterConflict.
+	UpdateDeadLetter(ctx context.Context, d DeadLetter, prevCount int) error
 	// ListDeadLetters returns a page, newest first, and the total that
 	// matches the filter. The page leaves the payload, origin, metadata and
-	// history out.
+	// history out. With no status in the filter, merged rows are left out.
 	ListDeadLetters(ctx context.Context, f DeadLetterFilter) ([]DeadLetter, int, error)
 	// SettleDeadLetter moves a queued dead letter to status and records ev.
 	// It returns ErrDeadLetterSettled when the dead letter is no longer
@@ -166,6 +209,13 @@ func CapDeadLetter(d DeadLetter) DeadLetter {
 	if d.Status == "" {
 		d.Status = DeadLetterQueued
 	}
+	if d.FailureCount < 1 {
+		d.FailureCount = 1
+	}
+	if d.FirstFailedAt.IsZero() || d.FirstFailedAt.After(d.FailedAt) {
+		d.FirstFailedAt = d.FailedAt
+	}
+	d.FirstFailedAt = d.FirstFailedAt.UTC()
 	d.History = capHistory(d.History)
 	d.FailedAt = d.FailedAt.UTC()
 	return d
@@ -192,7 +242,7 @@ func ValidateDeadLetter(d DeadLetter) error {
 		return errors.New("a dead letter needs a workflow")
 	}
 	switch d.Status {
-	case DeadLetterQueued, DeadLetterReplayed, DeadLetterDiscarded:
+	case DeadLetterQueued, DeadLetterReplayed, DeadLetterDiscarded, DeadLetterDelivered, DeadLetterMerged:
 	default:
 		return fmt.Errorf("unknown dead letter status %q", d.Status)
 	}
@@ -201,7 +251,11 @@ func ValidateDeadLetter(d DeadLetter) error {
 
 // ValidSettledStatus reports whether a dead letter can be settled to s.
 func ValidSettledStatus(s DeadLetterStatus) bool {
-	return s == DeadLetterReplayed || s == DeadLetterDiscarded
+	switch s {
+	case DeadLetterReplayed, DeadLetterDiscarded, DeadLetterDelivered, DeadLetterMerged:
+		return true
+	}
+	return false
 }
 
 // WithSharedVHosts is vhosts with the shared vhosts added, or nil for nil.

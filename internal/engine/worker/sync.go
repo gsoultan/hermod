@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"slices"
 	"sync"
 	"time"
 
@@ -297,6 +298,7 @@ func workflowRuntimeConfigDiffers(cur, next storage.Workflow) bool {
 	return cur.Name != next.Name ||
 		cur.VHost != next.VHost ||
 		cur.DeadLetters != next.DeadLetters ||
+		!slices.Equal(cur.DeadLetterKeyFields, next.DeadLetterKeyFields) ||
 		cur.PrioritizeDLQ != next.PrioritizeDLQ ||
 		cur.DryRun != next.DryRun ||
 		cur.DLQThreshold != next.DLQThreshold ||

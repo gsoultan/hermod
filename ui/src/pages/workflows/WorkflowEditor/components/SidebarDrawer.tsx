@@ -30,11 +30,11 @@ export function SidebarDrawer({
   onDragStart, onAddItem, sources, sinks
 }: SidebarDrawerProps) {
   const { 
-    drawerOpened, drawerTab, deadLetters, dlqThreshold, prioritizeDLQ, dryRun, 
+    drawerOpened, drawerTab, deadLetters, deadLetterKeyFields, dlqThreshold, prioritizeDLQ, dryRun, 
     maxRetries, retryInterval, reconnectInterval, workspaceID, schemaType, schema, tags,
     cpuRequest, memoryRequest, throughputRequest,
     cron, vhost, workerID, setVHost, setWorkerID,
-    setDrawerOpened, setDrawerTab, setDeadLetters, setDlqThreshold, setPrioritizeDLQ, 
+    setDrawerOpened, setDrawerTab, setDeadLetters, setDeadLetterKeyFields, setDlqThreshold, setPrioritizeDLQ, 
     setDryRun, setMaxRetries, setRetryInterval, setReconnectInterval, 
     setWorkspaceID, setSchemaType, setSchema, setTags, 
     setCPURequest, setMemoryRequest, setThroughputRequest, setCron,
@@ -47,6 +47,7 @@ export function SidebarDrawer({
     setVHost: state.setVHost,
     setWorkerID: state.setWorkerID,
     deadLetters: state.deadLetters,
+    deadLetterKeyFields: state.deadLetterKeyFields,
     dlqThreshold: state.dlqThreshold,
     prioritizeDLQ: state.prioritizeDLQ,
     dryRun: state.dryRun,
@@ -65,6 +66,7 @@ export function SidebarDrawer({
     setDrawerOpened: state.setDrawerOpened,
     setDrawerTab: state.setDrawerTab,
     setDeadLetters: state.setDeadLetters,
+    setDeadLetterKeyFields: state.setDeadLetterKeyFields,
     setDlqThreshold: state.setDlqThreshold,
     setPrioritizeDLQ: state.setPrioritizeDLQ,
     setDryRun: state.setDryRun,
@@ -504,6 +506,16 @@ export function SidebarDrawer({
                           if (!on) setPrioritizeDLQ(false);
                         }}
                         size="xs"
+                      />
+                      <TagsInput
+                        label="Record key fields"
+                        description="Payload fields, as dot paths, that say which record a message is. A record that fails again is then counted on its row even when the rest of the payload changes, such as a timestamp or a signed link. Empty, the whole payload decides."
+                        placeholder="e.g. Application.application_id"
+                        value={deadLetterKeyFields}
+                        onChange={setDeadLetterKeyFields}
+                        disabled={!deadLetters}
+                        size="xs"
+                        splitChars={[',', ' ']}
                       />
                       <NumberInput
                         label="DLQ Alert Threshold"

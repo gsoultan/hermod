@@ -235,7 +235,17 @@ import (
 //
 // dead_letters is the same case: a standalone table only the dead letter page
 // reads. A rollback stops adding to it and leaves the rows it has.
-const knownSchemaFingerprint = "32e61410473bf93c0660155fe5b1504375ce49d58ce836ac7a514accc5fc5288"
+//
+// Grouping repeated failures added record_key, failure_count and
+// first_failed_at to it, and left the version alone for the same reason. An
+// older binary does not select the new columns and inserts rows without them,
+// which is exactly a row from before grouping: the newer binary folds those
+// into their groups when it returns. Its "All" filter would also list the
+// rows marked merged, under a status it does not name; a display oddity, not
+// a misread. The same change added workflows.dead_letter_key_fields, which an
+// older binary neither selects nor writes: its UPDATE leaves the column as it
+// was, so a rollback keeps the setting for when the newer binary returns.
+const knownSchemaFingerprint = "8b807eb37882e4559016a0b6a0866c69904206773e21f01db31a78be690539f1"
 
 func TestSchemaVersionIsReconsideredWhenTheSchemaChanges(t *testing.T) {
 	if got := SchemaFingerprint(); got != knownSchemaFingerprint {

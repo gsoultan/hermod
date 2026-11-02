@@ -100,6 +100,10 @@ Legacy `dead_letter_sink_id` is read as on: `Workflow.UnmarshalJSON`, the SQL
 read (`dead_letters OR dead_letter_sink_id <> ''`, and every write clears the
 old column) and the mongo decode. Old sink contents are left untouched.
 
+Repeated failures of one record are one dead letter with a failure count, and
+a record that gets through on a later re-send closes its dead letter as
+`delivered`; see [dead_letter_grouping](dead_letter_grouping.md).
+
 ## Notification tests must call notifyOnStatusChange
 
 `TestAlertingOnStatusChange` and `TestDLQThresholdAlerting` used to define a

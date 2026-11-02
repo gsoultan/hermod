@@ -42,7 +42,12 @@ func drainRegistry(t *testing.T, out *pipeSink) (*Registry, *pipeDeadLetterStora
 func waiting(id, workflowID, nodeID string) storage.DeadLetter {
 	d := failedAtFix()
 	d.ID, d.WorkflowID, d.NodeID = id, workflowID, nodeID
-	d.Payload = []byte(`{"id":"ord-88412","total":"12.50"}`)
+	// A record of its own per dead letter, keyed as this release keeps them.
+	// Two waiting rows with the same payload at the same node are copies of
+	// one record, and a row with no key is one the registry's start-up sweep
+	// folds into its group, concurrently with the test.
+	d.Payload = []byte(`{"id":"ord-88412","total":"12.50","dead_letter":"` + id + `"}`)
+	d.RecordKey = storage.DeadLetterRecordKey(d.Payload, d.Origin, nil)
 	return d
 }
 

@@ -272,6 +272,36 @@ func (e *Engine) SetDeadLetterObserver(fn DeadLetterObserver) {
 	e.onDeadLetter = fn
 }
 
+// DeliveredObserver is called, synchronously, for each sink a message was
+// delivered to, with the message as that sink received it. It runs on the
+// processing path, so it must not block, and the message is valid only for
+// the duration of the call.
+type DeliveredObserver func(sinkID string, m hermod.Message)
+
+// SetDeliveredObserver registers fn to hear every delivery. A write that
+// failed and was parked is not one: the dead letter observer hears that.
+func (e *Engine) SetDeliveredObserver(fn DeliveredObserver) {
+	e.onDelivered = fn
+}
+
+// delivered tells the observer which sinks took a message. Every write
+// returned without an error by now, so a target is either delivered or was
+// parked, and a parked one carries _hermod_failed_at.
+func (e *Engine) delivered(targets []RoutedMessage) {
+	if e.onDelivered == nil {
+		return
+	}
+	for _, t := range targets {
+		if t.Message == nil || t.SinkIndex < 0 || t.SinkIndex >= len(e.sinkWriters) {
+			continue
+		}
+		if v, _ := hermod.MetadataValue(t.Message, "_hermod_failed_at"); v != "" {
+			continue
+		}
+		e.onDelivered(e.sinkWriters[t.SinkIndex].sinkID, t.Message)
+	}
+}
+
 // parked tells the observer about a message the dead-letter sink just took.
 // What it reports comes from the metadata prepareDLQMessage and the callers
 // put on the message, so it says what the parked copy says.

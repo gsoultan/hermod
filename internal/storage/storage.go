@@ -158,6 +158,10 @@ type Workflow struct {
 	// retries run out, on the Dead Letters page and acknowledges it to the
 	// source. Off, the message stays on the source and is redelivered.
 	DeadLetters bool `json:"dead_letters,omitempty" bson:"dead_letters"`
+	// DeadLetterKeyFields are the payload fields, as dot paths, that say
+	// which record a dead letter is, so a record that fails again is counted
+	// on its row instead of kept twice. Empty, the whole payload decides.
+	DeadLetterKeyFields []string `json:"dead_letter_key_fields,omitempty" bson:"dead_letter_key_fields,omitempty"`
 	// PrioritizeDLQ replays the workflow's waiting dead letters each time it
 	// starts. It needs DeadLetters.
 	PrioritizeDLQ     bool         `json:"prioritize_dlq,omitempty"`

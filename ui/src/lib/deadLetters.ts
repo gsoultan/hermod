@@ -1,13 +1,18 @@
-// Types and helpers for the dead letter page: messages a workflow parked
-// after its retries ran out, as Hermod keeps them (see /api/dead-letters).
+// Types and helpers for the dead letter page: records a workflow parked after
+// its retries ran out, as Hermod keeps them (see /api/dead-letters). A record
+// that fails again while it is waiting is counted on its row, not kept twice.
 
-export type DeadLetterStatus = 'queued' | 'replayed' | 'discarded'
+export type DeadLetterStatus = 'queued' | 'replayed' | 'discarded' | 'delivered' | 'merged'
 
 export interface DeadLetterEvent {
   at: string
   action: string
   by?: string
   detail?: string
+  // Identical failures in a row are one event: count says how many, until
+  // when the last one was.
+  count?: number
+  until?: string
 }
 
 export interface DeadLetter {
@@ -19,7 +24,12 @@ export interface DeadLetter {
   node_id?: string
   sink_id?: string
   error: string
+  // failed_at is the latest attempt; first_failed_at the first. failure_count
+  // is how many failed in between, missing on a row from before counting.
   failed_at: string
+  first_failed_at?: string
+  failure_count?: number
+  record_key?: string
   // Go sends []byte as base64; decodePayload turns it back into text.
   payload?: string
   payload_size: number
@@ -33,7 +43,9 @@ export interface DeadLetter {
 }
 
 export interface DeadLetterStats {
+  // queued counts records; queued_attempts the failed attempts they stand for.
   queued: number
+  queued_attempts?: number
   last_24h: number
   top_error?: string
   top_error_count: number
@@ -70,6 +82,56 @@ export const STATUS_LABEL: Record<DeadLetterStatus, string> = {
   queued: 'Waiting',
   replayed: 'Replayed',
   discarded: 'Discarded',
+  delivered: 'Delivered later',
+  merged: 'Merged',
+}
+
+// attempts is how many failed attempts a row stands for, at least one.
+export function attempts(d: Pick<DeadLetter, 'failure_count'>): number {
+  return Math.max(d.failure_count ?? 1, 1)
+}
+
+export function attemptsLabel(d: Pick<DeadLetter, 'failure_count'>): string {
+  return `×${attempts(d)}`
+}
+
+// spanLabel says how long a record kept failing, from its first attempt to
+// its latest; nothing for one attempt.
+export function spanLabel(first: string | undefined, last: string | undefined): string {
+  if (!first || !last) return ''
+  const ms = new Date(last).getTime() - new Date(first).getTime()
+  if (!Number.isFinite(ms) || ms < 1000) return ''
+  const s = Math.round(ms / 1000)
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  if (h > 0) return `over ${h} h${m ? ` ${m} min` : ''}`
+  if (m > 0) return `over ${m} min`
+  return `over ${s} s`
+}
+
+export function whenLabel(iso: string): string {
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' })
+}
+
+// historyLine is one event of a dead letter's history as the page shows it.
+export function historyLine(ev: DeadLetterEvent): string {
+  let line = ev.action.replace(/_/g, ' ')
+  if (ev.count && ev.count > 1) line += ` ×${ev.count}`
+  if (ev.until && ev.until !== ev.at) line += ` until ${whenLabel(ev.until)}`
+  if (ev.by) line += ` by ${ev.by}`
+  if (ev.detail) line += ` · ${ev.detail}`
+  return line
+}
+
+// CheckResult is what /api/dead-letters/{id}/check says about the sink a
+// record failed at.
+export interface CheckResult {
+  checked: boolean
+  sink_id?: string
+  sink_name?: string
+  reachable: boolean
+  error?: string
 }
 
 export function sinceFor(when: When, now: Date = new Date()): string | undefined {

@@ -56,3 +56,46 @@ describe('workflow settings: dead letters', () => {
     expect(screen.getByRole('checkbox', { name: /replay dead letters on startup/i })).toBeDisabled()
   })
 })
+
+describe('workflow settings: record key fields', () => {
+  const initialState = useWorkflowStore.getState()
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } })))
+    useWorkflowStore.setState({ drawerOpened: true, drawerTab: 'settings' })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    useWorkflowStore.setState(initialState, true)
+  })
+
+  // A payload that carries a timestamp or a signed link changes on every
+  // read, so the fields that say which record it is have to be named for
+  // repeated failures to count into one row.
+  it('names the payload fields that identify a record, and keeps them in the store', async () => {
+    const user = userEvent.setup()
+    render(
+      <MantineProvider>
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <SidebarDrawer onDragStart={() => {}} onAddItem={() => {}} sources={[]} sinks={[]} />
+        </QueryClientProvider>
+      </MantineProvider>,
+    )
+    const input = screen.getByRole('combobox', { name: /record key fields/i })
+    await user.type(input, 'Application.application_id{enter}payload.DocumentTypeIds{enter}')
+    expect(useWorkflowStore.getState().deadLetterKeyFields).toEqual(['Application.application_id', 'payload.DocumentTypeIds'])
+  })
+
+  it('is disabled when dead letters are off', () => {
+    useWorkflowStore.setState({ deadLetters: false })
+    render(
+      <MantineProvider>
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <SidebarDrawer onDragStart={() => {}} onAddItem={() => {}} sources={[]} sinks={[]} />
+        </QueryClientProvider>
+      </MantineProvider>,
+    )
+    expect(screen.getByRole('combobox', { name: /record key fields/i })).toBeDisabled()
+  })
+})

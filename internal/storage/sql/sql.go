@@ -396,6 +396,10 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		"CREATE INDEX IF NOT EXISTS idx_dead_letters_vhost_failed ON dead_letters(vhost, failed_at DESC)",
 		"CREATE INDEX IF NOT EXISTS idx_dead_letters_wf_failed ON dead_letters(workflow_id, failed_at DESC)",
 		"CREATE INDEX IF NOT EXISTS idx_dead_letters_failed ON dead_letters(failed_at)",
+		// Every park looks for the waiting row of its record in its workflow.
+		// MySQL refuses an unprefixed TEXT column in an index, and errors here
+		// are ignored, so there it falls back to idx_dead_letters_wf_failed.
+		"CREATE INDEX IF NOT EXISTS idx_dead_letters_group ON dead_letters(workflow_id, record_key, status)",
 		// The reconciliation loop asks every five seconds, on every worker,
 		// for the suspended messages that are due. Without this each tick was
 		// a full scan of every parked message in the deployment, payload
@@ -1712,6 +1716,7 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 		var ownerID sql.NullString
 		var dlqSinkID, retryInterval, reconnectInterval sql.NullString
 		var deadLetters, prioritizeDLQ, dryRun sql.NullBool
+		var keyFieldsJSON sql.NullString
 		var maxRetries, retentionDays, dlqThreshold sql.NullInt64
 		var schemaType, schema, cron, idleTimeout, tier, workspaceID, traceRetention, auditRetention sql.NullString
 		var traceSampleRate sql.NullFloat64
@@ -1720,7 +1725,7 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 		// NULL for any workflow written before the column existed and not yet
 		// reached by the Init backfill.
 		var createdAt sql.NullTime
-		if err := rows.Scan(&wf.ID, &wf.Name, &wf.VHost, &wf.Active, &wf.Status, &wf.WorkerID, &ownerID, &leaseUntil, &nodesJSON, &edgesJSON, &dlqSinkID, &deadLetters, &prioritizeDLQ, &maxRetries, &retryInterval, &reconnectInterval, &dryRun, &schemaType, &schema, &retentionDays, &cron, &idleTimeout, &tier, &traceSampleRate, &dlqThreshold, &tagsJSON, &workspaceID, &traceRetention, &auditRetention, &cpuReq, &memReq, &throughputReq, &totalProcessed, &totalErrors, &totalLag, &createdAt); err != nil {
+		if err := rows.Scan(&wf.ID, &wf.Name, &wf.VHost, &wf.Active, &wf.Status, &wf.WorkerID, &ownerID, &leaseUntil, &nodesJSON, &edgesJSON, &dlqSinkID, &deadLetters, &keyFieldsJSON, &prioritizeDLQ, &maxRetries, &retryInterval, &reconnectInterval, &dryRun, &schemaType, &schema, &retentionDays, &cron, &idleTimeout, &tier, &traceSampleRate, &dlqThreshold, &tagsJSON, &workspaceID, &traceRetention, &auditRetention, &cpuReq, &memReq, &throughputReq, &totalProcessed, &totalErrors, &totalLag, &createdAt); err != nil {
 			return nil, 0, err
 		}
 		if cpuReq.Valid {
@@ -1768,6 +1773,7 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 		}
 		// A dead-letter sink named by an earlier release keeps dead letters on.
 		wf.DeadLetters = deadLetters.Bool || (dlqSinkID.Valid && dlqSinkID.String != "")
+		wf.DeadLetterKeyFields = parseDeadLetterKeyFields(keyFieldsJSON)
 		if prioritizeDLQ.Valid {
 			wf.PrioritizeDLQ = prioritizeDLQ.Bool
 		}
@@ -1832,7 +1838,7 @@ func (s *sqlStorage) CreateWorkflow(ctx context.Context, wf storage.Workflow) er
 	exec := func() error {
 		_, e := s.exec(ctx,
 			s.queries.get(QueryCreateWorkflow),
-			wf.ID, wf.Name, wf.VHost, wf.Active, wf.Status, wf.WorkerID, string(nodesJSON), string(edgesJSON), "", wf.DeadLetters, wf.PrioritizeDLQ, wf.MaxRetries, wf.RetryInterval, wf.ReconnectInterval, wf.DryRun, wf.SchemaType, wf.Schema, wf.RetentionDays, wf.Cron, wf.IdleTimeout, string(wf.Tier), wf.TraceSampleRate, wf.DLQThreshold, string(tagsJSON), wf.WorkspaceID, wf.TraceRetention, wf.AuditRetention, wf.CPURequest, wf.MemoryRequest, wf.ThroughputRequest, wf.TotalProcessed, wf.TotalErrors, wf.TotalLag, wf.CreatedAt,
+			wf.ID, wf.Name, wf.VHost, wf.Active, wf.Status, wf.WorkerID, string(nodesJSON), string(edgesJSON), "", wf.DeadLetters, deadLetterKeyFieldsJSON(wf.DeadLetterKeyFields), wf.PrioritizeDLQ, wf.MaxRetries, wf.RetryInterval, wf.ReconnectInterval, wf.DryRun, wf.SchemaType, wf.Schema, wf.RetentionDays, wf.Cron, wf.IdleTimeout, string(wf.Tier), wf.TraceSampleRate, wf.DLQThreshold, string(tagsJSON), wf.WorkspaceID, wf.TraceRetention, wf.AuditRetention, wf.CPURequest, wf.MemoryRequest, wf.ThroughputRequest, wf.TotalProcessed, wf.TotalErrors, wf.TotalLag, wf.CreatedAt,
 		)
 		return e
 	}
@@ -1847,7 +1853,7 @@ func (s *sqlStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow) er
 	exec := func() error {
 		_, e := s.exec(ctx,
 			s.queries.get(QueryUpdateWorkflow),
-			wf.Name, wf.VHost, wf.Active, wf.Status, wf.WorkerID, string(nodesJSON), string(edgesJSON), "", wf.DeadLetters, wf.PrioritizeDLQ, wf.MaxRetries, wf.RetryInterval, wf.ReconnectInterval, wf.DryRun, wf.SchemaType, wf.Schema, wf.RetentionDays, wf.Cron, wf.IdleTimeout, string(wf.Tier), wf.TraceSampleRate, wf.DLQThreshold, string(tagsJSON), wf.WorkspaceID, wf.TraceRetention, wf.AuditRetention, wf.CPURequest, wf.MemoryRequest, wf.ThroughputRequest, wf.TotalProcessed, wf.TotalErrors, wf.TotalLag, wf.ID,
+			wf.Name, wf.VHost, wf.Active, wf.Status, wf.WorkerID, string(nodesJSON), string(edgesJSON), "", wf.DeadLetters, deadLetterKeyFieldsJSON(wf.DeadLetterKeyFields), wf.PrioritizeDLQ, wf.MaxRetries, wf.RetryInterval, wf.ReconnectInterval, wf.DryRun, wf.SchemaType, wf.Schema, wf.RetentionDays, wf.Cron, wf.IdleTimeout, string(wf.Tier), wf.TraceSampleRate, wf.DLQThreshold, string(tagsJSON), wf.WorkspaceID, wf.TraceRetention, wf.AuditRetention, wf.CPURequest, wf.MemoryRequest, wf.ThroughputRequest, wf.TotalProcessed, wf.TotalErrors, wf.TotalLag, wf.ID,
 		)
 		return e
 	}
@@ -1886,6 +1892,7 @@ func (s *sqlStorage) GetWorkflow(ctx context.Context, id string) (storage.Workfl
 	var ownerID sql.NullString
 	var dlqSinkID, retryInterval, reconnectInterval sql.NullString
 	var deadLetters, prioritizeDLQ, dryRun sql.NullBool
+	var keyFieldsJSON sql.NullString
 	var maxRetries, retentionDays, dlqThreshold sql.NullInt64
 	var schemaType, schema, cron, idleTimeout, tier, workspaceID, traceRetention, auditRetention sql.NullString
 	var traceSampleRate sql.NullFloat64
@@ -1894,7 +1901,7 @@ func (s *sqlStorage) GetWorkflow(ctx context.Context, id string) (storage.Workfl
 	// NULL for any workflow written before the column existed and not yet
 	// reached by the Init backfill.
 	var createdAt sql.NullTime
-	if err := row.Scan(&wf.ID, &wf.Name, &wf.VHost, &wf.Active, &wf.Status, &wf.WorkerID, &ownerID, &leaseUntil, &nodesJSON, &edgesJSON, &dlqSinkID, &deadLetters, &prioritizeDLQ, &maxRetries, &retryInterval, &reconnectInterval, &dryRun, &schemaType, &schema, &retentionDays, &cron, &idleTimeout, &tier, &traceSampleRate, &dlqThreshold, &tagsJSON, &workspaceID, &traceRetention, &auditRetention, &cpuReq, &memReq, &throughputReq, &totalProcessed, &totalErrors, &totalLag, &createdAt); err != nil {
+	if err := row.Scan(&wf.ID, &wf.Name, &wf.VHost, &wf.Active, &wf.Status, &wf.WorkerID, &ownerID, &leaseUntil, &nodesJSON, &edgesJSON, &dlqSinkID, &deadLetters, &keyFieldsJSON, &prioritizeDLQ, &maxRetries, &retryInterval, &reconnectInterval, &dryRun, &schemaType, &schema, &retentionDays, &cron, &idleTimeout, &tier, &traceSampleRate, &dlqThreshold, &tagsJSON, &workspaceID, &traceRetention, &auditRetention, &cpuReq, &memReq, &throughputReq, &totalProcessed, &totalErrors, &totalLag, &createdAt); err != nil {
 		if err == sql.ErrNoRows {
 			return storage.Workflow{}, storage.ErrNotFound
 		}
@@ -1945,6 +1952,7 @@ func (s *sqlStorage) GetWorkflow(ctx context.Context, id string) (storage.Workfl
 	}
 	// A dead-letter sink named by an earlier release keeps dead letters on.
 	wf.DeadLetters = deadLetters.Bool || (dlqSinkID.Valid && dlqSinkID.String != "")
+	wf.DeadLetterKeyFields = parseDeadLetterKeyFields(keyFieldsJSON)
 	if prioritizeDLQ.Valid {
 		wf.PrioritizeDLQ = prioritizeDLQ.Bool
 	}

@@ -27,16 +27,32 @@ const invoices: DeadLetter = {
   id: 'dl-2', vhost: 'tenant-a', workflow_id: 'wf-inv', workflow_name: 'Invoices to SAP', message_id: 'inv-9',
   sink_id: 'snk-sap', error: 'connection refused', failed_at: '2026-10-14T04:40:00Z', payload_size: 2, status: 'queued',
 }
+// One applicant's email, refused by the mail gateway every 20 seconds for an
+// hour and forty minutes: 263 attempts, one row.
+const resent: DeadLetter = {
+  id: 'dl-3', vhost: 'tenant-a', workflow_id: 'wf-docs', workflow_name: 'Supporting Document Send', message_id: 'read-263',
+  sink_id: 'snk-panmail', error: 'panmail: the api key was not accepted', failed_at: '2026-10-30T19:22:48Z',
+  first_failed_at: '2026-10-30T17:41:34Z', failure_count: 263, record_key: 'payload:6c3cfb84', payload_size: 1800, status: 'queued',
+}
 
-function deadLetterApi(rows: DeadLetter[] = [orders, invoices]) {
+function deadLetterApi(rows: DeadLetter[] = [orders, invoices], sinkDown = false) {
   const calls: Array<{ path: string; body?: any }> = []
   server.use(
+    http.post('/api/dead-letters/:id/check', ({ params }) => {
+      calls.push({ path: `${params.id}/check` })
+      const d = rows.find((r) => r.id === params.id)!
+      if (!d.sink_id) return HttpResponse.json({ checked: false })
+      return HttpResponse.json(sinkDown
+        ? { checked: true, sink_id: d.sink_id, sink_name: 'Panmail', reachable: false, error: 'dial tcp: connection refused' }
+        : { checked: true, sink_id: d.sink_id, sink_name: 'Panmail', reachable: true })
+    }),
     http.get('/api/workflows', () => HttpResponse.json({ data: [
       { id: 'wf-orders', name: 'Orders sync', nodes: [{ id: 'normalize', type: 'transformation', config: { label: 'Normalize order' } }] },
       { id: 'wf-inv', name: 'Invoices to SAP', nodes: [] },
-    ], total: 2 })),
+      { id: 'wf-docs', name: 'Supporting Document Send', nodes: [] },
+    ], total: 3 })),
     http.get('/api/dead-letters/stats', () => HttpResponse.json({
-      queued: 1284, last_24h: 312, top_error: 'field total is not a number', top_error_count: 218, replayed_this_week: 940,
+      queued: 1284, queued_attempts: 1784, last_24h: 312, top_error: 'field total is not a number', top_error_count: 218, replayed_this_week: 940,
     })),
     http.get('/api/dead-letters', ({ request }) => {
       calls.push({ path: 'list?' + new URL(request.url).searchParams.toString() })
@@ -49,7 +65,10 @@ function deadLetterApi(rows: DeadLetter[] = [orders, invoices]) {
         payload: b64('{"id":"ord-88412","total":"12,50"}'),
         metadata: { table: 'orders' },
         origin: { operation: 'update', table: 'orders', before: b64('{"id":"ord-88412","total":"12.00"}') },
-        history: [{ at: d.failed_at, action: 'failed', detail: 'normalize' }],
+        history: d.failure_count && d.failure_count > 1
+          ? [{ at: d.first_failed_at, action: 'failed', detail: 'snk-panmail' },
+            { at: '2026-10-30T17:41:54Z', action: 'failed_again', count: d.failure_count - 1, until: d.failed_at, detail: d.error }]
+          : [{ at: d.failed_at, action: 'failed', detail: 'normalize' }],
       })
     }),
     http.post('/api/dead-letters/discard', async ({ request }) => {
@@ -154,7 +173,59 @@ describe('Dead letters page', () => {
     await user.click(screen.getByRole('checkbox', { name: /select inv-9/i }))
     expect(screen.getByText('2 selected')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /replay 2/i }))
+
+    // The confirm counts messages that go out, and checks the sink first.
+    const confirm = await screen.findByRole('dialog', { name: /replay 2 records/i })
+    expect(await within(confirm).findByText(/sends 2 messages/i)).toBeInTheDocument()
+    expect(await within(confirm).findByText(/panmail answers now/i)).toBeInTheDocument()
+    expect(calls.filter((c) => c.path.endsWith('/check')).map((c) => c.path)).toEqual(['dl-2/check'])
+    await user.click(within(confirm).getByRole('button', { name: /send 2 messages/i }))
     await waitFor(() => expect(calls).toContainEqual({ path: 'replay', body: { ids: ['dl-1', 'dl-2'] } }))
+  })
+
+  it('shows a record the source kept re-sending as one row with its count and span', async () => {
+    deadLetterApi([resent, orders])
+    renderPage()
+
+    expect(await screen.findByText('1,284')).toBeInTheDocument()
+    expect(screen.getByText(/1,784 failed attempts/)).toBeInTheDocument()
+    const table = screen.getByRole('table')
+    const row = (await within(table).findByText('read-263')).closest('tr')!
+    expect(within(row).getByText('×263')).toBeInTheDocument()
+    expect(within(row).getByText(/over 1 h 41 min/)).toBeInTheDocument()
+    expect(within(row).getByText(/^first /i)).toBeInTheDocument()
+    expect(within(table).getByText('Latest retry')).toBeInTheDocument()
+  })
+
+  it('warns before replaying a record whose sink still refuses, and folds its history', async () => {
+    const calls = deadLetterApi([resent], true)
+    renderPage()
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('button', { name: /open message read-263/i }))
+    const panel = await screen.findByRole('dialog', { name: /message read-263/i })
+    expect(within(panel).getByText(/263 failed attempts/i)).toBeInTheDocument()
+    await user.click(within(panel).getByRole('tab', { name: /history/i }))
+    expect(await within(panel).findByText(/failed again ×262/)).toBeInTheDocument()
+
+    await user.click(within(panel).getByRole('button', { name: /^replay$/i }))
+    const confirm = await screen.findByRole('dialog', { name: /replay 1 record/i })
+    expect(await within(confirm).findByText(/panmail does not answer/i)).toBeInTheDocument()
+    expect(within(confirm).getByText(/connection refused/)).toBeInTheDocument()
+    expect(within(confirm).getByText(/covers 263 failed attempts/i)).toBeInTheDocument()
+    await user.click(within(confirm).getByRole('button', { name: /send 1 message anyway/i }))
+    await waitFor(() => expect(calls).toContainEqual({ path: 'replay', body: { ids: ['dl-3'] } }))
+  })
+
+  it('offers the delivered status, for records the source sent again and got through', async () => {
+    const calls = deadLetterApi()
+    renderPage()
+    const user = userEvent.setup()
+    await screen.findByText('Invoices to SAP', { selector: 'td *, td' })
+
+    await user.click(screen.getByRole('combobox', { name: /^status$/i }))
+    await user.click(await screen.findByRole('option', { name: /delivered later/i, hidden: true }))
+    await waitFor(() => expect(calls.some((c) => c.path.includes('status=delivered'))).toBe(true))
   })
 
   it('edits a payload, shows what changed, tests it and replays it', async () => {

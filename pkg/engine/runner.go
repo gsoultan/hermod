@@ -1151,6 +1151,7 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 	// write having reached its sink: a write that failed and was parked in the
 	// dead-letter sink also returns none, so that the source is acknowledged.
 	// The caller is told which of the two happened.
+	r.engine.delivered(targets)
 	if rs.awaited {
 		if parked := firstDeadLettered(targets); parked != nil {
 			rs.conclude(reply.DeadLettered, lastError(parked), parked)

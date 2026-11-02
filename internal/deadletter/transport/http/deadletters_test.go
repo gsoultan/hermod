@@ -137,6 +137,14 @@ func (s *store) DeadLetterStats(_ context.Context, vhosts []string, _ time.Time)
 
 func (s *store) PurgeDeadLetters(context.Context, time.Time) (int64, error) { return 0, nil }
 
+func (s *store) FindDeadLetterGroup(context.Context, storage.DeadLetterGroupKey) (storage.DeadLetter, error) {
+	return storage.DeadLetter{}, storage.ErrNotFound
+}
+
+func (s *store) UpdateDeadLetter(context.Context, storage.DeadLetter, int) error {
+	return storage.ErrDeadLetterConflict
+}
+
 func serve(st storage.Storage, user *storage.User, method, path, body string) *httptest.ResponseRecorder {
 	h := NewHandler(&handlers.Handler{Storage: st, LogStorage: st})
 	mux := http.NewServeMux()

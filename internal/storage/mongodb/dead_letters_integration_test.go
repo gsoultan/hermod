@@ -92,7 +92,9 @@ func TestMongoDeadLetters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := storage.DeadLetterStats{Queued: 3, Last24h: 3, TopError: "timeout", TopErrorCount: 3, ReplayedThisWeek: 1}
+	// Queued counts records, QueuedAttempts the failures they stand for;
+	// each record here failed once.
+	want := storage.DeadLetterStats{Queued: 3, QueuedAttempts: 3, Last24h: 3, TopError: "timeout", TopErrorCount: 3, ReplayedThisWeek: 1}
 	if stats != want {
 		t.Fatalf("stats = %+v, want %+v", stats, want)
 	}
