@@ -66,11 +66,17 @@ import (
 //
 // Env: HERMOD_INTEGRATION=1, POSTGRES_DSN (or FLOW_SOURCE_DSN/FLOW_SINK_DSN),
 // RABBITMQ_URL. LOAD_USERS (default 300) and LOAD_PER_USER (default 20) size it;
+// LOAD_PG_CONNS (default 40) bounds the Postgres producers' pool;
 // LOAD_RESTART_AT=n stops and restarts the workflow once n records are in the
 // audit table, which must lose nothing and log no error.
 func TestBranchingWorkflowUnderConcurrentLoad(t *testing.T) {
 	if os.Getenv("HERMOD_INTEGRATION") != "1" {
 		t.Skip("integration: set HERMOD_INTEGRATION=1 to run")
+	}
+	// A load test, like the others: the -short pass, which CI runs under
+	// -race against every integration test at once, is not the place for it.
+	if testing.Short() {
+		t.Skip("load test: run without -short")
 	}
 	amqpURL := os.Getenv("RABBITMQ_URL")
 	if amqpURL == "" {
@@ -85,8 +91,12 @@ func TestBranchingWorkflowUnderConcurrentLoad(t *testing.T) {
 	srcDSN, sinkDSN := flowDSNs(t)
 	srcDB := openFlowDB(t, srcDSN)
 	sinkDB := openFlowDB(t, sinkDSN)
-	srcDB.SetMaxOpenConns(pgUsers + 10)
-	srcDB.SetMaxIdleConns(pgUsers + 10)
+	// The producers share a bounded pool rather than holding a connection
+	// each: 150 of them exceed a stock server's max_connections (100), and the
+	// workflow under test needs connections of its own.
+	pgConns := envInt(t, "LOAD_PG_CONNS", 40)
+	srcDB.SetMaxOpenConns(pgConns)
+	srcDB.SetMaxIdleConns(pgConns)
 
 	runID := strconv.FormatInt(time.Now().UnixNano(), 36)
 	slot := "lt_slot_" + runID
