@@ -115,9 +115,10 @@ Related: [sink_form_fallthrough_and_panmail](sink_form_fallthrough_and_panmail.m
 Runs `EvaluateDecision` per record and writes `{values, matched, matched_rules,
 matched_rule_ids, decision:{key,name,version}}` to `targetField` (default `decision`).
 
-- url, token, username, password, organizationId and projectId resolve with
-  `ResolveTemplateScoped` (secrets only); decisionKey with `ResolveTemplateMsg`
-  (the record may pick the table).
+- url, token, username, password, organizationId, projectId and decisionKey
+  all resolve with `ResolveTemplateScoped` (secrets only): a record cannot pick
+  the table. Whole-record inputs and merged outputs skip `_hermod*` keys. The
+  palette seeds `inputs: [{name:'',field:''}]` so new nodes open on chosen fields.
 - One SDK client per (url, token, user, password, org) digest, held on the
   transformer, so logins and connections are shared; a 401 with
   username/password logs in again once and retries.

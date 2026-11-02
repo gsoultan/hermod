@@ -209,23 +209,52 @@ func TestMetisDecideSendsOnlyTheMappedInputs(t *testing.T) {
 	}
 }
 
-func TestMetisDecidePinsTheVersionAndChoosesTheTableFromTheRecord(t *testing.T) {
+func TestMetisDecidePinsTheVersionAndTheOrganization(t *testing.T) {
 	f := newFakeMetis(t)
-	cfg := f.config(map[string]any{"decisionKey": "{{.table}}", "version": "3", "organizationId": "org-9"})
-	fields := orderFields()
-	fields["table"] = "discount"
-	if _, err := runMetisDecide(t, NewMetisDecideTransformer(), cfg, fields); err != nil {
+	cfg := f.config(map[string]any{"version": "3", "organizationId": "org-9"})
+	if _, err := runMetisDecide(t, NewMetisDecideTransformer(), cfg, orderFields()); err != nil {
 		t.Fatalf("Transform: %v", err)
 	}
 	req := f.lastRequest(t)
-	if req["key"] != "discount" {
-		t.Errorf("key = %v, want the one the record names", req["key"])
-	}
 	if req["version"] != float64(3) {
 		t.Errorf("version = %v, want 3", req["version"])
 	}
 	if f.orgs[0] != "org-9" {
 		t.Errorf("X-Organization-ID = %q", f.orgs[0])
+	}
+}
+
+func TestMetisDecideRecordCannotChooseTheTable(t *testing.T) {
+	// Which table decides is a policy choice made in the editor. A record that
+	// could name the table could run any table of the project on itself.
+	f := newFakeMetis(t)
+	fields := orderFields()
+	fields["table"] = "discount"
+	_, err := runMetisDecide(t, NewMetisDecideTransformer(), f.config(map[string]any{"decisionKey": "{{.table}}"}), fields)
+	if err == nil || !errors.Is(err, hermod.ErrPermanent) {
+		t.Fatalf("a decision key read from the record should be refused, got %v", err)
+	}
+	if n := f.evaluations.Load(); n != 0 {
+		t.Errorf("Metis was called %d times", n)
+	}
+}
+
+func TestMetisDecideWholeRecordLeavesHermodFieldsBehind(t *testing.T) {
+	f := newFakeMetis(t)
+	fields := orderFields()
+	fields["_hermod_lineage"] = []any{"source-1"}
+	fields["_hermod_last_error"] = "boom"
+	if _, err := runMetisDecide(t, NewMetisDecideTransformer(), f.config(nil), fields); err != nil {
+		t.Fatalf("Transform: %v", err)
+	}
+	vars, _ := f.lastRequest(t)["variables"].(map[string]any)
+	for k := range vars {
+		if strings.HasPrefix(k, "_hermod") {
+			t.Errorf("Hermod's own field %q was sent to Metis", k)
+		}
+	}
+	if vars["amount"] != float64(900) {
+		t.Errorf("variables = %v, want the record's own fields", vars)
 	}
 }
 

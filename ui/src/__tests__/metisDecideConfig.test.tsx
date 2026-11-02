@@ -56,6 +56,16 @@ describe('metis_decide editor', () => {
     expect(update).toHaveBeenLastCalledWith('n1', { decisionKey: 'd' })
   })
 
+  it('refuses a decision key that reads the record', () => {
+    renderConfig({ decisionKey: '{{.table}}' })
+    expect(screen.getByText(/a fixed key; record fields are not read/i)).toBeInTheDocument()
+  })
+
+  it('opens on chosen fields when the palette seeded a row', () => {
+    renderConfig({ inputs: [{ name: '', field: '' }] })
+    expect(screen.getByLabelText('Record field 1')).toBeInTheDocument()
+  })
+
   it('flags a version that is not a number', () => {
     renderConfig({ version: 'latest' })
     expect(screen.getByText(/a version number, or empty/i)).toBeInTheDocument()
@@ -86,7 +96,7 @@ describe('metis_decide editor', () => {
     const item = NODE_CATEGORIES.flatMap((c: any) => c.items).find((i: any) => i.subType === 'metis_decide')
     expect(item).toBeDefined()
     // The editor's Test reports the target field, so a new node starts with it set.
-    expect(item?.defaults).toEqual({ targetField: 'decision' })
+    expect(item?.defaults).toEqual({ targetField: 'decision', inputs: [{ name: '', field: '' }] })
     expect(transformationLabel('metis_decide')).toBe('Metis Decision')
     expect(guideFor('metis_decide').what).not.toBe('')
   })

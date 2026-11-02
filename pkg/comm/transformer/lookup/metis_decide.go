@@ -52,14 +52,16 @@ func init() {
 //     resolve for the record's vhost only ({{secret.NAME}}), so row data cannot
 //     choose where a credential goes. Plain http is refused off loopback.
 //   - projectId: the project the table belongs to. Required.
-//   - decisionKey: the table's key, a template over the record. Required.
+//   - decisionKey: the table's key. Fixed in the settings; a record cannot
+//     choose which table runs on it. Required.
 //   - version: a version to evaluate instead of the live one.
 //   - inputs: [{name, field}], the table's inputs read from the record. Empty
 //     sends the whole record.
 //   - targetField: where the result goes, default "decision": {"values",
 //     "matched", "matched_rules", "matched_rule_ids", "decision": {"key",
 //     "name", "version"}}. mergeOutputs also copies each output to the top
-//     level of the record.
+//     level of the record. The whole record and the merged outputs both
+//     leave out Hermod's own _hermod* fields.
 //   - onNoMatch: "keep" (default) passes the record on with matched false,
 //     "drop" drops it, "fail" fails it.
 //   - timeout: how long one evaluation may take, default 10s.
@@ -146,8 +148,9 @@ func resolveMetisDecideRequest(config map[string]any, msg hermod.Message) (metis
 		password:  scoped("password"),
 		orgID:     scoped("organizationId"),
 		projectID: scoped("projectId"),
-		// Which table decides may follow the record: it is not a credential.
-		decisionKey:  strings.TrimSpace(evaluator.ResolveTemplateMsg(core.GetConfigString(config, "decisionKey"), msg)),
+		// Which table decides is a policy choice made in the editor, so the
+		// key resolves like a credential: secrets only, never the record.
+		decisionKey:  scoped("decisionKey"),
 		targetField:  strings.TrimSpace(core.GetConfigString(config, "targetField")),
 		mergeOutputs: configBool(config, "mergeOutputs"),
 		onNoMatch:    strings.ToLower(strings.TrimSpace(core.GetConfigString(config, "onNoMatch"))),
@@ -182,7 +185,7 @@ func (req metisDecideRequest) checkTarget() error {
 		return metisSettingsError("choose the Metis project the decision belongs to")
 	}
 	if req.decisionKey == "" {
-		return metisSettingsError("enter the decision table's key")
+		return metisSettingsError("enter the decision table's key (a fixed key, not a field of the record)")
 	}
 	return nil
 }
@@ -406,7 +409,16 @@ func cutText(s string) string {
 
 func (req metisDecideRequest) variables(msg hermod.Message) sdk.Variables {
 	if len(req.inputs) == 0 {
-		return sdk.Variables(msg.Data())
+		// The whole record, less Hermod's own bookkeeping fields: lineage,
+		// error text and markers are not inputs to a business rule.
+		data := msg.Data()
+		vars := make(sdk.Variables, len(data))
+		for k, v := range data {
+			if !isHermodField(k) {
+				vars[k] = v
+			}
+		}
+		return vars
 	}
 	vars := make(sdk.Variables, len(req.inputs))
 	for _, in := range req.inputs {
@@ -447,7 +459,7 @@ func (t *MetisDecideTransformer) Transform(ctx context.Context, msg hermod.Messa
 		for k, v := range values {
 			// Hermod's own markers say whether a record failed or was dead
 			// lettered; a decision table must not be able to set them.
-			if strings.HasPrefix(strings.ToLower(k), "_hermod") {
+			if isHermodField(k) {
 				continue
 			}
 			msg.SetData(k, v)
@@ -482,3 +494,6 @@ func metisResult(res *sdk.DecisionResult) map[string]any {
 		},
 	}
 }
+
+// isHermodField reports whether k is one of Hermod's own bookkeeping fields.
+func isHermodField(k string) bool { return strings.HasPrefix(strings.ToLower(k), "_hermod") }

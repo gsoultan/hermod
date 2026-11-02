@@ -159,8 +159,10 @@ decision tables on the record with `EvaluateDecision` and writes the outputs int
 it (`decision.values.<output>` by default), so the business rules stay in Metis
 and a Switch after the step routes on the answer. Evaluating a decision changes
 nothing on the server, so a retry, a dry run and the editor's Test are all safe.
-The server, account and project resolve for the record's vhost only, so a record
-cannot choose where the token goes; the table's key may follow the record. A
+The server, account, project and the table's key resolve for the record's vhost
+only, so a record can choose neither where the token goes nor which table runs
+on it. New nodes start on chosen inputs; sending the whole record is a choice,
+and either way Hermod's own `_hermod…` fields stay behind. A
 refusal (a 4xx: unknown table, missing input, bad credentials) is permanent and
 goes to the dead-letter path at once; a network failure or 5xx is left to the
 node's retry policy. Accounts that sign in with a username and password are

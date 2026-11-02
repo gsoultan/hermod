@@ -13,7 +13,8 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
   project's DMN decision tables on each record and writes the outputs into it, with which rules
   matched and which version of the table decided. Send the whole record or map chosen fields to
   the table's inputs, pin a version, copy the outputs to the top of the record, and choose whether
-  a record no rule matches is kept, dropped or failed. Nothing changes on the Metis server, so
+  a record no rule matches is kept, dropped or failed. New nodes start on chosen fields, and the
+  table's key is fixed in the settings: a record cannot pick which table runs on it. Nothing changes on the Metis server, so
   retries and dry runs are safe; Test runs it on the sample record. Redirects are refused, a
   refused sign-in is not retried for 30 seconds, and a decision cannot set Hermod's own
   `_hermod…` fields.

@@ -60,7 +60,9 @@ export function MetisDecideConfig({
   }
 
   const inputs: MetisInput[] = Array.isArray(config.inputs) ? config.inputs : []
-  const [inputMode, setInputMode] = useState<'all' | 'fields'>(inputs.length ? 'fields' : 'all')
+  // New nodes start on chosen fields (the palette seeds one empty row), so the
+  // whole record is sent only when someone chooses that.
+  const [inputMode, setInputMode] = useState<'all' | 'fields'>(Array.isArray(config.inputs) && inputs.length ? 'fields' : 'all')
   const chooseInputMode = (v: string) => {
     setInputMode(v as 'all' | 'fields')
     if (v === 'all') set({ inputs: [] })
@@ -70,6 +72,7 @@ export function MetisDecideConfig({
     set({ inputs: inputs.map((row, j) => (j === i ? { ...row, ...patch } : row)) })
 
   const version = str(config.version).trim()
+  const keyError = /\{\{/.test(str(config.decisionKey)) ? 'A fixed key; record fields are not read here' : undefined
   const versionError = version && !/^[1-9]\d*$/.test(version) ? 'A version number, or empty for the live version' : undefined
 
   return (
@@ -161,16 +164,14 @@ export function MetisDecideConfig({
 
       <Divider label="Decision" labelPosition="center" />
       <FormRow cols={2}>
-        <TemplateField
+        <TextInput
           label="Decision key"
           placeholder="e.g. approval-tier"
           value={str(config.decisionKey)}
-          onChange={(decisionKey) => set({ decisionKey })}
-          availableFields={fieldPaths}
-          functions="token"
+          onChange={(e) => set({ decisionKey: e.currentTarget.value })}
           required
-          error={missing(config.decisionKey)}
-          description="The table's key in Metis. A field token lets the record choose the table."
+          error={missing(config.decisionKey) ?? keyError}
+          description="The table's key in Metis. Fixed here: a record cannot choose which table runs on it."
         />
         <TextInput
           label="Version"
@@ -188,7 +189,7 @@ export function MetisDecideConfig({
           value={inputMode}
           onChange={chooseInputMode}
           data={[
-            { label: 'The whole record', value: 'all' },
+            { label: 'The whole record (not its _hermod fields)', value: 'all' },
             { label: 'Chosen fields', value: 'fields' },
           ]}
         />
