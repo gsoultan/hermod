@@ -31,6 +31,8 @@ type memDeadLetters struct {
 	settled map[string]storage.DeadLetterStatus
 	// refuse, when set, is what every PutDeadLetter returns.
 	refuse error
+	// finds counts FindDeadLetterGroup calls.
+	finds int
 }
 
 // deadLetterStorage is a storage with a dead letter store.
@@ -63,6 +65,37 @@ func (s *memDeadLetters) GetDeadLetter(_ context.Context, id string) (storage.De
 	return storage.DeadLetter{}, storage.ErrNotFound
 }
 
+func (s *memDeadLetters) FindDeadLetterGroup(_ context.Context, g storage.DeadLetterGroupKey) (storage.DeadLetter, error) {
+	s.dlMu.Lock()
+	defer s.dlMu.Unlock()
+	s.finds++
+	for _, d := range s.kept {
+		if _, done := s.settled[d.ID]; done {
+			continue
+		}
+		if d.Status == storage.DeadLetterQueued && d.GroupKey() == g {
+			return d, nil
+		}
+	}
+	return storage.DeadLetter{}, storage.ErrNotFound
+}
+
+func (s *memDeadLetters) UpdateDeadLetter(_ context.Context, d storage.DeadLetter, prevCount int) error {
+	s.dlMu.Lock()
+	defer s.dlMu.Unlock()
+	for i := range s.kept {
+		if s.kept[i].ID != d.ID {
+			continue
+		}
+		if _, done := s.settled[d.ID]; done || s.kept[i].Attempts() != prevCount {
+			return storage.ErrDeadLetterConflict
+		}
+		s.kept[i] = storage.CapDeadLetter(d)
+		return nil
+	}
+	return storage.ErrNotFound
+}
+
 func (s *memDeadLetters) ListDeadLetters(_ context.Context, f storage.DeadLetterFilter) ([]storage.DeadLetter, int, error) {
 	s.dlMu.Lock()
 	defer s.dlMu.Unlock()
@@ -71,7 +104,8 @@ func (s *memDeadLetters) ListDeadLetters(_ context.Context, f storage.DeadLetter
 		if st, ok := s.settled[d.ID]; ok {
 			d.Status = st
 		}
-		if (f.WorkflowID != "" && d.WorkflowID != f.WorkflowID) || (f.Status != "" && d.Status != f.Status) {
+		if (f.WorkflowID != "" && d.WorkflowID != f.WorkflowID) || (f.Status != "" && d.Status != f.Status) ||
+			(f.Ungrouped && d.RecordKey != "") {
 			continue
 		}
 		out = append(out, d)

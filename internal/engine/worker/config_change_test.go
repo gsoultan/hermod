@@ -43,6 +43,7 @@ func TestWorkflowRuntimeConfigDiffersOnEveryEngineField(t *testing.T) {
 		{"Name", func(w *storage.Workflow) { w.Name = "invoices" }},
 		{"VHost", func(w *storage.Workflow) { w.VHost = "/other" }},
 		{"DeadLetters", func(w *storage.Workflow) { w.DeadLetters = false }},
+		{"DeadLetterKeyFields", func(w *storage.Workflow) { w.DeadLetterKeyFields = []string{"order.number"} }},
 		{"PrioritizeDLQ", func(w *storage.Workflow) { w.PrioritizeDLQ = true }},
 		{"DryRun", func(w *storage.Workflow) { w.DryRun = true }},
 		{"DLQThreshold", func(w *storage.Workflow) { w.DLQThreshold = 50 }},

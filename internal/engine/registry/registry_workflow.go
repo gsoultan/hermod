@@ -459,6 +459,10 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 	if dlq := r.deadLetterQueue(wf); dlq != nil {
 		eng.SetDeadLetterSink(dlq)
 		eng.SetDeadLetterObserver(r.deadLetterObserver(wf))
+		// A record the source sends again and that goes through closes its
+		// waiting dead letter, so nobody replays it a second time.
+		eng.SetDeliveredObserver(r.deliveredObserver(wf))
+		go r.loadOpenDeadLetters(context.Background(), wf)
 	}
 
 	// Set source config for engine reconnect loop

@@ -250,6 +250,11 @@ func GroupUngroupedDeadLetters(ctx context.Context, ds DeadLetterStore) (int, er
 
 // groupOne gives one ungrouped row its key, merging it into its group when the
 // record already has one. done is false when the row changed under it.
+//
+// The write is guarded by the attempt count, not the history, so an event a
+// replay notes on the same legacy row between the read and the write here is
+// overwritten. That window is the first sweep after an upgrade, on rows that
+// predate it, and costs a history line, never the dead letter.
 func groupOne(ctx context.Context, ds DeadLetterStore, id string) (done, merged bool, err error) {
 	row, err := ds.GetDeadLetter(ctx, id)
 	if errors.Is(err, ErrNotFound) {

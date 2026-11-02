@@ -177,6 +177,9 @@ type Registry struct {
 	// drainingDeadLetters holds the ids of workflows whose dead letters are
 	// being drained, so a second drain does not race the first.
 	drainingDeadLetters sync.Map
+	// openDLs knows which records have a dead letter waiting at a sink, so a
+	// later delivery of one closes it. See dead_letter_groups.go.
+	openDLs openDeadLetters
 	// aiBudget is built on first use; see AIBudget.
 	aiBudget     *aibudget.Service
 	aiBudgetOnce sync.Once

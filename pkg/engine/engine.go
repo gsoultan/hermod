@@ -41,7 +41,9 @@ type Engine struct {
 	deadLetterSink hermod.Sink
 	// onDeadLetter hears every message the dead-letter sink took. Set before
 	// Start, like the sink itself.
-	onDeadLetter  DeadLetterObserver
+	onDeadLetter DeadLetterObserver
+	// onDelivered hears every message a sink took. Set before Start.
+	onDelivered   DeliveredObserver
 	router        RouterFunc
 	validator     schema.Validator
 	traceRecorder hermod.TraceRecorder
