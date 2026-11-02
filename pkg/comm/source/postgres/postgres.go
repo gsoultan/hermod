@@ -128,6 +128,9 @@ type PostgresSource struct {
 	// still owed acknowledgements, which replication lag cannot: see
 	// PendingWork.
 	lastEmittedLSN atomic.Uint64
+	// acks orders acknowledgements, which arrive out of order, into the
+	// position lastAckedLSN may hold. Guarded by mu.
+	acks ackWindow
 	// walSenderTimeout (nanos) is the server's wal_sender_timeout, read once per
 	// stream establishment. It sets the cadence keepalives are promised at, and
 	// therefore how long silence must last to mean something. Zero means the
@@ -703,6 +706,7 @@ func (p *PostgresSource) streamLoop(ctx context.Context) {
 		// socket, advancing sent_lsn and making the source look alive. The only
 		// cure was restarting the workflow, which built a new source.
 		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+			p.confirmFinalPosition(conn)
 			return
 		}
 		if err == nil {
@@ -727,6 +731,30 @@ func (p *PostgresSource) waitStreamBackoff(ctx context.Context, err error, backo
 	case <-time.After(backoff):
 	}
 	return min(backoff*2, maxStreamReconnectBackoff)
+}
+
+// confirmFinalPosition reports the acknowledged position one last time as the
+// stream stops.
+//
+// The position otherwise reaches the server only in the periodic standby
+// update, every standbyMessageTimeout. Without this, a clean stop confirmed
+// nothing acknowledged since the last one, and the next source on the slot
+// replayed up to that much WAL the sinks already had. The engine closes the
+// source only after its drain has acknowledged what it delivered, so this is
+// the position that covers them. The stream context is already cancelled, so
+// it gets its own short one.
+func (p *PostgresSource) confirmFinalPosition(conn *pgx.Conn) {
+	if conn == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := p.sendStandbyStatus(ctx, conn); err != nil {
+		// Not fatal: the next source replays from the last confirmed position,
+		// which is at-least-once rather than loss.
+		p.log("WARN", "Could not confirm the final replication position on stop; "+
+			"the next start may replay changes already delivered", "slot", p.slotName, "error", err)
+	}
 }
 
 // teardownStream marks the source uninitialized and closes the replication
@@ -835,6 +863,10 @@ func (p *PostgresSource) noteEmitted(lsn pglogrepl.LSN) {
 	if lsn == 0 {
 		return
 	}
+	p.mu.Lock()
+	p.acks.emit(lsn)
+	p.advanceAckedLocked()
+	p.mu.Unlock()
 	for {
 		prev := p.lastEmittedLSN.Load()
 		if uint64(lsn) <= prev {
@@ -860,8 +892,9 @@ func (p *PostgresSource) PendingWork() (pending bool, known bool) {
 	}
 	p.mu.Lock()
 	acked := p.lastAckedLSN
+	outstanding := p.acks.pending()
 	p.mu.Unlock()
-	return p.lastEmittedLSN.Load() > uint64(acked), true
+	return outstanding || p.lastEmittedLSN.Load() > uint64(acked), true
 }
 
 // LastStreamActivity implements hermod.StreamLivenessReporter.
@@ -1026,6 +1059,7 @@ func (p *PostgresSource) flushPosition() pglogrepl.LSN {
 	p.mu.Lock()
 	received := p.lastReceivedLSN
 	acked := p.lastAckedLSN
+	outstanding := p.acks.pending()
 	p.mu.Unlock()
 
 	if !p.useCDC {
@@ -1033,7 +1067,7 @@ func (p *PostgresSource) flushPosition() pglogrepl.LSN {
 	}
 
 	// Anything delivered and not yet acknowledged pins the position.
-	if p.lastEmittedLSN.Load() > uint64(acked) {
+	if outstanding || p.lastEmittedLSN.Load() > uint64(acked) {
 		return acked
 	}
 	if received > acked {
@@ -2005,11 +2039,9 @@ func (p *PostgresSource) Ack(ctx context.Context, msg hermod.Message) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if lsn > p.lastAckedLSN {
-		p.lastAckedLSN = lsn
-
-		// Optional: Update lag metrics here if we had access to the registry's metrics
-		// For now, let's at least log if lag is high
+	// Not simply the highest acknowledgement: see ackWindow.
+	p.acks.ack(lsn)
+	if p.advanceAckedLocked() {
 		if p.lastReceivedLSN > p.lastAckedLSN {
 			lag := uint64(p.lastReceivedLSN - p.lastAckedLSN)
 			if lag > 100*1024*1024 { // 100MB
@@ -2019,6 +2051,16 @@ func (p *PostgresSource) Ack(ctx context.Context, msg hermod.Message) error {
 	}
 
 	return nil
+}
+
+// advanceAckedLocked moves lastAckedLSN up to the acknowledgement window's
+// position and reports whether it moved. Callers must hold p.mu.
+func (p *PostgresSource) advanceAckedLocked() bool {
+	if p.acks.safe > p.lastAckedLSN {
+		p.lastAckedLSN = p.acks.safe
+		return true
+	}
+	return false
 }
 
 func (p *PostgresSource) Ping(ctx context.Context) error {
@@ -2296,6 +2338,7 @@ func (p *PostgresSource) Close() error {
 	defer p.mu.Unlock()
 	p.lastReceivedLSN = 0
 	p.lastAckedLSN = 0
+	p.acks.reset()
 	p.relations = make(map[uint32]*pglogrepl.RelationMessage)
 
 	p.replConn = nil

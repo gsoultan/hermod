@@ -25,6 +25,10 @@ find a claim that outruns the code, fix the claim.
 
 ### Memories
 
+- [Restarting a workflow under load](restart_under_load_delivery.md) — the
+  300-producer branching load test, and the four ways a restart lost or
+  repeated data: source closed before the drain, no final slot confirm,
+  highest-not-lowest CDC acks, and a stop mid-split acking the message.
 - [mimir-server as a model backend](mimir_server_model_backend.md) — `BackendMimir`
   in `pkg/ml/inference` through the mimir Go SDK; one call per row by column
   name, the API key is a vhost secret, `RemoteModel` is the server's opaque

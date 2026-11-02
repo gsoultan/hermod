@@ -111,6 +111,14 @@ type WorkflowTraversal struct {
 	Filtered    atomic.Bool
 	Unaccounted atomic.Bool
 
+	// Interrupted records that the workflow stopping cut a node off: it could
+	// not start, or it failed because the workflow's context ended. Other
+	// branches may still have routed the message, and writing those and
+	// acknowledging the source loses the branch that was cut off. The router
+	// refuses the whole walk instead (pkgengine.ErrWalkInterrupted), so the
+	// source redelivers the message on the next run.
+	Interrupted atomic.Bool
+
 	// Telemetry receives per-node and per-edge counts for a live workflow. It
 	// is built once per workflow (NewTelemetry) and shared by every traversal
 	// of it; nil records nothing, which is what a simulation wants.
@@ -177,6 +185,7 @@ func Acquire(
 	t.DeadLettered.Store(false)
 	t.Filtered.Store(false)
 	t.Unaccounted.Store(false)
+	t.Interrupted.Store(false)
 	return t
 }
 
@@ -266,6 +275,13 @@ func (t *WorkflowTraversal) processNode(ctx context.Context, currID string) {
 	}()
 
 	if err := t.Eng.AcquireNode(ctx, currID); err != nil {
+		// The node never ran, so whatever was waiting for it never arrives.
+		// The only way this fails is the workflow stopping.
+		t.Unaccounted.Store(true)
+		if ctx.Err() != nil {
+			t.Interrupted.Store(true)
+			return
+		}
 		if t.Registry != nil && t.Registry.Logger() != nil {
 			t.Registry.Logger().Error("Failed to acquire node semaphore", "workflow_id", t.WorkflowID, "node_id", currID, "error", err)
 		}
@@ -325,6 +341,9 @@ func (t *WorkflowTraversal) processNode(ctx context.Context, currID string) {
 		}
 		// A failure is never a deliberate drop, whatever else the walk did.
 		t.Unaccounted.Store(true)
+		if stopping {
+			t.Interrupted.Store(true)
+		}
 	}
 
 	if err != nil && t.Eng != nil && !stopping {
@@ -487,7 +506,16 @@ func (t *WorkflowTraversal) handleResults(ctx context.Context, node *storage.Wor
 	// was never going to arrive while the message another branch brought it went
 	// unwritten. A failed branch counts as finished, as an empty one does below.
 	if err != nil {
-		t.Registry.BroadcastLog(t.WorkflowID, "ERROR", fmt.Sprintf("Node %s failed: %v", node.ID, err), "")
+		// A stop cancels every node in flight, and a merge behind one of them
+		// then runs on half a message and fails too. Neither is wrong with the
+		// node, and the message is redelivered (Interrupted), so neither is an
+		// error.
+		if ctx.Err() != nil {
+			t.Registry.BroadcastLog(t.WorkflowID, "INFO", fmt.Sprintf(
+				"Node %s was interrupted by the workflow stopping; the message will be redelivered", node.ID), "")
+		} else {
+			t.Registry.BroadcastLog(t.WorkflowID, "ERROR", fmt.Sprintf("Node %s failed: %v", node.ID, err), "")
+		}
 		for _, targetID := range t.Adj[node.ID] {
 			t.pruneBranch(ctx, targetID)
 		}
@@ -702,6 +730,9 @@ func (t *WorkflowTraversal) walkFrom(ctx context.Context, node *storage.Workflow
 	}
 	if child.Unaccounted.Load() {
 		t.Unaccounted.Store(true)
+	}
+	if child.Interrupted.Load() {
+		t.Interrupted.Store(true)
 	}
 	if child.DeadLettered.Load() {
 		t.DeadLettered.Store(true)

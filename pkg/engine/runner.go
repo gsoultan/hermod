@@ -277,10 +277,8 @@ func (r *Runner) Start(ctx context.Context) (err error) {
 	// Wait for context to be done instead of blocking synchronously
 	<-r.ctx.Done()
 
-	// The source ingestion loop has exited because the engine is stopping, so
-	// release the source's resources now (see closeSourceOnShutdown).
-	r.closeSourceOnShutdown()
-
+	// The source is closed only once the drain below is over (see
+	// closeSourceOnShutdown), not here.
 	sinkWg.Wait()
 	// Wait for all in-flight per-message processing goroutines to finish before
 	// closing the sink channels. Those goroutines (tracked by inFlightWg, not
@@ -335,6 +333,14 @@ func (r *Runner) Start(ctx context.Context) (err error) {
 	} else {
 		writersWg.Wait()
 	}
+	// Every message the drain delivered has been acknowledged by now, so the
+	// source can go. Closing it before the drain, as this did, refused those
+	// acknowledgements: a RabbitMQ channel was already gone ("rabbitmq channel
+	// not connected") and the broker redelivered them, and a Postgres source
+	// had stopped reporting its position. Each message in flight at a stop was
+	// delivered twice. Nothing in the drain waits on the source's Read, so a
+	// source whose Read returns only on Close does not hold it up.
+	r.closeSourceOnShutdown()
 	r.closeSinksOnShutdown()
 	close(r.errCh)
 
@@ -693,7 +699,14 @@ func (r *Runner) runSourceToBuffer(ctx context.Context) {
 			}
 
 			if err := r.engine.buffer.Produce(ctx, m); err != nil {
-				r.engine.logger.Error("Failed to write message to buffer", "workflow_id", r.engine.workflowID, "error", err)
+				// On a stop the message was read and never buffered. It was not
+				// acknowledged, so the source has it still: not an error.
+				if ctx.Err() != nil {
+					r.engine.logger.Info("Stopped before buffering a message read from the source; "+
+						"it was not acknowledged", "workflow_id", r.engine.workflowID)
+				} else {
+					r.engine.logger.Error("Failed to write message to buffer", "workflow_id", r.engine.workflowID, "error", err)
+				}
 				m.Release()
 			}
 		}
@@ -933,6 +946,15 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 		}
 		rstart := time.Now()
 		t, err := r.engine.router(ctx, m)
+		if errors.Is(err, ErrWalkInterrupted) {
+			// Expected on every stop with work in flight, and handled: the
+			// message stays on the source. Not an error.
+			r.engine.logger.Info("Message left unacknowledged by the stop", "workflow_id", r.engine.workflowID,
+				"message_id", m.ID())
+			r.engine.RecordTraceStepSnapshot(ctx, m, "router", rstart, nil, routed, err)
+			rs.conclude(reply.Failed, err.Error(), m)
+			return
+		}
 		if err != nil {
 			r.engine.logger.Error("Routing failed", "workflow_id", r.engine.workflowID, "message_id", m.ID(), "error", err)
 			r.engine.RecordTraceStepSnapshot(ctx, m, "router", rstart, nil, routed, err)
