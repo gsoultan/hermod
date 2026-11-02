@@ -686,6 +686,17 @@ func (r *Registry) setupWorkflowRouter(
 			}
 		}
 
+		// The stop cut a branch off. Delivering the branches that finished and
+		// acknowledging would lose the one that did not, so none is delivered
+		// and the source keeps the message for the next run.
+		if t.Interrupted.Load() {
+			for _, rm := range t.Routed {
+				rm.Message.Release()
+			}
+			traversal.Release(t)
+			return nil, pkgengine.ErrWalkInterrupted
+		}
+
 		// Clone the routed messages slice before releasing the traversal back to
 		// the pool. This avoids a data race where a subsequent message reuse
 		// clears the slice while a writer is still iterating over it.

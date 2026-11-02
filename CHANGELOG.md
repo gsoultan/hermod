@@ -7,6 +7,34 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — stopping or restarting a workflow under load
+
+Found by a new load test (`TestBranchingWorkflowUnderConcurrentLoad`): Postgres CDC and RabbitMQ
+sources, two DB lookups and an HTTP lookup, a parallel split and merge, a switch and a condition
+whose branches meet again, Postgres and RabbitMQ sinks, 300 concurrent producers. Without a restart
+all 6,000 (and 30,000) records arrived once with the right values. A restart in the middle lost data:
+
+- **The source was closed before the drain.** Messages in flight at a stop were delivered and then
+  could not be acknowledged ("rabbitmq channel not connected"), so the broker delivered them again.
+  The source now closes after the drain.
+- **Postgres CDC confirmed its position only every 10 seconds, and not on stop.** A clean stop
+  replayed everything acknowledged since the last update. The final position is now confirmed as
+  the stream stops.
+- **Postgres CDC confirmed the highest acknowledgement, not the lowest.** Changes are processed in
+  parallel and acknowledged out of order, so one fast change confirmed slower ones still in flight,
+  and a stop or crash lost them (30 of 3,000 in one restart). The slot now advances only to just
+  below the lowest change still unacknowledged. A message left unacknowledged with dead letters off
+  now holds the slot until it is redelivered, as `docs/reliability.md` describes, instead of being
+  stepped over.
+- **A stop that cut one branch of a split short acknowledged the message** because another branch
+  had reached its sink, so the cut-off branch never got it. The walk is now refused as a whole and
+  the message redelivered.
+- A normal stop no longer logs `Node … failed: context canceled`, a merge node's follow-on failure,
+  or `Failed to write message to buffer` at ERROR.
+
+After the fixes, restarts at 1,000, 3,000 and 5,000 of 6,000 records lose nothing, write no wrong
+value and log no error. Some records are delivered twice across a restart (76 to 526 per run),
+which is the at-least-once guarantee; the Postgres sinks' upserts absorb them.
 ### Added — Metis Decision step
 
 - **Metis Decision** (`metis_decide`, under Advanced Transformations): runs one of a Metis

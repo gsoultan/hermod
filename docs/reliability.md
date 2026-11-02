@@ -58,6 +58,13 @@ Delivery is **at-least-once**: a message is acknowledged to its source only afte
 succeeds, so a crash or an abrupt stop replays whatever was not acknowledged. Duplicates are
 therefore possible and expected.
 
+**Stopping a workflow** drains it first: messages already being written finish, are
+acknowledged, and only then is the source closed. A message whose walk the stop cut short on any
+branch is not delivered to the branches that finished and is not acknowledged, so the next run
+delivers it whole. A PostgreSQL CDC source confirms to its slot only the position below the
+lowest change still unacknowledged (changes finish out of order on parallel workers), and
+confirms it once more as it stops, so a restart replays only what was really in flight.
+
 That guarantee has a second half which is easy to miss, because it lives in the source rather
 than in the engine: **a source must not record its position until the messages at that position
 have been acknowledged.** A polling connector that fetches a page of a hundred items and writes
