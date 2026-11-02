@@ -172,6 +172,9 @@ const (
 	QueryDeadLetterTopError      = "DeadLetterTopError"
 	QueryPurgeDeadLetters        = "PurgeDeadLetters"
 	QuerySetDeadLetterHistory    = "SetDeadLetterHistory"
+	QueryFindDeadLetterGroup     = "FindDeadLetterGroup"
+	QueryUpdateDeadLetter        = "UpdateDeadLetter"
+	QuerySumDeadLetterAttempts   = "SumDeadLetterAttempts"
 	QueryListRetrainingMLModels  = "ListRetrainingMLModels"
 	QuerySetMLModelRetrain       = "SetMLModelRetrain"
 	QuerySetMLModelRetrainStatus = "SetMLModelRetrainStatus"
@@ -598,7 +601,10 @@ var commonQueries = map[string]string{
 			status TEXT NOT NULL DEFAULT 'queued',
 			settled_at TIMESTAMP,
 			settled_by TEXT,
-			history TEXT
+			history TEXT,
+			record_key TEXT,
+			failure_count INTEGER DEFAULT 1,
+			first_failed_at TIMESTAMP
 		)`,
 	QueryInitWorkersTable: `CREATE TABLE IF NOT EXISTS workers (
 			id TEXT PRIMARY KEY,
@@ -643,6 +649,7 @@ var commonQueries = map[string]string{
             edges TEXT,
             dead_letter_sink_id TEXT,
             dead_letters BOOLEAN DEFAULT FALSE,
+            dead_letter_key_fields TEXT,
             prioritize_dlq BOOLEAN DEFAULT FALSE,
             max_retries INTEGER DEFAULT 0,
             retry_interval TEXT,
@@ -1000,15 +1007,18 @@ var commonQueries = map[string]string{
 	QueryMarkAIUsageCostWarned:   "UPDATE ai_usage SET cost_warned_at = ? WHERE id = ? AND cost_warned_at IS NULL",
 	QueryDeleteAIUsageOfVHost:    "DELETE FROM ai_usage WHERE vhost = ?",
 
-	QueryInsertDeadLetter:     "INSERT INTO dead_letters (id, vhost, workflow_id, message_id, node_id, sink_id, error, failed_at, payload, payload_size, truncated, metadata, origin, status, settled_at, settled_by, history) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-	QueryGetDeadLetter:        "SELECT id, vhost, workflow_id, message_id, node_id, sink_id, error, failed_at, payload, payload_size, truncated, metadata, origin, status, settled_at, settled_by, history FROM dead_letters WHERE id = ?",
-	QueryListDeadLetters:      "SELECT id, vhost, workflow_id, message_id, node_id, sink_id, error, failed_at, payload_size, truncated, status, settled_at, settled_by FROM dead_letters",
-	QueryCountDeadLetters:     "SELECT COUNT(*) FROM dead_letters",
-	QuerySettleDeadLetter:     "UPDATE dead_letters SET status = ?, settled_at = ?, settled_by = ?, history = ? WHERE id = ? AND status = 'queued'",
-	QueryDeadLetterTopError:   "SELECT error, COUNT(*) FROM dead_letters%s GROUP BY error ORDER BY COUNT(*) DESC, error LIMIT 1",
-	QueryPurgeDeadLetters:     "DELETE FROM dead_letters WHERE failed_at < ? AND status <> 'queued'",
-	QuerySetDeadLetterHistory: "UPDATE dead_letters SET history = ? WHERE id = ? AND status = ?",
-	QueryGetVHost:             "SELECT id, name, description, created_at FROM vhosts WHERE id = ?",
+	QueryInsertDeadLetter:      "INSERT INTO dead_letters (id, vhost, workflow_id, message_id, node_id, sink_id, error, failed_at, payload, payload_size, truncated, metadata, origin, status, settled_at, settled_by, history, record_key, failure_count, first_failed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryGetDeadLetter:         "SELECT id, vhost, workflow_id, message_id, node_id, sink_id, error, failed_at, payload, payload_size, truncated, metadata, origin, status, settled_at, settled_by, history, record_key, failure_count, first_failed_at FROM dead_letters WHERE id = ?",
+	QueryFindDeadLetterGroup:   "SELECT id, vhost, workflow_id, message_id, node_id, sink_id, error, failed_at, payload, payload_size, truncated, metadata, origin, status, settled_at, settled_by, history, record_key, failure_count, first_failed_at FROM dead_letters WHERE workflow_id = ? AND COALESCE(node_id, '') = ? AND COALESCE(sink_id, '') = ? AND record_key = ? AND status = 'queued' ORDER BY failed_at DESC, id DESC",
+	QueryUpdateDeadLetter:      "UPDATE dead_letters SET message_id = ?, error = ?, failed_at = ?, payload = ?, payload_size = ?, truncated = ?, metadata = ?, origin = ?, history = ?, record_key = ?, failure_count = ?, first_failed_at = ? WHERE id = ? AND status = 'queued' AND (CASE WHEN failure_count > 1 THEN failure_count ELSE 1 END) = ?",
+	QuerySumDeadLetterAttempts: "SELECT COALESCE(SUM(CASE WHEN failure_count > 1 THEN failure_count ELSE 1 END), 0) FROM dead_letters",
+	QueryListDeadLetters:       "SELECT id, vhost, workflow_id, message_id, node_id, sink_id, error, failed_at, payload_size, truncated, status, settled_at, settled_by, record_key, failure_count, first_failed_at FROM dead_letters",
+	QueryCountDeadLetters:      "SELECT COUNT(*) FROM dead_letters",
+	QuerySettleDeadLetter:      "UPDATE dead_letters SET status = ?, settled_at = ?, settled_by = ?, history = ? WHERE id = ? AND status = 'queued'",
+	QueryDeadLetterTopError:    "SELECT error, COUNT(*) FROM dead_letters%s GROUP BY error ORDER BY COUNT(*) DESC, error LIMIT 1",
+	QueryPurgeDeadLetters:      "DELETE FROM dead_letters WHERE failed_at < ? AND status <> 'queued'",
+	QuerySetDeadLetterHistory:  "UPDATE dead_letters SET history = ? WHERE id = ? AND status = ?",
+	QueryGetVHost:              "SELECT id, name, description, created_at FROM vhosts WHERE id = ?",
 
 	QueryInsertMLPredictionLog:         "INSERT INTO ml_prediction_logs (vhost, model, version, timestamp, inputs, outputs, latency_ms, caller_kind, caller_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 	QueryListMLPredictionLogs:          "SELECT version, timestamp, inputs, outputs, latency_ms, caller_kind, caller_id FROM ml_prediction_logs WHERE vhost = ? AND model = ? ORDER BY timestamp DESC LIMIT ?",
@@ -1018,14 +1028,14 @@ var commonQueries = map[string]string{
 	QueryDeleteMLPredictionLogsOfModel: "DELETE FROM ml_prediction_logs WHERE vhost = ? AND model = ?",
 	QueryDeleteMLPredictionLogsOfVHost: "DELETE FROM ml_prediction_logs WHERE vhost = ?",
 
-	QueryListWorkflows:        "SELECT id, name, vhost, active, status, worker_id, owner_id, lease_until, nodes, edges, dead_letter_sink_id, dead_letters, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request, total_processed, total_errors, total_lag, created_at FROM workflows",
+	QueryListWorkflows:        "SELECT id, name, vhost, active, status, worker_id, owner_id, lease_until, nodes, edges, dead_letter_sink_id, dead_letters, dead_letter_key_fields, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request, total_processed, total_errors, total_lag, created_at FROM workflows",
 	QueryCountWorkflows:       "SELECT COUNT(*) FROM workflows",
-	QueryCreateWorkflow:       "INSERT INTO workflows (id, name, vhost, active, status, worker_id, nodes, edges, dead_letter_sink_id, dead_letters, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request, total_processed, total_errors, total_lag, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-	QueryUpdateWorkflow:       "UPDATE workflows SET name = ?, vhost = ?, active = ?, status = ?, worker_id = ?, nodes = ?, edges = ?, dead_letter_sink_id = ?, dead_letters = ?, prioritize_dlq = ?, max_retries = ?, retry_interval = ?, reconnect_interval = ?, dry_run = ?, schema_type = ?, schema = ?, retention_days = ?, cron = ?, idle_timeout = ?, tier = ?, trace_sample_rate = ?, dlq_threshold = ?, tags = ?, workspace_id = ?, trace_retention = ?, audit_retention = ?, cpu_request = ?, memory_request = ?, throughput_request = ?, total_processed = ?, total_errors = ?, total_lag = ? WHERE id = ?",
+	QueryCreateWorkflow:       "INSERT INTO workflows (id, name, vhost, active, status, worker_id, nodes, edges, dead_letter_sink_id, dead_letters, dead_letter_key_fields, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request, total_processed, total_errors, total_lag, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryUpdateWorkflow:       "UPDATE workflows SET name = ?, vhost = ?, active = ?, status = ?, worker_id = ?, nodes = ?, edges = ?, dead_letter_sink_id = ?, dead_letters = ?, dead_letter_key_fields = ?, prioritize_dlq = ?, max_retries = ?, retry_interval = ?, reconnect_interval = ?, dry_run = ?, schema_type = ?, schema = ?, retention_days = ?, cron = ?, idle_timeout = ?, tier = ?, trace_sample_rate = ?, dlq_threshold = ?, tags = ?, workspace_id = ?, trace_retention = ?, audit_retention = ?, cpu_request = ?, memory_request = ?, throughput_request = ?, total_processed = ?, total_errors = ?, total_lag = ? WHERE id = ?",
 	QueryUpdateWorkflowStatus: "UPDATE workflows SET status = ? WHERE id = ?",
 	QueryUpdateWorkflowStats:  "UPDATE workflows SET total_processed = ?, total_errors = ?, total_lag = ? WHERE id = ?",
 	QueryDeleteWorkflow:       "DELETE FROM workflows WHERE id = ?",
-	QueryGetWorkflow:          "SELECT id, name, vhost, active, status, worker_id, owner_id, lease_until, nodes, edges, dead_letter_sink_id, dead_letters, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request, total_processed, total_errors, total_lag, created_at FROM workflows WHERE id = ?",
+	QueryGetWorkflow:          "SELECT id, name, vhost, active, status, worker_id, owner_id, lease_until, nodes, edges, dead_letter_sink_id, dead_letters, dead_letter_key_fields, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request, total_processed, total_errors, total_lag, created_at FROM workflows WHERE id = ?",
 	QueryAcquireLease:         "UPDATE workflows SET owner_id = ?, lease_until = ? WHERE id = ? AND (owner_id IS NULL OR lease_until IS NULL OR lease_until < ? OR owner_id = ?)",
 	QueryRenewLease:           "UPDATE workflows SET lease_until = ? WHERE id = ? AND owner_id = ? AND lease_until IS NOT NULL AND lease_until >= ?",
 	QueryReleaseLease:         "UPDATE workflows SET owner_id = NULL, lease_until = NULL WHERE id = ? AND owner_id = ?",

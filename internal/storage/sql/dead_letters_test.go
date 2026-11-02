@@ -235,7 +235,7 @@ func TestDeadLetterStats(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := storage.DeadLetterStats{Queued: 5, Last24h: 2, TopError: "timeout", TopErrorCount: 3, ReplayedThisWeek: 1}
+	want := storage.DeadLetterStats{Queued: 5, QueuedAttempts: 5, Last24h: 2, TopError: "timeout", TopErrorCount: 3, ReplayedThisWeek: 1}
 	if got != want {
 		t.Fatalf("stats = %+v, want %+v", got, want)
 	}

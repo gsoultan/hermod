@@ -22,6 +22,10 @@ import (
 	"github.com/gsoultan/hermod/internal/storage"
 )
 
+// A store that stopped satisfying the interface would not fail anywhere: the
+// registry asserts it at run time and quietly stops keeping dead letters.
+var _ storage.DeadLetterStore = (*sqlStorage)(nil)
+
 func (s *sqlStorage) PutDeadLetter(ctx context.Context, d storage.DeadLetter) error {
 	d = storage.CapDeadLetter(d)
 	if err := storage.ValidateDeadLetter(d); err != nil {
@@ -38,7 +42,8 @@ func (s *sqlStorage) PutDeadLetter(ctx context.Context, d storage.DeadLetter) er
 	return s.execWithRetry(ctx, func() error {
 		_, err := s.exec(ctx, s.queries.get(QueryInsertDeadLetter),
 			d.ID, d.VHost, d.WorkflowID, d.MessageID, d.NodeID, d.SinkID, d.Error, d.FailedAt,
-			d.Payload, d.PayloadSize, d.Truncated, metadata, origin, string(d.Status), settledAt, d.SettledBy, history)
+			d.Payload, d.PayloadSize, d.Truncated, metadata, origin, string(d.Status), settledAt, d.SettledBy, history,
+			d.RecordKey, d.FailureCount, d.FirstFailedAt)
 		if err != nil {
 			return fmt.Errorf("keeping dead letter %s: %w", d.ID, err)
 		}
@@ -64,18 +69,73 @@ func encodeDeadLetterJSON(d storage.DeadLetter) (metadata, origin, history strin
 }
 
 func (s *sqlStorage) GetDeadLetter(ctx context.Context, id string) (storage.DeadLetter, error) {
-	var d storage.DeadLetter
-	var msgID, nodeID, sinkID, errText, metadata, origin, status, settledBy, history sql.NullString
-	var failedAt, settledAt any
-	var truncated sql.NullBool
-	err := s.queryRow(ctx, s.queries.get(QueryGetDeadLetter), id).Scan(
-		&d.ID, &d.VHost, &d.WorkflowID, &msgID, &nodeID, &sinkID, &errText, &failedAt,
-		&d.Payload, &d.PayloadSize, &truncated, &metadata, &origin, &status, &settledAt, &settledBy, &history)
+	d, err := scanDeadLetter(s.queryRow(ctx, s.queries.get(QueryGetDeadLetter), id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return storage.DeadLetter{}, storage.ErrNotFound
 	}
 	if err != nil {
 		return storage.DeadLetter{}, fmt.Errorf("reading dead letter %s: %w", id, err)
+	}
+	return d, nil
+}
+
+// FindDeadLetterGroup reads the waiting row of g. There is normally one; two
+// writers that both found none can each have inserted one, and then the
+// newest is the one that collects.
+func (s *sqlStorage) FindDeadLetterGroup(ctx context.Context, g storage.DeadLetterGroupKey) (storage.DeadLetter, error) {
+	d, err := scanDeadLetter(s.queryRow(ctx, s.queries.get(QueryFindDeadLetterGroup), g.WorkflowID, g.NodeID, g.SinkID, g.RecordKey))
+	if errors.Is(err, sql.ErrNoRows) {
+		return storage.DeadLetter{}, storage.ErrNotFound
+	}
+	if err != nil {
+		return storage.DeadLetter{}, fmt.Errorf("finding the dead letter group of %s: %w", g.RecordKey, err)
+	}
+	return d, nil
+}
+
+// UpdateDeadLetter writes what a new failure changed. The WHERE clause holds
+// the count it read, so of two writers folding into one row at once exactly
+// one wins and the other reads it again.
+func (s *sqlStorage) UpdateDeadLetter(ctx context.Context, d storage.DeadLetter, prevCount int) error {
+	d = storage.CapDeadLetter(d)
+	metadata, origin, history, err := encodeDeadLetterJSON(d)
+	if err != nil {
+		return err
+	}
+	var n int64
+	err = s.execWithRetry(ctx, func() error {
+		res, err := s.exec(ctx, s.queries.get(QueryUpdateDeadLetter),
+			d.MessageID, d.Error, d.FailedAt, d.Payload, d.PayloadSize, d.Truncated, metadata, origin, history,
+			d.RecordKey, d.FailureCount, d.FirstFailedAt, d.ID, prevCount)
+		if err != nil {
+			return err
+		}
+		n, err = res.RowsAffected()
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("updating dead letter %s: %w", d.ID, err)
+	}
+	if n == 0 {
+		return storage.ErrDeadLetterConflict
+	}
+	return nil
+}
+
+// scanDeadLetter reads one whole row, in the column order of
+// QueryGetDeadLetter and QueryFindDeadLetterGroup.
+func scanDeadLetter(row interface{ Scan(...any) error }) (storage.DeadLetter, error) {
+	var d storage.DeadLetter
+	var msgID, nodeID, sinkID, errText, metadata, origin, status, settledBy, history, recordKey sql.NullString
+	var failedAt, settledAt, firstFailedAt any
+	var truncated sql.NullBool
+	var failureCount sql.NullInt64
+	err := row.Scan(
+		&d.ID, &d.VHost, &d.WorkflowID, &msgID, &nodeID, &sinkID, &errText, &failedAt,
+		&d.Payload, &d.PayloadSize, &truncated, &metadata, &origin, &status, &settledAt, &settledBy, &history,
+		&recordKey, &failureCount, &firstFailedAt)
+	if err != nil {
+		return storage.DeadLetter{}, err
 	}
 	d.MessageID, d.NodeID, d.SinkID, d.Error = msgID.String, nodeID.String, sinkID.String, errText.String
 	d.FailedAt = coerceTime(failedAt).UTC()
@@ -86,6 +146,7 @@ func (s *sqlStorage) GetDeadLetter(ctx context.Context, id string) (storage.Dead
 		t = t.UTC()
 		d.SettledAt = &t
 	}
+	setGroupFields(&d, recordKey, failureCount, firstFailedAt)
 	for _, f := range []struct {
 		raw  sql.NullString
 		into any
@@ -95,10 +156,22 @@ func (s *sqlStorage) GetDeadLetter(ctx context.Context, id string) (storage.Dead
 			continue
 		}
 		if err := json.Unmarshal([]byte(f.raw.String), f.into); err != nil {
-			return storage.DeadLetter{}, fmt.Errorf("the %s of dead letter %s is unreadable: %w", f.name, id, err)
+			return storage.DeadLetter{}, fmt.Errorf("the %s of dead letter %s is unreadable: %w", f.name, d.ID, err)
 		}
 	}
 	return d, nil
+}
+
+// setGroupFields fills in the grouping columns, which a row an earlier
+// release wrote leaves empty: such a row is one attempt that failed when it
+// says it did.
+func setGroupFields(d *storage.DeadLetter, recordKey sql.NullString, failureCount sql.NullInt64, firstFailedAt any) {
+	d.RecordKey = recordKey.String
+	d.FailureCount = max(int(failureCount.Int64), 1)
+	d.FirstFailedAt = coerceTime(firstFailedAt).UTC()
+	if d.FirstFailedAt.IsZero() {
+		d.FirstFailedAt = d.FailedAt
+	}
 }
 
 // deadLetterWhere is the WHERE clause, with its arguments, that a filter and
@@ -123,6 +196,13 @@ func deadLetterWhere(f storage.DeadLetterFilter) (string, []any) {
 	if f.Status != "" {
 		where = append(where, "status = ?")
 		args = append(args, string(f.Status))
+	} else {
+		// A merged row is a copy its group already counts.
+		where = append(where, "status <> ?")
+		args = append(args, string(storage.DeadLetterMerged))
+	}
+	if f.Ungrouped {
+		where = append(where, "(record_key IS NULL OR record_key = '')")
 	}
 	if f.Search != "" {
 		clause, searchArgs := caseInsensitiveSearch(f.Search, "error", "message_id", "node_id", "sink_id")
@@ -163,7 +243,11 @@ func (s *sqlStorage) ListDeadLetters(ctx context.Context, f storage.DeadLetterFi
 		limit = 50
 	}
 	page, pageArgs := s.pageClause(limit, max(f.Offset, 0))
-	rows, err := s.query(ctx, s.queries.get(QueryListDeadLetters)+where+" ORDER BY failed_at DESC, id DESC"+page,
+	order := " ORDER BY failed_at DESC, id DESC"
+	if f.OldestFirst {
+		order = " ORDER BY failed_at ASC, id ASC"
+	}
+	rows, err := s.query(ctx, s.queries.get(QueryListDeadLetters)+where+order+page,
 		append(args, pageArgs...)...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("listing dead letters: %w", err)
@@ -173,11 +257,12 @@ func (s *sqlStorage) ListDeadLetters(ctx context.Context, f storage.DeadLetterFi
 	out := []storage.DeadLetter{}
 	for rows.Next() {
 		var d storage.DeadLetter
-		var msgID, nodeID, sinkID, errText, status, settledBy sql.NullString
-		var failedAt, settledAt any
+		var msgID, nodeID, sinkID, errText, status, settledBy, recordKey sql.NullString
+		var failedAt, settledAt, firstFailedAt any
 		var truncated sql.NullBool
+		var failureCount sql.NullInt64
 		if err := rows.Scan(&d.ID, &d.VHost, &d.WorkflowID, &msgID, &nodeID, &sinkID, &errText, &failedAt,
-			&d.PayloadSize, &truncated, &status, &settledAt, &settledBy); err != nil {
+			&d.PayloadSize, &truncated, &status, &settledAt, &settledBy, &recordKey, &failureCount, &firstFailedAt); err != nil {
 			return nil, 0, fmt.Errorf("listing dead letters: %w", err)
 		}
 		d.MessageID, d.NodeID, d.SinkID, d.Error = msgID.String, nodeID.String, sinkID.String, errText.String
@@ -189,6 +274,7 @@ func (s *sqlStorage) ListDeadLetters(ctx context.Context, f storage.DeadLetterFi
 			t = t.UTC()
 			d.SettledAt = &t
 		}
+		setGroupFields(&d, recordKey, failureCount, firstFailedAt)
 		out = append(out, d)
 	}
 	if err := rows.Err(); err != nil {
@@ -284,6 +370,10 @@ func (s *sqlStorage) DeadLetterStats(ctx context.Context, vhosts []string, now t
 	if st.Queued, err = count(queued, ""); err != nil {
 		return st, fmt.Errorf("counting queued dead letters: %w", err)
 	}
+	queuedWhere, queuedArgs := deadLetterWhere(queued)
+	if err := s.queryRow(ctx, s.queries.get(QuerySumDeadLetterAttempts)+queuedWhere, queuedArgs...).Scan(&st.QueuedAttempts); err != nil {
+		return st, fmt.Errorf("counting the attempts of queued dead letters: %w", err)
+	}
 	if st.Last24h, err = count(storage.DeadLetterFilter{VHosts: vhosts, Since: now.Add(-24 * time.Hour)}, ""); err != nil {
 		return st, fmt.Errorf("counting recent dead letters: %w", err)
 	}
@@ -307,4 +397,31 @@ func (s *sqlStorage) PurgeDeadLetters(ctx context.Context, cutoff time.Time) (in
 		return 0, fmt.Errorf("purging dead letters: %w", err)
 	}
 	return res.RowsAffected()
+}
+
+// deadLetterKeyFieldsJSON is how a workflow's dead letter key fields are kept:
+// a JSON array, or NULL when there are none.
+func deadLetterKeyFieldsJSON(fields []string) any {
+	if len(fields) == 0 {
+		return nil
+	}
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		return nil
+	}
+	return string(raw)
+}
+
+// parseDeadLetterKeyFields reads deadLetterKeyFieldsJSON back. An unreadable
+// value is no fields: the whole payload then decides, which groups less but
+// never wrongly.
+func parseDeadLetterKeyFields(raw sql.NullString) []string {
+	if raw.String == "" {
+		return nil
+	}
+	var fields []string
+	if json.Unmarshal([]byte(raw.String), &fields) != nil {
+		return nil
+	}
+	return fields
 }

@@ -25,6 +25,10 @@ import (
 
 const deadLettersCollection = "dead_letters"
 
+// A store that stopped satisfying the interface would not fail anywhere: the
+// registry asserts it at run time and quietly stops keeping dead letters.
+var _ storage.DeadLetterStore = (*mongoStorage)(nil)
+
 // deadLetterDoc is the stored dead letter; _id is its id.
 type deadLetterDoc struct {
 	ID          string                    `bson:"_id"`
@@ -44,6 +48,20 @@ type deadLetterDoc struct {
 	SettledAt   *time.Time                `bson:"settled_at,omitempty"`
 	SettledBy   string                    `bson:"settled_by,omitempty"`
 	History     []storage.DeadLetterEvent `bson:"history,omitempty"`
+	RecordKey   string                    `bson:"record_key,omitempty"`
+	// FailureCount is 0 on a document from before counting; Attempts reads
+	// that as one.
+	FailureCount  int       `bson:"failure_count,omitempty"`
+	FirstFailedAt time.Time `bson:"first_failed_at,omitempty"`
+}
+
+func newDeadLetterDoc(d storage.DeadLetter) deadLetterDoc {
+	return deadLetterDoc{
+		ID: d.ID, VHost: d.VHost, WorkflowID: d.WorkflowID, MessageID: d.MessageID, NodeID: d.NodeID, SinkID: d.SinkID,
+		Error: d.Error, FailedAt: d.FailedAt, Payload: d.Payload, PayloadSize: d.PayloadSize, Truncated: d.Truncated,
+		Metadata: d.Metadata, Origin: d.Origin, Status: string(d.Status), SettledAt: d.SettledAt, SettledBy: d.SettledBy, History: d.History,
+		RecordKey: d.RecordKey, FailureCount: d.FailureCount, FirstFailedAt: d.FirstFailedAt,
+	}
 }
 
 func (d deadLetterDoc) deadLetter() storage.DeadLetter {
@@ -51,6 +69,10 @@ func (d deadLetterDoc) deadLetter() storage.DeadLetter {
 		ID: d.ID, VHost: d.VHost, WorkflowID: d.WorkflowID, MessageID: d.MessageID, NodeID: d.NodeID, SinkID: d.SinkID,
 		Error: d.Error, FailedAt: d.FailedAt.UTC(), Payload: d.Payload, PayloadSize: d.PayloadSize, Truncated: d.Truncated,
 		Metadata: d.Metadata, Origin: d.Origin, Status: storage.DeadLetterStatus(d.Status), SettledBy: d.SettledBy, History: d.History,
+		RecordKey: d.RecordKey, FailureCount: max(d.FailureCount, 1), FirstFailedAt: d.FirstFailedAt.UTC(),
+	}
+	if out.FirstFailedAt.IsZero() {
+		out.FirstFailedAt = out.FailedAt
 	}
 	if d.SettledAt != nil {
 		t := d.SettledAt.UTC()
@@ -64,12 +86,7 @@ func (s *mongoStorage) PutDeadLetter(ctx context.Context, d storage.DeadLetter) 
 	if err := storage.ValidateDeadLetter(d); err != nil {
 		return err
 	}
-	doc := deadLetterDoc{
-		ID: d.ID, VHost: d.VHost, WorkflowID: d.WorkflowID, MessageID: d.MessageID, NodeID: d.NodeID, SinkID: d.SinkID,
-		Error: d.Error, FailedAt: d.FailedAt, Payload: d.Payload, PayloadSize: d.PayloadSize, Truncated: d.Truncated,
-		Metadata: d.Metadata, Origin: d.Origin, Status: string(d.Status), SettledAt: d.SettledAt, SettledBy: d.SettledBy, History: d.History,
-	}
-	if _, err := s.db.Collection(deadLettersCollection).InsertOne(ctx, doc); err != nil {
+	if _, err := s.db.Collection(deadLettersCollection).InsertOne(ctx, newDeadLetterDoc(d)); err != nil {
 		return fmt.Errorf("keeping dead letter %s: %w", d.ID, err)
 	}
 	return nil
@@ -87,6 +104,51 @@ func (s *mongoStorage) GetDeadLetter(ctx context.Context, id string) (storage.De
 	return d.deadLetter(), nil
 }
 
+// FindDeadLetterGroup reads the waiting document of g, the newest when two
+// writers each inserted one.
+func (s *mongoStorage) FindDeadLetterGroup(ctx context.Context, g storage.DeadLetterGroupKey) (storage.DeadLetter, error) {
+	var d deadLetterDoc
+	err := s.db.Collection(deadLettersCollection).FindOne(ctx,
+		bson.M{"workflow_id": g.WorkflowID, "node_id": g.NodeID, "sink_id": g.SinkID, "record_key": g.RecordKey,
+			"status": string(storage.DeadLetterQueued)},
+		options.FindOne().SetSort(bson.D{{Key: "failed_at", Value: -1}, {Key: "_id", Value: -1}}),
+	).Decode(&d)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return storage.DeadLetter{}, storage.ErrNotFound
+	}
+	if err != nil {
+		return storage.DeadLetter{}, fmt.Errorf("finding the dead letter group of %s: %w", g.RecordKey, err)
+	}
+	return d.deadLetter(), nil
+}
+
+// UpdateDeadLetter rewrites what a new failure changed, only on a waiting
+// document that still has the count the caller read. A document from before
+// counting has none, which counts as one.
+func (s *mongoStorage) UpdateDeadLetter(ctx context.Context, d storage.DeadLetter, prevCount int) error {
+	d = storage.CapDeadLetter(d)
+	count := bson.M{"failure_count": prevCount}
+	if prevCount <= 1 {
+		count = bson.M{"$or": []bson.M{
+			{"failure_count": bson.M{"$exists": false}}, {"failure_count": bson.M{"$lte": 1}},
+		}}
+	}
+	res, err := s.db.Collection(deadLettersCollection).UpdateOne(ctx,
+		bson.M{"$and": []bson.M{{"_id": d.ID, "status": string(storage.DeadLetterQueued)}, count}},
+		bson.M{"$set": bson.M{
+			"message_id": d.MessageID, "error": d.Error, "failed_at": d.FailedAt, "payload": d.Payload,
+			"payload_size": d.PayloadSize, "truncated": d.Truncated, "metadata": d.Metadata, "origin": d.Origin,
+			"history": d.History, "record_key": d.RecordKey, "failure_count": d.FailureCount, "first_failed_at": d.FirstFailedAt,
+		}})
+	if err != nil {
+		return fmt.Errorf("updating dead letter %s: %w", d.ID, err)
+	}
+	if res.MatchedCount == 0 {
+		return storage.ErrDeadLetterConflict
+	}
+	return nil
+}
+
 // deadLetterQuery is the filter as a query; the stats share it.
 func deadLetterQuery(f storage.DeadLetterFilter) bson.M {
 	q := bson.M{}
@@ -102,6 +164,12 @@ func deadLetterQuery(f storage.DeadLetterFilter) bson.M {
 	}
 	if f.Status != "" {
 		q["status"] = string(f.Status)
+	} else {
+		// A merged document is a copy its group already counts.
+		q["status"] = bson.M{"$ne": string(storage.DeadLetterMerged)}
+	}
+	if f.Ungrouped {
+		and = append(and, bson.M{"$or": []bson.M{{"record_key": bson.M{"$exists": false}}, {"record_key": ""}}})
 	}
 	if f.Search != "" {
 		and = append(and, bson.M{"$or": searchAcross(f.Search, "error", "message_id", "node_id", "sink_id")})
@@ -133,8 +201,12 @@ func (s *mongoStorage) ListDeadLetters(ctx context.Context, f storage.DeadLetter
 	if limit <= 0 {
 		limit = 50
 	}
+	order := -1
+	if f.OldestFirst {
+		order = 1
+	}
 	opts := options.Find().
-		SetSort(bson.D{{Key: "failed_at", Value: -1}, {Key: "_id", Value: -1}}).
+		SetSort(bson.D{{Key: "failed_at", Value: order}, {Key: "_id", Value: order}}).
 		SetSkip(int64(max(f.Offset, 0))).SetLimit(int64(limit)).
 		SetProjection(bson.M{"payload": 0, "origin": 0, "metadata": 0, "history": 0})
 	cur, err := coll.Find(ctx, q, opts)
@@ -209,6 +281,9 @@ func (s *mongoStorage) DeadLetterStats(ctx context.Context, vhosts []string, now
 	if st.Queued, err = count(queued); err != nil {
 		return st, fmt.Errorf("counting queued dead letters: %w", err)
 	}
+	if st.QueuedAttempts, err = s.sumAttempts(ctx, queued); err != nil {
+		return st, fmt.Errorf("counting the attempts of queued dead letters: %w", err)
+	}
 	if st.Last24h, err = count(deadLetterQuery(storage.DeadLetterFilter{VHosts: vhosts, Since: now.Add(-24 * time.Hour)})); err != nil {
 		return st, fmt.Errorf("counting recent dead letters: %w", err)
 	}
@@ -249,4 +324,27 @@ func (s *mongoStorage) PurgeDeadLetters(ctx context.Context, cutoff time.Time) (
 		return 0, fmt.Errorf("purging dead letters: %w", err)
 	}
 	return res.DeletedCount, nil
+}
+
+// sumAttempts adds up the attempts the documents matching q stand for, a
+// document from before counting being one.
+func (s *mongoStorage) sumAttempts(ctx context.Context, q bson.M) (int, error) {
+	cur, err := s.db.Collection(deadLettersCollection).Aggregate(ctx, mongo.Pipeline{
+		{{Key: "$match", Value: q}},
+		{{Key: "$group", Value: bson.M{"_id": nil, "n": bson.M{"$sum": bson.M{"$max": bson.A{bson.M{"$ifNull": bson.A{"$failure_count", 1}}, 1}}}}}},
+	})
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = cur.Close(ctx) }()
+	if !cur.Next(ctx) {
+		return 0, cur.Err()
+	}
+	var sum struct {
+		N int `bson:"n"`
+	}
+	if err := cur.Decode(&sum); err != nil {
+		return 0, err
+	}
+	return sum.N, nil
 }

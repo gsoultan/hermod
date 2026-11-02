@@ -73,3 +73,40 @@ func TestAWorkflowWithALegacyDeadLetterSinkKeepsDeadLetters(t *testing.T) {
 		t.Fatal("switching dead letters off did not stick")
 	}
 }
+
+// A workflow can name the payload fields that say which record a dead letter
+// is, for payloads that carry something that changes on every read.
+func TestWorkflowDeadLetterKeyFieldsRoundTrip(t *testing.T) {
+	s, _ := workflowStore(t)
+	fields := []string{"Application.application_id", "payload.DocumentTypeIds"}
+	mustCreateWorkflow(t, s, storage.Workflow{ID: "wf-keyed", Name: "keyed", DeadLetters: true, DeadLetterKeyFields: fields})
+	mustCreateWorkflow(t, s, storage.Workflow{ID: "wf-plain", Name: "plain", DeadLetters: true})
+
+	got, err := s.GetWorkflow(t.Context(), "wf-keyed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.DeadLetterKeyFields) != 2 || got.DeadLetterKeyFields[0] != fields[0] || got.DeadLetterKeyFields[1] != fields[1] {
+		t.Fatalf("key fields = %v, want %v", got.DeadLetterKeyFields, fields)
+	}
+	got.DeadLetterKeyFields = []string{"order.number"}
+	if err := s.UpdateWorkflow(t.Context(), got); err != nil {
+		t.Fatal(err)
+	}
+	list, _, err := s.ListWorkflows(t.Context(), storage.CommonFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, wf := range list {
+		switch wf.ID {
+		case "wf-keyed":
+			if len(wf.DeadLetterKeyFields) != 1 || wf.DeadLetterKeyFields[0] != "order.number" {
+				t.Errorf("listed wf-keyed: key fields = %v", wf.DeadLetterKeyFields)
+			}
+		case "wf-plain":
+			if len(wf.DeadLetterKeyFields) != 0 {
+				t.Errorf("listed wf-plain: key fields = %v, want none", wf.DeadLetterKeyFields)
+			}
+		}
+	}
+}
