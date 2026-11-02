@@ -73,6 +73,9 @@ export interface WorkflowState {
 
   /** Keep messages the workflow cannot deliver on the Dead Letters page. */
   deadLetters: boolean;
+  // deadLetterKeyFields name the payload fields that say which record a
+  // dead letter is, so repeated failures of one record count into one row.
+  deadLetterKeyFields: string[];
   dlqThreshold: number;
   prioritizeDLQ: boolean;
   maxRetries: number;
@@ -165,6 +168,7 @@ export interface WorkflowState {
   setPulseEnabled: (val: boolean) => void;
 
   setDeadLetters: (on: boolean) => void;
+  setDeadLetterKeyFields: (fields: string[]) => void;
   setDlqThreshold: (threshold: number) => void;
   setPrioritizeDLQ: (prioritize: boolean) => void;
   setMaxRetries: (retries: number) => void;
@@ -252,6 +256,7 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   complianceReportOpened: false,
 
   deadLetters: true,
+  deadLetterKeyFields: [],
   dlqThreshold: 0,
   prioritizeDLQ: false,
   maxRetries: 3,
@@ -370,6 +375,7 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   setPulseEnabled: (val) => set({ pulseEnabled: val }),
 
   setDeadLetters: (deadLetters) => set({ deadLetters }),
+  setDeadLetterKeyFields: (deadLetterKeyFields) => set({ deadLetterKeyFields }),
   setDlqThreshold: (dlqThreshold) => set({ dlqThreshold }),
   setPrioritizeDLQ: (prioritizeDLQ) => set({ prioritizeDLQ }),
   setMaxRetries: (maxRetries) => set({ maxRetries }),

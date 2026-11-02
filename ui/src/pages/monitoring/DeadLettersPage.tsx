@@ -12,17 +12,22 @@ import { getSessionRole } from '@/auth/session'
 import { useConfirm } from '@/components/common/ConfirmProvider'
 import { useVHost } from '@/context/VHostContext'
 import {
-  STATUS_LABEL, deadLetterQuery, decodePayload, failedAtLabel, prettyJSON,
+  STATUS_LABEL, attempts, attemptsLabel, deadLetterQuery, decodePayload, failedAtLabel, historyLine, prettyJSON, spanLabel,
   type DeadLetter, type DeadLetterFilters, type DeadLetterStats, type ReplayOutcome, type When,
 } from '@/lib/deadLetters'
+import { ReplayConfirmModal } from './ReplayConfirmModal'
 import { ReplayDeadLetterModal } from './ReplayDeadLetterModal'
 import { SectionHeader } from '@/components/rows';
 
 const PAGE_SIZE = 25
 // The server replays at most this many in one request.
 const MAX_BULK_REPLAY = 50
+// The server exports at most this many; a filter that matches more is cut.
+const MAX_EXPORT = 500
 
-const STATUS_COLOR: Record<DeadLetter['status'], string> = { queued: 'orange', replayed: 'green', discarded: 'gray' }
+const STATUS_COLOR: Record<DeadLetter['status'], string> = {
+  queued: 'orange', replayed: 'green', discarded: 'gray', delivered: 'teal', merged: 'gray',
+}
 
 interface WorkflowSummary {
   id: string
@@ -50,9 +55,9 @@ function when(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' })
 }
 
-// DeadLettersPage lists every message a workflow that keeps dead letters
-// parked after its retries ran out, and replays or discards them. Hermod's own
-// store is the only copy.
+// DeadLettersPage lists every record a workflow that keeps dead letters parked
+// after its retries ran out, one row per record however often it failed, and
+// replays or discards them. Hermod's own store is the only copy.
 export function DeadLettersPage() {
   const qc = useQueryClient()
   const confirm = useConfirm()
@@ -71,6 +76,8 @@ export function DeadLettersPage() {
   const [selected, setSelected] = useState<string[]>([])
   const [openID, setOpenID] = useState<string | null>(null)
   const [replaying, setReplaying] = useState(false)
+  // confirming is the records a replay is being confirmed for.
+  const [confirming, setConfirming] = useState<string[] | null>(null)
 
   const filters: DeadLetterFilters = { search: debouncedSearch, workflowId, where, when: whenFilter, status, vhost: selectedVHost }
   // A new filter starts again at the first page with nothing selected.
@@ -137,7 +144,7 @@ export function DeadLettersPage() {
       })
       return (await res.json()).results as ReplayOutcome[]
     },
-    onSuccess: (results) => { report('replayed', results); setSelected([]); refresh() },
+    onSuccess: (results) => { report('replayed', results); setSelected([]); setConfirming(null); refresh() },
   })
 
   const askDiscard = async (ids: string[]) => {
@@ -151,6 +158,12 @@ export function DeadLettersPage() {
 
   const exportCSV = (ids?: string[]) => {
     const q = ids?.length ? `ids=${ids.map(encodeURIComponent).join(',')}` : deadLetterQuery(filters, 0, PAGE_SIZE).toString()
+    if (!ids?.length && total > MAX_EXPORT) {
+      notifications.show({
+        color: 'yellow', title: 'The export is cut',
+        message: `The file holds the newest ${MAX_EXPORT.toLocaleString()} of the ${total.toLocaleString()} records that match. Narrow the filters to export the rest.`,
+      })
+    }
     window.open(`/api/dead-letters/export?${q}`, '_blank', 'noopener')
   }
 
@@ -177,7 +190,7 @@ export function DeadLettersPage() {
     <Stack gap="lg">
       <SectionHeader
         title="Dead letters"
-        lede="Messages a flow gave up on after its retries ran out, kept here when the flow is set to keep them. Replay them once the cause is fixed, or discard them."
+        lede="Records a flow gave up on after its retries ran out, kept here when the flow is set to keep them. A record that fails again is counted on its row, not listed twice. Replay them once the cause is fixed, or discard them."
         actions={
           <>
             <Button variant="default" leftSection={<IconDownload size={16} />} onClick={() => exportCSV()}>Export CSV</Button>
@@ -187,12 +200,13 @@ export function DeadLettersPage() {
       />
 
       <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
-        <StatCard label="In the queue" value={stats?.queued} />
+        <StatCard label="Records waiting" value={stats?.queued}
+          sub={stats?.queued_attempts !== undefined ? `${stats.queued_attempts.toLocaleString()} failed attempts` : undefined} />
         <StatCard label="Parked in the last 24 hours" value={stats?.last_24h} />
         <Paper withBorder p="md" radius="md">
           <Text size="xs" c="dimmed">Most common error</Text>
           <Text fw={600} lineClamp={2} title={stats?.top_error}>{stats?.top_error || 'None waiting'}</Text>
-          {!!stats?.top_error_count && <Text size="xs" c="dimmed">{stats.top_error_count.toLocaleString()} messages</Text>}
+          {!!stats?.top_error_count && <Text size="xs" c="dimmed">{stats.top_error_count.toLocaleString()} records</Text>}
         </Paper>
         <StatCard label="Replayed this week" value={stats?.replayed_this_week} />
       </SimpleGrid>
@@ -205,8 +219,11 @@ export function DeadLettersPage() {
         <Select label="Failed at" placeholder="Any node or sink" data={whereOptions} value={where} onChange={setWhere} clearable searchable w={220} />
         <Select label="When" data={[{ value: '24h', label: 'Last 24 hours' }, { value: '7d', label: 'Last 7 days' }, { value: 'any', label: 'Any time' }]}
           value={whenFilter} onChange={(v) => setWhenFilter((v as When) || 'any')} allowDeselect={false} w={150} />
-        <Select label="Status" data={[{ value: 'queued', label: 'Waiting' }, { value: 'replayed', label: 'Replayed' }, { value: 'discarded', label: 'Discarded' }, { value: 'all', label: 'All' }]}
-          value={status} onChange={(v) => setStatus((v as DeadLetterFilters['status']) || 'queued')} allowDeselect={false} w={140} />
+        <Select label="Status" data={[
+          { value: 'queued', label: 'Waiting' }, { value: 'replayed', label: 'Replayed' }, { value: 'delivered', label: 'Delivered later' },
+          { value: 'discarded', label: 'Discarded' }, { value: 'all', label: 'All' },
+        ]}
+          value={status} onChange={(v) => setStatus((v as DeadLetterFilters['status']) || 'queued')} allowDeselect={false} w={160} />
         <Tooltip label="Refresh dead letters">
           <Button variant="subtle" onClick={() => refetch()} loading={isFetching} aria-label="Refresh dead letters"><IconRefresh size={16} /></Button>
         </Tooltip>
@@ -218,7 +235,7 @@ export function DeadLettersPage() {
             <Text size="sm" fw={600}>{selected.length} selected</Text>
             <Group gap="xs">
               <Tooltip label="Replay at most 50 at once" disabled={selected.length <= MAX_BULK_REPLAY}>
-                <Button size="xs" onClick={() => replayMany.mutate(selected)} loading={replayMany.isPending} disabled={selected.length > MAX_BULK_REPLAY}>
+                <Button size="xs" onClick={() => setConfirming(selected)} loading={replayMany.isPending} disabled={selected.length > MAX_BULK_REPLAY}>
                   Replay {selected.length}
                 </Button>
               </Tooltip>
@@ -237,7 +254,9 @@ export function DeadLettersPage() {
                 {canChange && (
                   <Table.Th w={40}><Checkbox aria-label="Select every message on this page" checked={allOnPage} onChange={togglePage} /></Table.Th>
                 )}
-                <Table.Th>Parked</Table.Th>
+                <Table.Th>Record</Table.Th>
+                <Table.Th>Failures</Table.Th>
+                <Table.Th>Latest retry</Table.Th>
                 <Table.Th>Workflow</Table.Th>
                 <Table.Th>Failed at</Table.Th>
                 <Table.Th>Error</Table.Th>
@@ -251,9 +270,20 @@ export function DeadLettersPage() {
                     <Table.Td><Checkbox aria-label={`Select ${r.message_id}`} checked={selected.includes(r.id)} onChange={() => toggle(r.id)} /></Table.Td>
                   )}
                   <Table.Td>
-                    <Button variant="subtle" size="compact-sm" onClick={() => setOpenID(r.id)} aria-label={`Open message ${r.message_id}`}>
-                      {when(r.failed_at)}
+                    <Button variant="subtle" size="compact-sm" onClick={() => setOpenID(r.id)} aria-label={`Open message ${r.message_id}`}
+                      styles={{ label: { fontFamily: 'var(--mantine-font-family-monospace)' } }}>
+                      {r.message_id}
                     </Button>
+                  </Table.Td>
+                  <Table.Td>
+                    <Badge color={attempts(r) > 1 ? 'red' : 'gray'} variant="light" radius="sm" styles={{ label: { textTransform: 'none' } }}>
+                      {attemptsLabel(r)}
+                    </Badge>
+                    {attempts(r) > 1 && <Text size="xs" c="dimmed">{spanLabel(r.first_failed_at, r.failed_at)}</Text>}
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="sm" style={{ whiteSpace: 'nowrap' }}>{when(r.failed_at)}</Text>
+                    {attempts(r) > 1 && r.first_failed_at && <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>first {when(r.first_failed_at)}</Text>}
                   </Table.Td>
                   <Table.Td>{r.workflow_name || r.workflow_id}</Table.Td>
                   <Table.Td>{failedAtLabel(r, names)}</Table.Td>
@@ -263,7 +293,7 @@ export function DeadLettersPage() {
               ))}
               {rows.length === 0 && (
                 <Table.Tr>
-                  <Table.Td colSpan={canChange ? 6 : 5}>
+                  <Table.Td colSpan={canChange ? 8 : 7}>
                     <Text c="dimmed" ta="center" py="lg">{isFetching ? 'Loading…' : 'No dead letters match these filters.'}</Text>
                   </Table.Td>
                 </Table.Tr>
@@ -286,10 +316,21 @@ export function DeadLettersPage() {
         title={open ? <Group gap="xs"><Text fw={700}>Message {open.message_id}</Text><Badge color={STATUS_COLOR[open.status]} variant="light">{STATUS_LABEL[open.status]}</Badge></Group> : 'Message'}>
         {open && (
           <Stack gap="md">
-            <Text size="sm" c="dimmed">{open.workflow_name || open.workflow_id} · {openFailedAt}</Text>
+            <Text size="sm" c="dimmed">
+              {open.workflow_name || open.workflow_id} · {openFailedAt}
+              {attempts(open) > 1 && ` · ${attempts(open).toLocaleString()} failed attempts${open.first_failed_at ? `, first ${when(open.first_failed_at)}` : ''}`}
+            </Text>
+            {attempts(open) > 1 && open.status === 'queued' && (
+              <Alert color="yellow" variant="light" title="The source kept re-sending this record">
+                <Text size="sm">
+                  It failed {attempts(open).toLocaleString()} times {spanLabel(open.first_failed_at, open.failed_at)}, the same way each time.
+                  Fix the cause before replaying, and check the record was not delivered on its own since {when(open.failed_at)}.
+                </Text>
+              </Alert>
+            )}
             <Alert color="red" variant="light" title="Error"><Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{open.error}</Text></Alert>
             <SimpleGrid cols={2} spacing="xs">
-              <Detail label="Parked" value={`${when(open.failed_at)}`} />
+              <Detail label={attempts(open) > 1 ? 'Latest retry' : 'Parked'} value={`${when(open.failed_at)}`} />
               <Detail label="Operation" value={open.origin?.operation || '—'} />
               <Detail label="Table" value={[open.origin?.schema, open.origin?.table].filter(Boolean).join('.') || '—'} />
               <Detail label="Size" value={`${open.payload_size.toLocaleString()} bytes${open.truncated ? ' (kept in part)' : ''}`} />
@@ -327,7 +368,7 @@ export function DeadLettersPage() {
                 <Stack gap={6}>
                   {(open.history || []).map((h, i) => (
                     <Text key={i} size="sm">
-                      <b>{when(h.at)}</b> · {h.action.replace('_', ' ')}{h.by ? ` by ${h.by}` : ''}{h.detail ? ` · ${h.detail}` : ''}
+                      <b>{when(h.at)}</b> · {historyLine(h)}
                     </Text>
                   ))}
                 </Stack>
@@ -346,7 +387,7 @@ export function DeadLettersPage() {
                 {canChange && open.status === 'queued' && (
                   <>
                     <Button variant="default" onClick={() => setReplaying(true)}>Edit and replay</Button>
-                    <Button onClick={() => replayMany.mutate([open.id])} loading={replayMany.isPending} disabled={open.truncated}>Replay</Button>
+                    <Button onClick={() => setConfirming([open.id])} loading={replayMany.isPending} disabled={open.truncated}>Replay</Button>
                   </>
                 )}
               </Group>
@@ -354,6 +395,16 @@ export function DeadLettersPage() {
           </Stack>
         )}
       </Drawer>
+
+      {confirming && (
+        <ReplayConfirmModal
+          ids={confirming}
+          records={open && confirming.includes(open.id) ? [open, ...rows.filter((r) => r.id !== open.id)] : rows}
+          busy={replayMany.isPending}
+          onClose={() => setConfirming(null)}
+          onConfirm={(ids) => replayMany.mutate(ids)}
+        />
+      )}
 
       {replaying && open && (
         <ReplayDeadLetterModal
@@ -368,11 +419,12 @@ export function DeadLettersPage() {
   )
 }
 
-function StatCard({ label, value }: { label: string; value?: number }) {
+function StatCard({ label, value, sub }: { label: string; value?: number; sub?: string }) {
   return (
     <Paper withBorder p="md" radius="md">
       <Text size="xs" c="dimmed">{label}</Text>
       <Text fw={700} size="xl">{value === undefined ? '—' : value.toLocaleString()}</Text>
+      {sub && <Text size="xs" c="dimmed">{sub}</Text>}
     </Paper>
   )
 }

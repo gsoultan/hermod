@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { checkEdit, deadLetterQuery, decodePayload, failedAtLabel, sinceFor } from '@/lib/deadLetters'
+import { attemptsLabel, checkEdit, deadLetterQuery, decodePayload, failedAtLabel, historyLine, sinceFor, spanLabel, STATUS_LABEL } from '@/lib/deadLetters'
 
 describe('dead letter helpers', () => {
   it('names the fields an edit changed, nested ones by path', () => {
@@ -39,5 +39,31 @@ describe('dead letter helpers', () => {
   it('says where a message failed', () => {
     expect(failedAtLabel({ node_id: 'normalize' }, { normalize: 'Normalize order' })).toBe('Node: Normalize order')
     expect(failedAtLabel({ sink_id: 'snk-9' }, {})).toBe('Sink: snk-9')
+  })
+})
+
+describe('grouped dead letter helpers', () => {
+  it('labels the attempts a record stands for, one for a row from before counting', () => {
+    expect(attemptsLabel({ failure_count: 263 })).toBe('×263')
+    expect(attemptsLabel({})).toBe('×1')
+  })
+
+  it('says how long the attempts spanned, and nothing for a single attempt', () => {
+    expect(spanLabel('2026-10-30T17:41:34Z', '2026-10-30T19:22:48Z')).toBe('over 1 h 41 min')
+    expect(spanLabel('2026-10-30T17:41:34Z', '2026-10-30T17:42:04Z')).toBe('over 30 s')
+    expect(spanLabel('2026-10-30T17:41:34Z', '2026-10-30T17:41:34Z')).toBe('')
+    expect(spanLabel(undefined, '2026-10-30T17:41:34Z')).toBe('')
+  })
+
+  it('folds repeated failures into one history line', () => {
+    expect(historyLine({ at: '2026-10-30T17:41:54Z', action: 'failed_again', count: 262, until: '2026-10-30T19:22:48Z', detail: 'invalid credentials' }))
+      .toMatch(/^failed again ×262 until .+ · invalid credentials$/)
+    expect(historyLine({ at: '2026-10-30T17:41:34Z', action: 'failed', detail: 'panmail' })).toBe('failed · panmail')
+    expect(historyLine({ at: '2026-10-31T08:00:00Z', action: 'replayed', by: 'ada', detail: 'from the failed node' })).toBe('replayed by ada · from the failed node')
+  })
+
+  it('names every status the server can send', () => {
+    expect(STATUS_LABEL.delivered).toBe('Delivered later')
+    expect(STATUS_LABEL.merged).toBe('Merged')
   })
 })
