@@ -7,6 +7,11 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Changed — metis-sdk v0.3.1
+
+- The Metis source and sink now build on metis-sdk v0.3.1 (was v0.1.0). Nothing they do changes;
+  the newer client is what decision tables, business keys and start-once calls will come from.
+
 ### Added — About page
 
 - **About Hermod** (`/about`): the version and build the server is running, and the copyright

@@ -29,6 +29,12 @@ the local path was serving), so the replace is gone and `go.mod` requires
 `v0.1.0` with a real `go.sum` entry — a filesystem replace needs none, which is
 why there was no metis line in `go.sum` before.
 
+Now on `v0.3.1` (2026-11-01). The v0.3.0 breaking change (references became
+typed `InstanceRef`/`ProjectRef`/... objects) touched no field the source or sink
+read, so the bump needed no code change. v0.3.x also adds `EvaluateDecision`
+(DMN tables), `StartProcessOnce`, `StartAndWait` and `WithBusinessKey`, the
+basis of the proposed Metis transformation.
+
 **A local-path `replace` is the one defect class this repo's local gates cannot
 see.** If one is added again, `grep -n '=> /' go.mod` is the check; nothing else
 will tell you before CI does.
