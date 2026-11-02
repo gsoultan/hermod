@@ -153,6 +153,19 @@ rather than a persisted cursor's, **a task may be run twice**: one whose
 pipeline succeeded but whose completion did not reach the engine is handed out
 again, so the sinks downstream want to be idempotent.
 
+**Metis Decision** (`metis_decide`) is a transformation step, not a connector, but
+it talks to the same server through the same SDK. It runs one of a project's DMN
+decision tables on the record with `EvaluateDecision` and writes the outputs into
+it (`decision.values.<output>` by default), so the business rules stay in Metis
+and a Switch after the step routes on the answer. Evaluating a decision changes
+nothing on the server, so a retry, a dry run and the editor's Test are all safe.
+The server, account and project resolve for the record's vhost only, so a record
+cannot choose where the token goes; the table's key may follow the record. A
+refusal (a 4xx: unknown table, missing input, bad credentials) is permanent and
+goes to the dead-letter path at once; a network failure or 5xx is left to the
+node's retry policy. Accounts that sign in with a username and password are
+signed in once per server and account and again when the session expires.
+
 The incidents stream has a limitation worth knowing before you rely on it: the
 engine lists incidents per instance rather than per project, so the source finds
 failed instances first and asks each one. That costs a request per failed

@@ -614,6 +614,8 @@ export const simulateTransformation = (transType: string, data: any, inputPayloa
        }
     } else if (transType === 'panmail_providers') {
        setValByPath(result.output, data.targetField || 'panmail_providers', '[Panmail Providers]');
+    } else if (transType === 'metis_decide') {
+       setValByPath(result.output, data.targetField || 'decision', '[Metis Decision]');
     }
   } catch {
     // Ignore simulation errors

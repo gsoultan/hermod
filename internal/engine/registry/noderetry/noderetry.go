@@ -17,7 +17,9 @@
 // maxAttempts counts the first try and is capped at MaxAttemptsLimit. The wait
 // before retry n is backoff·2^(n-1), capped at maxBackoff (itself capped at
 // MaxBackoffLimit). "on", when set, is a regular expression an error's text
-// must match to be retried; anything else fails at once. The graph runner
+// must match to be retried; anything else fails at once. An error wrapping
+// hermod.ErrPermanent is never retried: the node has said another attempt
+// cannot fix it. The graph runner
 // applies it around a node's execution; once the last attempt fails the
 // failure is handled exactly as before, so a dead-letter sink still receives
 // the message.
@@ -31,6 +33,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gsoultan/hermod"
 )
 
 const (
@@ -152,6 +156,11 @@ func (p Policy) Delay(retry int) time.Duration {
 // caller's decision.
 func (p Policy) retryable(err error) bool {
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	// A node that marks its failure permanent has said another attempt cannot
+	// fix it, the same contract the sink retry layers honour.
+	if errors.Is(err, hermod.ErrPermanent) {
 		return false
 	}
 	return p.On == nil || p.On.MatchString(err.Error())

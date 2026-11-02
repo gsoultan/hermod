@@ -281,6 +281,11 @@ const GUIDES: Record<string, TransformationGuide> = {
     what: 'Finds the documents closest to a query in a vector store and adds them, with their scores, to each record.',
     firstStep: 'Choose the provider that embedded the documents, then the store and the query.',
   },
+  metis_decide: {
+    title: 'Metis decision',
+    what: 'Runs one of your Metis decision tables on each record and adds its outputs, so a Switch after it can route on the answer.',
+    firstStep: 'Enter the Metis server, its token secret and the project, then the decision table\'s key.',
+  },
   mimir_ask: {
     title: 'Ask documents',
     what: 'Asks a mimir-server document collection a question about each record and adds the answer with the passages it cites, or the passages alone.',

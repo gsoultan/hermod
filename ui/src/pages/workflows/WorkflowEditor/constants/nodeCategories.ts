@@ -78,6 +78,7 @@ export const NODE_CATEGORIES = [
       { type: 'transformation', refId: 'new', label: 'Redis Lookup', subType: 'redis_lookup', icon: IconBolt, color: 'teal', description: 'Read a key from Redis and merge it' },
       { type: 'transformation', refId: 'new', label: 'Redis Set', subType: 'redis_set', icon: IconBolt, color: 'teal', description: 'Write a Redis key and pass the record on' },
       { type: 'transformation', refId: 'new', label: 'Panmail Providers', subType: 'panmail_providers', icon: IconMail, color: 'teal', description: 'List a panmail tenant\'s email providers' },
+      { type: 'transformation', refId: 'new', label: 'Metis Decision', subType: 'metis_decide', icon: IconSitemap, color: 'teal', description: 'Run a Metis decision table (DMN) on the record', defaults: { targetField: 'decision' } as Record<string, unknown> },
       { type: 'transformation', refId: 'new', label: 'Pipeline', subType: 'pipeline', icon: IconPlaylist, color: 'teal', description: 'Compose multiple steps' },
       { type: 'transformation', refId: 'new', label: 'Lua Script', subType: 'lua', icon: IconCode, color: 'teal', description: 'Custom logic with Lua' },
       { type: 'transformation', refId: 'new', label: 'WASM Transform', subType: 'wasm', icon: IconTerminal2, color: 'teal', description: 'Run high-performance WebAssembly' },

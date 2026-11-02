@@ -12,6 +12,7 @@ export function transformationLabel(transType: string | undefined): string {
     case 'redis_lookup': return 'Redis Lookup';
     case 'redis_set': return 'Redis Set';
     case 'panmail_providers': return 'Panmail Providers';
+    case 'metis_decide': return 'Metis Decision';
     case 'fuzzy_lookup': return 'Fuzzy Lookup';
     case 'char_map': return 'Char Map';
     case 'data_conversion': return 'Data Conversion';

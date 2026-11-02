@@ -156,7 +156,8 @@ What the agent can do is fixed by the workflow, not by the data:
 Live runs appear when the workflow's trace sample rate is above 0; manual runs are always traced.
 
 Any node can retry on its own: `config.retry = {"maxAttempts": 3, "backoff": "1s", "maxBackoff": "30s",
-"on": "<error regexp>"}`. After the last attempt the record goes to the dead-letter queue as before.
+"on": "<error regexp>"}`. After the last attempt the record goes to the dead-letter queue as before. A failure the
+node marks permanent (`hermod.ErrPermanent`, e.g. a refusal Metis Decision got from Metis) is not retried.
 
 AI calls are counted in `hermod_ai_calls_total`, `hermod_ai_tokens_total` and
 `hermod_ai_call_duration_seconds`, labelled by provider, model and outcome. Prompts and keys are never labels.

@@ -89,6 +89,13 @@ var descriptions = map[string]string{
 		`"<collection id>","mode":"ask|search","question":"a template over the record" or "questionField":"field.path",` +
 		`"sources":"3","limit":"5","maxTokens":"","targetField":"answer"}. mode ask writes {"text","finished","sources":[{"document",` +
 		`"document_id","passage_id","number","score","text"}]}; mode search writes {"sources":[...]} alone, for an ai_prompt to use.`,
+	"transformation:metis_decide": `Runs one of a Metis project's DMN decision tables on the record and writes the outputs ` +
+		`into it; nothing changes on the Metis server. config: {"url":"https://metis.example.com","token":"{{secret(\"NAME\")}}" ` +
+		`(or "username" and "password" as secret references),"projectId":"<project id>","decisionKey":"<table key, may be a ` +
+		`template>","version":"" (empty is the live version),"inputs":[{"name":"<table input>","field":"field.path"}] (empty ` +
+		`sends the whole record),"targetField":"decision","mergeOutputs":false,"onNoMatch":"keep|drop|fail","timeout":"10s"}. ` +
+		`Writes {"values":{...},"matched","matched_rules","matched_rule_ids","decision":{"key","name","version"}}; route on ` +
+		`decision.values.<output> with a switch.`,
 	"transformation:ml_predict": `Calls a machine-learning model registered in the workflow's vhost and writes its ` +
 		`prediction onto the record. config: {"model":"<registered model name>","inputs":{"feature":"field.path"},` +
 		`"outputField":"prediction","explain":"true|false"}. Empty inputs send the whole record. explain (a mimir model ` +
