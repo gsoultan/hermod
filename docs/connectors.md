@@ -153,6 +153,28 @@ rather than a persisted cursor's, **a task may be run twice**: one whose
 pipeline succeeded but whose completion did not reach the engine is handed out
 again, so the sinks downstream want to be idempotent.
 
+**Metis Decision** (`metis_decide`) is a transformation step, not a connector, but
+it talks to the same server through the same SDK. It runs one of a project's DMN
+decision tables on the record with `EvaluateDecision` and writes the outputs into
+it (`decision.values.<output>` by default), so the business rules stay in Metis
+and a Switch after the step routes on the answer. Evaluating a decision changes
+nothing on the server, so a retry, a dry run and the editor's Test are all safe.
+The server, account, project and the table's key resolve for the record's vhost
+only, so a record can choose neither where the token goes nor which table runs
+on it. New nodes start on chosen inputs; sending the whole record is a choice,
+and either way Hermod's own `_hermod…` fields stay behind. A
+refusal (a 4xx: unknown table, missing input, bad credentials) is permanent and
+goes to the dead-letter path at once; a network failure or 5xx is left to the
+node's retry policy. Accounts that sign in with a username and password are
+signed in once per server and account and again when the session expires; a
+refused sign-in is remembered for 30 seconds, so a wrong password cannot lock
+the account by being tried once per record. Redirects are refused rather than
+followed, so the token never travels to another address; an address carrying a
+user or password is refused; the timeout is at most 2 minutes; Metis's error
+text is cut to 512 bytes before it reaches logs and dead letters; and with
+"copy outputs to the top of the record" on, an output named `_hermod…` is
+skipped, so a decision table cannot mark a record failed or dead-lettered.
+
 The incidents stream has a limitation worth knowing before you rely on it: the
 engine lists incidents per instance rather than per project, so the source finds
 failed instances first and asks each one. That costs a request per failed

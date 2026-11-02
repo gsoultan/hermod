@@ -7,6 +7,24 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — Metis Decision step
+
+- **Metis Decision** (`metis_decide`, under Advanced Transformations): runs one of a Metis
+  project's DMN decision tables on each record and writes the outputs into it, with which rules
+  matched and which version of the table decided. Send the whole record or map chosen fields to
+  the table's inputs, pin a version, copy the outputs to the top of the record, and choose whether
+  a record no rule matches is kept, dropped or failed. New nodes start on chosen fields, and the
+  table's key is fixed in the settings: a record cannot pick which table runs on it. Nothing changes on the Metis server, so
+  retries and dry runs are safe; Test runs it on the sample record. Redirects are refused, a
+  refused sign-in is not retried for 30 seconds, and a decision cannot set Hermod's own
+  `_hermod…` fields.
+
+### Changed
+
+- **Node retry stops on a permanent failure.** A step whose error wraps `hermod.ErrPermanent` is
+  no longer retried by its `retry` policy; it goes to the dead-letter path at once, as a sink's
+  permanent refusal already did.
+
 ### Changed — metis-sdk v0.3.1
 
 - The Metis source and sink now build on metis-sdk v0.3.1 (was v0.1.0). Nothing they do changes;

@@ -25,6 +25,7 @@ import { FuzzyLookupConfig } from './enrichment/FuzzyLookupConfig'
 import { TermExtractionConfig } from './enrichment/TermExtractionConfig'
 import { APILookupConfig } from './enrichment/APILookupConfig'
 import { PanmailProvidersConfig } from './enrichment/PanmailProvidersConfig'
+import { MetisDecideConfig } from './enrichment/MetisDecideConfig'
 import { RedisLookupConfig } from './enrichment/RedisLookupConfig'
 import { RedisSetConfig } from './enrichment/RedisSetConfig'
 import { AIConfig } from './enrichment/AIConfig'
@@ -170,6 +171,7 @@ export const TRANSFORM_CONFIGS: Record<string, ConfigComponent> = {
   redis_lookup: RedisLookupConfig,
   redis_set: RedisSetConfig,
   panmail_providers: PanmailProvidersConfig,
+  metis_decide: MetisDecideConfig,
   // The AI palette replaced these two; they stay so saved workflows open.
   ai_enrichment: AIConfig,
   ai_mapper: AIConfig,

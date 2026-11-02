@@ -107,3 +107,31 @@ speaking the real wire contract, but no engine is reachable from CI.
 
 Related: [sink_form_fallthrough_and_panmail](sink_form_fallthrough_and_panmail.md),
 [connector_conformance_suite](connector_conformance_suite.md).
+
+## The Metis Decision transformation (`metis_decide`)
+
+`pkg/comm/transformer/lookup/metis_decide.go`, editor
+`ui/src/components/workflow/Transformation/configs/enrichment/MetisDecideConfig.tsx`.
+Runs `EvaluateDecision` per record and writes `{values, matched, matched_rules,
+matched_rule_ids, decision:{key,name,version}}` to `targetField` (default `decision`).
+
+- url, token, username, password, organizationId, projectId and decisionKey
+  all resolve with `ResolveTemplateScoped` (secrets only): a record cannot pick
+  the table. Whole-record inputs and merged outputs skip `_hermod*` keys. The
+  palette seeds `inputs: [{name:'',field:''}]` so new nodes open on chosen fields.
+- One SDK client per (url, token, user, password, org) digest, held on the
+  transformer, so logins and connections are shared; a 401 with
+  username/password logs in again once and retries.
+- Settings errors and 4xx (except 408/429) wrap `hermod.ErrPermanent`; 5xx and
+  transport errors do not. `noderetry.Policy.retryable` now refuses
+  `ErrPermanent`, so a node's `retry` policy does not retry those.
+- Safety: `metisHTTPClient` refuses redirects (errMetisRedirect, permanent;
+  the SDK reads a 3xx with an empty body as an empty answer, so
+  ErrUseLastResponse is not enough); URLs with userinfo or a non-http(s)
+  scheme are refused without echoing the URL; timeout capped at 2m; a 4xx
+  sign-in is cached for 30s (account lockout); error text cut to 512 bytes
+  in a metisError that keeps the chain; mergeOutputs skips `_hermod*` keys
+  (case-insensitive); client cache capped at 32, cleared when full.
+- Read-only on the server, so it needs no dry-run guard. A "start a process and
+  wait" mode was proposed as a follow-up and is not built.
+

@@ -13,8 +13,11 @@ package noderetry
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
+
+	"github.com/gsoultan/hermod"
 )
 
 func TestParse(t *testing.T) {
@@ -142,5 +145,22 @@ func TestRunDoesNotRetryAContextError(t *testing.T) {
 	_, _ = Run(t.Context(), p, func() (int, error) { calls++; return 0, context.Canceled }, func(int) {}, nil)
 	if calls != 1 {
 		t.Fatalf("a cancelled call was retried %d times", calls-1)
+	}
+}
+
+func TestRunDoesNotRetryAPermanentError(t *testing.T) {
+	// A node that says another attempt cannot help (a refusal about this
+	// record) goes to the dead-letter path at once, as a sink's refusal does.
+	p := Policy{MaxAttempts: 5, Backoff: time.Millisecond, MaxBackoff: time.Millisecond}
+	calls := 0
+	_, err := Run(t.Context(), p, func() (int, error) {
+		calls++
+		return 0, fmt.Errorf("metis refused: %w", hermod.ErrPermanent)
+	}, func(int) {}, nil)
+	if calls != 1 {
+		t.Fatalf("a permanent error was retried %d times", calls-1)
+	}
+	if !errors.Is(err, hermod.ErrPermanent) {
+		t.Fatalf("err = %v, want the permanent error back", err)
 	}
 }
