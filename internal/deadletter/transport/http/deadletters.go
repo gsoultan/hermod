@@ -28,6 +28,7 @@ import (
 
 	"github.com/gsoultan/hermod/internal/api/handlers"
 	"github.com/gsoultan/hermod/internal/engine/registry"
+	"github.com/gsoultan/hermod/internal/factory"
 	"github.com/gsoultan/hermod/internal/storage"
 )
 
@@ -63,6 +64,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/dead-letters/export", h.Export)
 	mux.HandleFunc("GET /api/dead-letters/{id}", h.Get)
 	mux.Handle("POST /api/dead-letters/{id}/replay", h.EditorOnly(h.Replay))
+	mux.Handle("POST /api/dead-letters/{id}/check", h.EditorOnly(h.Check))
 	mux.Handle("POST /api/dead-letters/replay", h.EditorOnly(h.ReplayMany))
 	mux.Handle("POST /api/dead-letters/discard", h.EditorOnly(h.Discard))
 }
@@ -144,7 +146,8 @@ func parseFilter(r *http.Request) (storage.DeadLetterFilter, error) {
 		Limit:      50,
 	}
 	switch f.Status {
-	case "", storage.DeadLetterQueued, storage.DeadLetterReplayed, storage.DeadLetterDiscarded:
+	case "", storage.DeadLetterQueued, storage.DeadLetterReplayed, storage.DeadLetterDiscarded,
+		storage.DeadLetterDelivered, storage.DeadLetterMerged:
 	default:
 		return f, fmt.Errorf("unknown status %q", f.Status)
 	}
@@ -363,6 +366,53 @@ func describeReplay(req replayRequest) string {
 	return strings.Join(parts, ", ")
 }
 
+// checkTimeout bounds one connection test of the sink a record failed at.
+const checkTimeout = 15 * time.Second
+
+// checkResult says whether the sink a dead letter failed at answers now.
+type checkResult struct {
+	// Checked is false when there was nothing to check: the record failed
+	// at a node, or the sink is no longer there.
+	Checked   bool   `json:"checked"`
+	SinkID    string `json:"sink_id,omitempty"`
+	SinkName  string `json:"sink_name,omitempty"`
+	Reachable bool   `json:"reachable"`
+	Error     string `json:"error,omitempty"`
+}
+
+// Check tests the connection to the sink a dead letter failed at, so the page
+// can say before a replay whether it would fail the same way. Nothing is sent:
+// a sink's Ping is its health check.
+func (h *Handler) Check(w http.ResponseWriter, r *http.Request) {
+	ds, ok := h.store(w)
+	if !ok {
+		return
+	}
+	d, ok := h.deadLetter(w, r, ds, r.PathValue("id"))
+	if !ok {
+		return
+	}
+	res := checkResult{SinkID: d.SinkID}
+	if d.SinkID == "" || h.Registry == nil {
+		writeJSON(w, res)
+		return
+	}
+	snk, err := h.Storage.GetSink(r.Context(), d.SinkID)
+	if err != nil {
+		writeJSON(w, res)
+		return
+	}
+	res.Checked, res.SinkName = true, snk.Name
+	ctx, cancel := context.WithTimeout(r.Context(), checkTimeout)
+	defer cancel()
+	if err := h.Registry.TestSink(ctx, factory.SinkConfig{Type: snk.Type, VHost: snk.VHost, Config: snk.Config}); err != nil {
+		res.Error = err.Error()
+	} else {
+		res.Reachable = true
+	}
+	writeJSON(w, res)
+}
+
 // bulkRequest names dead letters for a replay, discard or export.
 type bulkRequest struct {
 	IDs       []string `json:"ids"`
@@ -511,11 +561,14 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		f.Limit, f.Offset = maxBulk, 0
-		page, _, err := ds.ListDeadLetters(r.Context(), f)
+		page, total, err := ds.ListDeadLetters(r.Context(), f)
 		if err != nil {
 			h.JsonError(w, "Failed to list dead letters", http.StatusInternalServerError)
 			return
 		}
+		// The file holds the newest maxBulk; the header says how many matched,
+		// so a caller can tell a complete export from a cut one.
+		w.Header().Set("X-Dead-Letters-Total", strconv.Itoa(total))
 		for _, d := range page {
 			ids = append(ids, d.ID)
 		}
@@ -534,11 +587,13 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="dead-letters-`+time.Now().UTC().Format("20060102-150405")+`.csv"`)
 	cw := csv.NewWriter(w)
-	_ = cw.Write([]string{"id", "workflow_id", "workflow", "message_id", "node_id", "sink_id", "failed_at", "status", "error", "payload", "truncated"})
+	_ = cw.Write([]string{"id", "workflow_id", "workflow", "message_id", "node_id", "sink_id", "failed_at", "status", "error", "payload", "truncated",
+		"failure_count", "first_failed_at", "record_key"})
 	for _, d := range h.named(r.Context(), letters) {
 		_ = cw.Write(defuse([]string{
 			d.ID, d.WorkflowID, d.WorkflowName, d.MessageID, d.NodeID, d.SinkID, d.FailedAt.UTC().Format(time.RFC3339),
 			string(d.Status), d.Error, string(d.Payload), strconv.FormatBool(d.Truncated),
+			strconv.Itoa(d.Attempts()), d.FirstFailedAt.UTC().Format(time.RFC3339), d.RecordKey,
 		}))
 	}
 	cw.Flush()
