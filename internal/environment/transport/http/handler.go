@@ -65,6 +65,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/environments/pairing-codes", h.AdminOnly(h.NewPairingCode))
 	mux.Handle("GET /api/environments/peers", h.AdminOnly(h.ListPeers))
 	mux.Handle("DELETE /api/environments/peers/{id}", h.AdminOnly(h.RevokePeer))
+	mux.Handle("GET /api/environments/vhost-requests", h.AdminOnly(h.ListVHostRequests))
+	mux.Handle("POST /api/environments/vhost-requests/{id}/allow", h.AdminOnly(h.AllowVHostRequest))
+	mux.Handle("DELETE /api/environments/vhost-requests/{id}", h.AdminOnly(h.DeclineVHostRequest))
 	mux.Handle("GET /api/environments/promotions", h.EditorOnly(h.ListPromotions))
 	mux.Handle("POST /api/environments/promotions/{id}/approve", h.AdminOnly(h.Approve))
 	mux.Handle("POST /api/environments/promotions/{id}/reject", h.AdminOnly(h.Reject))
@@ -74,6 +77,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/environments/links", h.EditorOnly(h.ListLinks))
 	mux.Handle("POST /api/environments/links", h.AdminOnly(h.CreateLink))
 	mux.Handle("DELETE /api/environments/links/{id}", h.AdminOnly(h.DeleteLink))
+	mux.Handle("POST /api/environments/links/{id}/vhosts", h.AdminOnly(h.AddVHosts))
 	mux.Handle("POST /api/environments/links/{id}/test", h.EditorOnly(h.TestLink))
 	mux.Handle("GET /api/environments/links/{id}/matching", h.AdminOnly(h.Matching))
 	mux.Handle("PUT /api/environments/links/{id}/mapping", h.AdminOnly(h.PutMapping))
@@ -179,17 +183,23 @@ func (h *Handler) NewPairingCode(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Label string `json:"label"`
 		VHost string `json:"vhost"`
+		// AddVHosts lets the connection add vhosts later without a new code.
+		AddVHosts bool `json:"add_vhosts"`
 	}
 	if r.ContentLength != 0 && !h.DecodeJSONBody(w, r, maxSmallBody, &in, "") {
 		return
 	}
-	code, expires, err := h.svc.NewPairingCode(r.Context(), in.Label, in.VHost, username(r))
+	var opts []environment.PairingOption
+	if in.AddVHosts {
+		opts = append(opts, environment.AllowAddingVHosts())
+	}
+	code, expires, err := h.svc.NewPairingCode(r.Context(), in.Label, in.VHost, username(r), opts...)
 	if err != nil {
 		h.writeErr(w, err)
 		return
 	}
 	// The code is not in the audit entry: it is a credential until used.
-	h.RecordAuditLog(r, "INFO", "Issued an environment pairing code for vhost "+in.VHost, "CREATE", "", "", "", map[string]any{"label": in.Label, "vhost": in.VHost})
+	h.RecordAuditLog(r, "INFO", "Issued an environment pairing code for vhost "+in.VHost, "CREATE", "", "", "", map[string]any{"label": in.Label, "vhost": in.VHost, "add_vhosts": in.AddVHosts})
 	writeJSON(w, http.StatusCreated, map[string]any{"code": code, "expires_at": expires, "vhost": in.VHost})
 }
 
@@ -203,6 +213,9 @@ type peerView struct {
 	LastUsedAt any    `json:"last_used_at,omitempty"`
 	VHost      string `json:"vhost"`
 	FromVHost  string `json:"from_vhost,omitempty"`
+	// Group is the ID every vhost of one connection shares.
+	Group     string `json:"group"`
+	AddVHosts bool   `json:"add_vhosts"`
 }
 
 func (h *Handler) ListPeers(w http.ResponseWriter, r *http.Request) {
@@ -213,7 +226,12 @@ func (h *Handler) ListPeers(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]peerView, 0, len(peers))
 	for _, p := range peers {
-		v := peerView{ID: p.ID, Name: p.Name, URL: p.URL, CreatedBy: p.CreatedBy, CreatedAt: p.CreatedAt, VHost: p.VHost, FromVHost: p.FromVHost}
+		group := p.Group
+		if group == "" {
+			group = p.ID
+		}
+		v := peerView{ID: p.ID, Name: p.Name, URL: p.URL, CreatedBy: p.CreatedBy, CreatedAt: p.CreatedAt, VHost: p.VHost,
+			FromVHost: p.FromVHost, Group: group, AddVHosts: p.AddVHosts}
 		if !p.LastUsedAt.IsZero() {
 			v.LastUsedAt = p.LastUsedAt
 		}
@@ -222,13 +240,68 @@ func (h *Handler) ListPeers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// RevokePeer revokes one vhost of a connection, or with ?all=true every
+// vhost of it.
 func (h *Handler) RevokePeer(w http.ResponseWriter, r *http.Request) {
-	if err := h.svc.RevokePeer(r.Context(), r.PathValue("id")); err != nil {
+	id, all := r.PathValue("id"), r.URL.Query().Get("all") == "true"
+	revoke, what := h.svc.RevokePeer, "Revoked a vhost of a linked environment"
+	if all {
+		revoke, what = h.svc.RevokePeerGroup, "Cut a linked environment off"
+	}
+	if err := revoke(r.Context(), id); err != nil {
 		h.writeErr(w, err)
 		return
 	}
-	h.RecordAuditLog(r, "INFO", "Revoked a linked environment", "DELETE", "", "", "", map[string]any{"peer": r.PathValue("id")})
+	h.RecordAuditLog(r, "INFO", what, "DELETE", "", "", "", map[string]any{"peer": id, "all": all})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) ListVHostRequests(w http.ResponseWriter, r *http.Request) {
+	reqs, err := h.svc.VHostRequests(r.Context())
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	if reqs == nil {
+		reqs = []environment.VHostRequest{}
+	}
+	writeJSON(w, http.StatusOK, reqs)
+}
+
+func (h *Handler) AllowVHostRequest(w http.ResponseWriter, r *http.Request) {
+	if err := h.svc.AllowVHostRequest(r.Context(), r.PathValue("id"), username(r)); err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	h.RecordAuditLog(r, "INFO", "Allowed a linked environment to add a vhost", "UPDATE", "", "", "", map[string]any{"request": r.PathValue("id")})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) DeclineVHostRequest(w http.ResponseWriter, r *http.Request) {
+	if err := h.svc.DeclineVHostRequest(r.Context(), r.PathValue("id")); err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	h.RecordAuditLog(r, "INFO", "Declined a linked environment's vhost", "DELETE", "", "", "", map[string]any{"request": r.PathValue("id")})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) AddVHosts(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Routes []environment.VHostRoute `json:"routes"`
+	}
+	if !h.DecodeJSONBody(w, r, maxSmallBody, &in, "") {
+		return
+	}
+	added, err := h.svc.AddVHosts(r.Context(), r.PathValue("id"), in.Routes, username(r))
+	if len(added) > 0 {
+		h.RecordAuditLog(r, "INFO", "Added vhosts to a linked environment", "CREATE", "", "", "", added)
+	}
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, added)
 }
 
 // visible keeps the promotions in vhosts the caller may see.

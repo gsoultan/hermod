@@ -374,3 +374,85 @@ func TestAReleaseCreatesTheVHostAndGoesLiveWholeOverHTTP(t *testing.T) {
 		t.Fatalf("staging's sent log = %+v", log)
 	}
 }
+
+func TestAVHostIsAddedToAConnectionOverHTTP(t *testing.T) {
+	configured(t)
+	stg := newInstance(t, "Staging", environment.RoleStaging)
+	prd := newInstance(t, "Production", environment.RoleProduction)
+
+	var code struct {
+		Code string `json:"code"`
+	}
+	prd.must(t, http.StatusCreated, "admin", http.MethodPost, "/api/environments/pairing-codes",
+		map[string]any{"label": "staging", "vhost": "orders", "add_vhosts": true}, &code)
+	var first environment.Link
+	stg.must(t, http.StatusCreated, "admin", http.MethodPost, "/api/environments/links",
+		map[string]string{"url": prd.srv.URL, "code": code.Code, "self_url": stg.srv.URL, "vhost": "orders"}, &first)
+
+	body := map[string]any{"routes": []map[string]string{{"vhost": "billing", "target_vhost": "billing"}}}
+	if got, _ := stg.call(t, "editor", http.MethodPost, "/api/environments/links/"+first.ID+"/vhosts", body); got != http.StatusForbidden {
+		t.Fatalf("an editor added a vhost: %d", got)
+	}
+	var added []environment.Link
+	stg.must(t, http.StatusCreated, "admin", http.MethodPost, "/api/environments/links/"+first.ID+"/vhosts", body, &added)
+	if len(added) != 1 || added[0].Pending || added[0].VHost != "billing" {
+		t.Fatalf("added = %+v", added)
+	}
+
+	var peers []map[string]any
+	prd.must(t, http.StatusOK, "admin", http.MethodGet, "/api/environments/peers", nil, &peers)
+	if len(peers) != 2 || peers[1]["group"] != peers[0]["id"] || peers[0]["add_vhosts"] != true {
+		t.Fatalf("peers = %+v", peers)
+	}
+
+	// Cutting the connection off removes both vhosts.
+	if got, _ := prd.call(t, "editor", http.MethodDelete, fmt.Sprintf("/api/environments/peers/%v?all=true", peers[0]["id"]), nil); got != http.StatusForbidden {
+		t.Fatalf("an editor cut a connection off: %d", got)
+	}
+	prd.must(t, http.StatusNoContent, "admin", http.MethodDelete, fmt.Sprintf("/api/environments/peers/%v?all=true", peers[0]["id"]), nil, nil)
+	prd.must(t, http.StatusOK, "admin", http.MethodGet, "/api/environments/peers", nil, &peers)
+	if len(peers) != 0 {
+		t.Fatalf("peers left: %+v", peers)
+	}
+}
+
+func TestAVHostRequestIsAllowedOverHTTP(t *testing.T) {
+	configured(t)
+	stg := newInstance(t, "Staging", environment.RoleStaging)
+	prd := newInstance(t, "Production", environment.RoleProduction)
+	var code struct {
+		Code string `json:"code"`
+	}
+	prd.must(t, http.StatusCreated, "admin", http.MethodPost, "/api/environments/pairing-codes", map[string]any{"vhost": "orders"}, &code)
+	var first environment.Link
+	stg.must(t, http.StatusCreated, "admin", http.MethodPost, "/api/environments/links",
+		map[string]string{"url": prd.srv.URL, "code": code.Code, "self_url": stg.srv.URL, "vhost": "orders"}, &first)
+	var added []environment.Link
+	stg.must(t, http.StatusCreated, "admin", http.MethodPost, "/api/environments/links/"+first.ID+"/vhosts",
+		map[string]any{"routes": []map[string]string{{"vhost": "hr"}}}, &added)
+	if len(added) != 1 || !added[0].Pending {
+		t.Fatalf("added = %+v", added)
+	}
+
+	var reqs []environment.VHostRequest
+	if got, _ := prd.call(t, "editor", http.MethodGet, "/api/environments/vhost-requests", nil); got != http.StatusForbidden {
+		t.Fatalf("an editor listed vhost requests: %d", got)
+	}
+	prd.must(t, http.StatusOK, "admin", http.MethodGet, "/api/environments/vhost-requests", nil, &reqs)
+	if len(reqs) != 1 || reqs[0].VHost != "hr" {
+		t.Fatalf("requests = %+v", reqs)
+	}
+	if got, _ := prd.call(t, "editor", http.MethodPost, "/api/environments/vhost-requests/"+reqs[0].ID+"/allow", nil); got != http.StatusForbidden {
+		t.Fatalf("an editor allowed a vhost: %d", got)
+	}
+	prd.must(t, http.StatusNoContent, "admin", http.MethodPost, "/api/environments/vhost-requests/"+reqs[0].ID+"/allow", nil, nil)
+
+	var tested struct {
+		Link  environment.Link `json:"link"`
+		Error string           `json:"error"`
+	}
+	stg.must(t, http.StatusOK, "editor", http.MethodPost, "/api/environments/links/"+added[0].ID+"/test", nil, &tested)
+	if tested.Link.Pending || tested.Error != "" {
+		t.Fatalf("after allow: %+v", tested)
+	}
+}
