@@ -25,6 +25,16 @@ Verified end to end on two live instances (sqlite, `--mode=standalone`): pair,
 match, release, approve, v2 onto a running workflow, Undo, unmatched-blocked,
 connection-deleted-before-approve.
 
+**Deciding from the sender (decide.go).** `Peer.Decide` (from the pairing
+code's `AllowDeciding()` or `PATCH /peers/{id}`) lets the sender relay
+approve/reject/rollback: `DecideSent` → `Remote.Decide` →
+`POST /peer/decisions` → `PeerDecide`, which checks `p.PeerID == peer.ID`,
+applies the rule to the relayed username (`approve(ctx, id, username, by)`)
+and records `name (via Instance)`. The sender learns it from the `decide`
+feature in PeerInfo (`Link.Decide`, refreshed by TestLink; DecideSent
+re-tests once when it is false). Remote 400/403/404/409 map back to the
+same error kinds so the UI sees a 403/409, not a 502.
+
 **Container image config volume.** `/var/lib/hermod` must exist in the image
 owned by 65532 *before* `VOLUME`, or Docker creates new named/anonymous volumes
 root-owned and first-run setup fails with

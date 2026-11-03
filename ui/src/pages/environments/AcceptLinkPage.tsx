@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Alert, Badge, Button, Center, Group, Loader, Paper, Stack, Text, Title } from '@mantine/core'
+import { Alert, Badge, Button, Center, Checkbox, Group, Loader, Paper, Stack, Text, Title } from '@mantine/core'
 import { useMutation } from '@tanstack/react-query'
 import { useParams } from '@tanstack/react-router'
 import { IconAlertTriangle, IconArrowRight, IconCheck, IconLink } from '@tabler/icons-react'
@@ -25,9 +25,10 @@ export function AcceptLinkPage() {
   const { data: names, isLoading } = useVHostNames(valid && isAdmin)
   const exists = (names ?? []).includes(vhost)
   const [sent, setSent] = useState(false)
+  const [decide, setDecide] = useState(true)
 
   const allow = useMutation({
-    mutationFn: () => newPairingCode(origin ?? '', vhost),
+    mutationFn: () => newPairingCode(origin ?? '', vhost, { decide }),
     onSuccess: ({ code }) => {
       if (window.opener && origin) {
         const msg: PairingMessage = { type: PAIRING_MESSAGE, code }
@@ -81,6 +82,12 @@ export function AcceptLinkPage() {
                 Each release it sends waits here until an administrator approves it, unless the rules in Settings ›
                 Environments say otherwise. You can revoke the link at any time.
               </Text>
+              <Checkbox
+                label="Its administrators may approve, reject and undo what it sends, from there"
+                description="Nobody has to sign in here to approve. The rules here still apply. You can change this later."
+                checked={decide}
+                onChange={(e) => setDecide(e.currentTarget.checked)}
+              />
               <Alert color="yellow" variant="light">Only allow this if you opened it from {origin} yourself.</Alert>
               {allow.error && <Alert color="red">{(allow.error as Error).message}</Alert>}
               <Group justify="flex-end">

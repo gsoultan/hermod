@@ -36,6 +36,7 @@ const (
 	PathPeerPromote = "/api/environments/peer/promotions"
 	PathPeerRelease = "/api/environments/peer/releases"
 	PathPeerUnpair  = "/api/environments/peer/self"
+	PathPeerDecide  = "/api/environments/peer/decisions"
 )
 
 // Features a receiving instance lists in PeerInfo. An instance from before
@@ -43,7 +44,26 @@ const (
 const (
 	// FeatureReleases: it takes several workflows in one release.
 	FeatureReleases = "releases"
+	// FeatureDecide: the linked instance's administrators may approve,
+	// reject and roll back what it sent.
+	FeatureDecide = "decide"
 )
+
+// What a Decision does.
+const (
+	DecisionApprove  = "approve"
+	DecisionReject   = "reject"
+	DecisionRollback = "rollback"
+)
+
+// Decision is an administrator on the sending instance approving, rejecting
+// or rolling back a promotion it sent. By is their username there.
+type Decision struct {
+	PromotionID string `json:"promotion_id"`
+	Action      string `json:"action"`
+	By          string `json:"by"`
+	Reason      string `json:"reason,omitempty"`
+}
 
 // PairRequest redeems a pairing code.
 type PairRequest struct {
@@ -64,6 +84,9 @@ type PairResult struct {
 	// for this link.
 	VHost        string `json:"vhost,omitempty"`
 	VHostCreated bool   `json:"vhost_created,omitempty"`
+	// Decide says administrators on the linked instance may decide what it
+	// sends.
+	Decide bool `json:"decide,omitempty"`
 }
 
 // PeerInfo describes the receiving instance to a linked one.
@@ -151,6 +174,8 @@ type Remote interface {
 	// Promotions lists what this instance sent there, as it stands there.
 	Promotions(ctx context.Context, baseURL, token string) ([]Promotion, error)
 	Unpair(ctx context.Context, baseURL, token string) error
+	// Decide approves, rejects or rolls back a promotion this instance sent.
+	Decide(ctx context.Context, baseURL, token string, d Decision) (Promotion, error)
 }
 
 // ValidateURL checks a linked instance's address and returns it without
@@ -307,4 +332,10 @@ func (c *HTTPRemote) Promotions(ctx context.Context, baseURL, token string) ([]P
 
 func (c *HTTPRemote) Unpair(ctx context.Context, baseURL, token string) error {
 	return c.do(ctx, http.MethodDelete, baseURL, PathPeerUnpair, token, nil, nil)
+}
+
+func (c *HTTPRemote) Decide(ctx context.Context, baseURL, token string, d Decision) (Promotion, error) {
+	var out Promotion
+	err := c.do(ctx, http.MethodPost, baseURL, PathPeerDecide, token, d, &out)
+	return out, err
 }

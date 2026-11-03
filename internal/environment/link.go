@@ -93,7 +93,7 @@ func cleanName(name, fallback string) string {
 // NewPairingCode issues a one-time code another instance redeems to link one
 // of its vhosts to vhost here. label says who it is for; it is shown, never
 // trusted. vhost need not exist yet: it is created when the code is used.
-func (s *Service) NewPairingCode(ctx context.Context, label, vhost, username string) (string, time.Time, error) {
+func (s *Service) NewPairingCode(ctx context.Context, label, vhost, username string, opts ...PairingOption) (string, time.Time, error) {
 	if err := ValidateVHostName(vhost); err != nil {
 		return "", time.Time{}, err
 	}
@@ -117,9 +117,13 @@ func (s *Service) NewPairingCode(ctx context.Context, label, vhost, username str
 	if len(codes) >= maxPendingCodes {
 		codes = codes[len(codes)-maxPendingCodes+1:]
 	}
-	codes = append(codes, PairingCode{
+	pc := PairingCode{
 		Hash: hashSecret(code), Label: cleanName(label, ""), VHost: vhost, CreatedBy: username, ExpiresAt: expires,
-	})
+	}
+	for _, opt := range opts {
+		opt(&pc)
+	}
+	codes = append(codes, pc)
 	if err := putJSON(ctx, s.store, keyPairing, codes); err != nil {
 		return "", time.Time{}, err
 	}
@@ -186,7 +190,7 @@ func (s *Service) Pair(ctx context.Context, req PairRequest) (PairResult, error)
 	peer := Peer{
 		ID: uuid.NewString(), Name: cleanName(req.Name, cleanName(used.Label, "Linked instance")), URL: peerURL,
 		TokenHash: hashSecret(token), CreatedBy: used.CreatedBy, CreatedAt: now,
-		VHost: used.VHost, FromVHost: cleanName(req.VHost, ""),
+		VHost: used.VHost, FromVHost: cleanName(req.VHost, ""), Decide: used.Decide,
 	}
 	peers = append(peers, peer)
 	// The code is spent before anything else is saved: a failure after it
@@ -206,7 +210,7 @@ func (s *Service) Pair(ctx context.Context, req PairRequest) (PairResult, error)
 	if err != nil {
 		return PairResult{}, err
 	}
-	return PairResult{PeerID: peer.ID, Token: token, Instance: self, Version: s.version, VHost: used.VHost, VHostCreated: created}, nil
+	return PairResult{PeerID: peer.ID, Token: token, Instance: self, Version: s.version, VHost: used.VHost, VHostCreated: created, Decide: peer.Decide}, nil
 }
 
 // ensureVHost creates vhost unless it exists, and reports whether it did.
@@ -293,8 +297,12 @@ func (s *Service) PeerInfo(ctx context.Context, peer Peer) (PeerInfo, error) {
 	if err != nil {
 		return PeerInfo{}, err
 	}
+	features := []string{FeatureReleases}
+	if peer.Decide {
+		features = append(features, FeatureDecide)
+	}
 	return PeerInfo{Instance: in, Rules: rules.For(peer.VHost), Version: s.version, VHost: peer.VHost,
-		Features: []string{FeatureReleases}}, nil
+		Features: features}, nil
 }
 
 // Links lists the instances this one promotes to.
@@ -366,7 +374,7 @@ func (s *Service) LinkWith(ctx context.Context, req LinkRequest, username string
 	l := Link{
 		ID: uuid.NewString(), Name: displayName(res.Instance), URL: u, Role: res.Instance.Role,
 		Version: res.Version, CreatedBy: username, CreatedAt: now, CheckedAt: now, Reachable: true,
-		VHost: req.VHost, TargetVHost: res.VHost, VHostCreated: res.VHostCreated,
+		VHost: req.VHost, TargetVHost: res.VHost, VHostCreated: res.VHostCreated, Decide: res.Decide,
 	}
 
 	s.mu.Lock()
@@ -446,6 +454,7 @@ func (s *Service) TestLink(ctx context.Context, id string) (Link, PeerInfo, erro
 		links[i].Name = displayName(info.Instance)
 		links[i].Role = info.Instance.Role
 		links[i].Version = info.Version
+		links[i].Decide = slices.Contains(info.Features, FeatureDecide)
 	}
 	if err := putJSON(ctx, s.store, keyLinks, links); err != nil {
 		return Link{}, PeerInfo{}, err

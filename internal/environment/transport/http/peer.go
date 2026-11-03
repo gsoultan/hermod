@@ -41,6 +41,7 @@ func (h *Handler) registerPeerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/environments/peer/promotions", h.peer(h.PeerPromotions))
 	mux.HandleFunc("POST /api/environments/peer/releases", h.peer(h.PeerRelease))
 	mux.HandleFunc("DELETE /api/environments/peer/self", h.peer(h.PeerUnpair))
+	mux.HandleFunc("POST /api/environments/peer/decisions", h.peer(h.PeerDecide))
 }
 
 type peerKey struct{}
@@ -284,4 +285,24 @@ func (l liveStore) GetSink(ctx context.Context, id string) (storage.Sink, error)
 		return storage.Sink{}, err
 	}
 	return st.GetSink(ctx, id)
+}
+
+// PeerDecide carries out a decision an administrator on the linked instance
+// made about a promotion it sent. A deploy that failed after approval
+// answers 200 with the failed promotion, so the sender records why.
+func (h *Handler) PeerDecide(w http.ResponseWriter, r *http.Request) {
+	var in environment.Decision
+	if !h.DecodeJSONBody(w, r, maxSmallBody, &in, "") {
+		return
+	}
+	p := peerFrom(r)
+	res, err := h.svc.PeerDecide(r.Context(), p, in)
+	if err != nil && res.ID == "" {
+		h.writeErr(w, err)
+		return
+	}
+	who := in.By + " (via " + p.Name + ")"
+	h.RecordAuditLog(r, "INFO", who+" decided ("+in.Action+") a promotion of "+res.WorkflowName, "PROMOTE", res.WorkflowID, "", "",
+		map[string]any{"promotion": res.ID, "peer": p.ID, "action": in.Action, "status": res.Status})
+	writeJSON(w, http.StatusOK, res)
 }

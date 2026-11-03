@@ -18,6 +18,7 @@ import {
 } from '@/lib/environments'
 import { ConnectionMatching } from './ConnectionMatching'
 import { LinkWizard } from './LinkWizard'
+import { PeerDecideSwitch } from './PeerDecideSwitch'
 
 /**
  * Settings › Environments: what this install is, where each of its vhosts
@@ -435,23 +436,26 @@ function PeersCard() {
                   {p.last_used_at ? ` · last used ${formatDateTime(p.last_used_at)}` : ''}
                 </Text>
               </Stack>
-              <Button
-                size="xs"
-                variant="subtle"
-                color="red"
-                leftSection={<IconTrash size="0.9rem" />}
-                aria-label={`Revoke ${p.name}`}
-                onClick={async () => {
-                  if (await confirm({
-                    title: `Revoke ${p.name}`,
-                    message: `${p.name} can no longer promote workflows here. Workflows it already promoted stay.`,
-                    confirmLabel: 'Revoke',
-                    danger: true,
-                  })) revoke.mutate(p.id)
-                }}
-              >
-                Revoke
-              </Button>
+              <Group gap="sm" wrap="nowrap">
+                <PeerDecideSwitch peer={p} />
+                <Button
+                  size="xs"
+                  variant="subtle"
+                  color="red"
+                  leftSection={<IconTrash size="0.9rem" />}
+                  aria-label={`Revoke ${p.name}`}
+                  onClick={async () => {
+                    if (await confirm({
+                      title: `Revoke ${p.name}`,
+                      message: `${p.name} can no longer promote workflows here. Workflows it already promoted stay.`,
+                      confirmLabel: 'Revoke',
+                      danger: true,
+                    })) revoke.mutate(p.id)
+                  }}
+                >
+                  Revoke
+                </Button>
+              </Group>
             </Group>
           ))
         )}

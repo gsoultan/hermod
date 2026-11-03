@@ -316,6 +316,14 @@ func (l *loopback) Submit(ctx context.Context, _, token string, sub Submission) 
 	return l.target.Receive(ctx, p, sub)
 }
 
+func (l *loopback) Decide(ctx context.Context, _, token string, d Decision) (Promotion, error) {
+	p, err := l.peer(ctx, token)
+	if err != nil {
+		return Promotion{}, err
+	}
+	return l.target.PeerDecide(ctx, p, d)
+}
+
 func (l *loopback) Unpair(ctx context.Context, _, token string) error {
 	p, err := l.peer(ctx, token)
 	if err != nil {

@@ -170,6 +170,9 @@ type Link struct {
 	// VHostCreated says the other instance created it when the link was made.
 	TargetVHost  string `json:"target_vhost,omitempty"`
 	VHostCreated bool   `json:"vhost_created,omitempty"`
+	// Decide says the other instance lets administrators here approve,
+	// reject and roll back what this link sends, as it said last time.
+	Decide bool `json:"decide,omitempty"`
 }
 
 // Peer is an instance allowed to send promotions to this one.
@@ -187,6 +190,9 @@ type Peer struct {
 	// FromVHost is the vhost it sends from, as it named it; shown, never
 	// trusted.
 	FromVHost string `json:"from_vhost,omitempty"`
+	// Decide lets its administrators approve, reject and roll back what it
+	// sent here, without signing in here.
+	Decide bool `json:"decide,omitempty"`
 }
 
 // PairingCode is a one-time code an admin hands to the instance that wants
@@ -197,6 +203,8 @@ type PairingCode struct {
 	VHost     string    `json:"vhost"`
 	CreatedBy string    `json:"created_by"`
 	ExpiresAt time.Time `json:"expires_at"`
+	// Decide is copied to the peer the code links.
+	Decide bool `json:"decide,omitempty"`
 }
 
 // PairingTTL is how long a pairing code can be redeemed.

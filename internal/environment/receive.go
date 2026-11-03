@@ -356,6 +356,12 @@ func (s *Service) promotion(ctx context.Context, id string) (Promotion, error) {
 // release. Under the admin_except_sender rule the person who sent any of
 // them cannot approve.
 func (s *Service) Approve(ctx context.Context, id, username string) (Promotion, error) {
+	return s.approve(ctx, id, username, username)
+}
+
+// approve is Approve by username, recorded as by: the same, or for someone
+// deciding from the sending instance, their name and where they decided.
+func (s *Service) approve(ctx context.Context, id, username, by string) (Promotion, error) {
 	rules, err := loadRules(ctx, s.store)
 	if err != nil {
 		return Promotion{}, err
@@ -386,14 +392,14 @@ func (s *Service) Approve(ctx context.Context, id, username string) (Promotion, 
 	}
 	for _, j := range members {
 		ps[j].Status = StatusDeploying
-		ps[j].DecidedBy, ps[j].DecidedAt = username, s.now().UTC()
+		ps[j].DecidedBy, ps[j].DecidedAt = by, s.now().UTC()
 	}
 	err = savePromotions(ctx, s.store, ps)
 	s.mu.Unlock()
 	if err != nil {
 		return Promotion{}, err
 	}
-	return s.deployGroup(ctx, id, username)
+	return s.deployGroup(ctx, id, by)
 }
 
 // deployGroup deploys id's release in the order it was sent. When one fails
