@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Alert, Badge, Button, Center, Group, Loader, Paper, Stack, Text, Title } from '@mantine/core'
 import { useMutation } from '@tanstack/react-query'
 import { useParams } from '@tanstack/react-router'
@@ -33,10 +33,17 @@ export function AcceptLinkPage() {
         const msg: PairingMessage = { type: PAIRING_MESSAGE, code }
         window.opener.postMessage(msg, origin)
         setSent(true)
-        window.setTimeout(() => window.close(), 1500)
       }
     },
   })
+
+  // Closes the window once the code is sent. The timer goes with the page,
+  // so a page that unmounts first (a test's teardown) is not called back.
+  useEffect(() => {
+    if (!sent) return
+    const timer = window.setTimeout(() => window.close(), 1500)
+    return () => window.clearTimeout(timer)
+  }, [sent])
 
   return (
     <Center mih="70vh" p="md">
