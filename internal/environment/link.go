@@ -293,8 +293,12 @@ func (s *Service) PeerInfo(ctx context.Context, peer Peer) (PeerInfo, error) {
 	if err != nil {
 		return PeerInfo{}, err
 	}
+	features := []string{FeatureReleases}
+	if _, ok := s.secrets.(SecretWriter); ok {
+		features = append(features, FeatureSecrets)
+	}
 	return PeerInfo{Instance: in, Rules: rules.For(peer.VHost), Version: s.version, VHost: peer.VHost,
-		Features: []string{FeatureReleases}}, nil
+		Features: features}, nil
 }
 
 // Links lists the instances this one promotes to.

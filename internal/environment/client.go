@@ -43,6 +43,8 @@ const (
 const (
 	// FeatureReleases: it takes several workflows in one release.
 	FeatureReleases = "releases"
+	// FeatureSecrets: it takes values for the secrets a promotion needs.
+	FeatureSecrets = "secrets"
 )
 
 // PairRequest redeems a pairing code.
@@ -131,6 +133,11 @@ type Submission struct {
 	// ReleaseID is set when the workflow is part of a release sent one
 	// workflow at a time to an instance that takes no releases.
 	ReleaseID string `json:"release_id,omitempty"`
+	// Secrets are values the sender typed for the receiving instance, by
+	// name, for secrets its vhost lacks. They are created when the promotion
+	// is approved there, never replacing one it has. Sent only to an
+	// instance listing FeatureSecrets.
+	Secrets map[string]string `json:"secrets,omitempty"`
 }
 
 // ReleaseSubmission is several workflows sent in one click. ReleaseID is

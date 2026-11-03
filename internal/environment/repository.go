@@ -31,6 +31,9 @@ const (
 	keyPairing       = "hermod.environment_pairing"
 	keyPromotions    = "hermod.environment_promotions"
 	keyPromotionBody = "hermod.environment_promotion:"
+	// keyPromotionSecrets holds, encrypted, the secret values a pending
+	// promotion's sender typed; see secrets_sync.go.
+	keyPromotionSecrets = "hermod.environment_promotion_secrets:"
 )
 
 // maxPromotionsKept bounds the promotion history; the oldest decided ones go
@@ -116,6 +119,9 @@ func savePromotions(ctx context.Context, s Settings, ps []Promotion) error {
 		}
 		if err := s.SaveSetting(ctx, keyPromotionBody+ps[i].ID, ""); err != nil {
 			return fmt.Errorf("dropping promotion %s: %w", ps[i].ID, err)
+		}
+		if len(ps[i].SecretsFilled) > 0 {
+			dropSentSecrets(ctx, s, ps[i].ID)
 		}
 		ps = slices.Delete(ps, i, i+1)
 	}

@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/gsoultan/hermod/internal/api/handlers"
 	"github.com/gsoultan/hermod/internal/environment"
@@ -255,8 +256,17 @@ func (h *Handler) ListPromotions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, h.visible(r, ps))
 }
 
+// Approve takes an optional body, {"secrets": {"NAME": "value"}}: the values
+// the approver typed for the secrets the promotion needs. They are never
+// echoed or audited; the audit entry names them.
 func (h *Handler) Approve(w http.ResponseWriter, r *http.Request) {
-	p, err := h.svc.Approve(r.Context(), r.PathValue("id"), username(r))
+	var in struct {
+		Secrets map[string]string `json:"secrets"`
+	}
+	if r.ContentLength != 0 && !h.DecodeJSONBody(w, r, maxCheckBody, &in, "") {
+		return
+	}
+	p, err := h.svc.ApproveWith(r.Context(), r.PathValue("id"), username(r), in.Secrets)
 	if err != nil {
 		if p.ID != "" {
 			// Approved, but the deploy failed: the promotion says why.
@@ -267,6 +277,14 @@ func (h *Handler) Approve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.RecordAuditLog(r, "INFO", "Approved and deployed a promotion from "+p.FromEnv, "PROMOTE", p.WorkflowID, "", "", p)
+	if len(p.SecretsCopied) > 0 {
+		vhost := p.VHost
+		if vhost == "" {
+			vhost = "default"
+		}
+		h.RecordAuditLog(r, "INFO", "Saved secrets "+strings.Join(p.SecretsCopied, ", ")+" in vhost "+vhost+" while approving a promotion",
+			"update", vhost, "vhost", "", map[string]any{"secrets": p.SecretsCopied, "promotion": p.ID})
+	}
 	writeJSON(w, http.StatusOK, p)
 }
 
@@ -542,4 +560,26 @@ func (c secretChecker) HasSecret(ctx context.Context, vhost, name string) bool {
 
 func (c secretChecker) HasEnv(name string) bool {
 	return secrets.LookupEnvVar(name) != ""
+}
+
+// CreateSecret saves a value the approver of a promotion typed, as the
+// Secrets page would, unless the vhost already holds the name.
+func (c secretChecker) CreateSecret(ctx context.Context, vhost, name, value, by string) (bool, error) {
+	vs, ok := c.h.Storage.(storage.VHostSecretStore)
+	if !ok {
+		return false, storage.ErrVHostSecretsUnsupported
+	}
+	if _, err := vs.GetVHostSecret(ctx, vhost, name); err == nil {
+		return false, nil
+	} else if !errors.Is(err, storage.ErrNotFound) {
+		return false, err
+	}
+	if err := vs.PutVHostSecret(ctx, storage.VHostSecret{VHost: vhost, Name: name, Value: value, UpdatedBy: by}); err != nil {
+		return false, err
+	}
+	// The next message reads it rather than a cached "missing".
+	if c.h.Registry != nil {
+		c.h.Registry.InvalidateVHostSecret(vhost, name)
+	}
+	return true, nil
 }

@@ -91,6 +91,16 @@ Secrets are checked against production's vhost secrets and `HERMOD_SECRET_*` env
 variables. A secret kept in an external secret manager cannot be seen from here, which is why a
 missing secret is a warning and not a blocker.
 
+Staging's own secret values never go to production: staging's credentials stay on staging.
+Production notes which of the secrets a workflow uses its vhost lacks. The dialog lists them, and
+the sender can type **production's** value for each one there. The value is sent with the release,
+kept encrypted on production until it is decided, and never stored on staging. Anything left blank
+can be filled in by the approver (see below).
+
+Through the API: `"secrets": {"CRM_KEY": "..."}` in the body of a promotion or a release. A value
+for a secret production does not lack is refused, and so is one sent to a production too old to
+take values.
+
 ## Approve it on production
 
 Production lists each release under **Environments › Waiting for you**: where it came from and the
@@ -98,6 +108,19 @@ vhost it lands in, the sender, the note, and each workflow's changes. An adminis
 **Approve and go live** or **Reject**, once for the whole release.
 
 Approving checks once more that every connection a workflow uses still exists in production, in its vhost. A connection deleted or moved while the release waited fails the release with the connection's ID as the reason, instead of deploying a workflow that cannot start.
+
+When a workflow uses secrets that production's vhost lacks, the release lists them by name, says
+which ones the sender filled in, and the approver types the rest (or replaces one) before
+approving. Approving creates them in that vhost's secrets,
+as the Secrets page would, before the workflows start. A rejected or failed release drops the
+values it carried. A secret that exists by then, for example
+one added on the Secrets page while the release waited, is kept as it is and never replaced. A
+value left blank stays missing, which is right for a secret served by a secret manager. The
+promotion then lists which secrets were created, which were already there, and which are still
+missing. The audit log names the secrets that were created, never their values.
+
+Through the API: `POST /api/environments/promotions/{id}/approve` with
+`{"secrets": {"CRM_KEY": "..."}}`. A name the release does not need is refused.
 
 A release goes live whole or not at all. If one workflow fails to deploy, the ones before it are
 put back as they were, and the rest are marked failed with the reason.

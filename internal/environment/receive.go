@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -138,17 +139,24 @@ func (s *Service) admit(ctx context.Context, peer Peer, sub Submission, rules Ru
 		return Promotion{}, wf, err
 	}
 	wf = s.applier.Portable(wf)
+	needs := s.missingSecrets(ctx, wf, vhostOf(wf.VHost))
+	sentValues, err := s.admitSentSecrets(wf, vhostOf(wf.VHost), needs, sub.Secrets)
+	if err != nil {
+		return Promotion{}, wf, err
+	}
 	p := Promotion{
 		ID: uuid.NewString(), PeerID: peer.ID, ReleaseID: sub.ReleaseID, FromEnv: peer.Name, WorkflowID: wf.ID, WorkflowName: wf.Name,
 		VHost: wf.VHost, FromVersion: sub.FromVersion, Sender: strings.TrimSpace(sub.Sender),
 		Note: strings.TrimSpace(sub.Note), Start: sub.Start, AutoRollback: sub.AutoRollback,
-		Changes: Diff(current, wf), Status: StatusPending, CreatedAt: s.now().UTC(),
+		Changes: Diff(current, wf), Status: StatusPending, CreatedAt: s.now().UTC(), Secrets: needs,
+		SecretsFilled: slices.Sorted(maps.Keys(sentValues)),
 	}
 	return p, wf, nil
 }
 
-// store keeps promotions and the workflows they carry, under the lock.
-func (s *Service) storePromotions(ctx context.Context, ps []Promotion, wfs []storage.Workflow) error {
+// store keeps promotions and the workflows they carry, with the secret
+// values each was admitted with, under the lock.
+func (s *Service) storePromotions(ctx context.Context, ps []Promotion, wfs []storage.Workflow, sent []map[string]string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	all, err := loadPromotions(ctx, s.store)
@@ -157,6 +165,13 @@ func (s *Service) storePromotions(ctx context.Context, ps []Promotion, wfs []sto
 	}
 	for i, p := range ps {
 		if err := putJSON(ctx, s.store, keyPromotionBody+p.ID, wfs[i]); err != nil {
+			return err
+		}
+		keep := map[string]string{}
+		for _, name := range p.SecretsFilled {
+			keep[name] = sent[i][name]
+		}
+		if err := saveSentSecrets(ctx, s.store, p.ID, keep); err != nil {
 			return err
 		}
 	}
@@ -179,11 +194,11 @@ func (s *Service) Receive(ctx context.Context, peer Peer, sub Submission) (Promo
 	if err != nil {
 		return Promotion{}, err
 	}
-	if err := s.storePromotions(ctx, []Promotion{p}, []storage.Workflow{wf}); err != nil {
+	if err := s.storePromotions(ctx, []Promotion{p}, []storage.Workflow{wf}, []map[string]string{sub.Secrets}); err != nil {
 		return Promotion{}, err
 	}
 	if rules.For(vhostOf(p.VHost)).Approval == ApproveNone {
-		return s.deployGroup(ctx, p.ID, "automatic")
+		return s.deployGroup(ctx, p.ID, "automatic", nil)
 	}
 	return p, nil
 }
@@ -216,6 +231,7 @@ func (s *Service) ReceiveRelease(ctx context.Context, peer Peer, rs ReleaseSubmi
 	}
 	ps := make([]Promotion, 0, len(rs.Items))
 	wfs := make([]storage.Workflow, 0, len(rs.Items))
+	sent := make([]map[string]string, 0, len(rs.Items))
 	seen := map[string]bool{}
 	for _, sub := range rs.Items {
 		sub.ReleaseID = rs.ReleaseID
@@ -227,13 +243,13 @@ func (s *Service) ReceiveRelease(ctx context.Context, peer Peer, rs ReleaseSubmi
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", cleanName(sub.Workflow.Name, sub.Workflow.ID), err)
 		}
-		ps, wfs = append(ps, p), append(wfs, wf)
+		ps, wfs, sent = append(ps, p), append(wfs, wf), append(sent, sub.Secrets)
 	}
-	if err := s.storePromotions(ctx, ps, wfs); err != nil {
+	if err := s.storePromotions(ctx, ps, wfs, sent); err != nil {
 		return nil, err
 	}
 	if rules.For(vhostOf(ps[0].VHost)).Approval == ApproveNone {
-		if _, err := s.deployGroup(ctx, ps[0].ID, "automatic"); err != nil {
+		if _, err := s.deployGroup(ctx, ps[0].ID, "automatic", nil); err != nil {
 			slog.Warn("environment: deploying a release on arrival failed", "release", rs.ReleaseID, "error", err)
 		}
 	}
@@ -356,6 +372,13 @@ func (s *Service) promotion(ctx context.Context, id string) (Promotion, error) {
 // release. Under the admin_except_sender rule the person who sent any of
 // them cannot approve.
 func (s *Service) Approve(ctx context.Context, id, username string) (Promotion, error) {
+	return s.ApproveWith(ctx, id, username, nil)
+}
+
+// ApproveWith is Approve with the values the approver typed for the secrets
+// the release needs, by name. A blank value is one left out. Each is created
+// in its promotion's vhost unless the vhost holds the name by then.
+func (s *Service) ApproveWith(ctx context.Context, id, username string, secretValues map[string]string) (Promotion, error) {
 	rules, err := loadRules(ctx, s.store)
 	if err != nil {
 		return Promotion{}, err
@@ -384,6 +407,11 @@ func (s *Service) Approve(ctx context.Context, id, username string) (Promotion, 
 			return Promotion{}, fmt.Errorf("%w: you sent this, so another admin has to approve it", ErrForbidden)
 		}
 	}
+	filled, err := s.filledSecrets(ps, members, secretValues)
+	if err != nil {
+		s.mu.Unlock()
+		return Promotion{}, err
+	}
 	for _, j := range members {
 		ps[j].Status = StatusDeploying
 		ps[j].DecidedBy, ps[j].DecidedAt = username, s.now().UTC()
@@ -393,14 +421,14 @@ func (s *Service) Approve(ctx context.Context, id, username string) (Promotion, 
 	if err != nil {
 		return Promotion{}, err
 	}
-	return s.deployGroup(ctx, id, username)
+	return s.deployGroup(ctx, id, username, filled)
 }
 
 // deployGroup deploys id's release in the order it was sent. When one fails
 // the ones before it are undone, newest first, and the ones after it are
 // not deployed: a release goes live whole or not at all. It returns id's
 // promotion as it ends.
-func (s *Service) deployGroup(ctx context.Context, id, by string) (Promotion, error) {
+func (s *Service) deployGroup(ctx context.Context, id, by string, secretValues map[string]string) (Promotion, error) {
 	ps, err := loadPromotions(ctx, s.store)
 	if err != nil {
 		return Promotion{}, err
@@ -414,7 +442,7 @@ func (s *Service) deployGroup(ctx context.Context, id, by string) (Promotion, er
 		ids = append(ids, ps[j].ID)
 	}
 	for k, member := range ids {
-		failed, err := s.deploy(ctx, member, by)
+		failed, err := s.deploy(ctx, member, by, secretValues)
 		if err == nil {
 			continue
 		}
@@ -426,10 +454,12 @@ func (s *Service) deployGroup(ctx context.Context, id, by string) (Promotion, er
 				}
 			}
 			for _, rest := range ids[k+1:] {
-				_, _ = s.update(ctx, rest, func(p *Promotion) error {
+				if np, _ := s.update(ctx, rest, func(p *Promotion) error {
 					p.Status, p.DecidedBy, p.Reason = StatusFailed, by, "Not deployed: "+why
 					return nil
-				})
+				}); len(np.SecretsFilled) > 0 {
+					dropSentSecrets(ctx, s.store, rest)
+				}
 			}
 		}
 		got, gerr := s.promotion(ctx, id)
@@ -441,9 +471,10 @@ func (s *Service) deployGroup(ctx context.Context, id, by string) (Promotion, er
 	return s.promotion(ctx, id)
 }
 
-// deploy stores the promoted workflow through the workflow update path and
-// records the outcome on the promotion.
-func (s *Service) deploy(ctx context.Context, id, by string) (Promotion, error) {
+// deploy creates the secrets it was given values for, stores the promoted
+// workflow through the workflow update path and records the outcome on the
+// promotion.
+func (s *Service) deploy(ctx context.Context, id, by string, secretValues map[string]string) (Promotion, error) {
 	wf, err := loadPromotionWorkflow(ctx, s.store, id)
 	if err != nil {
 		return s.fail(ctx, id, by, err)
@@ -459,6 +490,18 @@ func (s *Service) deploy(ctx context.Context, id, by string) (Promotion, error) 
 		return s.fail(ctx, id, by, err)
 	}
 	msg := fmt.Sprintf("Promoted from %s version %d", p.FromEnv, p.FromVersion)
+
+	// The secrets go in first, so the workflow finds them when it starts.
+	// They are this instance's own values, typed here, so a deploy that
+	// fails after this keeps them.
+	values, err := s.valuesToCreate(ctx, p, secretValues)
+	if err != nil {
+		return s.fail(ctx, id, by, err)
+	}
+	copied, kept, stillMissing, err := s.fillSecrets(ctx, p, values, by)
+	if err != nil {
+		return s.fail(ctx, id, by, err)
+	}
 
 	var previous, applied int
 	var errorsAt, processedAt uint64
@@ -483,8 +526,12 @@ func (s *Service) deploy(ctx context.Context, id, by string) (Promotion, error) 
 	if err != nil {
 		return s.fail(ctx, id, by, err)
 	}
+	if len(p.SecretsFilled) > 0 {
+		dropSentSecrets(ctx, s.store, id)
+	}
 	return s.update(ctx, id, func(p *Promotion) error {
 		p.Status = StatusDeployed
+		p.SecretsCopied, p.SecretsKept, p.SecretsMissing = copied, kept, stillMissing
 		p.DecidedBy = by
 		if p.DecidedAt.IsZero() {
 			p.DecidedAt = s.now().UTC()
@@ -517,6 +564,9 @@ func (s *Service) fail(ctx context.Context, id, by string, cause error) (Promoti
 		p.Reason = cause.Error()
 		return nil
 	})
+	if len(p.SecretsFilled) > 0 {
+		dropSentSecrets(ctx, s.store, id)
+	}
 	if err != nil {
 		return p, err
 	}
@@ -549,6 +599,9 @@ func (s *Service) Reject(ctx context.Context, id, username, reason string) (Prom
 		ps[j].Status = StatusRejected
 		ps[j].DecidedBy, ps[j].DecidedAt = username, s.now().UTC()
 		ps[j].Reason = strings.TrimSpace(reason)
+		if len(ps[j].SecretsFilled) > 0 {
+			dropSentSecrets(ctx, s.store, ps[j].ID)
+		}
 	}
 	return ps[i], savePromotions(ctx, s.store, ps)
 }
