@@ -29,6 +29,7 @@ const (
 	keyLinks         = "hermod.environment_links"
 	keyPeers         = "hermod.environment_peers"
 	keyPairing       = "hermod.environment_pairing"
+	keyVHostRequests = "hermod.environment_vhost_requests"
 	keyPromotions    = "hermod.environment_promotions"
 	keyPromotionBody = "hermod.environment_promotion:"
 	// keyPromotionSecrets holds, encrypted, the secret values a pending

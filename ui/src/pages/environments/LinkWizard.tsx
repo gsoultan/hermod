@@ -11,6 +11,10 @@ import { ConnectionMatching } from './ConnectionMatching'
 interface LinkWizardProps {
   opened: boolean
   onClose: () => void
+  /** The links this instance has, to notice an address it is already connected to. */
+  links?: Link[]
+  /** Opens "Add vhosts" for that server instead of pairing again. */
+  onAddVHosts?: (via: Link) => void
 }
 
 /**
@@ -20,7 +24,7 @@ interface LinkWizardProps {
  * connections there stand in for the ones here. The other install creates
  * the vhost when it does not have it yet.
  */
-export function LinkWizard({ opened, onClose }: LinkWizardProps) {
+export function LinkWizard({ opened, onClose, links = [], onAddVHosts }: LinkWizardProps) {
   const queryClient = useQueryClient()
   const [step, setStep] = useState(0)
   const [url, setUrl] = useState('')
@@ -33,6 +37,10 @@ export function LinkWizard({ opened, onClose }: LinkWizardProps) {
 
   const problem = urlProblem(url)
   const target = problem ? '' : normalizeUrl(url)
+  // A server already connected takes more vhosts without a new pairing code.
+  const known = target
+    ? links.find((l) => !l.pending && l.vhost && normalizeUrl(l.url).toLowerCase() === target.toLowerCase())
+    : undefined
   const host = target ? new URL(target).host : ''
   const { data: vhosts } = useVHostNames(opened)
   // Lands in the vhost of the same name unless someone says otherwise.
@@ -89,7 +97,7 @@ export function LinkWizard({ opened, onClose }: LinkWizardProps) {
           <Stack mt="md">
             <Text size="sm">
               Enter the address of the Hermod that workflows from here should be promoted to, usually your production
-              install, and the vhost whose workflows go there. Each vhost is connected on its own.
+              install, and the first vhost whose workflows go there. More vhosts are added to the same connection later.
             </Text>
             <TextInput
               label="Address"
@@ -100,6 +108,16 @@ export function LinkWizard({ opened, onClose }: LinkWizardProps) {
               error={touched && url ? problem : null}
               data-autofocus
             />
+            {known && onAddVHosts && (
+              <Alert color="blue" title={`You're already connected to ${known.name} at this address`}>
+                <Stack gap="xs">
+                  <Text size="sm">Add more vhosts to that connection instead of pairing again. No code is needed.</Text>
+                  <Group>
+                    <Button size="xs" onClick={() => { const l = known; close(); onAddVHosts(l) }}>Add vhosts instead</Button>
+                  </Group>
+                </Stack>
+              </Alert>
+            )}
             <Group grow align="flex-start">
               <Select
                 label="Workflows from"

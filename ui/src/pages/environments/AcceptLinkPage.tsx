@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Alert, Badge, Button, Center, Group, Loader, Paper, Stack, Text, Title } from '@mantine/core'
+import { Alert, Badge, Button, Center, Group, Loader, Paper, Radio, Stack, Text, Title } from '@mantine/core'
 import { useMutation } from '@tanstack/react-query'
 import { useParams } from '@tanstack/react-router'
 import { IconAlertTriangle, IconArrowRight, IconCheck, IconLink } from '@tabler/icons-react'
@@ -25,9 +25,11 @@ export function AcceptLinkPage() {
   const { data: names, isLoading } = useVHostNames(valid && isAdmin)
   const exists = (names ?? []).includes(vhost)
   const [sent, setSent] = useState(false)
+  // One authorization covers the vhosts it adds later, unless asked each time.
+  const [later, setLater] = useState<'own' | 'ask'>('own')
 
   const allow = useMutation({
-    mutationFn: () => newPairingCode(origin ?? '', vhost),
+    mutationFn: () => newPairingCode(origin ?? '', vhost, later === 'own'),
     onSuccess: ({ code }) => {
       if (window.opener && origin) {
         const msg: PairingMessage = { type: PAIRING_MESSAGE, code }
@@ -84,9 +86,20 @@ export function AcceptLinkPage() {
                   {vhost} is not here yet. Allowing creates it, empty, for the workflows this link sends.
                 </Alert>
               )}
+              <Radio.Group
+                label="Later vhosts"
+                description="When it wants to promote another vhost here as well."
+                value={later}
+                onChange={(v) => setLater(v as 'own' | 'ask')}
+              >
+                <Stack gap={6} mt={6}>
+                  <Radio value="own" label="It may add more on its own (no new code)" />
+                  <Radio value="ask" label="Ask me each time" />
+                </Stack>
+              </Radio.Group>
               <Text size="sm" c="dimmed">
                 Each release it sends waits here until an administrator approves it, unless the rules in Settings ›
-                Environments say otherwise. You can revoke the link at any time.
+                Environments say otherwise. You can cut it off at any time.
               </Text>
               <Alert color="yellow" variant="light">Only allow this if you opened it from {origin} yourself.</Alert>
               {allow.error && <Alert color="red">{(allow.error as Error).message}</Alert>}
