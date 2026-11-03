@@ -176,3 +176,25 @@ func TestAPairingCodeCanLetTheOtherSideDecide(t *testing.T) {
 		t.Fatalf("link still says it may decide: %+v", l)
 	}
 }
+
+func TestAVHostAddedToAConnectionKeepsItsDeciding(t *testing.T) {
+	ctx := context.Background()
+	p := newPair(t)
+	code, _, err := p.prd.NewPairingCode(ctx, "", "orders", "rina", AllowAddingVHosts(), AllowDeciding())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := p.stg.LinkWith(ctx, LinkRequest{URL: "https://prod.example.com", Code: code, SelfURL: "https://stg.example.com", VHost: "orders"}, "gembit")
+	if err != nil || !first.Decide {
+		t.Fatalf("first = %+v, %v", first, err)
+	}
+	added, err := p.stg.AddVHosts(ctx, first.ID, []VHostRoute{{VHost: "billing", TargetVHost: "billing"}}, "gembit")
+	if err != nil || len(added) != 1 {
+		t.Fatalf("AddVHosts = %+v, %v", added, err)
+	}
+	tok, _ := loadLinkToken(ctx, p.stgStore, added[0].ID)
+	peer, err := p.prd.AuthenticatePeer(ctx, tok)
+	if err != nil || !peer.Decide {
+		t.Fatalf("the added vhost lost the connection's deciding: %+v, %v", peer, err)
+	}
+}

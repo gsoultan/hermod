@@ -15,7 +15,7 @@ export function PeerDecideSwitch({ peer }: { peer: Peer }) {
     <Switch
       size="xs"
       label="Its admins approve from there"
-      aria-label={`Let ${peer.name}'s administrators approve, reject and undo from there`}
+      aria-label={`Let ${peer.name}'s administrators approve, reject and undo${peer.vhost ? ` in ${peer.vhost}` : ''} from there`}
       checked={change.isPending ? change.variables : !!peer.decide}
       disabled={change.isPending}
       onChange={(e) => change.mutate(e.currentTarget.checked)}

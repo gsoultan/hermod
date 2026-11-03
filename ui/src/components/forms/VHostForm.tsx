@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Button, Group, TextInput, Stack, Textarea } from '@mantine/core';
+import { Alert, Button, Group, TextInput, Stack, Textarea } from '@mantine/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api';
 import { useNavigate } from '@tanstack/react-router';
@@ -34,6 +34,8 @@ export function VHostForm({ initialData, isEditing = false }: VHostFormProps) {
     }
   }, [initialData]);
 
+  const renaming = isEditing && !!initialData && vhost.name.trim() !== initialData.name;
+
   const submitMutation = useMutation({
     mutationFn: async (vhostData: VHost) => {
       const res = await apiFetch(`/api/vhosts${isEditing ? `/${initialData?.id}` : ''}`, {
@@ -49,7 +51,13 @@ export function VHostForm({ initialData, isEditing = false }: VHostFormProps) {
     },
     onSuccess: () => {
       try {
-        queryClient.invalidateQueries({ queryKey: ['vhosts'] });
+        // A rename moves every workflow, source, sink and user of the vhost to
+        // the new name, so any list on the page may be holding the old one.
+        if (renaming) {
+          queryClient.invalidateQueries();
+        } else {
+          queryClient.invalidateQueries({ queryKey: ['vhosts'] });
+        }
       } catch {
         // ignore
       }
@@ -65,6 +73,9 @@ export function VHostForm({ initialData, isEditing = false }: VHostFormProps) {
         required
         value={vhost.name}
         onChange={(e) => setVHost({ ...vhost, name: e.currentTarget.value })}
+        description={renaming
+          ? `Its workflows, sources, sinks and users, and its secrets and ML data, move from "${initialData?.name}" to the new name. Running workflows restart under it.`
+          : undefined}
       />
       <Textarea
         label="Description"
@@ -72,6 +83,9 @@ export function VHostForm({ initialData, isEditing = false }: VHostFormProps) {
         value={vhost.description}
         onChange={(e) => setVHost({ ...vhost, description: e.currentTarget.value })}
       />
+      {submitMutation.error && (
+        <Alert color="red" variant="light">{submitMutation.error.message}</Alert>
+      )}
       <Group justify="flex-end" mt="xl">
         <Button variant="outline" onClick={() => navigate({ to: '/vhosts' })}>Cancel</Button>
         <Button onClick={() => submitMutation.mutate(vhost)} loading={submitMutation.isPending}>

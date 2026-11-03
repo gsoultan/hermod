@@ -630,3 +630,14 @@ func TestRulesAndInstanceAreValidated(t *testing.T) {
 		t.Fatalf("default rules = %+v, %v", r, err)
 	}
 }
+
+func (l *loopback) AddVHost(ctx context.Context, _, token string, req AddVHostRequest) (AddVHostResult, error) {
+	p, err := l.peer(ctx, token)
+	if err != nil {
+		return AddVHostResult{}, err
+	}
+	if l.old {
+		return AddVHostResult{}, &RemoteError{Status: 404, Message: "404 page not found"}
+	}
+	return l.target.AddPeerVHost(ctx, p, req)
+}

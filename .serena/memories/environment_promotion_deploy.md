@@ -25,15 +25,26 @@ Verified end to end on two live instances (sqlite, `--mode=standalone`): pair,
 match, release, approve, v2 onto a running workflow, Undo, unmatched-blocked,
 connection-deleted-before-approve.
 
+**One connection per server (connection.go).** A vhost added over an existing
+connection gets its own Peer and token on the receiver, in the same `Group`
+(the first peer's ID; `groupOf` falls back to the ID for older peers), so
+scoping stays one token per vhost. `Peer.AddVHosts` (set from the pairing
+code) decides whether it is issued at once or held as a `VHostRequest` for an
+admin. On the sender the Link is `Pending` with no token and `Via` = the link
+whose token asks again; `TestLink` → `askAgain`. A peer with `VHost == ""`
+(every vhost, legacy) cannot add vhosts. The UI groups links by normalized URL
+(`groupLinksByServer`) and peers by Group (`groupPeers`).
+
 **Deciding from the sender (decide.go).** `Peer.Decide` (from the pairing
 code's `AllowDeciding()` or `PATCH /peers/{id}`) lets the sender relay
 approve/reject/rollback: `DecideSent` → `Remote.Decide` →
 `POST /peer/decisions` → `PeerDecide`, which checks `p.PeerID == peer.ID`,
-applies the rule to the relayed username (`approve(ctx, id, username, by)`)
+applies the rule to the relayed username (`approve(ctx, id, username, by, secretValues)`)
 and records `name (via Instance)`. The sender learns it from the `decide`
 feature in PeerInfo (`Link.Decide`, refreshed by TestLink; DecideSent
 re-tests once when it is false). Remote 400/403/404/409 map back to the
-same error kinds so the UI sees a 403/409, not a 502.
+same error kinds so the UI sees a 403/409, not a 502. A vhost added to a connection copies the
+group peer's `Decide` (issueVHostPeer).
 
 **Container image config volume.** `/var/lib/hermod` must exist in the image
 owned by 65532 *before* `VOLUME`, or Docker creates new named/anonymous volumes

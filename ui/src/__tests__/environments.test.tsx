@@ -107,7 +107,7 @@ describe('Settings › Environments', () => {
     wrap(<EnvironmentsTab />)
 
     expect(await screen.findByText(/Not linked to anything yet/)).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Connect an environment' }))
+    await user.click(screen.getByRole('button', { name: 'Connect a server' }))
     await user.type(await screen.findByLabelText('Address'), `${PRD}/`)
     await user.type(screen.getByRole('combobox', { name: 'Workflows from' }), 'hr{ArrowDown}{Enter}')
     expect(screen.getByLabelText('Land in')).toHaveValue('hr')
@@ -152,7 +152,7 @@ describe('Settings › Environments', () => {
     const user = userEvent.setup()
     wrap(<EnvironmentsTab />)
 
-    await user.click(await screen.findByRole('button', { name: 'Connect an environment' }))
+    await user.click(await screen.findByRole('button', { name: 'Connect a server' }))
     await user.type(await screen.findByLabelText('Address'), PRD)
     await user.type(screen.getByRole('combobox', { name: 'Workflows from' }), 'hr{ArrowDown}{Enter}')
     await user.clear(screen.getByLabelText('Land in'))
@@ -275,7 +275,7 @@ describe('the production accept page', () => {
     expect(screen.getByText('https://stg.example.com')).toBeInTheDocument()
     await user.click(await screen.findByRole('button', { name: 'Allow' }))
     await waitFor(() => expect(postMessage).toHaveBeenCalledWith({ type: PAIRING_MESSAGE, code: 'ABCD-2345' }, 'https://stg.example.com'))
-    expect(body).toEqual({ label: 'https://stg.example.com', vhost: 'hr', decide: true })
+    expect(body).toEqual({ label: 'https://stg.example.com', vhost: 'hr', add_vhosts: true, decide: true })
 
     if (opener) Object.defineProperty(window, 'opener', opener)
   })

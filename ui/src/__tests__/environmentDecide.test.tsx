@@ -169,8 +169,8 @@ describe('allowing it on the receiving side', () => {
     await user.click(await screen.findByRole('button', { name: 'Allow' }))
     await waitFor(() => expect(bodies).toHaveLength(2))
     expect(bodies).toEqual([
-      { label: 'https://stg.example.com', vhost: 'hr', decide: true },
-      { label: 'https://stg.example.com', vhost: 'hr' },
+      { label: 'https://stg.example.com', vhost: 'hr', add_vhosts: true, decide: true },
+      { label: 'https://stg.example.com', vhost: 'hr', add_vhosts: true },
     ])
   })
 

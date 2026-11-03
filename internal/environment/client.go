@@ -37,6 +37,7 @@ const (
 	PathPeerRelease = "/api/environments/peer/releases"
 	PathPeerUnpair  = "/api/environments/peer/self"
 	PathPeerDecide  = "/api/environments/peer/decisions"
+	PathPeerVHosts  = "/api/environments/peer/vhosts"
 )
 
 // Features a receiving instance lists in PeerInfo. An instance from before
@@ -47,6 +48,10 @@ const (
 	// FeatureDecide: the linked instance's administrators may approve,
 	// reject and roll back what it sent.
 	FeatureDecide = "decide"
+	// FeatureSecrets: it takes values for the secrets a promotion needs.
+	FeatureSecrets = "secrets"
+	// FeatureAddVHosts: a connection adds vhosts without a new pairing code.
+	FeatureAddVHosts = "add_vhosts"
 )
 
 // What a Decision does.
@@ -63,6 +68,24 @@ type Decision struct {
 	Action      string `json:"action"`
 	By          string `json:"by"`
 	Reason      string `json:"reason,omitempty"`
+}
+
+// AddVHostRequest asks to add a vhost there to the caller's connection.
+type AddVHostRequest struct {
+	// VHost is the vhost there the workflows land in.
+	VHost string `json:"vhost"`
+	// FromVHost is the vhost they are sent from, shown on the other side.
+	FromVHost string `json:"from_vhost,omitempty"`
+}
+
+// AddVHostResult is the answer: a token for the new vhost, or that an
+// administrator there has to allow it first, or that one declined it.
+type AddVHostResult struct {
+	Token        string `json:"token,omitempty"`
+	VHost        string `json:"vhost"`
+	VHostCreated bool   `json:"vhost_created,omitempty"`
+	Pending      bool   `json:"pending,omitempty"`
+	Declined     bool   `json:"declined,omitempty"`
 }
 
 // PairRequest redeems a pairing code.
@@ -154,6 +177,11 @@ type Submission struct {
 	// ReleaseID is set when the workflow is part of a release sent one
 	// workflow at a time to an instance that takes no releases.
 	ReleaseID string `json:"release_id,omitempty"`
+	// Secrets are values the sender typed for the receiving instance, by
+	// name, for secrets its vhost lacks. They are created when the promotion
+	// is approved there, never replacing one it has. Sent only to an
+	// instance listing FeatureSecrets.
+	Secrets map[string]string `json:"secrets,omitempty"`
 }
 
 // ReleaseSubmission is several workflows sent in one click. ReleaseID is
@@ -176,6 +204,8 @@ type Remote interface {
 	Unpair(ctx context.Context, baseURL, token string) error
 	// Decide approves, rejects or rolls back a promotion this instance sent.
 	Decide(ctx context.Context, baseURL, token string, d Decision) (Promotion, error)
+	// AddVHost adds a vhost there to the connection token belongs to.
+	AddVHost(ctx context.Context, baseURL, token string, req AddVHostRequest) (AddVHostResult, error)
 }
 
 // ValidateURL checks a linked instance's address and returns it without
@@ -337,5 +367,11 @@ func (c *HTTPRemote) Unpair(ctx context.Context, baseURL, token string) error {
 func (c *HTTPRemote) Decide(ctx context.Context, baseURL, token string, d Decision) (Promotion, error) {
 	var out Promotion
 	err := c.do(ctx, http.MethodPost, baseURL, PathPeerDecide, token, d, &out)
+	return out, err
+}
+
+func (c *HTTPRemote) AddVHost(ctx context.Context, baseURL, token string, req AddVHostRequest) (AddVHostResult, error) {
+	var out AddVHostResult
+	err := c.do(ctx, http.MethodPost, baseURL, PathPeerVHosts, token, req, &out)
 	return out, err
 }

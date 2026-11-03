@@ -44,6 +44,11 @@ type Preview struct {
 	Changes        []Change  `json:"changes"`
 	Rules          Rules     `json:"rules"`
 	Ready          bool      `json:"ready"`
+	// MissingSecrets are the secrets the workflow names that the linked
+	// instance lacks; the admin who approves it there fills in their values.
+	MissingSecrets []string `json:"missing_secrets,omitempty"`
+	// takesSecrets says the linked instance takes secret values.
+	takesSecrets bool
 }
 
 // workflowRefs lists the sources and sinks a workflow names, in node order:
@@ -232,6 +237,10 @@ func (s *Service) checkAgainst(ctx context.Context, p *Preview, l Link, token st
 	if res.Problem != "" {
 		p.Checks = append(p.Checks, Check{Name: "Can land in " + l.Name, Blocking: true, Detail: res.Problem})
 	}
+	if len(res.MissingSecrets) > 0 {
+		p.MissingSecrets = res.MissingSecrets
+	}
+	p.takesSecrets = slices.Contains(r.info.Features, FeatureSecrets)
 	p.Checks = append(p.Checks, presenceChecks(l, res, secretNames, envNames)...)
 	if soak := soakProblem(r.info.Rules, at, s.now()); soak != "" {
 		p.Checks = append(p.Checks, Check{Name: "Has run long enough", Blocking: true, Detail: soak})
@@ -321,7 +330,8 @@ func presenceChecks(l Link, res CheckResult, secretNames, envNames []string) []C
 	if len(secretNames) > 0 {
 		c := Check{Name: "Secrets exist in " + l.Name, OK: len(res.MissingSecrets) == 0}
 		if !c.OK {
-			c.Detail = "Not found in the vhost's secrets there (fine if they come from a secret manager): " + strings.Join(res.MissingSecrets, ", ")
+			c.Detail = "Not found in the vhost's secrets there: " + strings.Join(res.MissingSecrets, ", ") +
+				". Only their names are sent; the admin who approves it there fills in the values (or leaves them blank when a secret manager serves them)."
 		}
 		out = append(out, c)
 	}
@@ -362,6 +372,10 @@ type PromoteOptions struct {
 	Note         string `json:"note"`
 	Start        bool   `json:"start"`
 	AutoRollback bool   `json:"auto_rollback"`
+	// SecretValues are values the sender typed for the receiving instance,
+	// by name, for secrets the preview lists as missing there. They are sent
+	// on and never kept here.
+	SecretValues map[string]string `json:"secrets,omitempty"`
 }
 
 // Promote sends a workflow version to a linked instance, after the same
@@ -383,9 +397,16 @@ func (s *Service) Promote(ctx context.Context, linkID, workflowID, sender string
 		}
 		return Promotion{}, fmt.Errorf("%w: %s", ErrInvalid, strings.Join(why, "; "))
 	}
+	if err := checkSecretNames([]Preview{p}, opts.SecretValues); err != nil {
+		return Promotion{}, err
+	}
+	values, err := valuesFor([]Preview{p}, opts.SecretValues)
+	if err != nil {
+		return Promotion{}, err
+	}
 	sent, err := s.remote.Submit(ctx, l.URL, token, Submission{
 		Workflow: out, FromVersion: p.FromVersion, FromVersionAt: p.FromVersionAt, Sender: sender,
-		Note: strings.TrimSpace(opts.Note), Start: opts.Start, AutoRollback: opts.AutoRollback,
+		Note: strings.TrimSpace(opts.Note), Start: opts.Start, AutoRollback: opts.AutoRollback, Secrets: values[0],
 	})
 	if err != nil {
 		return Promotion{}, err

@@ -81,6 +81,7 @@ var unguardedMutatingRoutes = map[string]string{
 	"POST /api/environments/peer/releases":   "a linked environment submits a release of workflows; it waits for an admin's approval here",
 	"DELETE /api/environments/peer/self":     "a linked environment revokes its own peer token",
 	"POST /api/environments/peer/decisions":  "a linked environment relays an admin's decision on a promotion it sent; refused unless this instance lets that peer decide",
+	"POST /api/environments/peer/vhosts":     "a linked environment adds a vhost to its connection; issued only as its connection allows, or held for an admin here",
 
 	// self-service: the handler checks caller identity, not role
 	"PUT /api/me":                      "a user editing their own profile",

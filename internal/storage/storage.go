@@ -22,6 +22,11 @@ import (
 
 var ErrNotFound = errors.New("not found")
 
+// ErrVHostNameTaken is returned when a vhost is created or renamed onto a name
+// another vhost already has. Everything a vhost holds is kept by its name, so
+// two vhosts sharing one would share every workflow, user and secret too.
+var ErrVHostNameTaken = errors.New("another vhost already has that name")
+
 // ErrApprovalDecided is returned when an approval is no longer pending, so a
 // second decision cannot resume its workflow again.
 var ErrApprovalDecided = errors.New("approval was already decided")

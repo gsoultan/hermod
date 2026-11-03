@@ -10,7 +10,7 @@ import { useConfirm } from '@/components/common/ConfirmProvider'
 import { getSessionRole, getSessionUser } from '@/auth/session'
 import { formatDateTime } from '@/utils/dateUtils'
 import {
-  approvePromotion, environmentKeys, groupByRelease, rejectPromotion, releaseStatus, roleColor, roleLabel,
+  approvePromotion, environmentKeys, groupByRelease, groupPeers, rejectPromotion, releaseStatus, roleColor, roleLabel,
   rollbackPromotion, statusColor, statusLabel, useInstance, usePeers, usePromotions, useReady, useRules, useSent,
   workflowNames, type ApprovalRule, type Promotion, type ReadyLane, type ReleaseItem, type Rules,
 } from '@/lib/environments'
@@ -350,10 +350,12 @@ function SidePanel() {
           <Stack gap="sm">
             <Text fw={700}>Sending here</Text>
             {(peers ?? []).length === 0 && <Text size="sm" c="dimmed">Nothing is connected to this instance yet.</Text>}
-            {(peers ?? []).map((p) => (
-              <Stack key={p.id} gap={0}>
-                <Text size="sm" fw={600}>{p.name}</Text>
-                <Text size="xs" c="dimmed">{p.vhost ? `into ${p.vhost}` : 'into any vhost (older link)'}</Text>
+            {groupPeers(peers ?? []).map((g) => (
+              <Stack key={g.group} gap={0}>
+                <Text size="sm" fw={600}>{g.name}</Text>
+                <Text size="xs" c="dimmed">
+                  {g.peers.some((p) => !p.vhost) ? 'into any vhost (older link)' : `into ${g.peers.map((p) => p.vhost).join(', ')}`}
+                </Text>
               </Stack>
             ))}
             <Anchor component={RouterLink} to="/settings" search={{ tab: 'environments' } as any} size="sm" fw={600}>

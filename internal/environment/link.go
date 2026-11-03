@@ -120,8 +120,8 @@ func (s *Service) NewPairingCode(ctx context.Context, label, vhost, username str
 	pc := PairingCode{
 		Hash: hashSecret(code), Label: cleanName(label, ""), VHost: vhost, CreatedBy: username, ExpiresAt: expires,
 	}
-	for _, opt := range opts {
-		opt(&pc)
+	for _, o := range opts {
+		o(&pc)
 	}
 	codes = append(codes, pc)
 	if err := putJSON(ctx, s.store, keyPairing, codes); err != nil {
@@ -190,7 +190,7 @@ func (s *Service) Pair(ctx context.Context, req PairRequest) (PairResult, error)
 	peer := Peer{
 		ID: uuid.NewString(), Name: cleanName(req.Name, cleanName(used.Label, "Linked instance")), URL: peerURL,
 		TokenHash: hashSecret(token), CreatedBy: used.CreatedBy, CreatedAt: now,
-		VHost: used.VHost, FromVHost: cleanName(req.VHost, ""), Decide: used.Decide,
+		VHost: used.VHost, FromVHost: cleanName(req.VHost, ""), AddVHosts: used.AddVHosts, Decide: used.Decide,
 	}
 	peers = append(peers, peer)
 	// The code is spent before anything else is saved: a failure after it
@@ -297,7 +297,10 @@ func (s *Service) PeerInfo(ctx context.Context, peer Peer) (PeerInfo, error) {
 	if err != nil {
 		return PeerInfo{}, err
 	}
-	features := []string{FeatureReleases}
+	features := []string{FeatureReleases, FeatureAddVHosts}
+	if _, ok := s.secrets.(SecretWriter); ok {
+		features = append(features, FeatureSecrets)
+	}
 	if peer.Decide {
 		features = append(features, FeatureDecide)
 	}
@@ -334,6 +337,9 @@ func (s *Service) link(ctx context.Context, id string) (Link, string, error) {
 	token, err := loadLinkToken(ctx, s.store, id)
 	if err != nil {
 		return Link{}, "", err
+	}
+	if links[i].Pending {
+		return links[i], "", fmt.Errorf("%w: %s has not allowed vhost %s yet", ErrConflict, links[i].Name, links[i].TargetVHost)
 	}
 	if token == "" {
 		return links[i], "", fmt.Errorf("%w: the link to %s has lost its token (was the master key changed?); unlink and link it again", ErrInvalid, links[i].Name)
@@ -430,6 +436,13 @@ func (s *Service) Unlink(ctx context.Context, id string) (note string, err error
 // TestLink calls the linked instance and records whether it answered.
 func (s *Service) TestLink(ctx context.Context, id string) (Link, PeerInfo, error) {
 	l, token, err := s.link(ctx, id)
+	if l.Pending {
+		l, err = s.askAgain(ctx, l)
+		if err != nil {
+			return l, PeerInfo{}, err
+		}
+		l, token, err = s.link(ctx, id)
+	}
 	if err != nil {
 		return Link{}, PeerInfo{}, err
 	}

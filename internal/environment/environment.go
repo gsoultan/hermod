@@ -173,6 +173,11 @@ type Link struct {
 	// Decide says the other instance lets administrators here approve,
 	// reject and roll back what this link sends, as it said last time.
 	Decide bool `json:"decide,omitempty"`
+	// Pending is a vhost added to a connection that the other instance has
+	// not allowed yet: it holds no token, and Via names the link whose token
+	// asks again (see AddVHosts).
+	Pending bool   `json:"pending,omitempty"`
+	Via     string `json:"via,omitempty"`
 }
 
 // Peer is an instance allowed to send promotions to this one.
@@ -193,6 +198,30 @@ type Peer struct {
 	// Decide lets its administrators approve, reject and roll back what it
 	// sent here, without signing in here.
 	Decide bool `json:"decide,omitempty"`
+	// Group is the ID of the peer an instance first paired as; every vhost
+	// it adds later is a peer of its own, with its own token, in that group.
+	// Empty on the first peer, whose group is its own ID.
+	Group string `json:"group,omitempty"`
+	// AddVHosts lets the group add vhosts here without an administrator
+	// allowing each one.
+	AddVHosts bool `json:"add_vhosts,omitempty"`
+}
+
+// VHostRequest is a vhost a linked instance asked to add to its connection,
+// waiting for an administrator here because the connection may not add
+// vhosts on its own.
+type VHostRequest struct {
+	ID          string    `json:"id"`
+	Group       string    `json:"group"`
+	PeerName    string    `json:"peer_name"`
+	VHost       string    `json:"vhost"`
+	FromVHost   string    `json:"from_vhost,omitempty"`
+	RequestedAt time.Time `json:"requested_at"`
+	// Allowed and Declined are set by an administrator here; the request is
+	// removed once the sender has been told.
+	Allowed   bool   `json:"allowed,omitempty"`
+	AllowedBy string `json:"allowed_by,omitempty"`
+	Declined  bool   `json:"declined,omitempty"`
 }
 
 // PairingCode is a one-time code an admin hands to the instance that wants
@@ -205,6 +234,9 @@ type PairingCode struct {
 	ExpiresAt time.Time `json:"expires_at"`
 	// Decide is copied to the peer the code links.
 	Decide bool `json:"decide,omitempty"`
+	// AddVHosts lets the instance that redeems it add vhosts later without a
+	// new code.
+	AddVHosts bool `json:"add_vhosts,omitempty"`
 }
 
 // PairingTTL is how long a pairing code can be redeemed.
@@ -253,6 +285,18 @@ type Promotion struct {
 	ErrorsAtDeploy    uint64 `json:"errors_at_deploy,omitempty"`
 	ProcessedAtDeploy uint64 `json:"processed_at_deploy,omitempty"`
 	Reason            string `json:"reason,omitempty"`
+	// Secrets names the secrets the workflow uses that this vhost lacked
+	// when the promotion arrived; the approver fills in their values. Only
+	// names are ever kept here. After the deploy, SecretsCopied are the ones
+	// created from those values, SecretsKept the ones the vhost had by then,
+	// and SecretsMissing the ones still without a value.
+	Secrets []string `json:"secrets,omitempty"`
+	// SecretsFilled are the ones of Secrets the sender typed a value for;
+	// the values wait encrypted until the promotion is decided.
+	SecretsFilled  []string `json:"secrets_filled,omitempty"`
+	SecretsCopied  []string `json:"secrets_copied,omitempty"`
+	SecretsKept    []string `json:"secrets_kept,omitempty"`
+	SecretsMissing []string `json:"secrets_missing,omitempty"`
 }
 
 // Change is one difference between the version being promoted and the one

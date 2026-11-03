@@ -23,9 +23,6 @@ import (
 // decision.
 const maxDeciderName = 100
 
-// PairingOption sets what a pairing code lets the instance it links do.
-type PairingOption func(*PairingCode)
-
 // AllowDeciding lets the linked instance's administrators approve, reject
 // and roll back what it sends, so nobody has to sign in here for it.
 func AllowDeciding() PairingOption {
@@ -72,7 +69,7 @@ func (s *Service) PeerDecide(ctx context.Context, peer Peer, d Decision) (Promot
 	who := by + " (via " + peer.Name + ")"
 	switch d.Action {
 	case DecisionApprove:
-		return s.approve(ctx, p.ID, by, who)
+		return s.approve(ctx, p.ID, by, who, nil)
 	case DecisionReject:
 		return s.Reject(ctx, p.ID, who, d.Reason)
 	case DecisionRollback:
