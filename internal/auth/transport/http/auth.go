@@ -1244,9 +1244,37 @@ func (h *AuthHandler) UpdateVHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	vh.ID = id
-
-	if err := h.Storage.UpdateVHost(r.Context(), vh); err != nil {
+	vh.Name = strings.TrimSpace(vh.Name)
+	current, err := h.Storage.GetVHost(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			h.JsonError(w, "VHost not found", http.StatusNotFound)
+			return
+		}
 		h.JsonError(w, "Failed to update vhost: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Only a new name is checked: a vhost saved under a name this would refuse
+	// before the check existed keeps it, and its description stays editable.
+	if vh.Name != current.Name {
+		if err := validVHostName(vh.Name); err != nil {
+			h.JsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
+	// A new name is carried by storage to every workflow, source, sink, user,
+	// secret and ML record of the vhost. Running workflows pick it up on the
+	// worker's next sync, which restarts an engine whose vhost has changed.
+	if err := h.Storage.UpdateVHost(r.Context(), vh); err != nil {
+		switch {
+		case errors.Is(err, storage.ErrVHostNameTaken):
+			h.JsonError(w, "Another vhost is already named "+vh.Name, http.StatusConflict)
+		case errors.Is(err, storage.ErrNotFound):
+			h.JsonError(w, "VHost not found", http.StatusNotFound)
+		default:
+			h.JsonError(w, "Failed to update vhost: "+err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 
@@ -1254,6 +1282,19 @@ func (h *AuthHandler) UpdateVHost(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(vh)
+}
+
+// validVHostName reports what is wrong with a name a vhost is given. "all"
+// is what a list filter sends to mean every vhost, so a vhost named that
+// could not be filtered on by itself.
+func validVHostName(name string) error {
+	switch name {
+	case "":
+		return errors.New("a vhost needs a name")
+	case "all":
+		return errors.New(`"all" is reserved: it is how a filter asks for every vhost`)
+	}
+	return nil
 }
 
 func (h *AuthHandler) DeleteVHost(w http.ResponseWriter, r *http.Request) {

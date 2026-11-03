@@ -1536,12 +1536,6 @@ func (s *sqlStorage) CreateVHost(ctx context.Context, vhost storage.VHost) error
 	return err
 }
 
-func (s *sqlStorage) UpdateVHost(ctx context.Context, vhost storage.VHost) error {
-	_, err := s.exec(ctx, s.queries.get(QueryUpdateVHost),
-		vhost.Name, vhost.Description, vhost.ID)
-	return err
-}
-
 // DeleteVHost removes the vhost and the secrets, models, prediction logs,
 // training scripts, ML jobs, ML quotas and AI budget it holds. All are keyed
 // by the vhost's name, so one left behind would be inherited by the next vhost
