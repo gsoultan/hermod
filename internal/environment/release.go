@@ -185,6 +185,16 @@ func (s *Service) SendRelease(ctx context.Context, items []ReleaseItem, sender s
 	if !pv.Ready {
 		return nil, fmt.Errorf("%w: %s", ErrInvalid, notReady(pv))
 	}
+	var all []Preview
+	for _, g := range groups {
+		all = append(all, g.Previews...)
+		if _, err := valuesFor(g.Previews, opts.SecretValues); err != nil {
+			return nil, err
+		}
+	}
+	if err := checkSecretNames(all, opts.SecretValues); err != nil {
+		return nil, err
+	}
 	out := make([]SentRelease, 0, len(groups))
 	for _, g := range groups {
 		sent, err := s.sendGroup(ctx, g, sender, opts)
@@ -229,10 +239,15 @@ func names(sent []SentRelease) string {
 // releases gets the workflows one at a time, as separate promotions.
 func (s *Service) sendGroup(ctx context.Context, g *plannedGroup, sender string, opts PromoteOptions) (SentRelease, error) {
 	rs := ReleaseSubmission{ReleaseID: uuid.NewString()}
+	values, err := valuesFor(g.Previews, opts.SecretValues)
+	if err != nil {
+		return SentRelease{}, err
+	}
 	for i, p := range g.Previews {
 		rs.Items = append(rs.Items, Submission{
 			Workflow: g.out[i], FromVersion: p.FromVersion, FromVersionAt: p.FromVersionAt, Sender: sender,
 			Note: strings.TrimSpace(opts.Note), Start: opts.Start, AutoRollback: opts.AutoRollback, ReleaseID: rs.ReleaseID,
+			Secrets: values[i],
 		})
 	}
 	got, err := s.remote.SubmitRelease(ctx, g.link.URL, g.token, rs)

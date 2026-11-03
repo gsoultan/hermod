@@ -41,6 +41,7 @@ func (h *Handler) registerPeerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/environments/peer/promotions", h.peer(h.PeerPromotions))
 	mux.HandleFunc("POST /api/environments/peer/releases", h.peer(h.PeerRelease))
 	mux.HandleFunc("DELETE /api/environments/peer/self", h.peer(h.PeerUnpair))
+	mux.HandleFunc("POST /api/environments/peer/vhosts", h.peer(h.PeerAddVHost))
 }
 
 type peerKey struct{}
@@ -284,4 +285,26 @@ func (l liveStore) GetSink(ctx context.Context, id string) (storage.Sink, error)
 		return storage.Sink{}, err
 	}
 	return st.GetSink(ctx, id)
+}
+
+// PeerAddVHost adds a vhost here to the calling instance's connection.
+func (h *Handler) PeerAddVHost(w http.ResponseWriter, r *http.Request) {
+	var in environment.AddVHostRequest
+	if !h.DecodeJSONBody(w, r, maxSmallBody, &in, "") {
+		return
+	}
+	p := peerFrom(r)
+	res, err := h.svc.AddPeerVHost(r.Context(), p, in)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	what := "Linked environment " + p.Name + " added vhost " + res.VHost
+	if res.Pending {
+		what = "Linked environment " + p.Name + " asked to add vhost " + res.VHost
+	}
+	if res.Pending || res.Token != "" {
+		h.RecordAuditLog(r, "INFO", what, "CREATE", "", "", "", map[string]any{"peer": p.ID, "vhost": res.VHost, "pending": res.Pending})
+	}
+	writeJSON(w, http.StatusOK, res)
 }

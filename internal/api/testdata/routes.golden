@@ -12,6 +12,7 @@
 DELETE /api/environments/links/{id}
 DELETE /api/environments/peer/self
 DELETE /api/environments/peers/{id}
+DELETE /api/environments/vhost-requests/{id}
 DELETE /api/logs
 DELETE /api/mcp
 DELETE /api/sinks/{id}
@@ -58,6 +59,7 @@ GET /api/environments/ready
 GET /api/environments/rules
 GET /api/environments/self
 GET /api/environments/sent
+GET /api/environments/vhost-requests
 GET /api/forms/{path...}
 GET /api/infra/lineage
 GET /api/infra/mesh-health
@@ -178,16 +180,19 @@ POST /api/environments/links
 POST /api/environments/links/{id}/preview
 POST /api/environments/links/{id}/promotions
 POST /api/environments/links/{id}/test
+POST /api/environments/links/{id}/vhosts
 POST /api/environments/pair
 POST /api/environments/pairing-codes
 POST /api/environments/peer/check
 POST /api/environments/peer/promotions
 POST /api/environments/peer/releases
+POST /api/environments/peer/vhosts
 POST /api/environments/promotions/{id}/approve
 POST /api/environments/promotions/{id}/reject
 POST /api/environments/promotions/{id}/rollback
 POST /api/environments/releases
 POST /api/environments/releases/preview
+POST /api/environments/vhost-requests/{id}/allow
 POST /api/files/upload
 POST /api/forgot-password
 POST /api/forms/{path...}

@@ -1,22 +1,24 @@
 import { useState } from 'react'
 import {
-  ActionIcon, Alert, Autocomplete, Badge, Button, Card, CopyButton, Group, Loader, Modal, NumberInput, Paper,
-  SegmentedControl, Select, Stack, Switch, Text, TextInput, Title, Tooltip,
+  ActionIcon, Alert, Autocomplete, Badge, Button, CopyButton, Group, Loader, NumberInput, Paper,
+  SegmentedControl, Select, Stack, Switch, Text, TextInput, Title,
 } from '@mantine/core'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { notifications } from '@mantine/notifications'
 import {
-  IconArrowRight, IconCheck, IconCopy, IconInfoCircle, IconKey, IconLinkOff, IconPlugConnected, IconPlus, IconRefresh,
+  IconCheck, IconCopy, IconInfoCircle, IconKey, IconPlus,
   IconTrash, IconX,
 } from '@tabler/icons-react'
 import { useConfirm } from '@/components/common/ConfirmProvider'
 import { formatDateTime } from '@/utils/dateUtils'
 import {
-  approvalLabel, deleteLink, environmentKeys, newPairingCode, putInstance, putRules, revokePeer, roleColor, roleLabel,
-  testLink, useInstance, useLinks, usePeers, useRules, useVHostNames, vhostNameProblem, type ApprovalRule,
-  type EnvironmentRole, type Link, type Rules,
+  allowVHostRequest, approvalLabel, declineVHostRequest, environmentKeys, groupLinksByServer, groupPeers, newPairingCode,
+  putInstance, putRules, revokePeer, revokePeerGroup, roleColor, roleLabel, useInstance, useLinks, usePeers, useRules,
+  useVHostNames, useVHostRequests, vhostNameProblem, type ApprovalRule, type EnvironmentRole, type Link, type Peer,
+  type Rules,
 } from '@/lib/environments'
-import { ConnectionMatching } from './ConnectionMatching'
+import { AddVHostsDialog } from './AddVHostsDialog'
+import { ServerCard } from './ServerCard'
 import { LinkWizard } from './LinkWizard'
 
 /**
@@ -103,105 +105,38 @@ function InstanceCard({ name, role }: { name: string; role: EnvironmentRole | ''
 function SendingSection() {
   const { data: links, isLoading } = useLinks()
   const [wizard, setWizard] = useState(false)
+  const [via, setVia] = useState<Link | null>(null)
+  const servers = groupLinksByServer(links ?? [])
+  const taken = (links ?? []).map((l) => l.vhost).filter(Boolean)
 
   return (
     <Stack gap="sm">
       <Group justify="space-between">
         <Stack gap={0}>
           <Title order={4}>Promotes to</Title>
-          <Text size="sm" c="dimmed">Where each virtual host's flows go when someone clicks Promote. One connection per virtual host.</Text>
+          <Text size="sm" c="dimmed">
+            Each server is trusted once. Add the virtual hosts whose flows go there to it, without a new pairing code.
+          </Text>
         </Stack>
-        <Button leftSection={<IconPlus size="1rem" />} onClick={() => setWizard(true)}>Connect an environment</Button>
+        <Button leftSection={<IconPlus size="1rem" />} onClick={() => setWizard(true)}>Connect a server</Button>
       </Group>
       {isLoading && <Loader size="sm" />}
-      {!isLoading && (links ?? []).length === 0 && (
+      {!isLoading && servers.length === 0 && (
         <Paper withBorder p="lg" radius="md">
           <Text size="sm" c="dimmed" ta="center">
-            Not linked to anything yet. Connect a vhost to your production instance to promote its workflows there.
+            Not linked to anything yet. Connect your production server to promote workflows there.
           </Text>
         </Paper>
       )}
-      {(links ?? []).map((l) => <LinkCard key={l.id} link={l} />)}
-      <LinkWizard opened={wizard} onClose={() => setWizard(false)} />
+      {servers.map((sv) => <ServerCard key={sv.url} server={sv} onAddVHosts={setVia} />)}
+      <LinkWizard
+        opened={wizard}
+        onClose={() => setWizard(false)}
+        links={links ?? []}
+        onAddVHosts={(l) => { setWizard(false); setVia(l) }}
+      />
+      <AddVHostsDialog opened={via !== null} via={via} taken={taken} onClose={() => setVia(null)} />
     </Stack>
-  )
-}
-
-function LinkCard({ link }: { link: Link }) {
-  const queryClient = useQueryClient()
-  const confirm = useConfirm()
-  const [matching, setMatching] = useState(false)
-
-  const test = useMutation({
-    mutationFn: () => testLink(link.id),
-    onSuccess: async (res) => {
-      await queryClient.invalidateQueries({ queryKey: environmentKeys.links })
-      notifications.show(res.error
-        ? { color: 'red', title: `${link.name} did not answer`, message: res.error }
-        : { color: 'green', message: `${link.name} answered: Hermod ${res.info?.version ?? ''}` })
-    },
-  })
-  const unlink = useMutation({
-    mutationFn: () => deleteLink(link.id),
-    onSuccess: async (res) => {
-      await queryClient.invalidateQueries({ queryKey: environmentKeys.links })
-      notifications.show({ color: res.note ? 'yellow' : 'green', message: res.note || `Unlinked ${link.name}.` })
-    },
-  })
-
-  const onUnlink = async () => {
-    if (await confirm({
-      title: `Unlink ${link.name}`,
-      message: `Workflows in ${link.vhost || 'any vhost'} can no longer be promoted from here to ${link.name}. What was already promoted stays there. You can link it again later with a new code.`,
-      confirmLabel: 'Unlink',
-      danger: true,
-    })) unlink.mutate()
-  }
-
-  return (
-    <Card withBorder radius="md" padding="lg">
-      <Group justify="space-between" wrap="nowrap" align="flex-start">
-        <Stack gap={4}>
-          <Group gap="xs">
-            <IconArrowRight size="1rem" aria-hidden />
-            <Text fw={600}>{link.name}</Text>
-            {link.role && <Badge color={roleColor[link.role]} variant="light">{roleLabel[link.role]}</Badge>}
-            <Badge color={link.reachable ? 'green' : 'red'} variant="dot">{link.reachable ? 'Reachable' : 'Not reachable'}</Badge>
-          </Group>
-          <Group gap="xs">
-            <Badge variant="outline" color="indigo" tt="none">
-              {link.vhost ? `${link.vhost} → ${link.target_vhost || link.vhost}` : 'Every vhost (older link)'}
-            </Badge>
-            {link.vhost_created && <Text size="xs" c="dimmed">Created there by this link</Text>}
-          </Group>
-          <Text size="sm" c="dimmed">{link.url}</Text>
-          <Text size="xs" c="dimmed">
-            Linked by {link.created_by} on {formatDateTime(link.created_at)}
-            {link.version ? ` · Hermod ${link.version}` : ''}
-            {link.checked_at ? ` · checked ${formatDateTime(link.checked_at)}` : ''}
-          </Text>
-          {link.check_note && !link.reachable && <Text size="xs" c="red">{link.check_note}</Text>}
-        </Stack>
-        <Group gap="xs" wrap="nowrap">
-          <Button size="xs" variant="light" leftSection={<IconPlugConnected size="0.9rem" />} onClick={() => setMatching(true)}>
-            Match connections
-          </Button>
-          <Tooltip label="Test the connection">
-            <ActionIcon variant="light" aria-label={`Test the connection to ${link.name}`} onClick={() => test.mutate()} loading={test.isPending}>
-              <IconRefresh size="1rem" />
-            </ActionIcon>
-          </Tooltip>
-          <Tooltip label="Unlink">
-            <ActionIcon variant="light" color="red" aria-label={`Unlink ${link.name}`} onClick={onUnlink} loading={unlink.isPending}>
-              <IconLinkOff size="1rem" />
-            </ActionIcon>
-          </Tooltip>
-        </Group>
-      </Group>
-      <Modal opened={matching} onClose={() => setMatching(false)} title={`Connections in ${link.name}`} size="xl">
-        <ConnectionMatching link={link} onDone={() => setMatching(false)} />
-      </Modal>
-    </Card>
   )
 }
 
@@ -361,7 +296,6 @@ function VHostRulesEditor({ draft, setDraft }: { draft: Rules; setDraft: (r: Rul
 
 function PeersCard() {
   const queryClient = useQueryClient()
-  const confirm = useConfirm()
   const { data: peers } = usePeers()
   const { data: vhosts } = useVHostNames()
   const [into, setInto] = useState('')
@@ -420,42 +354,120 @@ function PeersCard() {
             </Text>
           </Alert>
         )}
+        <VHostRequests />
         {(peers ?? []).length === 0 ? (
           <Text size="sm" c="dimmed">Nothing is linked to this instance yet.</Text>
         ) : (
-          (peers ?? []).map((p) => (
-            <Group key={p.id} justify="space-between" wrap="nowrap">
-              <Stack gap={0}>
-                <Group gap="xs">
-                  <Text size="sm" fw={500}>{p.name}</Text>
-                  <Badge size="sm" variant="light" tt="none">{p.vhost ? `into ${p.vhost}` : 'into any vhost (older link)'}</Badge>
-                </Group>
-                <Text size="xs" c="dimmed">
-                  {p.url} · linked {formatDateTime(p.created_at)}
-                  {p.last_used_at ? ` · last used ${formatDateTime(p.last_used_at)}` : ''}
-                </Text>
-              </Stack>
-              <Button
-                size="xs"
-                variant="subtle"
-                color="red"
-                leftSection={<IconTrash size="0.9rem" />}
-                aria-label={`Revoke ${p.name}`}
-                onClick={async () => {
-                  if (await confirm({
-                    title: `Revoke ${p.name}`,
-                    message: `${p.name} can no longer promote workflows here. Workflows it already promoted stay.`,
-                    confirmLabel: 'Revoke',
-                    danger: true,
-                  })) revoke.mutate(p.id)
-                }}
-              >
-                Revoke
-              </Button>
-            </Group>
+          groupPeers(peers ?? []).map((g) => (
+            <PeerConnection key={g.group} group={g} onRevoke={(id) => revoke.mutate(id)} />
           ))
         )}
       </Stack>
     </Paper>
+  )
+}
+
+function PeerConnection({ group, onRevoke }: {
+  group: ReturnType<typeof groupPeers>[number]
+  onRevoke: (peerId: string) => void
+}) {
+  const queryClient = useQueryClient()
+  const confirm = useConfirm()
+  const cut = useMutation({
+    mutationFn: () => revokePeerGroup(group.group),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: environmentKeys.peers }),
+  })
+  const titleId = `peer-${group.group}`
+  return (
+    <Paper component="section" withBorder radius="md" p="md" aria-labelledby={titleId}>
+      <Stack gap="xs">
+        <Group justify="space-between" wrap="wrap">
+          <Stack gap={0}>
+            <Text size="sm" fw={600} id={titleId}>{group.name}</Text>
+            <Text size="xs" c="dimmed">
+              {group.url} · {group.addVHosts ? 'may add vhosts on its own' : 'asks before adding a vhost'}
+            </Text>
+          </Stack>
+          <Button
+            size="xs"
+            variant="subtle"
+            color="red"
+            leftSection={<IconTrash size="0.9rem" />}
+            aria-label={`Cut ${group.name} off`}
+            loading={cut.isPending}
+            onClick={async () => {
+              if (await confirm({
+                title: `Cut ${group.name} off`,
+                message: `${group.name} can no longer promote workflows into any vhost here. Workflows it already promoted stay.`,
+                confirmLabel: 'Cut off',
+                danger: true,
+              })) cut.mutate()
+            }}
+          >
+            Cut off
+          </Button>
+        </Group>
+        {group.peers.map((p: Peer) => (
+          <Group key={p.id} justify="space-between" wrap="nowrap" pl="sm">
+            <Stack gap={0}>
+              <Badge size="sm" variant="light" tt="none">{p.vhost ? `into ${p.vhost}` : 'into any vhost (older link)'}</Badge>
+              <Text size="xs" c="dimmed">
+                {p.from_vhost ? `from ${p.from_vhost} · ` : ''}linked {formatDateTime(p.created_at)}
+                {p.last_used_at ? ` · last used ${formatDateTime(p.last_used_at)}` : ''}
+              </Text>
+            </Stack>
+            {group.peers.length > 1 && (
+              <Button
+                size="xs"
+                variant="subtle"
+                color="red"
+                aria-label={`Revoke ${p.vhost || 'the older link'} for ${p.name}`}
+                onClick={async () => {
+                  if (await confirm({
+                    title: `Revoke ${p.vhost} for ${p.name}`,
+                    message: `${p.name} can no longer promote into ${p.vhost}. Its other vhosts keep working.`,
+                    confirmLabel: 'Revoke',
+                    danger: true,
+                  })) onRevoke(p.id)
+                }}
+              >
+                Revoke
+              </Button>
+            )}
+          </Group>
+        ))}
+      </Stack>
+    </Paper>
+  )
+}
+
+/** Vhosts a connected instance asked to add, for an administrator to allow. */
+function VHostRequests() {
+  const queryClient = useQueryClient()
+  const { data: reqs } = useVHostRequests()
+  const refresh = () => Promise.all([
+    queryClient.invalidateQueries({ queryKey: environmentKeys.vhostRequests }),
+    queryClient.invalidateQueries({ queryKey: environmentKeys.peers }),
+  ])
+  const allow = useMutation({ mutationFn: allowVHostRequest, onSuccess: refresh })
+  const decline = useMutation({ mutationFn: declineVHostRequest, onSuccess: refresh })
+  if (!reqs || reqs.length === 0) return null
+  return (
+    <Stack gap="xs">
+      {reqs.map((r) => (
+        <Alert key={r.id} color="yellow" variant="light">
+          <Group justify="space-between" wrap="wrap">
+            <Text size="sm">
+              {r.peer_name} asks to add <b>{r.vhost}</b>{r.from_vhost ? ` (from its ${r.from_vhost})` : ''}. It is created here
+              if missing.
+            </Text>
+            <Group gap="xs">
+              <Button size="xs" variant="default" aria-label={`Decline ${r.vhost}`} onClick={() => decline.mutate(r.id)}>Decline</Button>
+              <Button size="xs" aria-label={`Allow ${r.vhost}`} loading={allow.isPending} onClick={() => allow.mutate(r.id)}>Allow</Button>
+            </Group>
+          </Group>
+        </Alert>
+      ))}
+    </Stack>
   )
 }

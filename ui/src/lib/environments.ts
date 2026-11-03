@@ -52,6 +52,10 @@ export interface Link {
   /** The vhost there they land in, and whether linking created it. */
   target_vhost?: string
   vhost_created?: boolean
+  /** Added to a connection and not allowed there yet: it cannot promote until it is. */
+  pending?: boolean
+  /** The link whose token asked for it. */
+  via?: string
 }
 
 export interface Peer {
@@ -64,6 +68,26 @@ export interface Peer {
   /** The one vhost here it sends into; empty on an older peer. */
   vhost?: string
   from_vhost?: string
+  /** Every vhost of one connection shares it: the first peer's id. */
+  group?: string
+  /** The connection may add vhosts here without an administrator allowing each. */
+  add_vhosts?: boolean
+}
+
+/** A vhost a connected instance asked to add, waiting for an administrator here. */
+export interface VHostRequest {
+  id: string
+  group: string
+  peer_name: string
+  vhost: string
+  from_vhost?: string
+  requested_at: string
+}
+
+/** A vhost here and the vhost there its workflows land in. */
+export interface VHostRoute {
+  vhost: string
+  target_vhost: string
 }
 
 export interface Connection {
@@ -225,6 +249,7 @@ export const environmentKeys = {
   promotions: ['environments', 'promotions'] as const,
   sent: ['environments', 'sent'] as const,
   ready: ['environments', 'ready'] as const,
+  vhostRequests: ['environments', 'vhost-requests'] as const,
   matching: (linkId: string, vhost: string) => ['environments', 'matching', linkId, vhost] as const,
 }
 
@@ -233,18 +258,37 @@ export const putInstance = (in_: Instance) => requestJson<Instance>(`${api}/self
 export const getRules = (signal?: AbortSignal) => requestJson<Rules>(`${api}/rules`, { signal })
 export const putRules = (r: Rules) => requestJson<Rules>(`${api}/rules`, { method: 'PUT', ...json(r) })
 
-export const newPairingCode = (label: string, vhost: string) =>
-  requestJson<{ code: string; expires_at: string; vhost: string }>(`${api}/pairing-codes`, { method: 'POST', ...json({ label, vhost }) })
+/** addVHosts lets the connection add more vhosts later without a new code. */
+export const newPairingCode = (label: string, vhost: string, addVHosts = false) =>
+  requestJson<{ code: string; expires_at: string; vhost: string }>(`${api}/pairing-codes`, {
+    method: 'POST', ...json(addVHosts ? { label, vhost, add_vhosts: true } : { label, vhost }),
+  })
 export const listPeers = async (signal?: AbortSignal) => (await requestJson<Peer[] | null>(`${api}/peers`, { signal })) ?? []
 export async function revokePeer(peerId: string): Promise<void> {
   // 204: no body to parse.
   await apiFetch(`${api}/peers/${id(peerId)}`, { method: 'DELETE', silent: true })
 }
 
+/** Revokes every vhost of the connection the peer belongs to. */
+export async function revokePeerGroup(peerId: string): Promise<void> {
+  await apiFetch(`${api}/peers/${id(peerId)}?all=true`, { method: 'DELETE', silent: true })
+}
+export const listVHostRequests = async (signal?: AbortSignal) =>
+  (await requestJson<VHostRequest[] | null>(`${api}/vhost-requests`, { signal })) ?? []
+export async function allowVHostRequest(requestId: string): Promise<void> {
+  await apiFetch(`${api}/vhost-requests/${id(requestId)}/allow`, { method: 'POST', silent: true })
+}
+export async function declineVHostRequest(requestId: string): Promise<void> {
+  await apiFetch(`${api}/vhost-requests/${id(requestId)}`, { method: 'DELETE', silent: true })
+}
+
 export const listLinks = async (signal?: AbortSignal) => (await requestJson<Link[] | null>(`${api}/links`, { signal })) ?? []
 export const createLink = (url: string, code: string, vhost: string) =>
   requestJson<Link>(`${api}/links`, { method: 'POST', ...json({ url, code, self_url: window.location.origin, vhost }) })
 export const deleteLink = (linkId: string) => requestJson<{ note?: string }>(`${api}/links/${id(linkId)}`, { method: 'DELETE' })
+/** Adds vhosts to the connection linkId belongs to, without a new pairing code. */
+export const addVHosts = (linkId: string, routes: VHostRoute[]) =>
+  requestJson<Link[]>(`${api}/links/${id(linkId)}/vhosts`, { method: 'POST', ...json({ routes }) })
 export const testLink = (linkId: string) =>
   requestJson<{ link: Link; info?: { instance: Instance; rules: Rules; version: string }; error?: string }>(
     `${api}/links/${id(linkId)}/test`,
@@ -300,6 +344,10 @@ export function useLinks(enabled = true) {
 
 export function usePeers(enabled = true) {
   return useQuery({ queryKey: environmentKeys.peers, queryFn: ({ signal }) => listPeers(signal), enabled })
+}
+
+export function useVHostRequests(enabled = true) {
+  return useQuery({ queryKey: environmentKeys.vhostRequests, queryFn: ({ signal }) => listVHostRequests(signal), enabled })
 }
 
 export function useReady(enabled = true) {
@@ -468,4 +516,37 @@ export function urlProblem(raw: string): string | null {
 export function formatPairingCode(raw: string): string {
   const s = raw.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)
   return s.length > 4 ? `${s.slice(0, 4)}-${s.slice(4)}` : s
+}
+
+/** One server this instance promotes to, with every vhost connected to it. */
+export interface Server {
+  url: string
+  name: string
+  role: EnvironmentRole | ''
+  links: Link[]
+}
+
+/** Links grouped by the server they go to, in the order each server was first linked. */
+export function groupLinksByServer(links: Link[]): Server[] {
+  const out: Server[] = []
+  for (const l of links) {
+    const url = normalizeUrl(l.url).toLowerCase()
+    const s = out.find((x) => x.url === url)
+    if (s) s.links.push(l)
+    else out.push({ url, name: l.name, role: l.role, links: [l] })
+  }
+  for (const s of out) s.links.sort((a, b) => (a.vhost || '').localeCompare(b.vhost || ''))
+  return out
+}
+
+/** The connections sending here: peers grouped by the connection they belong to. */
+export function groupPeers(peers: Peer[]): { group: string; name: string; url: string; addVHosts: boolean; peers: Peer[] }[] {
+  const out: { group: string; name: string; url: string; addVHosts: boolean; peers: Peer[] }[] = []
+  for (const p of peers) {
+    const group = p.group || p.id
+    const g = out.find((x) => x.group === group)
+    if (g) g.peers.push(p)
+    else out.push({ group, name: p.name, url: p.url, addVHosts: !!p.add_vhosts, peers: [p] })
+  }
+  return out
 }

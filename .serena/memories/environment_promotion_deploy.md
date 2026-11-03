@@ -25,6 +25,16 @@ Verified end to end on two live instances (sqlite, `--mode=standalone`): pair,
 match, release, approve, v2 onto a running workflow, Undo, unmatched-blocked,
 connection-deleted-before-approve.
 
+**One connection per server (connection.go).** A vhost added over an existing
+connection gets its own Peer and token on the receiver, in the same `Group`
+(the first peer's ID; `groupOf` falls back to the ID for older peers), so
+scoping stays one token per vhost. `Peer.AddVHosts` (set from the pairing
+code) decides whether it is issued at once or held as a `VHostRequest` for an
+admin. On the sender the Link is `Pending` with no token and `Via` = the link
+whose token asks again; `TestLink` → `askAgain`. A peer with `VHost == ""`
+(every vhost, legacy) cannot add vhosts. The UI groups links by normalized URL
+(`groupLinksByServer`) and peers by Group (`groupPeers`).
+
 **Secret values UI (ui SecretValues.tsx).** One component for both sides
 (`mode: 'send' | 'approve'`): up to `INLINE_SECRETS` (5) are inputs in place,
 more open a window with search, an Empty filter fixed at open (rows do not

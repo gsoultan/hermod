@@ -41,6 +41,9 @@ func (r router) Submit(ctx context.Context, u, token string, sub Submission) (Pr
 func (r router) SubmitRelease(ctx context.Context, u, token string, rs ReleaseSubmission) ([]Promotion, error) {
 	return r[u].SubmitRelease(ctx, u, token, rs)
 }
+func (r router) AddVHost(ctx context.Context, u, token string, req AddVHostRequest) (AddVHostResult, error) {
+	return r[u].AddVHost(ctx, u, token, req)
+}
 func (r router) Promotions(ctx context.Context, u, token string) ([]Promotion, error) {
 	return r[u].Promotions(ctx, u, token)
 }
