@@ -25,6 +25,9 @@ find a claim that outruns the code, fix the claim.
 
 ### Memories
 
+- [Renaming a vhost](vhost_rename.md) — everything is keyed by the vhost's
+  name, not its id; `UpdateVHost` carries a new name to every table (SQL in one
+  transaction, Mongo re-runnably), and where to register a new vhost-keyed table.
 - [Restarting a workflow under load](restart_under_load_delivery.md) — the
   300-producer branching load test, and the four ways a restart lost or
   repeated data: source closed before the drain, no final slot confirm,

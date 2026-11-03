@@ -7,6 +7,25 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — renaming a vhost left its workflows and users on the old name
+
+Everything a vhost holds is stored under the vhost's name, and a rename changed only the vhost
+itself. Its workflows, sources, sinks, users' access, secrets, ML models, scripts, datasets, jobs,
+schedules and quotas, AI budget and usage, dead letters and dashboard history all stayed under a
+name no vhost had, so they disappeared from the vhost and users lost access to it.
+
+A rename now carries the new name to all of them: in one transaction on the SQL stores, and on
+MongoDB in steps that a second save completes if one is cut short. Running workflows restart under
+the new name on the worker's next sync. A rename onto a name another vhost has is refused with 409
+and changes nothing; renaming to an empty name or `all` is refused with 400 (a vhost that already has
+such a name keeps it and stays editable). There is no schema change. Rename only once every node of
+a cluster runs this version: a rename on an older node still moves nothing. The edit form says what a rename
+moves and shows why one was refused.
+
+Data a rename left behind before this fix is not found automatically, because the old name was not
+recorded. Rename the vhost back to its old name, then to the new one again: the first move joins
+everything under the old name, the second carries all of it across.
+
 ### Fixed — stopping or restarting a workflow under load
 
 Found by a new load test (`TestBranchingWorkflowUnderConcurrentLoad`): Postgres CDC and RabbitMQ

@@ -36,6 +36,7 @@ const (
 	PathPeerPromote = "/api/environments/peer/promotions"
 	PathPeerRelease = "/api/environments/peer/releases"
 	PathPeerUnpair  = "/api/environments/peer/self"
+	PathPeerVHosts  = "/api/environments/peer/vhosts"
 )
 
 // Features a receiving instance lists in PeerInfo. An instance from before
@@ -43,7 +44,29 @@ const (
 const (
 	// FeatureReleases: it takes several workflows in one release.
 	FeatureReleases = "releases"
+	// FeatureSecrets: it takes values for the secrets a promotion needs.
+	FeatureSecrets = "secrets"
+	// FeatureAddVHosts: a connection adds vhosts without a new pairing code.
+	FeatureAddVHosts = "add_vhosts"
 )
+
+// AddVHostRequest asks to add a vhost there to the caller's connection.
+type AddVHostRequest struct {
+	// VHost is the vhost there the workflows land in.
+	VHost string `json:"vhost"`
+	// FromVHost is the vhost they are sent from, shown on the other side.
+	FromVHost string `json:"from_vhost,omitempty"`
+}
+
+// AddVHostResult is the answer: a token for the new vhost, or that an
+// administrator there has to allow it first, or that one declined it.
+type AddVHostResult struct {
+	Token        string `json:"token,omitempty"`
+	VHost        string `json:"vhost"`
+	VHostCreated bool   `json:"vhost_created,omitempty"`
+	Pending      bool   `json:"pending,omitempty"`
+	Declined     bool   `json:"declined,omitempty"`
+}
 
 // PairRequest redeems a pairing code.
 type PairRequest struct {
@@ -131,6 +154,11 @@ type Submission struct {
 	// ReleaseID is set when the workflow is part of a release sent one
 	// workflow at a time to an instance that takes no releases.
 	ReleaseID string `json:"release_id,omitempty"`
+	// Secrets are values the sender typed for the receiving instance, by
+	// name, for secrets its vhost lacks. They are created when the promotion
+	// is approved there, never replacing one it has. Sent only to an
+	// instance listing FeatureSecrets.
+	Secrets map[string]string `json:"secrets,omitempty"`
 }
 
 // ReleaseSubmission is several workflows sent in one click. ReleaseID is
@@ -151,6 +179,8 @@ type Remote interface {
 	// Promotions lists what this instance sent there, as it stands there.
 	Promotions(ctx context.Context, baseURL, token string) ([]Promotion, error)
 	Unpair(ctx context.Context, baseURL, token string) error
+	// AddVHost adds a vhost there to the connection token belongs to.
+	AddVHost(ctx context.Context, baseURL, token string, req AddVHostRequest) (AddVHostResult, error)
 }
 
 // ValidateURL checks a linked instance's address and returns it without
@@ -307,4 +337,10 @@ func (c *HTTPRemote) Promotions(ctx context.Context, baseURL, token string) ([]P
 
 func (c *HTTPRemote) Unpair(ctx context.Context, baseURL, token string) error {
 	return c.do(ctx, http.MethodDelete, baseURL, PathPeerUnpair, token, nil, nil)
+}
+
+func (c *HTTPRemote) AddVHost(ctx context.Context, baseURL, token string, req AddVHostRequest) (AddVHostResult, error) {
+	var out AddVHostResult
+	err := c.do(ctx, http.MethodPost, baseURL, PathPeerVHosts, token, req, &out)
+	return out, err
 }

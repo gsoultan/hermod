@@ -41,8 +41,20 @@ both installs.
    the suggestions, pick the rest, and follow **Create it in Production** for any that production
    does not have yet. You can come back to this at any time with **Match connections** on the link.
 
-Repeat steps 3 to 5 for each vhost that should promote. Connecting a vhost that is already
-connected replaces its connection. A vhost a production created this way starts empty: its
+Each production is one card under **Promotes to**, however many vhosts are connected to it. To
+promote another vhost into the same production, click **Add vhosts** on its card, tick the vhosts
+and name where each lands. No new pairing code and no sign-in to production are needed: staging
+asks over the connection it already has, and production issues a separate token for each vhost.
+Typing the address of a production you are already connected to in **Connect a server** offers
+**Add vhosts instead**.
+
+When production authorized the connection with **It may add more on its own** (the default on
+the authorize page), an added vhost is ready at once. With **Ask me each time**, it shows
+**Waiting for approval** until a production administrator clicks **Allow** under **Receives from**;
+staging asks again when you test the vhost. **Decline** tells staging once, and the vhost is
+removed there.
+
+Connecting a vhost that is already connected with a pairing code replaces its connection. A vhost a production created this way starts empty: its
 connections, secrets and variables are added there like in any other vhost, and **Create it in
 Production** on the matching screen opens the right page.
 
@@ -109,6 +121,16 @@ Secrets are checked against production's vhost secrets and `HERMOD_SECRET_*` env
 variables. A secret kept in an external secret manager cannot be seen from here, which is why a
 missing secret is a warning and not a blocker.
 
+Staging's own secret values never go to production: staging's credentials stay on staging.
+Production notes which of the secrets a workflow uses its vhost lacks. The dialog lists them, and
+the sender can type **production's** value for each one there. The value is sent with the release,
+kept encrypted on production until it is decided, and never stored on staging. Anything left blank
+can be filled in by the approver (see below).
+
+Through the API: `"secrets": {"CRM_KEY": "..."}` in the body of a promotion or a release. A value
+for a secret production does not lack is refused, and so is one sent to a production too old to
+take values.
+
 ## Approve it on production
 
 Production lists each release under **Environments › Waiting for you**: where it came from and the
@@ -116,6 +138,19 @@ vhost it lands in, the sender, the note, and each workflow's changes. An adminis
 **Approve and go live** or **Reject**, once for the whole release.
 
 Approving checks once more that every connection a workflow uses still exists in production, in its vhost. A connection deleted or moved while the release waited fails the release with the connection's ID as the reason, instead of deploying a workflow that cannot start.
+
+When a workflow uses secrets that production's vhost lacks, the release lists them by name, says
+which ones the sender filled in, and the approver types the rest (or replaces one) before
+approving. Approving creates them in that vhost's secrets,
+as the Secrets page would, before the workflows start. A rejected or failed release drops the
+values it carried. A secret that exists by then, for example
+one added on the Secrets page while the release waited, is kept as it is and never replaced. A
+value left blank stays missing, which is right for a secret served by a secret manager. The
+promotion then lists which secrets were created, which were already there, and which are still
+missing. The audit log names the secrets that were created, never their values.
+
+Through the API: `POST /api/environments/promotions/{id}/approve` with
+`{"secrets": {"CRM_KEY": "..."}}`. A name the release does not need is refused.
 
 A release goes live whole or not at all. If one workflow fails to deploy, the ones before it are
 put back as they were, and the rest are marked failed with the reason.
@@ -164,7 +199,10 @@ an older release cannot undo a newer one. A workflow the release created is stop
 - Production creates a vhost only when a pairing code an administrator issued for it is used,
   which is what **Allow** does.
 - **Revoke** a linked instance on production, or **Unlink** it on staging, and the token stops
-  working at once.
+  working at once. **Cut off** on production revokes every vhost of a connection at once.
+- Adding a vhost over a connection gives it a token of its own, scoped to that vhost; the token
+  that asked keeps its own scope. A connection that sends into every vhost (an older link) cannot
+  add vhosts, and a connection authorized with **Ask me each time** waits for an administrator.
 - The sign-in window sends the pairing code back only to the address it displays, and only after
   an administrator clicks Allow.
 - Every link, pairing code issued, promotion, approval, rejection and rollback is in the audit log.
@@ -183,13 +221,15 @@ All under `/api/environments`. Session routes need an administrator unless marke
 | --- | --- | --- |
 | `GET`, `PUT /self` | any, administrator | What this instance is |
 | `GET`, `PUT /rules` | any, administrator | Production's rules |
-| `POST /pairing-codes` | administrator | Issue a code for a vhost (`{"label", "vhost"}`), creating it if missing |
-| `GET /peers`, `DELETE /peers/{id}` | administrator | Instances linked to this one |
+| `POST /pairing-codes` | administrator | Issue a code for a vhost (`{"label", "vhost", "add_vhosts"}`), creating it if missing; `add_vhosts` lets the connection add vhosts without asking |
+| `GET /peers`, `DELETE /peers/{id}` | administrator | Instances linked to this one; `?all=true` cuts off the whole connection |
+| `GET /vhost-requests`, `POST /vhost-requests/{id}/allow`, `DELETE /vhost-requests/{id}` | administrator | Vhosts a connection asked to add: list, allow, decline |
 | `GET /promotions` | Editor | What arrived, in the vhosts you may see |
 | `POST /promotions/{id}/approve`, `/reject`, `/rollback` | administrator | Decide |
 | `GET /links` | Editor | Where this instance promotes to |
 | `POST /links`, `DELETE /links/{id}` | administrator | Connect a vhost (`{"url", "code", "self_url", "vhost"}`) and unlink |
-| `POST /links/{id}/test` | Editor | Check it answers |
+| `POST /links/{id}/vhosts` | administrator | Add vhosts to the connection `{id}` belongs to: `{"routes": [{"vhost", "target_vhost"}]}`; 201 with the new links, `pending` while production waits for an administrator |
+| `POST /links/{id}/test` | Editor | Check it answers; a pending vhost asks production again |
 | `GET /links/{id}/matching`, `PUT /links/{id}/mapping` | administrator | Connection matching |
 | `POST /links/{id}/preview`, `POST /links/{id}/promotions` | Editor | Check and promote. A preview lists `unmatched` connections (this side's, never production's) and `missing_envs` |
 | `GET /sent` | Editor | What this instance sent |
@@ -198,5 +238,5 @@ All under `/api/environments`. Session routes need an administrator unless marke
 | `POST /releases` | Editor | Send it, with `note`, `start` and `auto_rollback`. 201 with each destination's release; 502 with `error` and `sent` when only part went |
 
 Linked instances call `POST /pair` with a pairing code, and `/peer/*` with their token, including
-`POST /peer/releases` to submit a release and `GET /peer/promotions` to read back what became of
+`POST /peer/vhosts` to add a vhost to the connection, `POST /peer/releases` to submit a release and `GET /peer/promotions` to read back what became of
 the ones they sent. These are outside the session and checked by the handler.

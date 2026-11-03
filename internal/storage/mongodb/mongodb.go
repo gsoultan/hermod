@@ -896,17 +896,6 @@ func (s *mongoStorage) CreateVHost(ctx context.Context, vhost storage.VHost) err
 	return err
 }
 
-func (s *mongoStorage) UpdateVHost(ctx context.Context, vhost storage.VHost) error {
-	coll := s.db.Collection("vhosts")
-	_, err := coll.UpdateOne(ctx, bson.M{"_id": vhost.ID}, bson.M{
-		"$set": bson.M{
-			"name":        vhost.Name,
-			"description": vhost.Description,
-		},
-	})
-	return err
-}
-
 // DeleteVHost removes the vhost and the secrets, models, prediction logs,
 // training scripts, ML jobs, ML quotas and AI budget it holds. All are keyed
 // by the vhost's name, so one left behind would be inherited by the next vhost
