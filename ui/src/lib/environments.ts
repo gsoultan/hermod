@@ -114,6 +114,10 @@ export interface Preview {
   changes: Change[] | null
   rules: Rules
   ready: boolean
+  /** Connections it uses with no match there yet, without that side's candidates (those come from matching). */
+  unmatched?: MatchRow[] | null
+  /** Server variables it reads that are not set there. */
+  missing_envs?: string[] | null
 }
 
 export type PromotionStatus = 'pending' | 'deploying' | 'rejected' | 'deployed' | 'failed' | 'rolled_back'

@@ -46,6 +46,7 @@ import { ProposalsPanel } from './proposals/ProposalsPanel';
 import { TuningMetrics } from './tuning/TuningMetrics';
 import { ReleaseDialog } from '../environments/ReleaseDialog';
 import { useInstance } from '@/lib/environments';
+import { PromoteStrip, usePromoteTarget } from '../environments/PromoteStrip';
 import { useProposals } from '@/lib/proposals';
 import { connectWithReconnect } from '@/lib/reconnectingSocket';
 const API_BASE = '/api';
@@ -200,6 +201,7 @@ export function WorkflowDetailPage() {
     },
   });
   const flowActions = useFlowActions(id, workflow?.name);
+  const promoteTarget = usePromoteTarget(id, workflow?.vhost, canPromote);
 
   const wsActive = activeTab === 'logs' && activePage === 1 && !debouncedSearch;
   const { data: logsResponse, isFetching: isLogsFetching } = useQuery({
@@ -400,6 +402,11 @@ export function WorkflowDetailPage() {
               <Button leftSection={<IconPencil size="1rem" />} component={Link} to="/workflows/$id/edit" params={{ id } as any}>
                 Edit flow
               </Button>
+              {canPromote && (
+                <Button variant="light" leftSection={<IconRocket size="1rem" />} onClick={() => setPromoteOpened(true)}>
+                  {promoteTarget.link ? `Promote to ${promoteTarget.link.name}` : 'Promote'}
+                </Button>
+              )}
             </>
           ) : undefined}
           menu={canEdit ? (
@@ -410,9 +417,6 @@ export function WorkflowDetailPage() {
               <Menu.Dropdown>
                 <Menu.Item leftSection={<IconDownload size="1rem" />} onClick={flowActions.exportJson}>Export JSON</Menu.Item>
                 <Menu.Item leftSection={<IconCopy size="1rem" />} onClick={flowActions.clone}>Clone</Menu.Item>
-                {canPromote && (
-                  <Menu.Item leftSection={<IconRocket size="1rem" />} onClick={() => setPromoteOpened(true)}>Promote</Menu.Item>
-                )}
                 <Menu.Divider />
                 <Menu.Item leftSection={<IconHistory size="1rem" />} onClick={() => openTab('history')}>Version history</Menu.Item>
                 <Menu.Item leftSection={<IconShieldLock size="1rem" />} onClick={() => setComplianceOpened(true)}>Compliance report</Menu.Item>
@@ -422,6 +426,8 @@ export function WorkflowDetailPage() {
             </Menu>
           ) : undefined}
         />
+
+        {canPromote && <PromoteStrip here={environment?.name || 'Here'} target={promoteTarget} />}
 
         <ComplianceReportModal workflowId={id} opened={complianceOpened} onClose={() => setComplianceOpened(false)} />
 
