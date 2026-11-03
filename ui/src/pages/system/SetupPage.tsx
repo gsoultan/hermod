@@ -119,7 +119,10 @@ export function SetupPage({ onConfigured }: SetupPageProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
-      const json = await response.json()
+      const json = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(json?.error || `Connection test failed (HTTP ${response.status})`)
+      }
       return json
     },
     onSuccess: (res: any) => {
@@ -455,6 +458,18 @@ export function SetupPage({ onConfigured }: SetupPageProps) {
   const canAdminNext = username.trim().length > 0 && password.trim().length > 0 && pwScore >= 3
   const canDbNext = Boolean(dbType) && dbConn.trim().length > 0 && cryptoMasterKey.length >= 16 && dbTestOk &&
     (!useSeparateLogDb || (Boolean(logDbType) && logDbConn.trim().length > 0))
+  // Tell the user what Next is waiting for, so a disabled button is never a dead end.
+  const dbNextBlocker = !dbType ? 'Choose a database type to continue.'
+    : dbConn.trim().length === 0 ? 'Enter the database connection to continue.'
+    : cryptoMasterKey.length < 16 ? 'The crypto master key needs at least 16 characters.'
+    : useSeparateLogDb && (!logDbType || logDbConn.trim().length === 0) ? 'Finish the logging database settings to continue.'
+    : !dbTestOk ? 'Test the connection to continue.'
+    : null
+  const adminNextBlocker = username.trim().length === 0 ? 'Enter a username to continue.'
+    : password.trim().length === 0 ? 'Enter a password to continue.'
+    : pwScore < 3 ? 'The password is too weak: use at least 3 of 8+ characters, a lowercase letter, an uppercase letter, a number, a symbol.'
+    : null
+  const nextBlocker = activeStep === 0 ? dbNextBlocker : activeStep === 1 ? adminNextBlocker : null
 
   return (
     <Container size="md" py={48}>
@@ -619,8 +634,8 @@ export function SetupPage({ onConfigured }: SetupPageProps) {
                 {/* Test database connection */}
                 <Stack gap="xs">
                   {testDbMutation.isPending && <Text size="sm">Testing connection...</Text>}
-                  {testDbMutation.isError && testResult?.error && (
-                    <Alert color="red" title="Connection failed">{testResult.error}</Alert>
+                  {!testDbMutation.isPending && testResult && !testResult.ok && (
+                    <Alert color="red" title="Connection failed">{testResult.error || 'The database could not be reached.'}</Alert>
                   )}
                   {dbTestOk && testResult?.ok && (
                     <Alert color="green" title="Connection successful">Database connection looks good.</Alert>
@@ -886,7 +901,10 @@ export function SetupPage({ onConfigured }: SetupPageProps) {
             </Stepper.Step>
           </Stepper>
 
-          <Group justify="center" mt="xl">
+          {nextBlocker && (
+            <Text size="sm" c="dimmed" ta="center" mt="xl">{nextBlocker}</Text>
+          )}
+          <Group justify="center" mt={nextBlocker ? 'xs' : 'xl'}>
             {activeStep > 0 && (
               <Button variant="default" onClick={prevStep}>Back</Button>
             )}
