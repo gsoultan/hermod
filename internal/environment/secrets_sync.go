@@ -279,3 +279,18 @@ func (s *Service) valuesToCreate(ctx context.Context, p Promotion, approver map[
 	maps.Copy(sent, approver)
 	return sent, nil
 }
+
+// deploySecrets creates what p's deploy needs from the sender's values and
+// the approver's, then forgets the sender's: they are either stored as
+// secrets now or not wanted.
+func (s *Service) deploySecrets(ctx context.Context, p Promotion, approver map[string]string, by string) (created, kept, missing []string, err error) {
+	values, err := s.valuesToCreate(ctx, p, approver)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	created, kept, missing, err = s.fillSecrets(ctx, p, values, by)
+	if err == nil && len(p.SecretsFilled) > 0 {
+		dropSentSecrets(ctx, s.store, p.ID)
+	}
+	return created, kept, missing, err
+}

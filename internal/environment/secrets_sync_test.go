@@ -50,10 +50,11 @@ func (v *memVault) CreateSecret(_ context.Context, vhost, name, value, _ string)
 	return true, nil
 }
 
-func (v *memVault) get(key string) (string, bool) {
+// crmKey reads the default vhost's CRM_KEY, the one secret these tests use.
+func (v *memVault) crmKey() (string, bool) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	val, ok := v.values[key]
+	val, ok := v.values["default/CRM_KEY"]
 	return val, ok
 }
 
@@ -120,7 +121,7 @@ func TestApproveCreatesTheSecretsTheApproverFilledIn(t *testing.T) {
 	if got.Status != StatusDeployed || !slices.Equal(got.SecretsCopied, []string{"CRM_KEY"}) || len(got.SecretsMissing) != 0 {
 		t.Fatalf("promotion = %+v", got)
 	}
-	if v, _ := vault.get("default/CRM_KEY"); v != "prod-crm-key" {
+	if v, _ := vault.crmKey(); v != "prod-crm-key" {
 		t.Fatalf("production's CRM_KEY = %q", v)
 	}
 	for k, v := range p.prdStore.settings {
@@ -141,7 +142,7 @@ func TestApproveNeverReplacesASecretProductionAlreadyHas(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := vault.get("default/CRM_KEY"); v != "set-on-the-secrets-page" {
+	if v, _ := vault.crmKey(); v != "set-on-the-secrets-page" {
 		t.Fatalf("production's CRM_KEY = %q, want the value it already had", v)
 	}
 	if len(got.SecretsCopied) != 0 || !slices.Equal(got.SecretsKept, []string{"CRM_KEY"}) {
@@ -162,7 +163,7 @@ func TestApproveWithoutValuesDeploysAndSaysWhatIsStillMissing(t *testing.T) {
 	if got.Status != StatusDeployed || !slices.Equal(got.SecretsMissing, []string{"CRM_KEY"}) {
 		t.Fatalf("promotion = %+v", got)
 	}
-	if _, ok := vault.get("default/CRM_KEY"); ok {
+	if _, ok := vault.crmKey(); ok {
 		t.Fatal("a blank value was stored")
 	}
 }
@@ -218,7 +219,7 @@ func TestApprovingAReleaseFillsInTheSecretsOfEveryWorkflow(t *testing.T) {
 	if !slices.Equal(got.SecretsCopied, []string{"CRM_KEY"}) {
 		t.Fatalf("promotion = %+v", got)
 	}
-	if v, _ := vault.get("default/CRM_KEY"); v != "prod-crm-key" {
+	if v, _ := vault.crmKey(); v != "prod-crm-key" {
 		t.Fatalf("production's CRM_KEY = %q", v)
 	}
 }
@@ -235,7 +236,7 @@ func TestTheSenderCanTypeProductionsValuesWhenPromoting(t *testing.T) {
 	if !slices.Equal(sent.Secrets, []string{"CRM_KEY"}) || !slices.Equal(sent.SecretsFilled, []string{"CRM_KEY"}) {
 		t.Fatalf("sent = %+v", sent)
 	}
-	if _, ok := vault.get("default/CRM_KEY"); ok {
+	if _, ok := vault.crmKey(); ok {
 		t.Fatal("the secret was created before the promotion was approved")
 	}
 	for k, v := range p.prdStore.settings {
@@ -256,7 +257,7 @@ func TestTheSenderCanTypeProductionsValuesWhenPromoting(t *testing.T) {
 	if !slices.Equal(got.SecretsCopied, []string{"CRM_KEY"}) {
 		t.Fatalf("promotion = %+v", got)
 	}
-	if v, _ := vault.get("default/CRM_KEY"); v != "prod-typed-on-dev" {
+	if v, _ := vault.crmKey(); v != "prod-typed-on-dev" {
 		t.Fatalf("production's CRM_KEY = %q", v)
 	}
 	if v := p.prdStore.settings[keyPromotionSecrets+sent.ID]; v != "" {
@@ -274,7 +275,7 @@ func TestTheApproversValueWinsOverTheSenders(t *testing.T) {
 	if _, err := p.prd.ApproveWith(ctx, sent.ID, "rina", map[string]string{"CRM_KEY": "from-approver"}); err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := vault.get("default/CRM_KEY"); v != "from-approver" {
+	if v, _ := vault.crmKey(); v != "from-approver" {
 		t.Fatalf("production's CRM_KEY = %q", v)
 	}
 }
@@ -290,7 +291,7 @@ func TestSentValuesNeverReplaceASecretProductionHas(t *testing.T) {
 	if _, err := p.prd.Approve(ctx, sent.ID, "rina"); err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := vault.get("default/CRM_KEY"); v != "already-there" {
+	if v, _ := vault.crmKey(); v != "already-there" {
 		t.Fatalf("production's CRM_KEY = %q, want it kept", v)
 	}
 }
@@ -305,7 +306,7 @@ func TestRejectingDropsTheSentValues(t *testing.T) {
 	if _, err := p.prd.Reject(ctx, sent.ID, "rina", "no"); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := vault.get("default/CRM_KEY"); ok {
+	if _, ok := vault.crmKey(); ok {
 		t.Fatal("a rejected promotion created its secret")
 	}
 	if v := p.prdStore.settings[keyPromotionSecrets+sent.ID]; v != "" {
@@ -324,7 +325,7 @@ func TestAFailedDeployDropsTheSentValues(t *testing.T) {
 	if _, err := p.prd.Approve(ctx, sent.ID, "rina"); err == nil {
 		t.Fatal("approve succeeded without the sink")
 	}
-	if _, ok := vault.get("default/CRM_KEY"); ok {
+	if _, ok := vault.crmKey(); ok {
 		t.Fatal("a failed promotion created its secret")
 	}
 	if v := p.prdStore.settings[keyPromotionSecrets+sent.ID]; v != "" {
@@ -371,7 +372,7 @@ func TestAReleaseCarriesTheSendersValues(t *testing.T) {
 	if _, err := p.prd.Approve(ctx, sent[0].Promotions[0].ID, "rina"); err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := vault.get("default/CRM_KEY"); v != "from-sender" {
+	if v, _ := vault.crmKey(); v != "from-sender" {
 		t.Fatalf("production's CRM_KEY = %q", v)
 	}
 }

@@ -167,9 +167,13 @@ func (s *Service) storePromotions(ctx context.Context, ps []Promotion, wfs []sto
 		if err := putJSON(ctx, s.store, keyPromotionBody+p.ID, wfs[i]); err != nil {
 			return err
 		}
+		var values map[string]string
+		if i < len(sent) {
+			values = sent[i]
+		}
 		keep := map[string]string{}
 		for _, name := range p.SecretsFilled {
-			keep[name] = sent[i][name]
+			keep[name] = values[name]
 		}
 		if err := saveSentSecrets(ctx, s.store, p.ID, keep); err != nil {
 			return err
@@ -447,20 +451,7 @@ func (s *Service) deployGroup(ctx context.Context, id, by string, secretValues m
 			continue
 		}
 		if len(ids) > 1 {
-			why := failed.WorkflowName + " in the same release could not be deployed"
-			for j := k - 1; j >= 0; j-- {
-				if uerr := s.undo(ctx, ids[j], by, "Undone: "+why); uerr != nil {
-					slog.Warn("environment: undoing a release after a failed deploy", "promotion", ids[j], "error", uerr)
-				}
-			}
-			for _, rest := range ids[k+1:] {
-				if np, _ := s.update(ctx, rest, func(p *Promotion) error {
-					p.Status, p.DecidedBy, p.Reason = StatusFailed, by, "Not deployed: "+why
-					return nil
-				}); len(np.SecretsFilled) > 0 {
-					dropSentSecrets(ctx, s.store, rest)
-				}
-			}
+			s.unwindRelease(ctx, ids, k, by, failed.WorkflowName+" in the same release could not be deployed")
 		}
 		got, gerr := s.promotion(ctx, id)
 		if gerr != nil {
@@ -469,6 +460,25 @@ func (s *Service) deployGroup(ctx context.Context, id, by string, secretValues m
 		return got, err
 	}
 	return s.promotion(ctx, id)
+}
+
+// unwindRelease handles a release whose member ids[k] failed to deploy: the
+// ones before it are undone, newest first, and the ones after it are marked
+// failed without being deployed.
+func (s *Service) unwindRelease(ctx context.Context, ids []string, k int, by, why string) {
+	for j := k - 1; j >= 0; j-- {
+		if uerr := s.undo(ctx, ids[j], by, "Undone: "+why); uerr != nil {
+			slog.Warn("environment: undoing a release after a failed deploy", "promotion", ids[j], "error", uerr)
+		}
+	}
+	for _, rest := range ids[k+1:] {
+		if np, _ := s.update(ctx, rest, func(p *Promotion) error {
+			p.Status, p.DecidedBy, p.Reason = StatusFailed, by, "Not deployed: "+why
+			return nil
+		}); len(np.SecretsFilled) > 0 {
+			dropSentSecrets(ctx, s.store, rest)
+		}
+	}
 }
 
 // deploy creates the secrets it was given values for, stores the promoted
@@ -494,40 +504,14 @@ func (s *Service) deploy(ctx context.Context, id, by string, secretValues map[st
 	// The secrets go in first, so the workflow finds them when it starts.
 	// They are this instance's own values, typed here, so a deploy that
 	// fails after this keeps them.
-	values, err := s.valuesToCreate(ctx, p, secretValues)
-	if err != nil {
-		return s.fail(ctx, id, by, err)
-	}
-	copied, kept, stillMissing, err := s.fillSecrets(ctx, p, values, by)
+	copied, kept, stillMissing, err := s.deploySecrets(ctx, p, secretValues, by)
 	if err != nil {
 		return s.fail(ctx, id, by, err)
 	}
 
-	var previous, applied int
-	var errorsAt, processedAt uint64
-	existing, getErr := s.store.GetWorkflow(ctx, wf.ID)
-	switch {
-	case getErr == nil:
-		after := wf
-		// This instance's run and placement stay as they are.
-		after.VHost, after.WorkspaceID = existing.VHost, existing.WorkspaceID
-		after.Status, after.WorkerID, after.OwnerID, after.LeaseUntil = existing.Status, existing.WorkerID, existing.OwnerID, existing.LeaseUntil
-		after.TotalProcessed, after.TotalErrors, after.TotalLag = existing.TotalProcessed, existing.TotalErrors, existing.TotalLag
-		after.Active = existing.Active || p.Start
-		errorsAt, processedAt = existing.TotalErrors, existing.TotalProcessed
-		previous, applied, err = s.applier.ApplyWorkflowChange(ctx, existing, after, by, msg)
-	case errors.Is(getErr, storage.ErrNotFound):
-		wf.Active = p.Start
-		wf.WorkspaceID = ""
-		applied, err = s.applier.CreateWorkflowVersioned(ctx, wf, by, msg)
-	default:
-		err = getErr
-	}
+	out, err := s.applyPromoted(ctx, wf, p, by, msg)
 	if err != nil {
 		return s.fail(ctx, id, by, err)
-	}
-	if len(p.SecretsFilled) > 0 {
-		dropSentSecrets(ctx, s.store, id)
 	}
 	return s.update(ctx, id, func(p *Promotion) error {
 		p.Status = StatusDeployed
@@ -536,12 +520,41 @@ func (s *Service) deploy(ctx context.Context, id, by string, secretValues map[st
 		if p.DecidedAt.IsZero() {
 			p.DecidedAt = s.now().UTC()
 		}
-		p.PreviousVersion, p.AppliedVersion = previous, applied
+		p.PreviousVersion, p.AppliedVersion = out.previous, out.applied
 		p.DeployedAt = s.now().UTC()
-		p.ErrorsAtDeploy, p.ProcessedAtDeploy = errorsAt, processedAt
+		p.ErrorsAtDeploy, p.ProcessedAtDeploy = out.errorsAt, out.processedAt
 		p.Reason = ""
 		return nil
 	})
+}
+
+// applied is what storing a promoted workflow left behind.
+type applied struct {
+	previous, applied     int
+	errorsAt, processedAt uint64
+}
+
+// applyPromoted stores wf as p's deploy: a new version of the workflow here,
+// keeping this instance's run and placement, or a new workflow.
+func (s *Service) applyPromoted(ctx context.Context, wf storage.Workflow, p Promotion, by, msg string) (applied, error) {
+	var out applied
+	existing, err := s.store.GetWorkflow(ctx, wf.ID)
+	switch {
+	case err == nil:
+		after := wf
+		// This instance's run and placement stay as they are.
+		after.VHost, after.WorkspaceID = existing.VHost, existing.WorkspaceID
+		after.Status, after.WorkerID, after.OwnerID, after.LeaseUntil = existing.Status, existing.WorkerID, existing.OwnerID, existing.LeaseUntil
+		after.TotalProcessed, after.TotalErrors, after.TotalLag = existing.TotalProcessed, existing.TotalErrors, existing.TotalLag
+		after.Active = existing.Active || p.Start
+		out.errorsAt, out.processedAt = existing.TotalErrors, existing.TotalProcessed
+		out.previous, out.applied, err = s.applier.ApplyWorkflowChange(ctx, existing, after, by, msg)
+	case errors.Is(err, storage.ErrNotFound):
+		wf.Active = p.Start
+		wf.WorkspaceID = ""
+		out.applied, err = s.applier.CreateWorkflowVersioned(ctx, wf, by, msg)
+	}
+	return out, err
 }
 
 // sender is the linked instance p came from, as hasConnections needs it.

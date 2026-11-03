@@ -33,7 +33,7 @@ const (
 	keyPromotionBody = "hermod.environment_promotion:"
 	// keyPromotionSecrets holds, encrypted, the secret values a pending
 	// promotion's sender typed; see secrets_sync.go.
-	keyPromotionSecrets = "hermod.environment_promotion_secrets:"
+	keyPromotionSecrets = "hermod.environment_promotion_secrets:" //nolint:gosec // G101: a settings key, not a credential.
 )
 
 // maxPromotionsKept bounds the promotion history; the oldest decided ones go
