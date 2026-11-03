@@ -146,6 +146,7 @@ GET /healthz
 GET /livez
 GET /readyz
 GET /streams/sse
+PATCH /api/environments/peers/{id}
 PATCH /api/workflows/{id}/stats
 PATCH /api/workflows/{id}/status
 POST /api/ai/analyze-error
@@ -181,6 +182,7 @@ POST /api/environments/links/{id}/test
 POST /api/environments/pair
 POST /api/environments/pairing-codes
 POST /api/environments/peer/check
+POST /api/environments/peer/decisions
 POST /api/environments/peer/promotions
 POST /api/environments/peer/releases
 POST /api/environments/promotions/{id}/approve
@@ -188,6 +190,9 @@ POST /api/environments/promotions/{id}/reject
 POST /api/environments/promotions/{id}/rollback
 POST /api/environments/releases
 POST /api/environments/releases/preview
+POST /api/environments/sent/{id}/approve
+POST /api/environments/sent/{id}/reject
+POST /api/environments/sent/{id}/rollback
 POST /api/files/upload
 POST /api/forgot-password
 POST /api/forms/{path...}
