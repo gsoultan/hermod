@@ -114,6 +114,8 @@ export interface Preview {
   changes: Change[] | null
   rules: Rules
   ready: boolean
+  /** Secrets the workflow uses that the vhost there lacks; their values are typed for it, never copied from here. */
+  missing_secrets?: string[] | null
 }
 
 export type PromotionStatus = 'pending' | 'deploying' | 'rejected' | 'deployed' | 'failed' | 'rolled_back'
@@ -142,6 +144,14 @@ export interface Promotion {
   reason?: string
   /** Shared by every workflow sent together; they are decided together. */
   release_id?: string
+  /** Secrets its vhost lacked when it arrived; the approver fills in what the sender left empty. Names only. */
+  secrets?: string[] | null
+  /** The ones of secrets the sender typed a value for. */
+  secrets_filled?: string[] | null
+  /** After the deploy: created from typed values, already there by then, and still without a value. */
+  secrets_copied?: string[] | null
+  secrets_kept?: string[] | null
+  secrets_missing?: string[] | null
 }
 
 export interface PromoteOptions {
@@ -149,6 +159,8 @@ export interface PromoteOptions {
   note?: string
   start?: boolean
   auto_rollback?: boolean
+  /** Values typed for the secrets the preview lists as missing there, by name. Blank ones are left out. */
+  secrets?: Record<string, string>
 }
 
 export interface ReleaseItem {
@@ -265,7 +277,11 @@ export async function listVHostNames(signal?: AbortSignal): Promise<string[]> {
 export const listPromotions = async (signal?: AbortSignal) =>
   (await requestJson<Promotion[] | null>(`${api}/promotions`, { signal })) ?? []
 export const listSent = async (signal?: AbortSignal) => (await requestJson<Promotion[] | null>(`${api}/sent`, { signal })) ?? []
-export const approvePromotion = (pid: string) => requestJson<Promotion>(`${api}/promotions/${id(pid)}/approve`, { method: 'POST' })
+export const approvePromotion = (pid: string, secrets: Record<string, string> = {}) =>
+  requestJson<Promotion>(`${api}/promotions/${id(pid)}/approve`, {
+    method: 'POST',
+    ...(Object.keys(secrets).length ? json({ secrets }) : {}),
+  })
 export const rejectPromotion = (pid: string, reason: string) =>
   requestJson<Promotion>(`${api}/promotions/${id(pid)}/reject`, { method: 'POST', ...json({ reason }) })
 export const rollbackPromotion = (pid: string) => requestJson<Promotion>(`${api}/promotions/${id(pid)}/rollback`, { method: 'POST' })

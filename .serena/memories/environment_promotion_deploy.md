@@ -25,6 +25,16 @@ Verified end to end on two live instances (sqlite, `--mode=standalone`): pair,
 match, release, approve, v2 onto a running workflow, Undo, unmatched-blocked,
 connection-deleted-before-approve.
 
+**Secret values UI (ui SecretValues.tsx).** One component for both sides
+(`mode: 'send' | 'approve'`): up to `INLINE_SECRETS` (5) are inputs in place,
+more open a window with search, an Empty filter fixed at open (rows do not
+vanish while typing), `parseEnvBlock` paste, Clear all. `neededSecrets`
+lists each name once with the flows using it; `filledValues` drops blanks,
+so a blank never reaches the server. The approve card asks for
+`secrets` minus `secrets_filled` and posts `{secrets}` only when something
+was typed (API from PR #361). Still to wire: the same component in the
+promote dialog, once the redesigned dialog (#365) is on main.
+
 **Container image config volume.** `/var/lib/hermod` must exist in the image
 owned by 65532 *before* `VOLUME`, or Docker creates new named/anonymous volumes
 root-owned and first-run setup fails with

@@ -15,6 +15,7 @@ import {
   workflowNames, type ApprovalRule, type Promotion, type ReadyLane, type ReleaseItem, type Rules,
 } from '@/lib/environments'
 import { ReleaseDialog } from './ReleaseDialog'
+import { filledValues, neededSecrets, SecretValues } from './SecretValues'
 import { PageHeader } from '@/components/rows'
 
 /**
@@ -219,8 +220,15 @@ function ReleaseCard({ ps }: { ps: Promotion[] }) {
     notifications.show({ color: 'red', title: 'Not done', message: err.message })
   }
   // Each acts on the whole release, whichever member it names.
+  // Each secret once, with the flows that use it, leaving out what the sender filled.
+  const needed = neededSecrets(ps.map((p) => ({
+    workflow_name: p.workflow_name,
+    missing_secrets: (p.secrets ?? []).filter((n) => !(p.secrets_filled ?? []).includes(n)),
+  })))
+  const [values, setValues] = useState<Record<string, string>>({})
+  const filledBySender = [...new Set(ps.flatMap((p) => p.secrets_filled ?? []))].sort()
   const approve = useMutation({
-    mutationFn: () => approvePromotion(head.id),
+    mutationFn: () => approvePromotion(head.id, filledValues(values)),
     onSuccess: async () => { await refresh(); notifications.show({ color: 'green', message: `${names} ${ps.length === 1 ? 'is' : 'are'} live.` }) },
     onError,
   })
@@ -251,6 +259,12 @@ function ReleaseCard({ ps }: { ps: Promotion[] }) {
             </Box>
           ))}
         </Paper>
+        {filledBySender.length > 0 && (
+          <Text size="sm" c="dimmed">{head.sender} typed values for {filledBySender.join(', ')}.</Text>
+        )}
+        {isAdmin && head.status === 'pending' && (
+          <SecretValues needed={needed} values={values} onChange={setValues} where={head.vhost || 'default'} mode="approve" />
+        )}
         {head.status === 'deploying' && <Group gap="xs"><Loader size="xs" /><Text size="sm">Going live…</Text></Group>}
         {head.auto_rollback && (
           <Text size="sm" c="green.8">Undone on its own if it fails in the first 10 minutes</Text>
@@ -325,6 +339,7 @@ function DecidedRow({ ps, first, canUndo }: { ps: Promotion[]; first: boolean; c
             {head.decided_by ? ` · ${head.decided_by}` : ''}
           </Text>
           {head.reason && <Text size="xs" c={status === 'failed' ? 'red' : 'dimmed'}>{head.reason}</Text>}
+          <SecretOutcome ps={ps} />
         </Stack>
       </Group>
       <Group gap="xs" wrap="nowrap">
@@ -404,5 +419,19 @@ function SidePanel() {
         </Paper>
       )}
     </Stack>
+  )
+}
+
+/** What became of the secrets a release needed, once it was deployed. */
+function SecretOutcome({ ps }: { ps: Promotion[] }) {
+  const all = (pick: (p: Promotion) => string[] | null | undefined) => [...new Set(ps.flatMap((p) => pick(p) ?? []))].sort()
+  const copied = all((p) => p.secrets_copied)
+  const missing = all((p) => p.secrets_missing)
+  if (copied.length === 0 && missing.length === 0) return null
+  return (
+    <>
+      {copied.length > 0 && <Text size="xs" c="dimmed">Saved secrets {copied.join(', ')}</Text>}
+      {missing.length > 0 && <Text size="xs" c="orange.8">Still without a value: {missing.join(', ')}. Add them on the Secrets page.</Text>}
+    </>
   )
 }

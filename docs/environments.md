@@ -97,6 +97,13 @@ Production lists each release under **Environments › Waiting for you**: where 
 vhost it lands in, the sender, the note, and each workflow's changes. An administrator clicks
 **Approve and go live** or **Reject**, once for the whole release.
 
+When a release uses secrets its vhost has no value for, the card asks for them under **N secrets
+have no value in hr yet**, leaving out the ones the sender already typed (named on the card).
+More than five open one window with search, an **Empty** filter and **Paste a .env block**, which
+fills the boxes from `NAME=value` lines and lists the names that are not needed. Leave one empty
+when a secret manager serves it. Once live, **Recently live** shows which secrets were saved and
+which still have no value.
+
 Approving checks once more that every connection a workflow uses still exists in production, in its vhost. A connection deleted or moved while the release waited fails the release with the connection's ID as the reason, instead of deploying a workflow that cannot start.
 
 A release goes live whole or not at all. If one workflow fails to deploy, the ones before it are
