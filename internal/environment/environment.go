@@ -277,6 +277,18 @@ type Promotion struct {
 	ErrorsAtDeploy    uint64 `json:"errors_at_deploy,omitempty"`
 	ProcessedAtDeploy uint64 `json:"processed_at_deploy,omitempty"`
 	Reason            string `json:"reason,omitempty"`
+	// Secrets names the secrets the workflow uses that this vhost lacked
+	// when the promotion arrived; the approver fills in their values. Only
+	// names are ever kept here. After the deploy, SecretsCopied are the ones
+	// created from those values, SecretsKept the ones the vhost had by then,
+	// and SecretsMissing the ones still without a value.
+	Secrets []string `json:"secrets,omitempty"`
+	// SecretsFilled are the ones of Secrets the sender typed a value for;
+	// the values wait encrypted until the promotion is decided.
+	SecretsFilled  []string `json:"secrets_filled,omitempty"`
+	SecretsCopied  []string `json:"secrets_copied,omitempty"`
+	SecretsKept    []string `json:"secrets_kept,omitempty"`
+	SecretsMissing []string `json:"secrets_missing,omitempty"`
 }
 
 // Change is one difference between the version being promoted and the one

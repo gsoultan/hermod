@@ -36,6 +36,7 @@ import (
 
 type testStore struct {
 	storage.Storage
+	storage.VHostSecretStore
 }
 
 func (testStore) CreateAuditLog(context.Context, storage.AuditLog) error { return nil }
@@ -67,7 +68,7 @@ func newInstance(t *testing.T, name string, role environment.Role) *instance {
 	if err := st.CreateUser(t.Context(), storage.User{ID: "u-admin", Username: "root", Password: "x", Role: storage.RoleAdministrator}); err != nil {
 		t.Fatal(err)
 	}
-	store := testStore{st}
+	store := testStore{Storage: st, VHostSecretStore: st.(storage.VHostSecretStore)}
 	h := &handlers.Handler{Storage: store, LogStorage: store}
 	svc := NewService(h, environment.NewHTTPRemote())
 	if _, err := svc.SetInstance(t.Context(), environment.Instance{Name: name, Role: role}); err != nil {
