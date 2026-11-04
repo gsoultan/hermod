@@ -125,7 +125,9 @@ Staging's own secret values never go to production: staging's credentials stay o
 Production notes which of the secrets a workflow uses its vhost lacks. The dialog lists them, and
 the sender can type **production's** value for each one there. The value is sent with the release,
 kept encrypted on production until it is decided, and never stored on staging. Anything left blank
-can be filled in by the approver (see below).
+can be filled in by the approver (see below). Up to five are typed in the dialog itself; more open
+one window with search, an Empty filter and a `.env` paste. The footer says how many values are
+left for the approver.
 
 Through the API: `"secrets": {"CRM_KEY": "..."}` in the body of a promotion or a release. A value
 for a secret production does not lack is refused, and so is one sent to a production too old to

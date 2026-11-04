@@ -62,8 +62,9 @@ vanish while typing), `parseEnvBlock` paste, Clear all. `neededSecrets`
 lists each name once with the flows using it; `filledValues` drops blanks,
 so a blank never reaches the server. The approve card asks for
 `secrets` minus `secrets_filled` and posts `{secrets}` only when something
-was typed (API from PR #361). Still to wire: the same component in the
-promote dialog, once the redesigned dialog (#365) is on main.
+was typed (API from PR #361). ReleaseDialog uses it in `send` mode over
+`neededSecrets(all previews)`, sends `secrets` only when one was typed, and
+the footer says "N secret values left for the approver".
 
 **Container image config volume.** `/var/lib/hermod` must exist in the image
 owned by 65532 *before* `VOLUME`, or Docker creates new named/anonymous volumes
