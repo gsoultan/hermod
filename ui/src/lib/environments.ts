@@ -148,6 +148,8 @@ export interface Preview {
   missing_envs?: string[] | null
   /** Secrets the workflow uses that the vhost there lacks; their values are typed for it, never copied from here. */
   missing_secrets?: string[] | null
+  /** For a missing secret a source or sink there reads, those connections ("sink warehouse"). */
+  secret_uses?: Record<string, string[]> | null
 }
 
 export type PromotionStatus = 'pending' | 'deploying' | 'rejected' | 'deployed' | 'failed' | 'rolled_back'

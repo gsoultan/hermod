@@ -159,11 +159,14 @@ type CurrentWorkflow struct {
 
 // CheckResult is the receiving instance's answer to a CheckRequest.
 type CheckResult struct {
-	MissingSources []string         `json:"missing_sources"`
-	MissingSinks   []string         `json:"missing_sinks"`
-	MissingSecrets []string         `json:"missing_secrets"`
-	MissingEnvs    []string         `json:"missing_envs"`
-	Current        *CurrentWorkflow `json:"current,omitempty"`
+	MissingSources []string `json:"missing_sources"`
+	MissingSinks   []string `json:"missing_sinks"`
+	MissingSecrets []string `json:"missing_secrets"`
+	MissingEnvs    []string `json:"missing_envs"`
+	// SecretUses names the connections here that read each missing secret
+	// a source or sink names; secrets only the workflow names are left out.
+	SecretUses map[string][]string `json:"secret_uses,omitempty"`
+	Current    *CurrentWorkflow    `json:"current,omitempty"`
 	// Problem says why the workflow cannot land at all, or is empty.
 	Problem string `json:"problem,omitempty"`
 }

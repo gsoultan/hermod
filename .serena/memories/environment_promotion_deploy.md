@@ -85,3 +85,12 @@ and `Decision.StartAnyway` for relayed approvals. `copyOutcome` copies the
 deploy outcome (status, secrets, kept_stopped) into the sender's sent log.
 UI: `StartChoice` and `startLine` in SecretValues.tsx, used by ReleaseCard
 and SentReleases' WaitingRow.
+
+**Secrets of sources and sinks.** The secrets a promotion needs are the
+workflow's own `{{secret.NAME}}` (`references`) plus those the sources and
+sinks it uses read in their Config (`configSecrets`). The receiver computes
+them: `PeerCheck` adds the secrets of `req.Sources`/`req.Sinks` (its own
+connections, after matching) and answers `secret_uses` (name -> "sink
+warehouse"); `secretsUsed(ctx, wf)` feeds `missingSecrets` and
+`admitSentSecrets`. Preview carries `secret_uses`; `neededSecrets` turns it into
+`via`, shown as "Read by sink warehouse".
