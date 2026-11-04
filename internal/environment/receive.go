@@ -376,13 +376,20 @@ func (s *Service) promotion(ctx context.Context, id string) (Promotion, error) {
 // release. Under the admin_except_sender rule the person who sent any of
 // them cannot approve.
 func (s *Service) Approve(ctx context.Context, id, username string) (Promotion, error) {
-	return s.ApproveWith(ctx, id, username, nil)
+	return s.approve(ctx, id, username, username, nil)
 }
 
 // ApproveWith is Approve with the values the approver typed for the secrets
 // the release needs, by name. A blank value is one left out. Each is created
 // in its promotion's vhost unless the vhost holds the name by then.
 func (s *Service) ApproveWith(ctx context.Context, id, username string, secretValues map[string]string) (Promotion, error) {
+	return s.approve(ctx, id, username, username, secretValues)
+}
+
+// approve is ApproveWith by username, recorded as by: the same, or for
+// someone deciding from the sending instance, their name and where they
+// decided.
+func (s *Service) approve(ctx context.Context, id, username, by string, secretValues map[string]string) (Promotion, error) {
 	rules, err := loadRules(ctx, s.store)
 	if err != nil {
 		return Promotion{}, err
@@ -418,14 +425,14 @@ func (s *Service) ApproveWith(ctx context.Context, id, username string, secretVa
 	}
 	for _, j := range members {
 		ps[j].Status = StatusDeploying
-		ps[j].DecidedBy, ps[j].DecidedAt = username, s.now().UTC()
+		ps[j].DecidedBy, ps[j].DecidedAt = by, s.now().UTC()
 	}
 	err = savePromotions(ctx, s.store, ps)
 	s.mu.Unlock()
 	if err != nil {
 		return Promotion{}, err
 	}
-	return s.deployGroup(ctx, id, username, filled)
+	return s.deployGroup(ctx, id, by, filled)
 }
 
 // deployGroup deploys id's release in the order it was sent. When one fails

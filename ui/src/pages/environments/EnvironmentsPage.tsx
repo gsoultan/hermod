@@ -16,6 +16,7 @@ import {
 } from '@/lib/environments'
 import { ReleaseDialog } from './ReleaseDialog'
 import { filledValues, neededSecrets, SecretValues } from './SecretValues'
+import { SentReleases } from './SentReleases'
 import { PageHeader } from '@/components/rows'
 
 /**
@@ -94,7 +95,7 @@ function Lanes() {
         </Paper>
       )}
       {(lanes ?? []).map((l) => <Lane key={l.link_id} lane={l} onPromote={setRelease} />)}
-      <SentList sent={sent ?? []} />
+      <SentReleases sent={sent ?? []} />
       <ReleaseDialog opened={release !== null} onClose={() => setRelease(null)} items={release ?? []} />
     </Stack>
   )
@@ -133,33 +134,6 @@ function Lane({ lane, onPromote }: { lane: ReadyLane; onPromote: (items: Release
         ))}
       </Stack>
     </Paper>
-  )
-}
-
-function SentList({ sent }: { sent: Promotion[] }) {
-  const releases = groupByRelease(sent).slice(0, 10)
-  if (releases.length === 0) return null
-  return (
-    <Stack gap="xs">
-      <Title order={4}>Recently sent</Title>
-      <Paper withBorder radius="lg">
-        {releases.map((ps, i) => {
-          const status = releaseStatus(ps)
-          return (
-            <Group key={ps[0].id} justify="space-between" wrap="nowrap" p="md" style={i ? { borderTop: '1px solid var(--mantine-color-default-border)' } : undefined}>
-              <Stack gap={0}>
-                <Text size="sm" fw={600}>
-                  {ps.length === 1 ? ps[0].workflow_name : `${ps.length} workflows`} to {ps[0].from_env}
-                </Text>
-                {ps.length > 1 && <Text size="xs" c="dimmed">{workflowNames(ps)}</Text>}
-                <Text size="xs" c="dimmed">{formatDateTime(ps[0].created_at)}{ps[0].reason ? ` · ${ps[0].reason}` : ''}</Text>
-              </Stack>
-              <Badge color={statusColor[status]} variant="light">{statusLabel[status]}</Badge>
-            </Group>
-          )
-        })}
-      </Paper>
-    </Stack>
   )
 }
 

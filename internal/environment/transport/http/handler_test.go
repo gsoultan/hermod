@@ -250,6 +250,9 @@ func TestEnvironmentRoutesAreGuarded(t *testing.T) {
 		{"nor preview that release", stg, "editor", "/api/environments/releases/preview", http.MethodPost, map[string]any{"items": []any{map[string]any{"workflow_id": "wf-billing"}}}, http.StatusForbidden},
 		{"a release from a peer needs its token", prd, "admin", "/api/environments/peer/releases", http.MethodPost, map[string]any{"release_id": "r1"}, http.StatusUnauthorized},
 		{"what a peer sent needs its token", prd, "admin", "/api/environments/peer/promotions", http.MethodGet, nil, http.StatusUnauthorized},
+		{"a decision from a peer needs its token", prd, "admin", "/api/environments/peer/decisions", http.MethodPost, map[string]any{"action": "approve"}, http.StatusUnauthorized},
+		{"an editor cannot approve what was sent", stg, "editor", "/api/environments/sent/x/approve", http.MethodPost, nil, http.StatusForbidden},
+		{"an editor cannot let a peer decide", prd, "editor", "/api/environments/peers/x", http.MethodPatch, map[string]bool{"decide": true}, http.StatusForbidden},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -455,5 +458,41 @@ func TestAVHostRequestIsAllowedOverHTTP(t *testing.T) {
 	stg.must(t, http.StatusOK, "editor", http.MethodPost, "/api/environments/links/"+added[0].ID+"/test", nil, &tested)
 	if tested.Link.Pending || tested.Error != "" {
 		t.Fatalf("after allow: %+v", tested)
+	}
+}
+
+func TestStagingApprovesAndUndoesOverHTTPOnceProductionAllowsIt(t *testing.T) {
+	stg, prd, link := linked(t)
+	var sent environment.Promotion
+	stg.must(t, http.StatusCreated, "editor", http.MethodPost, "/api/environments/links/"+link.ID+"/promotions",
+		map[string]any{"workflow_id": "wf-orders", "start": true}, &sent)
+
+	// Production has not allowed it yet.
+	stg.must(t, http.StatusForbidden, "admin", http.MethodPost, "/api/environments/sent/"+sent.ID+"/approve", nil, nil)
+
+	var peers []struct {
+		ID     string `json:"id"`
+		Decide bool   `json:"decide"`
+	}
+	prd.must(t, http.StatusOK, "admin", http.MethodGet, "/api/environments/peers", nil, &peers)
+	if len(peers) != 1 || peers[0].Decide {
+		t.Fatalf("peers = %+v", peers)
+	}
+	prd.must(t, http.StatusNoContent, "admin", http.MethodPatch, "/api/environments/peers/"+peers[0].ID, map[string]bool{"decide": true}, nil)
+
+	var done environment.Promotion
+	stg.must(t, http.StatusOK, "admin", http.MethodPost, "/api/environments/sent/"+sent.ID+"/approve", nil, &done)
+	if done.Status != environment.StatusDeployed || done.DecidedBy != "root (via Staging)" || done.FromEnv != "Production" {
+		t.Fatalf("approved = %+v", done)
+	}
+	if _, err := prd.st.GetWorkflow(t.Context(), "wf-orders"); err != nil {
+		t.Fatalf("production has no workflow: %v", err)
+	}
+	// Approving twice is the conflict production reports, not a 502.
+	stg.must(t, http.StatusConflict, "admin", http.MethodPost, "/api/environments/sent/"+sent.ID+"/approve", nil, nil)
+
+	stg.must(t, http.StatusOK, "admin", http.MethodPost, "/api/environments/sent/"+sent.ID+"/rollback", map[string]string{"reason": "wrong batch size"}, &done)
+	if done.Status != environment.StatusRolledBack || done.Reason != "wrong batch size" {
+		t.Fatalf("rolled back = %+v", done)
 	}
 }

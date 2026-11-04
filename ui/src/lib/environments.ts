@@ -52,6 +52,8 @@ export interface Link {
   /** The vhost there they land in, and whether linking created it. */
   target_vhost?: string
   vhost_created?: boolean
+  /** The other instance lets administrators here approve, reject and undo what this link sends. */
+  decide?: boolean
   /** Added to a connection and not allowed there yet: it cannot promote until it is. */
   pending?: boolean
   /** The link whose token asked for it. */
@@ -68,6 +70,8 @@ export interface Peer {
   /** The one vhost here it sends into; empty on an older peer. */
   vhost?: string
   from_vhost?: string
+  /** Its administrators may approve, reject and undo what it sends here, from there. */
+  decide?: boolean
   /** Every vhost of one connection shares it: the first peer's id. */
   group?: string
   /** The connection may add vhosts here without an administrator allowing each. */
@@ -258,11 +262,21 @@ export const putInstance = (in_: Instance) => requestJson<Instance>(`${api}/self
 export const getRules = (signal?: AbortSignal) => requestJson<Rules>(`${api}/rules`, { signal })
 export const putRules = (r: Rules) => requestJson<Rules>(`${api}/rules`, { method: 'PUT', ...json(r) })
 
-/** addVHosts lets the connection add more vhosts later without a new code. */
-export const newPairingCode = (label: string, vhost: string, addVHosts = false) =>
+export interface PairingOptions {
+  /** Let the connection add more vhosts later without a new code. */
+  addVHosts?: boolean
+  /** Let the linked instance's administrators decide what it sends, from there. */
+  decide?: boolean
+}
+export const newPairingCode = (label: string, vhost: string, opts: PairingOptions = {}) =>
   requestJson<{ code: string; expires_at: string; vhost: string }>(`${api}/pairing-codes`, {
-    method: 'POST', ...json(addVHosts ? { label, vhost, add_vhosts: true } : { label, vhost }),
+    method: 'POST',
+    ...json({ label, vhost, ...(opts.addVHosts ? { add_vhosts: true } : {}), ...(opts.decide ? { decide: true } : {}) }),
   })
+export async function setPeerDecide(peerId: string, decide: boolean): Promise<void> {
+  // 204: no body to parse.
+  await apiFetch(`${api}/peers/${id(peerId)}`, { method: 'PATCH', ...json({ decide }), silent: true })
+}
 export const listPeers = async (signal?: AbortSignal) => (await requestJson<Peer[] | null>(`${api}/peers`, { signal })) ?? []
 export async function revokePeer(peerId: string): Promise<void> {
   // 204: no body to parse.
@@ -321,6 +335,11 @@ export async function listVHostNames(signal?: AbortSignal): Promise<string[]> {
 export const listPromotions = async (signal?: AbortSignal) =>
   (await requestJson<Promotion[] | null>(`${api}/promotions`, { signal })) ?? []
 export const listSent = async (signal?: AbortSignal) => (await requestJson<Promotion[] | null>(`${api}/sent`, { signal })) ?? []
+/** Decide, from here, on the instance it went to, a promotion this instance sent. */
+export const approveSent = (pid: string) => requestJson<Promotion>(`${api}/sent/${id(pid)}/approve`, { method: 'POST' })
+export const rejectSent = (pid: string, reason: string) =>
+  requestJson<Promotion>(`${api}/sent/${id(pid)}/reject`, { method: 'POST', ...json({ reason }) })
+export const rollbackSent = (pid: string) => requestJson<Promotion>(`${api}/sent/${id(pid)}/rollback`, { method: 'POST' })
 export const approvePromotion = (pid: string, secrets: Record<string, string> = {}) =>
   requestJson<Promotion>(`${api}/promotions/${id(pid)}/approve`, {
     method: 'POST',
