@@ -150,6 +150,32 @@ export interface Preview {
   missing_secrets?: string[] | null
   /** For a missing secret a source or sink there reads, those connections ("sink warehouse"). */
   secret_uses?: Record<string, string[]> | null
+  /** Each source and sink it uses, and what happens to it there. */
+  connections?: ConnectionRow[] | null
+}
+
+/** One setting of a connection created there; a credential's value shows only when it is a reference. */
+export interface ConnectionSetting {
+  key: string
+  value: string
+  secret?: boolean
+}
+
+/**
+ * A source or sink a workflow uses: one there replaces it (uses), it is created
+ * there on approval (create), a credential typed in plain text keeps it here
+ * (blocked), or a person picks its match (unmatched).
+ */
+export interface ConnectionRow {
+  kind: 'source' | 'sink'
+  id: string
+  name: string
+  type: string
+  status: 'uses' | 'create' | 'blocked' | 'unmatched'
+  target_id?: string
+  target_name?: string
+  settings?: ConnectionSetting[] | null
+  plain_keys?: string[] | null
 }
 
 export type PromotionStatus = 'pending' | 'deploying' | 'rejected' | 'deployed' | 'failed' | 'rolled_back'
@@ -188,6 +214,8 @@ export interface Promotion {
   secrets_missing?: string[] | null
   /** Deployed stopped, though sent to start, because a secret is still without a value. */
   kept_stopped?: boolean
+  /** Sources and sinks it brings, created here when it is approved. */
+  connections?: { kind: 'source' | 'sink'; id: string; name: string; type: string }[] | null
 }
 
 export interface PromoteOptions {
@@ -197,6 +225,8 @@ export interface PromoteOptions {
   auto_rollback?: boolean
   /** Values typed for the secrets the preview lists as missing there, by name. Blank ones are left out. */
   secrets?: Record<string, string>
+  /** Settings changed for the connections created there, by connection ID and setting. */
+  settings?: Record<string, Record<string, string>>
 }
 
 export interface ReleaseItem {
@@ -333,6 +363,11 @@ export const previewRelease = (items: ReleaseItem[]) =>
   requestJson<ReleasePreview>(`${api}/releases/preview`, { method: 'POST', ...json({ items }) })
 export const sendRelease = (items: ReleaseItem[], opts: ReleaseOptions) =>
   requestJson<SentRelease[]>(`${api}/releases`, { method: 'POST', ...json({ items, ...opts }) })
+
+/** Moves a credential typed in plain text in a source or sink into a vhost secret named name. */
+export async function moveToSecret(kind: string, connId: string, key: string, name: string): Promise<void> {
+  await apiFetch(`${api}/connections/${id(kind)}/${id(connId)}/secret`, { method: 'POST', ...json({ key, name }), silent: true })
+}
 
 /** The vhost names here, for the pickers; empty when the caller may not list them. */
 export async function listVHostNames(signal?: AbortSignal): Promise<string[]> {

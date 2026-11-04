@@ -94,3 +94,20 @@ connections, after matching) and answers `secret_uses` (name -> "sink
 warehouse"); `secretsUsed(ctx, wf)` feeds `missingSecrets` and
 `admitSentSecrets`. Preview carries `secret_uses`; `neededSecrets` turns it into
 `via`, shown as "Read by sink warehouse".
+
+**Carried connections (carry.go).** With carrying on (peer feature
+`carry_connections`), a MatchMissing source/sink that isn't manually mapped
+becomes `create` (into[id]=id) unless it has a plain credential
+(`configsecrets.IsSensitive` key not a `{{secret|env.}}` ref) -> `blocked`.
+`matchRefs(..., carry)` returns `matched{..., conns []ConnectionRow, carried}`;
+Preview.Connections lists rows; PromoteOptions.Settings overrides non-secret
+keys (`withSettings`, refuses plain credentials and unknown connections).
+Submission/Promotion carry `Connections []CarriedConnection`. Receiver:
+`admitCarried` validates (max 50, kind, ID, type, no plain creds, another vhost
+-> ErrForbidden, existing one dropped = reused); `deploy` runs `createCarried`
+(same ID, Active) after `deploySecrets` and before `applyPromoted`. `resolve`
+also matches same ID+type. `MoveToSecret` (POST
+/api/environments/connections/{kind}/{id}/secret, Editor) creates the secret
+(ErrConflict if it exists) and rewrites the key to `{{secret.NAME}}`.
+UI: ReleaseConnections.tsx (rows, CreatedSettings, PlainCredentials) in
+ReleaseDialog; ReleaseCard says "Approving creates sink X and source Y in vhost".

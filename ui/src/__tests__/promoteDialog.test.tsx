@@ -59,6 +59,59 @@ function common() {
 }
 
 describe('the promote dialog', () => {
+  it('lists each connection: reused there, created there with settings to change, or needing one step', async () => {
+    signInAs('Editor', 'ada')
+    common()
+    const bodies: Record<string, unknown>[] = []
+    const moved: unknown[] = []
+    let plain = true
+    const conns = () => [
+      { kind: 'source', id: 's-1', name: 'orders-db', type: 'postgres', status: 'uses', target_id: 'p-1', target_name: 'orders-db' },
+      { kind: 'sink', id: 'k-wh', name: 'warehouse', type: 'snowflake', status: 'create', settings: [
+        { key: 'account', value: 'acme-dev' }, { key: 'password', value: '{{secret.WH_PASSWORD}}', secret: true },
+      ] },
+      plain
+        ? { kind: 'sink', id: 'k-slack', name: 'slack-alerts', type: 'slack', status: 'blocked', plain_keys: ['token'], settings: [{ key: 'token', value: '', secret: true }] }
+        : { kind: 'sink', id: 'k-slack', name: 'slack-alerts', type: 'slack', status: 'create', settings: [{ key: 'token', value: '{{secret.SLACK_ALERTS_TOKEN}}', secret: true }] },
+    ]
+    server.use(
+      http.post('/api/environments/releases/preview', () => HttpResponse.json(answer([
+        preview({ ready: !plain, connections: conns(), checks: [{ name: 'Connections matched', ok: !plain, blocking: true, detail: plain ? '2 of 3 ready. Move these credentials…' : '1 of 3; 2 created' }] }),
+      ]))),
+      http.post('/api/environments/connections/:kind/:id/secret', async ({ request, params }) => {
+        moved.push({ ...params, ...(await request.json() as object) })
+        plain = false
+        return new HttpResponse(null, { status: 204 })
+      }),
+      http.post('/api/environments/releases', async ({ request }) => {
+        bodies.push(await request.json() as Record<string, unknown>)
+        return HttpResponse.json([{ link_id: 'l-1', link_name: 'Production', promotions: [{ id: 'p-1', status: 'pending' }] }], { status: 201 })
+      }),
+    )
+    const user = userEvent.setup()
+    wrap(<ReleaseDialog opened onClose={() => {}} items={[{ workflow_id: 'wf-1', version: 0 }]} />)
+
+    expect(await screen.findByText("Uses Production's orders-db")).toBeInTheDocument()
+    expect(screen.getAllByText('Created in Production')).toHaveLength(1)
+    expect(screen.getByText(/token is typed in plain text/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Send for approval' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: 'Move token to a secret' }))
+    expect(screen.getByLabelText('Secret name')).toHaveValue('SLACK_ALERTS_TOKEN')
+    await user.click(screen.getByRole('button', { name: 'Move' }))
+    await waitFor(() => expect(moved).toEqual([{ kind: 'sink', id: 'k-slack', key: 'token', name: 'SLACK_ALERTS_TOKEN' }]))
+    await waitFor(() => expect(screen.getAllByText('Created in Production')).toHaveLength(2))
+
+    const account = screen.getByLabelText('account')
+    await user.clear(account)
+    await user.type(account, 'acme-prod')
+    const button = screen.getByRole('button', { name: 'Send for approval' })
+    await waitFor(() => expect(button).toBeEnabled())
+    await user.click(button)
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0].settings).toEqual({ 'k-wh': { account: 'acme-prod' } })
+  })
+
   it('asks for the values of secrets new to production and sends only what was typed', async () => {
     signInAs('Editor', 'ada')
     common()

@@ -10,6 +10,7 @@ import {
 } from '@tabler/icons-react'
 import { getSessionRole } from '@/auth/session'
 import { filledValues, neededSecrets, SecretValues } from './SecretValues'
+import { releaseConnections, ReleaseConnections, type ConnectionSettings } from './ReleaseConnections'
 import { formatDateTime } from '@/utils/dateUtils'
 import {
   environmentKeys, getMatching, previewRelease, putMapping, sendRelease, useInstance, useReady,
@@ -45,11 +46,13 @@ export const approvalLine: Record<ApprovalRule, (where: string) => string> = {
 export function problems(p: Preview): string[] {
   const out: string[] = []
   for (const u of p.unmatched ?? []) out.push(`Pick the ${p.link_name} connection for “${u.name}”`)
+  const blockedConns = (p.connections ?? []).filter((c) => c.status === 'blocked')
+  for (const c of blockedConns) out.push(`Move the plain-text ${(c.plain_keys ?? []).join(', ')} of “${c.name}” to a secret`)
   for (const e of p.missing_envs ?? []) out.push(`${e} is not set on the ${p.link_name} server`)
   for (const c of p.checks) {
     if (c.ok || !c.blocking) continue
     // Shown as the rows above, with a way to fix them.
-    if (c.name === 'Connections matched' && (p.unmatched ?? []).length > 0) continue
+    if (c.name === 'Connections matched' && ((p.unmatched ?? []).length > 0 || blockedConns.length > 0)) continue
     out.push(c.detail || c.name)
   }
   return out
@@ -84,6 +87,7 @@ function ReleaseForm({ items, versions, onClose }: { items: ReleaseItem[]; versi
   const [showChecks, setShowChecks] = useState(false)
   const [sent, setSent] = useState<SentRelease[] | null>(null)
   const [secretValues, setSecretValues] = useState<Record<string, string>>({})
+  const [settings, setSettings] = useState<ConnectionSettings>({})
 
   const preview = useQuery({
     queryKey: ['environments', 'release-preview', kept],
@@ -111,6 +115,7 @@ function ReleaseForm({ items, versions, onClose }: { items: ReleaseItem[]; versi
     mutationFn: () => sendRelease(kept, {
       note: note.trim(), start, auto_rollback: rollback,
       ...(Object.keys(typed).length ? { secrets: typed } : {}),
+      ...(Object.keys(settings).length ? { settings } : {}),
     }),
     onSuccess: setSent,
     onSettled: () => Promise.all([
@@ -193,6 +198,8 @@ function ReleaseForm({ items, versions, onClose }: { items: ReleaseItem[]; versi
           clearable={false}
         />
       )}
+
+      <ReleaseConnections rows={releaseConnections(all)} where={where} settings={settings} onSettings={setSettings} onMoved={recheck} />
 
       <SecretValues needed={needed} values={secretValues} onChange={setSecretValues} where={where} mode="send" />
 
