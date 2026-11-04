@@ -102,3 +102,40 @@ func TestTheSenderTypesProductionsSecretValueOverHTTP(t *testing.T) {
 		t.Fatalf("production's CRM_KEY = %+v, %v", got, err)
 	}
 }
+
+func TestTheApproverChoosesToStartAFlowWithAnEmptySecretOverHTTP(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		body        map[string]any
+		wantStopped bool
+	}{
+		{"kept stopped by default", nil, true},
+		{"started when asked", map[string]any{"start_anyway": true}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stg, prd, link := linked(t)
+			ctx := t.Context()
+			wf, err := stg.st.GetWorkflow(ctx, "wf-orders")
+			if err != nil {
+				t.Fatal(err)
+			}
+			wf.Nodes[1].Config = map[string]any{"api_key": "{{secret.CRM_KEY}}"}
+			if err := stg.st.UpdateWorkflow(ctx, wf); err != nil {
+				t.Fatal(err)
+			}
+			var sent environment.Promotion
+			stg.must(t, http.StatusCreated, "editor", http.MethodPost, "/api/environments/links/"+link.ID+"/promotions",
+				map[string]any{"workflow_id": "wf-orders", "start": true}, &sent)
+
+			var done environment.Promotion
+			prd.must(t, http.StatusOK, "admin", http.MethodPost, "/api/environments/promotions/"+sent.ID+"/approve", tc.body, &done)
+			if done.KeptStopped != tc.wantStopped {
+				t.Fatalf("kept stopped = %v, want %v", done.KeptStopped, tc.wantStopped)
+			}
+			got, err := prd.st.GetWorkflow(ctx, "wf-orders")
+			if err != nil || got.Active == tc.wantStopped {
+				t.Fatalf("workflow active = %v, %v", got.Active, err)
+			}
+		})
+	}
+}

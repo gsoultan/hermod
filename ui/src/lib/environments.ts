@@ -184,6 +184,8 @@ export interface Promotion {
   secrets_copied?: string[] | null
   secrets_kept?: string[] | null
   secrets_missing?: string[] | null
+  /** Deployed stopped, though sent to start, because a secret is still without a value. */
+  kept_stopped?: boolean
 }
 
 export interface PromoteOptions {
@@ -340,15 +342,19 @@ export const listPromotions = async (signal?: AbortSignal) =>
   (await requestJson<Promotion[] | null>(`${api}/promotions`, { signal })) ?? []
 export const listSent = async (signal?: AbortSignal) => (await requestJson<Promotion[] | null>(`${api}/sent`, { signal })) ?? []
 /** Decide, from here, on the instance it went to, a promotion this instance sent. */
-export const approveSent = (pid: string) => requestJson<Promotion>(`${api}/sent/${id(pid)}/approve`, { method: 'POST' })
+export const approveSent = (pid: string, startAnyway = false) =>
+  requestJson<Promotion>(`${api}/sent/${id(pid)}/approve`, { method: 'POST', ...(startAnyway ? json({ start_anyway: true }) : {}) })
 export const rejectSent = (pid: string, reason: string) =>
   requestJson<Promotion>(`${api}/sent/${id(pid)}/reject`, { method: 'POST', ...json({ reason }) })
 export const rollbackSent = (pid: string) => requestJson<Promotion>(`${api}/sent/${id(pid)}/rollback`, { method: 'POST' })
-export const approvePromotion = (pid: string, secrets: Record<string, string> = {}) =>
-  requestJson<Promotion>(`${api}/promotions/${id(pid)}/approve`, {
+/** startAnyway starts a flow whose secrets are not all set; it is deployed stopped otherwise. */
+export function approvePromotion(pid: string, secrets: Record<string, string> = {}, startAnyway = false) {
+  const body = { ...(Object.keys(secrets).length ? { secrets } : {}), ...(startAnyway ? { start_anyway: true } : {}) }
+  return requestJson<Promotion>(`${api}/promotions/${id(pid)}/approve`, {
     method: 'POST',
-    ...(Object.keys(secrets).length ? json({ secrets }) : {}),
+    ...(Object.keys(body).length ? json(body) : {}),
   })
+}
 export const rejectPromotion = (pid: string, reason: string) =>
   requestJson<Promotion>(`${api}/promotions/${id(pid)}/reject`, { method: 'POST', ...json({ reason }) })
 export const rollbackPromotion = (pid: string) => requestJson<Promotion>(`${api}/promotions/${id(pid)}/rollback`, { method: 'POST' })

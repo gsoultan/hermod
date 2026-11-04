@@ -74,3 +74,14 @@ and deploy/compose). Kubernetes was unaffected: the chart's `fsGroup` chowns the
 PVC. CI's image smoke test now uses a named volume and runs
 `POST /api/config/setup`; it used to set `HERMOD_CONFIG_DIR=/tmp/hermod`, which
 hid the bug.
+
+**Empty secret at approval (missing_secret_start_test.go).** `deploy` keeps a
+workflow stopped (`applyPromoted(..., stopped)`, Active=false even if it was
+running) when `deploySecrets` leaves `stillMissing` and the approver did not
+pass `ApproveOptions.StartAnyway`; the promotion records `KeptStopped`.
+Automatic (`none` rule) deploys never start anyway. The flag rides
+`POST /promotions/{id}/approve` (`start_anyway`), `POST /sent/{id}/approve`
+and `Decision.StartAnyway` for relayed approvals. `copyOutcome` copies the
+deploy outcome (status, secrets, kept_stopped) into the sender's sent log.
+UI: `StartChoice` and `startLine` in SecretValues.tsx, used by ReleaseCard
+and SentReleases' WaitingRow.

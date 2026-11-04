@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  Alert, Anchor, Badge, Button, Group, Modal, Paper, PasswordInput, SegmentedControl, Stack, Text, Textarea, TextInput,
+  Alert, Anchor, Badge, Button, Group, Modal, Paper, PasswordInput, Radio, SegmentedControl, Stack, Text, Textarea, TextInput,
 } from '@mantine/core'
 import { IconClipboardText, IconKey, IconSearch } from '@tabler/icons-react'
 
@@ -49,6 +49,43 @@ export function parseEnvBlock(text: string, needed: string[]): { values: Record<
     else ignored.push(name)
   }
   return { values, ignored }
+}
+
+/** "A and B", "A, B and C". */
+export const andList = (names: string[]) =>
+  names.length <= 1 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
+
+/**
+ * What happens to a flow sent to start when some of its secrets still have
+ * no value: it stays stopped (the default), or starts anyway, as when a
+ * secret manager serves them.
+ */
+export function StartChoice({ empty, startAnyway, onChange }: {
+  empty: string[]; startAnyway: boolean; onChange: (startAnyway: boolean) => void
+}) {
+  if (empty.length === 0) return null
+  const names = andList(empty)
+  return (
+    <Radio.Group
+      label={empty.length === 1 ? `${names} has no value` : `${names} have no value`}
+      value={startAnyway ? 'start' : 'stop'}
+      onChange={(v) => onChange(v === 'start')}
+    >
+      <Stack gap={6} mt={6}>
+        <Radio value="stop" label={`Keep it stopped until ${names} ${empty.length === 1 ? 'has a value' : 'have values'}`} />
+        <Radio value="start" label="Start it anyway (a secret manager serves them)" />
+      </Stack>
+    </Radio.Group>
+  )
+}
+
+/** How the confirm says whether it starts: " and starts", or why it stays stopped. */
+export function startLine(count: number, start: boolean, empty: string[], startAnyway: boolean) {
+  if (!start) return ''
+  if (empty.length > 0 && !startAnyway) {
+    return ` but stays stopped until ${andList(empty)} ${empty.length === 1 ? 'has a value' : 'have values'}`
+  }
+  return count === 1 ? ' and starts' : ' and start'
 }
 
 interface Props {

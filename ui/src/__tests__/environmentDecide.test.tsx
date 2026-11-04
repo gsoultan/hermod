@@ -82,6 +82,26 @@ describe('deciding from the sending side', () => {
     expect(screen.queryByText('Needs your approval')).not.toBeInTheDocument()
   })
 
+  it('keeps a flow with an empty secret stopped unless the approver here starts it anyway', async () => {
+    signInAs('Administrator', 'rina')
+    const bodies: string[] = []
+    staging(true, [sent({ secrets: ['CRM_KEY', 'SMTP_PASSWORD'], secrets_filled: ['SMTP_PASSWORD'] })])
+    server.use(http.post('/api/environments/sent/:id/approve', async ({ request }) => {
+      bodies.push(await request.text())
+      return HttpResponse.json(sent({ status: 'deployed' }))
+    }))
+    const user = userEvent.setup()
+    wrap(<EnvironmentsPage />)
+
+    expect(await screen.findByRole('radio', { name: /Keep it stopped until CRM_KEY has a value/ })).toBeChecked()
+    await user.click(screen.getByRole('radio', { name: /Start it anyway/ }))
+    await user.click(screen.getByRole('button', { name: 'Approve orders' }))
+    const dialog = within(await screen.findByRole('dialog'))
+    expect(dialog.getByText(/orders goes live in Production now and starts/)).toBeInTheDocument()
+    await user.click(dialog.getByRole('button', { name: 'Approve and go live' }))
+    await waitFor(() => expect(bodies).toEqual([JSON.stringify({ start_anyway: true })]))
+  })
+
   it('rejects with a reason', async () => {
     signInAs('Administrator', 'rina')
     let body: unknown = null

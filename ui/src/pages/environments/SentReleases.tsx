@@ -10,6 +10,7 @@ import {
   approveSent, environmentKeys, groupByRelease, rejectSent, releaseStatus, rollbackSent, statusColor, statusLabel,
   useLinks, workflowNames, type Promotion,
 } from '@/lib/environments'
+import { StartChoice, startLine } from './SecretValues'
 
 const title = (ps: Promotion[]) => (ps.length === 1 ? ps[0].workflow_name : `${ps.length} workflows`)
 const border = (i: number) => (i ? { borderTop: '1px solid var(--mantine-color-default-border)' } : undefined)
@@ -79,9 +80,14 @@ function WaitingRow({ ps, style }: { ps: Promotion[]; style?: React.CSSPropertie
     await refresh()
     notifications.show({ color: 'red', title: 'Not done', message: err.message })
   }
+  // Secrets nobody typed a value for: they decide whether it starts there.
+  const empty = head.start
+    ? [...new Set(ps.flatMap((p) => (p.secrets ?? []).filter((n) => !(p.secrets_filled ?? []).includes(n))))].sort()
+    : []
+  const [startAnyway, setStartAnyway] = useState(false)
   // Each acts on the whole release there, whichever member it names.
   const approve = useMutation({
-    mutationFn: () => approveSent(head.id),
+    mutationFn: () => approveSent(head.id, empty.length > 0 && startAnyway),
     onSuccess: async () => {
       await refresh()
       notifications.show({ color: 'green', message: `${names} ${ps.length === 1 ? 'is' : 'are'} live in ${head.from_env}.` })
@@ -100,6 +106,7 @@ function WaitingRow({ ps, style }: { ps: Promotion[]; style?: React.CSSPropertie
         <Text size="sm" fw={600}>{title(ps)} to {head.from_env}</Text>
         {ps.length > 1 && <Text size="xs" c="dimmed">{names}</Text>}
         <Text size="xs" c="dimmed">Sent by {head.sender} · {formatDateTime(head.created_at)}</Text>
+        <StartChoice empty={empty} startAnyway={startAnyway} onChange={setStartAnyway} />
       </Stack>
       <Group gap="xs" wrap="nowrap">
         <Button size="xs" variant="default" aria-label={`Reject ${title(ps)}`} onClick={() => setRejecting(true)}>Reject</Button>
@@ -112,7 +119,7 @@ function WaitingRow({ ps, style }: { ps: Promotion[]; style?: React.CSSPropertie
           onClick={async () => {
             if (await confirm({
               title: `Approve ${title(ps)}`,
-              message: `${names} ${ps.length === 1 ? 'goes' : 'go'} live in ${head.from_env} now${head.start ? ' and start' + (ps.length === 1 ? 's' : '') : ''}. ${head.from_env}'s rules still apply: if it wants someone other than the sender, it refuses.`,
+              message: `${names} ${ps.length === 1 ? 'goes' : 'go'} live in ${head.from_env} now${startLine(ps.length, head.start, empty, startAnyway)}. ${head.from_env}'s rules still apply: if it wants someone other than the sender, it refuses.`,
               confirmLabel: 'Approve and go live',
             })) approve.mutate()
           }}

@@ -181,4 +181,50 @@ describe('approving on production', () => {
     expect(screen.getByText('Still without a value: SLACK_TOKEN. Add them on the Secrets page.')).toBeInTheDocument()
     expect(bodies).toEqual([''])
   })
+
+  it('keeps a flow with an empty secret stopped, unless the approver starts it anyway', async () => {
+    const bodies: string[] = []
+    server.use(
+      http.get('/api/environments/promotions', () => HttpResponse.json([promotion({ secrets: ['SLACK_TOKEN'] })])),
+      http.post('/api/environments/promotions/:id/approve', async ({ request }) => {
+        bodies.push(await request.text())
+        return HttpResponse.json(promotion({ status: 'deployed' }))
+      }),
+    )
+    const user = userEvent.setup()
+    wrap(<EnvironmentsPage />)
+
+    const stopped = await screen.findByRole('radio', { name: /Keep it stopped until SLACK_TOKEN has a value/ })
+    expect(stopped).toBeChecked()
+    await user.click(screen.getByRole('button', { name: 'Approve and go live' }))
+    const dialog = within(await screen.findByRole('dialog'))
+    expect(dialog.getByText(/stays stopped until SLACK_TOKEN has a value/)).toBeInTheDocument()
+    await user.click(dialog.getByRole('button', { name: 'Approve and go live' }))
+    await waitFor(() => expect(bodies).toEqual(['']))
+
+    await user.click(screen.getByRole('radio', { name: /Start it anyway/ }))
+    await user.click(screen.getByRole('button', { name: 'Approve and go live' }))
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Approve and go live' }))
+    await waitFor(() => expect(bodies).toEqual(['', JSON.stringify({ start_anyway: true })]))
+  })
+
+  it('offers no choice once every secret has a value', async () => {
+    server.use(
+      http.get('/api/environments/promotions', () => HttpResponse.json([promotion({ secrets: ['SLACK_TOKEN'] })])),
+    )
+    const user = userEvent.setup()
+    wrap(<EnvironmentsPage />)
+    await user.type(await screen.findByLabelText('SLACK_TOKEN'), 'xoxb-1')
+    expect(screen.queryByRole('radio', { name: /Keep it stopped/ })).not.toBeInTheDocument()
+  })
+
+  it('says a flow was kept stopped for a missing secret', async () => {
+    server.use(
+      http.get('/api/environments/promotions', () => HttpResponse.json([
+        promotion({ status: 'deployed', secrets: ['SLACK_TOKEN'], secrets_missing: ['SLACK_TOKEN'], kept_stopped: true }),
+      ])),
+    )
+    wrap(<EnvironmentsPage />)
+    expect(await screen.findByText('Kept stopped until SLACK_TOKEN has a value. Start it from the flow once it is set.')).toBeInTheDocument()
+  })
 })

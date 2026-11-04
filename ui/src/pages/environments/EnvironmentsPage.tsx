@@ -15,7 +15,7 @@ import {
   workflowNames, type ApprovalRule, type Promotion, type ReadyLane, type ReleaseItem, type Rules,
 } from '@/lib/environments'
 import { ReleaseDialog } from './ReleaseDialog'
-import { filledValues, neededSecrets, SecretValues } from './SecretValues'
+import { andList, filledValues, neededSecrets, SecretValues, StartChoice, startLine } from './SecretValues'
 import { SentReleases } from './SentReleases'
 import { PageHeader } from '@/components/rows'
 
@@ -224,8 +224,11 @@ function ReleaseCard({ ps }: { ps: Promotion[] }) {
   })))
   const [values, setValues] = useState<Record<string, string>>({})
   const filledBySender = [...new Set(ps.flatMap((p) => p.secrets_filled ?? []))].sort()
+  const [startAnyway, setStartAnyway] = useState(false)
+  // Still without a value once approved: these decide whether it starts.
+  const empty = head.start ? needed.map((n) => n.name).filter((n) => !(values[n] ?? '').trim()) : []
   const approve = useMutation({
-    mutationFn: () => approvePromotion(head.id, filledValues(values)),
+    mutationFn: () => approvePromotion(head.id, filledValues(values), empty.length > 0 && startAnyway),
     onSuccess: async () => { await refresh(); notifications.show({ color: 'green', message: `${names} ${ps.length === 1 ? 'is' : 'are'} live.` }) },
     onError,
   })
@@ -262,6 +265,9 @@ function ReleaseCard({ ps }: { ps: Promotion[] }) {
         {isAdmin && head.status === 'pending' && (
           <SecretValues needed={needed} values={values} onChange={setValues} where={head.vhost || 'default'} mode="approve" />
         )}
+        {isAdmin && head.status === 'pending' && (
+          <StartChoice empty={empty} startAnyway={startAnyway} onChange={setStartAnyway} />
+        )}
         {head.status === 'deploying' && <Group gap="xs"><Loader size="xs" /><Text size="sm">Going live…</Text></Group>}
         {head.auto_rollback && (
           <Text size="sm" c="green.8">Undone on its own if it fails in the first 10 minutes</Text>
@@ -277,7 +283,7 @@ function ReleaseCard({ ps }: { ps: Promotion[] }) {
               onClick={async () => {
                 if (await confirm({
                   title: `Approve ${ps.length === 1 ? head.workflow_name : `${ps.length} workflows`}`,
-                  message: `${names} ${ps.length === 1 ? 'goes' : 'go'} live here now${head.start ? ' and start' + (ps.length === 1 ? 's' : '') : ''}.${head.auto_rollback ? ' If one starts failing within 10 minutes, the whole release is undone on its own.' : ''}`,
+                  message: `${names} ${ps.length === 1 ? 'goes' : 'go'} live here now${startLine(ps.length, head.start, empty, startAnyway)}.${head.auto_rollback ? ' If one starts failing within 10 minutes, the whole release is undone on its own.' : ''}`,
                   confirmLabel: 'Approve and go live',
                 })) approve.mutate()
               }}
@@ -426,11 +432,14 @@ function SecretOutcome({ ps }: { ps: Promotion[] }) {
   const all = (pick: (p: Promotion) => string[] | null | undefined) => [...new Set(ps.flatMap((p) => pick(p) ?? []))].sort()
   const copied = all((p) => p.secrets_copied)
   const missing = all((p) => p.secrets_missing)
+  const stopped = ps.some((p) => p.kept_stopped)
   if (copied.length === 0 && missing.length === 0) return null
   return (
     <>
       {copied.length > 0 && <Text size="xs" c="dimmed">Saved secrets {copied.join(', ')}</Text>}
-      {missing.length > 0 && <Text size="xs" c="orange.8">Still without a value: {missing.join(', ')}. Add them on the Secrets page.</Text>}
+      {missing.length > 0 && (stopped
+        ? <Text size="xs" c="orange.8">Kept stopped until {andList(missing)} {missing.length === 1 ? 'has a value' : 'have values'}. Start it from the flow once it is set.</Text>
+        : <Text size="xs" c="orange.8">Still without a value: {missing.join(', ')}. Add them on the Secrets page.</Text>)}
     </>
   )
 }
