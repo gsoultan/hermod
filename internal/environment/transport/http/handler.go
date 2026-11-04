@@ -365,17 +365,21 @@ func (h *Handler) ListPromotions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, h.visible(r, ps))
 }
 
-// Approve takes an optional body, {"secrets": {"NAME": "value"}}: the values
-// the approver typed for the secrets the promotion needs. They are never
+// Approve takes an optional body, {"secrets": {"NAME": "value"},
+// "start_anyway": bool}: the values the approver typed for the secrets the
+// promotion needs, and whether to start a workflow whose secrets are still
+// not all set (it is deployed stopped otherwise). The values are never
 // echoed or audited; the audit entry names them.
 func (h *Handler) Approve(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Secrets map[string]string `json:"secrets"`
+		Secrets     map[string]string `json:"secrets"`
+		StartAnyway bool              `json:"start_anyway"`
 	}
 	if r.ContentLength != 0 && !h.DecodeJSONBody(w, r, maxCheckBody, &in, "") {
 		return
 	}
-	p, err := h.svc.ApproveWith(r.Context(), r.PathValue("id"), username(r), in.Secrets)
+	p, err := h.svc.ApproveWithOptions(r.Context(), r.PathValue("id"), username(r),
+		environment.ApproveOptions{Secrets: in.Secrets, StartAnyway: in.StartAnyway})
 	if err != nil {
 		if p.ID != "" {
 			// Approved, but the deploy failed: the promotion says why.
@@ -698,12 +702,13 @@ func (c secretChecker) CreateSecret(ctx context.Context, vhost, name, value, by 
 func (h *Handler) decideSent(action string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
-			Reason string `json:"reason"`
+			Reason      string `json:"reason"`
+			StartAnyway bool   `json:"start_anyway"`
 		}
 		if r.ContentLength != 0 && !h.DecodeJSONBody(w, r, maxSmallBody, &in, "") {
 			return
 		}
-		p, err := h.svc.DecideSent(r.Context(), r.PathValue("id"), action, username(r), in.Reason)
+		p, err := h.svc.DecideSentWith(r.Context(), r.PathValue("id"), action, username(r), in.Reason, in.StartAnyway)
 		if err != nil {
 			h.writeErr(w, err)
 			return

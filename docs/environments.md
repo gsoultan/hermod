@@ -146,6 +146,14 @@ fills the boxes from `NAME=value` lines and lists the names that are not needed.
 when a secret manager serves it. Once live, **Recently live** shows which secrets were saved and
 which still have no value.
 
+A workflow sent to start that still has a secret without a value goes live **stopped**, so it does
+not start and fail. While one is empty the card asks what to do: **Keep it stopped until NAME has a
+value** (the default) or **Start it anyway** (when a secret manager serves it). A workflow already
+running there is stopped too when its new version lacks a secret. Afterwards **Recently live** says
+it was kept stopped; start it from the flow once the value is set. The same choice is on **Needs
+your approval** when approving from the sending side. A release that goes live without approval
+(the `none` rule) is kept stopped in the same way.
+
 Approving checks once more that every connection a workflow uses still exists in production, in its vhost. A connection deleted or moved while the release waited fails the release with the connection's ID as the reason, instead of deploying a workflow that cannot start.
 
 When a workflow uses secrets that production's vhost lacks, the release lists them by name, says
@@ -159,7 +167,9 @@ promotion then lists which secrets were created, which were already there, and w
 missing. The audit log names the secrets that were created, never their values.
 
 Through the API: `POST /api/environments/promotions/{id}/approve` with
-`{"secrets": {"CRM_KEY": "..."}}`. A name the release does not need is refused.
+`{"secrets": {"CRM_KEY": "..."}, "start_anyway": true}`. A name the release does not need is
+refused. `start_anyway` starts the workflows even with a secret still missing; the promotion
+answers `kept_stopped: true` when it did not start for that reason.
 
 A release goes live whole or not at all. If one workflow fails to deploy, the ones before it are
 put back as they were, and the rest are marked failed with the reason.
@@ -257,7 +267,7 @@ All under `/api/environments`. Session routes need an administrator unless marke
 | `GET /links/{id}/matching`, `PUT /links/{id}/mapping` | administrator | Connection matching |
 | `POST /links/{id}/preview`, `POST /links/{id}/promotions` | Editor | Check and promote. A preview lists `unmatched` connections (this side's, never production's) and `missing_envs` |
 | `GET /sent` | Editor | What this instance sent |
-| `POST /sent/{id}/approve`, `/reject`, `/rollback` | administrator | Decide it on the instance it went to, when that one allows it; `reject` and `rollback` take `{"reason"}`. A deploy that failed there answers 422 with `error` and `promotion` |
+| `POST /sent/{id}/approve`, `/reject`, `/rollback` | administrator | Decide it on the instance it went to, when that one allows it; `reject` and `rollback` take `{"reason"}`, `approve` takes `{"start_anyway"}`. A deploy that failed there answers 422 with `error` and `promotion` |
 | `GET /ready` | Editor | Per connected vhost, what changed since it was last promoted |
 | `POST /releases/preview` | Editor | Check a release: `{"items": [{"workflow_id", "version"}]}` |
 | `POST /releases` | Editor | Send it, with `note`, `start` and `auto_rollback`. 201 with each destination's release; 502 with `error` and `sent` when only part went |

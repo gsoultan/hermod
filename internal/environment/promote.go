@@ -502,8 +502,7 @@ func (s *Service) refreshSent(ctx context.Context, log []Promotion) bool {
 			if i < 0 || log[i].Status == t.Status && log[i].Reason == t.Reason {
 				continue
 			}
-			log[i].Status, log[i].Reason = t.Status, t.Reason
-			log[i].DecidedBy, log[i].DecidedAt, log[i].DeployedAt = t.DecidedBy, t.DecidedAt, t.DeployedAt
+			copyOutcome(&log[i], t)
 			changed = true
 		}
 	}

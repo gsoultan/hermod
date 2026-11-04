@@ -202,7 +202,7 @@ func (s *Service) Receive(ctx context.Context, peer Peer, sub Submission) (Promo
 		return Promotion{}, err
 	}
 	if rules.For(vhostOf(p.VHost)).Approval == ApproveNone {
-		return s.deployGroup(ctx, p.ID, "automatic", nil)
+		return s.deployGroup(ctx, p.ID, "automatic", nil, false)
 	}
 	return p, nil
 }
@@ -253,7 +253,7 @@ func (s *Service) ReceiveRelease(ctx context.Context, peer Peer, rs ReleaseSubmi
 		return nil, err
 	}
 	if rules.For(vhostOf(ps[0].VHost)).Approval == ApproveNone {
-		if _, err := s.deployGroup(ctx, ps[0].ID, "automatic", nil); err != nil {
+		if _, err := s.deployGroup(ctx, ps[0].ID, "automatic", nil, false); err != nil {
 			slog.Warn("environment: deploying a release on arrival failed", "release", rs.ReleaseID, "error", err)
 		}
 	}
@@ -376,20 +376,36 @@ func (s *Service) promotion(ctx context.Context, id string) (Promotion, error) {
 // release. Under the admin_except_sender rule the person who sent any of
 // them cannot approve.
 func (s *Service) Approve(ctx context.Context, id, username string) (Promotion, error) {
-	return s.approve(ctx, id, username, username, nil)
+	return s.approve(ctx, id, username, username, ApproveOptions{})
 }
 
 // ApproveWith is Approve with the values the approver typed for the secrets
 // the release needs, by name. A blank value is one left out. Each is created
 // in its promotion's vhost unless the vhost holds the name by then.
 func (s *Service) ApproveWith(ctx context.Context, id, username string, secretValues map[string]string) (Promotion, error) {
-	return s.approve(ctx, id, username, username, secretValues)
+	return s.approve(ctx, id, username, username, ApproveOptions{Secrets: secretValues})
+}
+
+// ApproveOptions is what an approver chooses besides approving.
+type ApproveOptions struct {
+	// Secrets are the values typed for the secrets the release needs, by
+	// name; a blank one is left out.
+	Secrets map[string]string
+	// StartAnyway starts a workflow sent to start even when a secret it
+	// uses is still without a value, as when a secret manager serves it.
+	// Without it such a workflow is deployed stopped.
+	StartAnyway bool
+}
+
+// ApproveWithOptions is ApproveWith with the approver's other choices.
+func (s *Service) ApproveWithOptions(ctx context.Context, id, username string, opts ApproveOptions) (Promotion, error) {
+	return s.approve(ctx, id, username, username, opts)
 }
 
 // approve is ApproveWith by username, recorded as by: the same, or for
 // someone deciding from the sending instance, their name and where they
 // decided.
-func (s *Service) approve(ctx context.Context, id, username, by string, secretValues map[string]string) (Promotion, error) {
+func (s *Service) approve(ctx context.Context, id, username, by string, opts ApproveOptions) (Promotion, error) {
 	rules, err := loadRules(ctx, s.store)
 	if err != nil {
 		return Promotion{}, err
@@ -418,7 +434,7 @@ func (s *Service) approve(ctx context.Context, id, username, by string, secretVa
 			return Promotion{}, fmt.Errorf("%w: you sent this, so another admin has to approve it", ErrForbidden)
 		}
 	}
-	filled, err := s.filledSecrets(ps, members, secretValues)
+	filled, err := s.filledSecrets(ps, members, opts.Secrets)
 	if err != nil {
 		s.mu.Unlock()
 		return Promotion{}, err
@@ -432,14 +448,14 @@ func (s *Service) approve(ctx context.Context, id, username, by string, secretVa
 	if err != nil {
 		return Promotion{}, err
 	}
-	return s.deployGroup(ctx, id, by, filled)
+	return s.deployGroup(ctx, id, by, filled, opts.StartAnyway)
 }
 
 // deployGroup deploys id's release in the order it was sent. When one fails
 // the ones before it are undone, newest first, and the ones after it are
 // not deployed: a release goes live whole or not at all. It returns id's
 // promotion as it ends.
-func (s *Service) deployGroup(ctx context.Context, id, by string, secretValues map[string]string) (Promotion, error) {
+func (s *Service) deployGroup(ctx context.Context, id, by string, secretValues map[string]string, startAnyway bool) (Promotion, error) {
 	ps, err := loadPromotions(ctx, s.store)
 	if err != nil {
 		return Promotion{}, err
@@ -453,7 +469,7 @@ func (s *Service) deployGroup(ctx context.Context, id, by string, secretValues m
 		ids = append(ids, ps[j].ID)
 	}
 	for k, member := range ids {
-		failed, err := s.deploy(ctx, member, by, secretValues)
+		failed, err := s.deploy(ctx, member, by, secretValues, startAnyway)
 		if err == nil {
 			continue
 		}
@@ -490,8 +506,9 @@ func (s *Service) unwindRelease(ctx context.Context, ids []string, k int, by, wh
 
 // deploy creates the secrets it was given values for, stores the promoted
 // workflow through the workflow update path and records the outcome on the
-// promotion.
-func (s *Service) deploy(ctx context.Context, id, by string, secretValues map[string]string) (Promotion, error) {
+// promotion. A workflow with a secret still missing is stored stopped unless
+// startAnyway.
+func (s *Service) deploy(ctx context.Context, id, by string, secretValues map[string]string, startAnyway bool) (Promotion, error) {
 	wf, err := loadPromotionWorkflow(ctx, s.store, id)
 	if err != nil {
 		return s.fail(ctx, id, by, err)
@@ -516,13 +533,15 @@ func (s *Service) deploy(ctx context.Context, id, by string, secretValues map[st
 		return s.fail(ctx, id, by, err)
 	}
 
-	out, err := s.applyPromoted(ctx, wf, p, by, msg)
+	keptStopped := len(stillMissing) > 0 && !startAnyway
+	out, err := s.applyPromoted(ctx, wf, p, by, msg, keptStopped)
 	if err != nil {
 		return s.fail(ctx, id, by, err)
 	}
 	return s.update(ctx, id, func(p *Promotion) error {
 		p.Status = StatusDeployed
 		p.SecretsCopied, p.SecretsKept, p.SecretsMissing = copied, kept, stillMissing
+		p.KeptStopped = keptStopped
 		p.DecidedBy = by
 		if p.DecidedAt.IsZero() {
 			p.DecidedAt = s.now().UTC()
@@ -542,8 +561,10 @@ type applied struct {
 }
 
 // applyPromoted stores wf as p's deploy: a new version of the workflow here,
-// keeping this instance's run and placement, or a new workflow.
-func (s *Service) applyPromoted(ctx context.Context, wf storage.Workflow, p Promotion, by, msg string) (applied, error) {
+// keeping this instance's run and placement, or a new workflow. stopped
+// stores it stopped, running or not before, because a secret it uses has no
+// value here.
+func (s *Service) applyPromoted(ctx context.Context, wf storage.Workflow, p Promotion, by, msg string, stopped bool) (applied, error) {
 	var out applied
 	existing, err := s.store.GetWorkflow(ctx, wf.ID)
 	switch {
@@ -553,11 +574,11 @@ func (s *Service) applyPromoted(ctx context.Context, wf storage.Workflow, p Prom
 		after.VHost, after.WorkspaceID = existing.VHost, existing.WorkspaceID
 		after.Status, after.WorkerID, after.OwnerID, after.LeaseUntil = existing.Status, existing.WorkerID, existing.OwnerID, existing.LeaseUntil
 		after.TotalProcessed, after.TotalErrors, after.TotalLag = existing.TotalProcessed, existing.TotalErrors, existing.TotalLag
-		after.Active = existing.Active || p.Start
+		after.Active = (existing.Active || p.Start) && !stopped
 		out.errorsAt, out.processedAt = existing.TotalErrors, existing.TotalProcessed
 		out.previous, out.applied, err = s.applier.ApplyWorkflowChange(ctx, existing, after, by, msg)
 	case errors.Is(err, storage.ErrNotFound):
-		wf.Active = p.Start
+		wf.Active = p.Start && !stopped
 		wf.WorkspaceID = ""
 		out.applied, err = s.applier.CreateWorkflowVersioned(ctx, wf, by, msg)
 	}

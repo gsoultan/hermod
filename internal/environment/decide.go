@@ -69,7 +69,7 @@ func (s *Service) PeerDecide(ctx context.Context, peer Peer, d Decision) (Promot
 	who := by + " (via " + peer.Name + ")"
 	switch d.Action {
 	case DecisionApprove:
-		return s.approve(ctx, p.ID, by, who, nil)
+		return s.approve(ctx, p.ID, by, who, ApproveOptions{StartAnyway: d.StartAnyway})
 	case DecisionReject:
 		return s.Reject(ctx, p.ID, who, d.Reason)
 	case DecisionRollback:
@@ -87,6 +87,13 @@ func (s *Service) PeerDecide(ctx context.Context, peer Peer, d Decision) (Promot
 // promotion this instance sent, as username, and records the outcome in
 // the sent log.
 func (s *Service) DecideSent(ctx context.Context, id, action, username, reason string) (Promotion, error) {
+	return s.DecideSentWith(ctx, id, action, username, reason, false)
+}
+
+// DecideSentWith is DecideSent where an approval may start a workflow whose
+// secrets are not all set there (startAnyway); otherwise it is deployed
+// stopped.
+func (s *Service) DecideSentWith(ctx context.Context, id, action, username, reason string, startAnyway bool) (Promotion, error) {
 	if !slices.Contains([]string{DecisionApprove, DecisionReject, DecisionRollback}, action) {
 		return Promotion{}, fmt.Errorf("%w: unknown decision %q", ErrInvalid, action)
 	}
@@ -114,11 +121,19 @@ func (s *Service) DecideSent(ctx context.Context, id, action, username, reason s
 			return Promotion{}, fmt.Errorf("%w: %s does not let administrators here decide; approve it in %s, or ask an administrator there to allow it", ErrForbidden, l.Name, l.Name)
 		}
 	}
-	there, err := s.remote.Decide(ctx, l.URL, token, Decision{PromotionID: id, Action: action, By: username, Reason: reason})
+	there, err := s.remote.Decide(ctx, l.URL, token, Decision{PromotionID: id, Action: action, By: username, Reason: reason, StartAnyway: startAnyway})
 	if err != nil {
 		return Promotion{}, remoteDecisionErr(l, err)
 	}
 	return s.recordDecision(ctx, there)
+}
+
+// copyOutcome records on a sent promotion what became of it there.
+func copyOutcome(sent *Promotion, there Promotion) {
+	sent.Status, sent.Reason = there.Status, there.Reason
+	sent.DecidedBy, sent.DecidedAt, sent.DeployedAt = there.DecidedBy, there.DecidedAt, there.DeployedAt
+	sent.SecretsCopied, sent.SecretsKept, sent.SecretsMissing = there.SecretsCopied, there.SecretsKept, there.SecretsMissing
+	sent.KeptStopped = there.KeptStopped
 }
 
 // remoteDecisionErr turns the other instance's refusal into the error kind
@@ -150,7 +165,6 @@ func (s *Service) recordDecision(ctx context.Context, there Promotion) (Promotio
 	if i < 0 {
 		return Promotion{}, ErrNotFound
 	}
-	log[i].Status, log[i].Reason = there.Status, there.Reason
-	log[i].DecidedBy, log[i].DecidedAt, log[i].DeployedAt = there.DecidedBy, there.DecidedAt, there.DeployedAt
+	copyOutcome(&log[i], there)
 	return log[i], putJSON(ctx, s.store, keySent, log)
 }

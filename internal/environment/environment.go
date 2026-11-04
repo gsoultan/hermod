@@ -297,6 +297,10 @@ type Promotion struct {
 	SecretsCopied  []string `json:"secrets_copied,omitempty"`
 	SecretsKept    []string `json:"secrets_kept,omitempty"`
 	SecretsMissing []string `json:"secrets_missing,omitempty"`
+	// KeptStopped says it was deployed stopped although it was sent to
+	// start, because SecretsMissing were left without a value and the
+	// approver did not choose to start it anyway.
+	KeptStopped bool `json:"kept_stopped,omitempty"`
 }
 
 // Change is one difference between the version being promoted and the one

@@ -68,6 +68,9 @@ type Decision struct {
 	Action      string `json:"action"`
 	By          string `json:"by"`
 	Reason      string `json:"reason,omitempty"`
+	// StartAnyway starts an approved workflow whose secrets are not all set
+	// there; without it such a workflow is deployed stopped.
+	StartAnyway bool `json:"start_anyway,omitempty"`
 }
 
 // AddVHostRequest asks to add a vhost there to the caller's connection.
