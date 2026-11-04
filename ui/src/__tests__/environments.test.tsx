@@ -275,7 +275,7 @@ describe('the production accept page', () => {
     expect(screen.getByText('https://stg.example.com')).toBeInTheDocument()
     await user.click(await screen.findByRole('button', { name: 'Allow' }))
     await waitFor(() => expect(postMessage).toHaveBeenCalledWith({ type: PAIRING_MESSAGE, code: 'ABCD-2345' }, 'https://stg.example.com'))
-    expect(body).toEqual({ label: 'https://stg.example.com', vhost: 'hr', add_vhosts: true })
+    expect(body).toEqual({ label: 'https://stg.example.com', vhost: 'hr', add_vhosts: true, decide: true })
 
     if (opener) Object.defineProperty(window, 'opener', opener)
   })

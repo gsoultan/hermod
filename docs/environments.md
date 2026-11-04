@@ -155,6 +155,20 @@ Through the API: `POST /api/environments/promotions/{id}/approve` with
 A release goes live whole or not at all. If one workflow fails to deploy, the ones before it are
 put back as they were, and the rest are marked failed with the reason.
 
+### Or approve it from staging
+
+Nobody has to sign in to production to approve. When production lets a connection decide (the
+**Its administrators may approve, reject and undo what it sends, from there** box on the authorize
+page, on by default, or the **Its admins approve from there** switch on a linked instance under
+**Receives from**), staging's **Releases** page lists each waiting release under **Needs your
+approval**. A staging administrator clicks **Approve** or **Reject** there, and **Undo** under
+**Recently sent** on a live one.
+
+Production still applies its own rules: under **another administrator than the sender**, the
+person who sent a release cannot approve it from staging either. Production records the decision
+as `name (via Staging)`, in the promotion and in its audit log, and staging's audit log records
+it too. Production can switch it off for a connection at any time.
+
 What production keeps from its own copy when it deploys:
 
 - the workflow's runtime state (status, counters, assigned worker),
@@ -221,8 +235,9 @@ All under `/api/environments`. Session routes need an administrator unless marke
 | --- | --- | --- |
 | `GET`, `PUT /self` | any, administrator | What this instance is |
 | `GET`, `PUT /rules` | any, administrator | Production's rules |
-| `POST /pairing-codes` | administrator | Issue a code for a vhost (`{"label", "vhost", "add_vhosts"}`), creating it if missing; `add_vhosts` lets the connection add vhosts without asking |
+| `POST /pairing-codes` | administrator | Issue a code for a vhost (`{"label", "vhost", "add_vhosts", "decide"}`), creating it if missing; `add_vhosts` lets the connection add vhosts without asking, `decide` lets the linked instance decide what it sends |
 | `GET /peers`, `DELETE /peers/{id}` | administrator | Instances linked to this one; `?all=true` cuts off the whole connection |
+| `PATCH /peers/{id}` | administrator | `{"decide": bool}`: let its administrators approve, reject and roll back what it sends, from there |
 | `GET /vhost-requests`, `POST /vhost-requests/{id}/allow`, `DELETE /vhost-requests/{id}` | administrator | Vhosts a connection asked to add: list, allow, decline |
 | `GET /promotions` | Editor | What arrived, in the vhosts you may see |
 | `POST /promotions/{id}/approve`, `/reject`, `/rollback` | administrator | Decide |
@@ -233,10 +248,11 @@ All under `/api/environments`. Session routes need an administrator unless marke
 | `GET /links/{id}/matching`, `PUT /links/{id}/mapping` | administrator | Connection matching |
 | `POST /links/{id}/preview`, `POST /links/{id}/promotions` | Editor | Check and promote. A preview lists `unmatched` connections (this side's, never production's) and `missing_envs` |
 | `GET /sent` | Editor | What this instance sent |
+| `POST /sent/{id}/approve`, `/reject`, `/rollback` | administrator | Decide it on the instance it went to, when that one allows it; `reject` and `rollback` take `{"reason"}`. A deploy that failed there answers 422 with `error` and `promotion` |
 | `GET /ready` | Editor | Per connected vhost, what changed since it was last promoted |
 | `POST /releases/preview` | Editor | Check a release: `{"items": [{"workflow_id", "version"}]}` |
 | `POST /releases` | Editor | Send it, with `note`, `start` and `auto_rollback`. 201 with each destination's release; 502 with `error` and `sent` when only part went |
 
 Linked instances call `POST /pair` with a pairing code, and `/peer/*` with their token, including
-`POST /peer/vhosts` to add a vhost to the connection, `POST /peer/releases` to submit a release and `GET /peer/promotions` to read back what became of
+`POST /peer/vhosts` to add a vhost to the connection, `POST /peer/releases` to submit a release, `POST /peer/decisions` to approve, reject or roll back one it sent (`{"promotion_id", "action", "by", "reason"}`; refused unless the peer may decide) and `GET /peer/promotions` to read back what became of
 the ones they sent. These are outside the session and checked by the handler.

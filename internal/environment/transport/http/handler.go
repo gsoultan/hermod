@@ -66,6 +66,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/environments/pairing-codes", h.AdminOnly(h.NewPairingCode))
 	mux.Handle("GET /api/environments/peers", h.AdminOnly(h.ListPeers))
 	mux.Handle("DELETE /api/environments/peers/{id}", h.AdminOnly(h.RevokePeer))
+	mux.Handle("PATCH /api/environments/peers/{id}", h.AdminOnly(h.PatchPeer))
 	mux.Handle("GET /api/environments/vhost-requests", h.AdminOnly(h.ListVHostRequests))
 	mux.Handle("POST /api/environments/vhost-requests/{id}/allow", h.AdminOnly(h.AllowVHostRequest))
 	mux.Handle("DELETE /api/environments/vhost-requests/{id}", h.AdminOnly(h.DeclineVHostRequest))
@@ -85,6 +86,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/environments/links/{id}/preview", h.EditorOnly(h.Preview))
 	mux.Handle("POST /api/environments/links/{id}/promotions", h.EditorOnly(h.Promote))
 	mux.Handle("GET /api/environments/sent", h.EditorOnly(h.ListSent))
+	mux.Handle("POST /api/environments/sent/{id}/approve", h.AdminOnly(h.decideSent(environment.DecisionApprove)))
+	mux.Handle("POST /api/environments/sent/{id}/reject", h.AdminOnly(h.decideSent(environment.DecisionReject)))
+	mux.Handle("POST /api/environments/sent/{id}/rollback", h.AdminOnly(h.decideSent(environment.DecisionRollback)))
 	mux.Handle("GET /api/environments/ready", h.EditorOnly(h.ListReady))
 	mux.Handle("POST /api/environments/releases/preview", h.EditorOnly(h.PreviewRelease))
 	mux.Handle("POST /api/environments/releases", h.EditorOnly(h.SendRelease))
@@ -186,6 +190,8 @@ func (h *Handler) NewPairingCode(w http.ResponseWriter, r *http.Request) {
 		VHost string `json:"vhost"`
 		// AddVHosts lets the connection add vhosts later without a new code.
 		AddVHosts bool `json:"add_vhosts"`
+		// Decide lets the linked instance's administrators decide what it sends.
+		Decide bool `json:"decide"`
 	}
 	if r.ContentLength != 0 && !h.DecodeJSONBody(w, r, maxSmallBody, &in, "") {
 		return
@@ -194,13 +200,16 @@ func (h *Handler) NewPairingCode(w http.ResponseWriter, r *http.Request) {
 	if in.AddVHosts {
 		opts = append(opts, environment.AllowAddingVHosts())
 	}
+	if in.Decide {
+		opts = append(opts, environment.AllowDeciding())
+	}
 	code, expires, err := h.svc.NewPairingCode(r.Context(), in.Label, in.VHost, username(r), opts...)
 	if err != nil {
 		h.writeErr(w, err)
 		return
 	}
 	// The code is not in the audit entry: it is a credential until used.
-	h.RecordAuditLog(r, "INFO", "Issued an environment pairing code for vhost "+in.VHost, "CREATE", "", "", "", map[string]any{"label": in.Label, "vhost": in.VHost, "add_vhosts": in.AddVHosts})
+	h.RecordAuditLog(r, "INFO", "Issued an environment pairing code for vhost "+in.VHost, "CREATE", "", "", "", map[string]any{"label": in.Label, "vhost": in.VHost, "add_vhosts": in.AddVHosts, "decide": in.Decide})
 	writeJSON(w, http.StatusCreated, map[string]any{"code": code, "expires_at": expires, "vhost": in.VHost})
 }
 
@@ -217,6 +226,7 @@ type peerView struct {
 	// Group is the ID every vhost of one connection shares.
 	Group     string `json:"group"`
 	AddVHosts bool   `json:"add_vhosts"`
+	Decide    bool   `json:"decide"`
 }
 
 func (h *Handler) ListPeers(w http.ResponseWriter, r *http.Request) {
@@ -232,7 +242,7 @@ func (h *Handler) ListPeers(w http.ResponseWriter, r *http.Request) {
 			group = p.ID
 		}
 		v := peerView{ID: p.ID, Name: p.Name, URL: p.URL, CreatedBy: p.CreatedBy, CreatedAt: p.CreatedAt, VHost: p.VHost,
-			FromVHost: p.FromVHost, Group: group, AddVHosts: p.AddVHosts}
+			FromVHost: p.FromVHost, Group: group, AddVHosts: p.AddVHosts, Decide: p.Decide}
 		if !p.LastUsedAt.IsZero() {
 			v.LastUsedAt = p.LastUsedAt
 		}
@@ -254,6 +264,32 @@ func (h *Handler) RevokePeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.RecordAuditLog(r, "INFO", what, "DELETE", "", "", "", map[string]any{"peer": id, "all": all})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// PatchPeer lets a linked instance's administrators decide what it sends
+// here, or stops them: {"decide": bool}.
+func (h *Handler) PatchPeer(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Decide *bool `json:"decide"`
+	}
+	if !h.DecodeJSONBody(w, r, maxSmallBody, &in, "") {
+		return
+	}
+	if in.Decide == nil {
+		h.JsonError(w, "decide is required", http.StatusBadRequest)
+		return
+	}
+	p, err := h.svc.SetPeerDecide(r.Context(), r.PathValue("id"), *in.Decide)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	what := "Let " + p.Name + " approve, reject and roll back what it sends"
+	if !p.Decide {
+		what = "Stopped " + p.Name + " from deciding what it sends"
+	}
+	h.RecordAuditLog(r, "INFO", what, "UPDATE", "", "", "", map[string]any{"peer": p.ID, "decide": p.Decide})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -655,4 +691,30 @@ func (c secretChecker) CreateSecret(ctx context.Context, vhost, name, value, by 
 		c.h.Registry.InvalidateVHostSecret(vhost, name)
 	}
 	return true, nil
+}
+
+// decideSent approves, rejects or rolls back a promotion this instance sent,
+// on the instance it went to, without signing in there.
+func (h *Handler) decideSent(action string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Reason string `json:"reason"`
+		}
+		if r.ContentLength != 0 && !h.DecodeJSONBody(w, r, maxSmallBody, &in, "") {
+			return
+		}
+		p, err := h.svc.DecideSent(r.Context(), r.PathValue("id"), action, username(r), in.Reason)
+		if err != nil {
+			h.writeErr(w, err)
+			return
+		}
+		h.RecordAuditLog(r, "INFO", "Decided ("+action+") a promotion of "+p.WorkflowName+" in "+p.FromEnv, "PROMOTE", p.WorkflowID, "", "",
+			map[string]any{"promotion": p.ID, "action": action, "status": p.Status})
+		if action == environment.DecisionApprove && p.Status == environment.StatusFailed {
+			// Approved, but the deploy failed there: the promotion says why.
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": p.Reason, "promotion": p})
+			return
+		}
+		writeJSON(w, http.StatusOK, p)
+	}
 }

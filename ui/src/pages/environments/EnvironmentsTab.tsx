@@ -20,6 +20,7 @@ import {
 import { AddVHostsDialog } from './AddVHostsDialog'
 import { ServerCard } from './ServerCard'
 import { LinkWizard } from './LinkWizard'
+import { PeerDecideSwitch } from './PeerDecideSwitch'
 
 /**
  * Settings › Environments: what this install is, where each of its vhosts
@@ -416,7 +417,9 @@ function PeerConnection({ group, onRevoke }: {
                 {p.last_used_at ? ` · last used ${formatDateTime(p.last_used_at)}` : ''}
               </Text>
             </Stack>
-            {group.peers.length > 1 && (
+            <Group gap="sm" wrap="nowrap">
+              <PeerDecideSwitch peer={p} />
+              {group.peers.length > 1 && (
               <Button
                 size="xs"
                 variant="subtle"
@@ -433,7 +436,8 @@ function PeerConnection({ group, onRevoke }: {
               >
                 Revoke
               </Button>
-            )}
+              )}
+            </Group>
           </Group>
         ))}
       </Stack>

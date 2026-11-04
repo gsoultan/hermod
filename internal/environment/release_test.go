@@ -47,6 +47,9 @@ func (r router) AddVHost(ctx context.Context, u, token string, req AddVHostReque
 func (r router) Promotions(ctx context.Context, u, token string) ([]Promotion, error) {
 	return r[u].Promotions(ctx, u, token)
 }
+func (r router) Decide(ctx context.Context, u, token string, d Decision) (Promotion, error) {
+	return r[u].Decide(ctx, u, token, d)
+}
 func (r router) Unpair(ctx context.Context, u, token string) error { return r[u].Unpair(ctx, u, token) }
 
 const (
