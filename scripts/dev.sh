@@ -646,13 +646,15 @@ trap on_exit EXIT INT TERM
 # --- run ----------------------------------------------------------------------
 
 say "Starting API + worker on :$API_PORT (gRPC :$GRPC_PORT)"
-# HERMOD_ENV stays unset (development): the backend then serves from disk and
-# does not try to use the embedded production bundle.
+# HERMOD_DEV=true makes the backend serve internal/api/static from disk rather
+# than the bundle linked into the binary, so a --build-ui after the go build
+# shows without relinking. Without it the built-in bundle wins, which is what an
+# installed release needs.
 #
 # --grpc-port is not optional here. The backend binds gRPC as well as HTTP, and
 # a failed bind on either one takes the whole process down; left at its default
 # it would keep dying on 50051 no matter which API port was chosen.
-"$BIN" --mode=standalone --port="$API_PORT" --grpc-port="$GRPC_PORT" \
+HERMOD_DEV=true "$BIN" --mode=standalone --port="$API_PORT" --grpc-port="$GRPC_PORT" \
   --db-type="$DB_TYPE" --db-conn="$DB_CONN" \
   > "$LOG_DIR/backend.log" 2>&1 < /dev/null &
 API_PID=$!

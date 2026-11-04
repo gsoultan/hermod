@@ -14,6 +14,7 @@ import { EnvironmentsTab } from '@/pages/environments/EnvironmentsTab'
 import { AcceptLinkPage } from '@/pages/environments/AcceptLinkPage'
 import { ReleaseDialog } from '@/pages/environments/ReleaseDialog'
 import { EnvironmentsPage } from '@/pages/environments/EnvironmentsPage'
+import { ConnectionMatching } from '@/pages/environments/ConnectionMatching'
 
 let routeParams: Record<string, string> = {}
 vi.mock('@tanstack/react-router', () => ({
@@ -121,7 +122,7 @@ describe('Settings › Environments', () => {
     expect(await screen.findByText('Connected to Production')).toBeInTheDocument()
     expect(linkBody).toEqual({ url: PRD, code: 'ABCD-EFGH', self_url: window.location.origin, vhost: 'hr' })
 
-    const table = await screen.findByRole('table', { name: 'Connections matched in Production' })
+    const table = await screen.findByRole('list', { name: 'Connections matched in Production' })
     expect(within(table).getByText('Missing')).toBeInTheDocument()
     expect(within(table).getByText('Check this')).toBeInTheDocument()
     expect(within(table).getByRole('link', { name: /Create it in Production/ })).toHaveAttribute('href', `${PRD}/sinks/new`)
@@ -250,6 +251,54 @@ describe('Settings › Environments', () => {
       by_vhost: { payroll: { approval: 'admin_except_sender', min_soak_minutes: 1440 } },
     }))
   }, 20000)
+})
+
+describe('matching connections with a server', () => {
+  beforeEach(() => signInAs('Administrator', 'root'))
+
+  const many = [
+    ...matchRows,
+    { kind: 'sink', id: 'k-2', name: 'audit-kafka', type: 'kafka', vhost: 'default', target_id: 'p-9', target_name: 'audit-kafka', status: 'matched', manual: false, candidates: [{ id: 'p-9', name: 'audit-kafka', type: 'kafka', vhost: 'default' }] },
+  ]
+  const names = (list: HTMLElement) => within(list).getAllByRole('listitem').map((li) => li.getAttribute('data-name'))
+
+  it('lists what needs a look first, and searches by name, type and the match there', async () => {
+    server.use(http.get('/api/environments/links/l-1/matching', () => HttpResponse.json(many)))
+    const user = userEvent.setup()
+    wrap(<ConnectionMatching link={link as never} />)
+
+    const list = await screen.findByRole('list', { name: 'Connections matched in Production' })
+    expect(names(list)).toEqual(['lake', 'crm-stg', 'audit-kafka', 'orders-db'])
+    expect(screen.getByText(/2 of 4/)).toBeInTheDocument()
+
+    const search = screen.getByRole('searchbox', { name: 'Search connections' })
+    await user.type(search, 'kafka')
+    expect(names(list)).toEqual(['audit-kafka'])
+    await user.clear(search)
+    await user.type(search, 'CRM')
+    expect(names(list)).toEqual(['crm-stg'])
+    await user.clear(search)
+    await user.type(search, 'nothing-like-this')
+    expect(screen.getByText('No connection matches “nothing-like-this”.')).toBeInTheDocument()
+  })
+
+  it('filters to the ones to check, and a pick does not make the row vanish', async () => {
+    server.use(http.get('/api/environments/links/l-1/matching', () => HttpResponse.json(many)))
+    const user = userEvent.setup()
+    wrap(<ConnectionMatching link={link as never} />)
+
+    const list = await screen.findByRole('list', { name: 'Connections matched in Production' })
+    await user.click(screen.getByRole('radio', { name: 'To check (2)' }))
+    expect(names(list)).toEqual(['lake', 'crm-stg'])
+    await user.click(screen.getByRole('radio', { name: 'Matched (2)' }))
+    expect(names(list)).toEqual(['audit-kafka', 'orders-db'])
+
+    await user.click(screen.getByRole('radio', { name: 'To check (2)' }))
+    await user.click(within(list).getByLabelText('Match for crm-stg'))
+    await user.click(await screen.findByRole('option', { name: /crm-eu/, hidden: true }))
+    expect(names(list)).toEqual(['lake', 'crm-stg'])
+    expect(screen.getByRole('button', { name: 'Save matches' })).toBeInTheDocument()
+  }, 15000)
 })
 
 describe('the production accept page', () => {

@@ -86,6 +86,15 @@ deploy outcome (status, secrets, kept_stopped) into the sender's sent log.
 UI: `StartChoice` and `startLine` in SecretValues.tsx, used by ReleaseCard
 and SentReleases' WaitingRow.
 
+Match connections dialog (Settings › Environments › server card › Match
+connections, and step 3 of LinkWizard): `ConnectionMatching.tsx` is a RowList
+of `.hermod-match-row` items (CSS in index.css; on a phone the picker drops to
+a full-width second line). It has search (name, type, kind, target name) and a
+FilterBar segment All / To check / Matched. Sort (missing, suggested, matched,
+then name) and the filter use the server's saved status, never unsaved picks,
+so a row does not jump or vanish while being edited. Tests:
+`environments.test.tsx` "matching connections with a server".
+
 **Secrets of sources and sinks.** The secrets a promotion needs are the
 workflow's own `{{secret.NAME}}` (`references`) plus those the sources and
 sinks it uses read in their Config (`configSecrets`). The receiver computes

@@ -258,13 +258,8 @@ func (s *Server) Routes() http.Handler {
 
 	// Static files
 	var static http.FileSystem
-	// Use disk if HERMOD_DEV is true OR if the static directory exists on disk and we're not explicitly in production
-	useDisk := os.Getenv("HERMOD_DEV") == "true"
-	if !useDisk && os.Getenv("HERMOD_ENV") != "production" {
-		if _, err := os.Stat("internal/api/static/index.html"); err == nil {
-			useDisk = true
-		}
-	}
+	_, diskErr := os.Stat("internal/api/static/index.html")
+	useDisk := serveUIFromDisk(os.Getenv("HERMOD_DEV"), IsUIEmbedded(), diskErr == nil)
 
 	if useDisk {
 		fmt.Println("Serving static assets from disk: internal/api/static")
