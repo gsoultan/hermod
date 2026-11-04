@@ -92,6 +92,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/environments/ready", h.EditorOnly(h.ListReady))
 	mux.Handle("POST /api/environments/releases/preview", h.EditorOnly(h.PreviewRelease))
 	mux.Handle("POST /api/environments/releases", h.EditorOnly(h.SendRelease))
+	mux.Handle("POST /api/environments/connections/{kind}/{id}/secret", h.EditorOnly(h.MoveToSecret))
 
 	h.registerPeerRoutes(mux)
 }
@@ -642,6 +643,52 @@ func (h *Handler) Promote(w http.ResponseWriter, r *http.Request) {
 	}
 	h.RecordAuditLog(r, "INFO", "Promoted version "+strconv.Itoa(p.FromVersion)+" to "+p.FromEnv, "PROMOTE", in.WorkflowID, "", "", p)
 	writeJSON(w, http.StatusCreated, p)
+}
+
+// MoveToSecret moves a credential typed in plain text in a source or sink
+// into a vhost secret, so a promotion can carry the connection.
+func (h *Handler) MoveToSecret(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Key  string `json:"key"`
+		Name string `json:"name"`
+	}
+	if !h.DecodeJSONBody(w, r, maxSmallBody, &in, "") {
+		return
+	}
+	kind, id := r.PathValue("kind"), r.PathValue("id")
+	var vhost string
+	switch kind {
+	case "source":
+		src, err := h.Storage.GetSource(r.Context(), id)
+		if err != nil {
+			h.writeErr(w, err)
+			return
+		}
+		vhost = src.VHost
+	case "sink":
+		snk, err := h.Storage.GetSink(r.Context(), id)
+		if err != nil {
+			h.writeErr(w, err)
+			return
+		}
+		vhost = snk.VHost
+	default:
+		h.JsonError(w, "a connection is a source or a sink", http.StatusBadRequest)
+		return
+	}
+	if vhost == "" {
+		vhost = "default"
+	}
+	if _, vhosts := h.GetRoleAndVHosts(r); !h.HasVHostAccess(vhost, vhosts) {
+		h.JsonError(w, "Forbidden: you do not have access to vhost "+vhost, http.StatusForbidden)
+		return
+	}
+	if err := h.svc.MoveToSecret(r.Context(), kind, id, in.Key, in.Name, username(r)); err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	h.RecordAuditLog(r, "INFO", "Moved setting "+in.Key+" of "+kind+" "+id+" to secret "+in.Name, "UPDATE", "", id, "", nil)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) ListSent(w http.ResponseWriter, r *http.Request) {

@@ -30,6 +30,12 @@ type Store interface {
 	ListSinks(ctx context.Context, filter storage.CommonFilter) ([]storage.Sink, int, error)
 	GetSource(ctx context.Context, id string) (storage.Source, error)
 	GetSink(ctx context.Context, id string) (storage.Sink, error)
+	// CreateSource and CreateSink store a connection a promotion carries.
+	CreateSource(ctx context.Context, src storage.Source) error
+	CreateSink(ctx context.Context, snk storage.Sink) error
+	// UpdateSource and UpdateSink save a credential moved to a secret.
+	UpdateSource(ctx context.Context, src storage.Source) error
+	UpdateSink(ctx context.Context, snk storage.Sink) error
 	ListWorkflows(ctx context.Context, filter storage.CommonFilter) ([]storage.Workflow, int, error)
 	ListVHosts(ctx context.Context, filter storage.CommonFilter) ([]storage.VHost, int, error)
 	CreateVHost(ctx context.Context, vhost storage.VHost) error

@@ -151,12 +151,16 @@ func (s *Service) admit(ctx context.Context, peer Peer, sub Submission, rules Ru
 	if why := soakProblem(rules.For(vhostOf(wf.VHost)), sub.FromVersionAt, s.now()); why != "" {
 		return Promotion{}, wf, fmt.Errorf("%w: %s", ErrInvalid, why)
 	}
-	if err := s.hasConnections(ctx, peer, wf); err != nil {
+	carried, err := s.admitCarried(ctx, peer, wf, sub.Connections)
+	if err != nil {
+		return Promotion{}, wf, err
+	}
+	if err := s.hasConnections(ctx, peer, wf, carried); err != nil {
 		return Promotion{}, wf, err
 	}
 	wf = s.applier.Portable(wf)
-	needs := s.missingSecrets(ctx, wf, vhostOf(wf.VHost))
-	sentValues, err := s.admitSentSecrets(ctx, wf, vhostOf(wf.VHost), needs, sub.Secrets)
+	needs := s.missingSecrets(ctx, wf, carried, vhostOf(wf.VHost))
+	sentValues, err := s.admitSentSecrets(ctx, wf, carried, vhostOf(wf.VHost), needs, sub.Secrets)
 	if err != nil {
 		return Promotion{}, wf, err
 	}
@@ -165,7 +169,7 @@ func (s *Service) admit(ctx context.Context, peer Peer, sub Submission, rules Ru
 		VHost: wf.VHost, FromVersion: sub.FromVersion, Sender: strings.TrimSpace(sub.Sender),
 		Note: strings.TrimSpace(sub.Note), Start: sub.Start, AutoRollback: sub.AutoRollback,
 		Changes: Diff(current, wf), Status: StatusPending, CreatedAt: s.now().UTC(), Secrets: needs,
-		SecretsFilled: slices.Sorted(maps.Keys(sentValues)),
+		SecretsFilled: slices.Sorted(maps.Keys(sentValues)), Connections: carried,
 	}
 	return p, wf, nil
 }
@@ -314,8 +318,15 @@ func validSubmission(sub Submission) error {
 
 // hasConnections checks every connection wf names exists here, in the vhost
 // peer sends into.
-func (s *Service) hasConnections(ctx context.Context, peer Peer, wf storage.Workflow) error {
+func (s *Service) hasConnections(ctx context.Context, peer Peer, wf storage.Workflow, carried []CarriedConnection) error {
 	srcIDs, sinkIDs := workflowRefs(wf)
+	brought := func(kind string) func(string) bool {
+		return func(id string) bool {
+			return slices.ContainsFunc(carried, func(c CarriedConnection) bool { return c.Kind == kind && c.ID == id })
+		}
+	}
+	srcIDs = slices.DeleteFunc(srcIDs, brought("source"))
+	sinkIDs = slices.DeleteFunc(sinkIDs, brought("sink"))
 	for _, id := range srcIDs {
 		if src, err := s.store.GetSource(ctx, id); err != nil || !mayUse(peer, src.VHost) {
 			return fmt.Errorf("%w: the workflow uses source %s, which this instance does not have in its vhost", ErrInvalid, id)
@@ -536,7 +547,7 @@ func (s *Service) deploy(ctx context.Context, id, by string, secretValues map[st
 	// Receiving it checked the connections it names were here, but approval
 	// can come hours later, and a connection deleted or moved to another
 	// vhost since would be deployed as a dangling reference.
-	if err := s.hasConnections(ctx, s.sender(ctx, p), wf); err != nil {
+	if err := s.hasConnections(ctx, s.sender(ctx, p), wf, p.Connections); err != nil {
 		return s.fail(ctx, id, by, err)
 	}
 	msg := fmt.Sprintf("Promoted from %s version %d", p.FromEnv, p.FromVersion)
@@ -546,6 +557,11 @@ func (s *Service) deploy(ctx context.Context, id, by string, secretValues map[st
 	// fails after this keeps them.
 	copied, kept, stillMissing, err := s.deploySecrets(ctx, p, secretValues, by)
 	if err != nil {
+		return s.fail(ctx, id, by, err)
+	}
+
+	// Then the connections it brings, which the workflow names.
+	if err := s.createCarried(ctx, p, s.landsIn(ctx, wf)); err != nil {
 		return s.fail(ctx, id, by, err)
 	}
 

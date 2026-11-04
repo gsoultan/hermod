@@ -52,6 +52,8 @@ const (
 	FeatureSecrets = "secrets"
 	// FeatureAddVHosts: a connection adds vhosts without a new pairing code.
 	FeatureAddVHosts = "add_vhosts"
+	// FeatureCarry: it creates the sources and sinks a promotion carries.
+	FeatureCarry = "carry_connections"
 )
 
 // What a Decision does.
@@ -188,6 +190,10 @@ type Submission struct {
 	// is approved there, never replacing one it has. Sent only to an
 	// instance listing FeatureSecrets.
 	Secrets map[string]string `json:"secrets,omitempty"`
+	// Connections are the sources and sinks the workflow uses that the
+	// receiving vhost had nothing to match, created there on approval. Sent
+	// only to an instance listing FeatureCarry.
+	Connections []CarriedConnection `json:"connections,omitempty"`
 }
 
 // ReleaseSubmission is several workflows sent in one click. ReleaseID is

@@ -94,7 +94,9 @@ func newFleet(t *testing.T) *fleet {
 		}
 	}
 	f.stgStore.sources["s-people"] = storage.Source{ID: "s-people", Name: "people-db", Type: "postgres", VHost: "HR"}
-	f.stgStore.sources["s-pay"] = storage.Source{ID: "s-pay", Name: "payroll-sftp", Type: "sftp", VHost: "HR"}
+	// Its password is typed in plain text, so it cannot be carried to HR.
+	f.stgStore.sources["s-pay"] = storage.Source{ID: "s-pay", Name: "payroll-sftp", Type: "sftp", VHost: "HR",
+		Config: map[string]string{"host": "sftp.example.com", "password": "hunter2"}}
 	f.stgStore.sources["s-leads"] = storage.Source{ID: "s-leads", Name: "leads-db", Type: "postgres", VHost: "Marketing"}
 	f.hrStore.sources["p-people"] = storage.Source{ID: "p-people", Name: "people-db", Type: "postgres", VHost: "hr"}
 	f.mktStore.sources["m-leads"] = storage.Source{ID: "m-leads", Name: "leads-db", Type: "postgres", VHost: "marketing"}

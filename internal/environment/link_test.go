@@ -165,6 +165,28 @@ func (m *memStore) GetSink(_ context.Context, id string) (storage.Sink, error) {
 	return s, nil
 }
 
+func (m *memStore) CreateSource(_ context.Context, src storage.Source) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sources[src.ID] = src
+	return nil
+}
+
+func (m *memStore) CreateSink(_ context.Context, snk storage.Sink) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sinks[snk.ID] = snk
+	return nil
+}
+
+func (m *memStore) UpdateSource(ctx context.Context, src storage.Source) error {
+	return m.CreateSource(ctx, src)
+}
+
+func (m *memStore) UpdateSink(ctx context.Context, snk storage.Sink) error {
+	return m.CreateSink(ctx, snk)
+}
+
 // saveVersion stores wf and records it as the next version.
 func (m *memStore) saveVersion(wf storage.Workflow, by, msg string) int {
 	m.mu.Lock()

@@ -244,10 +244,14 @@ func (s *Service) sendGroup(ctx context.Context, g *plannedGroup, sender string,
 		return SentRelease{}, err
 	}
 	for i, p := range g.Previews {
+		carried, err := withSettings(p.carried, settingsFor(p.carried, opts.Settings))
+		if err != nil {
+			return SentRelease{}, err
+		}
 		rs.Items = append(rs.Items, Submission{
 			Workflow: g.out[i], FromVersion: p.FromVersion, FromVersionAt: p.FromVersionAt, Sender: sender,
 			Note: strings.TrimSpace(opts.Note), Start: opts.Start, AutoRollback: opts.AutoRollback, ReleaseID: rs.ReleaseID,
-			Secrets: values[i],
+			Secrets: values[i], Connections: carried,
 		})
 	}
 	got, err := s.remote.SubmitRelease(ctx, g.link.URL, g.token, rs)
@@ -390,4 +394,16 @@ func (s *Service) readyWorkflow(ctx context.Context, wf storage.Workflow, linkID
 		return p.PeerID == linkID && p.WorkflowID == wf.ID && p.Status != StatusRejected && p.Status != StatusFailed
 	})
 	return r, !sentBefore || r.LastSentVersion != r.Version, nil
+}
+
+// settingsFor picks the settings for the connections carried, out of a
+// release's settings for every connection it carries.
+func settingsFor(carried []CarriedConnection, all map[string]map[string]string) map[string]map[string]string {
+	out := map[string]map[string]string{}
+	for _, c := range carried {
+		if v, ok := all[c.ID]; ok {
+			out[c.ID] = v
+		}
+	}
+	return out
 }

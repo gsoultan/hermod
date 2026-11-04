@@ -297,7 +297,7 @@ func (s *Service) PeerInfo(ctx context.Context, peer Peer) (PeerInfo, error) {
 	if err != nil {
 		return PeerInfo{}, err
 	}
-	features := []string{FeatureReleases, FeatureAddVHosts}
+	features := []string{FeatureReleases, FeatureAddVHosts, FeatureCarry}
 	if _, ok := s.secrets.(SecretWriter); ok {
 		features = append(features, FeatureSecrets)
 	}
@@ -520,6 +520,10 @@ func resolve(c Connection, mapping map[string]string, targets []Connection) (Con
 			return targets[i], MatchMatched, true
 		}
 		return Connection{}, MatchMissing, true
+	}
+	// One an earlier promotion created there keeps this one's ID.
+	if i := slices.IndexFunc(targets, func(t Connection) bool { return t.ID == c.ID && t.Type == c.Type }); i >= 0 {
+		return targets[i], MatchMatched, false
 	}
 	pick := func(match func(Connection) bool) (Connection, bool) {
 		var all, sameVHost []Connection
