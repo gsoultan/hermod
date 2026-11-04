@@ -66,16 +66,34 @@ keeps working for every vhost that has no connection of its own. Connect a vhost
 
 ## Promote
 
-**Environments** in the side menu shows one lane per connected vhost, such as
+**Releases** in the side menu shows one lane per connected vhost, such as
 `hr → Production · hr`, listing the workflows that changed since they last went through it:
-**New** for one that never went, or `v4 → v5`. **Promote all ready** sends every lane at once;
-**Promote** on a lane sends that lane, and **Promote** on a workflow sends just it, with a choice
-of version.
+**New** for one that never went, or `v4 → v5`. Every one starts ticked; untick what should wait.
+**Promote all ready** (or **Promote 2 of 3** once something is unticked) sends what is ticked in
+every lane at once, and **Promote** on a lane sends that lane's.
 
-Each workflow goes to the environment its vhost is connected to, and production checks them all
-first. The dialog groups them by destination. One that cannot land shows why, and **Leave out**
-takes it out of this release; the button stays off until everything left can land. It reads, for
-example, **Promote 5 workflows to 2 environments**. A release carries at most 50 workflows.
+On a flow's page, **Promote to Production** sits next to **Edit flow**, and a line under the header
+says how far behind production is: **Up to date**, **not there yet**, or
+`last sent v12 · 2 versions to promote`.
+
+The promote dialog is one screen: who approves it, where it goes (`v14 → now runs v12`, or **new
+there**), what changes, and the button. Each workflow goes to the environment its vhost is
+connected to, and production checks them all first.
+
+- **Ready**: "Ready to send. All 6 checks passed." with **Show checks**, and the button reads
+  **Send for approval** (or **Send and go live** where production approves nothing).
+- **Something to fix**: the dialog lists each thing, numbered, with the fix under it. A connection
+  with no match in production is matched right there by an administrator, from production's
+  connections of the same type, and saved for next time; an editor is told an administrator does
+  it. A server variable production lacks says which `HERMOD_ENV_` variable to set there. The
+  button stays off until everything left can land.
+- **Several flows**: each is a row, with **Changes** to see what changes, or **Fix** and **Leave
+  out** when it cannot land yet. **Add another flow** adds one of the flows ready to promote.
+- **More options** holds the version, whether it starts after the deploy, and whether a failure
+  undoes the release; the closed row says what is chosen.
+
+After sending, the dialog says whether each release is live or waiting, with **Follow it on
+Releases**. A release carries at most 50 workflows.
 
 For each workflow Hermod checks, against production:
 
@@ -228,7 +246,7 @@ All under `/api/environments`. Session routes need an administrator unless marke
 | `POST /links/{id}/vhosts` | administrator | Add vhosts to the connection `{id}` belongs to: `{"routes": [{"vhost", "target_vhost"}]}`; 201 with the new links, `pending` while production waits for an administrator |
 | `POST /links/{id}/test` | Editor | Check it answers; a pending vhost asks production again |
 | `GET /links/{id}/matching`, `PUT /links/{id}/mapping` | administrator | Connection matching |
-| `POST /links/{id}/preview`, `POST /links/{id}/promotions` | Editor | Check and promote |
+| `POST /links/{id}/preview`, `POST /links/{id}/promotions` | Editor | Check and promote. A preview lists `unmatched` connections (this side's, never production's) and `missing_envs` |
 | `GET /sent` | Editor | What this instance sent |
 | `POST /sent/{id}/approve`, `/reject`, `/rollback` | administrator | Decide it on the instance it went to, when that one allows it; `reject` and `rollback` take `{"reason"}`. A deploy that failed there answers 422 with `error` and `promotion` |
 | `GET /ready` | Editor | Per connected vhost, what changed since it was last promoted |

@@ -46,6 +46,15 @@ re-tests once when it is false). Remote 400/403/404/409 map back to the
 same error kinds so the UI sees a 403/409, not a 502. A vhost added to a connection copies the
 group peer's `Decide` (issueVHostPeer).
 
+**Promote dialog (ui ReleaseDialog.tsx).** One screen; the fixes come from
+structured preview fields `unmatched` (MatchRow without candidates: the
+preview is Editor-visible, production's connections stay behind the
+admin-only matching route, which the dialog calls for admins) and
+`missing_envs` (`HERMOD_ENV_` + name, pkg/security/secrets/expand.go).
+`problems()` skips the "Connections matched" check when `unmatched` covers
+it. The flow page shows `PromoteStrip`/`usePromoteTarget` (link for the
+vhost, else the legacy every-vhost link; ready lane for how far behind).
+
 **Container image config volume.** `/var/lib/hermod` must exist in the image
 owned by 65532 *before* `VOLUME`, or Docker creates new named/anonymous volumes
 root-owned and first-run setup fails with

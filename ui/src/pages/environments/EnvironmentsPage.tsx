@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  Alert, Anchor, Badge, Box, Button, Grid, Group, Loader, Modal, Paper, Stack, Text, Textarea, Title,
+  Alert, Anchor, Badge, Box, Button, Checkbox, Grid, Group, Loader, Modal, Paper, Stack, Text, Textarea, Title,
 } from '@mantine/core'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link as RouterLink } from '@tanstack/react-router'
@@ -63,11 +63,20 @@ function Lanes() {
   const { data: lanes, isLoading } = useReady(promoter)
   const { data: sent } = useSent(promoter)
   const [release, setRelease] = useState<ReleaseItem[] | null>(null)
+  // Everything ready starts ticked; unticking one leaves it for later.
+  const [unticked, setUnticked] = useState<Set<string>>(new Set())
 
   if (!promoter) {
     return <Text size="sm" c="dimmed">Editors and administrators promote workflows from here.</Text>
   }
   const ready = (lanes ?? []).flatMap((l) => (l.workflows ?? []).map((w) => ({ workflow_id: w.id, version: 0 })))
+  const picked = ready.filter((i) => !unticked.has(i.workflow_id))
+  const tick = (workflowId: string, on: boolean) => setUnticked((u) => {
+    const next = new Set(u)
+    if (on) next.delete(workflowId)
+    else next.add(workflowId)
+    return next
+  })
 
   return (
     <Stack gap="md">
@@ -79,10 +88,10 @@ function Lanes() {
         <Button
           size="md"
           leftSection={<IconRocket size="1.1rem" />}
-          disabled={ready.length === 0}
-          onClick={() => setRelease(ready)}
+          disabled={picked.length === 0}
+          onClick={() => setRelease(picked)}
         >
-          Promote all ready ({ready.length})
+          {picked.length === ready.length ? `Promote all ready (${ready.length})` : `Promote ${picked.length} of ${ready.length}`}
         </Button>
       </Group>
       {isLoading && <Loader size="sm" />}
@@ -93,14 +102,21 @@ function Lanes() {
           </Text>
         </Paper>
       )}
-      {(lanes ?? []).map((l) => <Lane key={l.link_id} lane={l} onPromote={setRelease} />)}
+      {(lanes ?? []).map((l) => (
+        <Lane key={l.link_id} lane={l} onPromote={setRelease} isTicked={(id) => !unticked.has(id)} onTick={tick} />
+      ))}
       <SentReleases sent={sent ?? []} />
       <ReleaseDialog opened={release !== null} onClose={() => setRelease(null)} items={release ?? []} />
     </Stack>
   )
 }
 
-function Lane({ lane, onPromote }: { lane: ReadyLane; onPromote: (items: ReleaseItem[]) => void }) {
+function Lane({ lane, onPromote, isTicked, onTick }: {
+  lane: ReadyLane
+  onPromote: (items: ReleaseItem[]) => void
+  isTicked: (workflowId: string) => boolean
+  onTick: (workflowId: string, on: boolean) => void
+}) {
   const workflows = lane.workflows ?? []
   return (
     <Paper withBorder radius="lg" p="lg">
@@ -115,9 +131,10 @@ function Lane({ lane, onPromote }: { lane: ReadyLane; onPromote: (items: Release
               size="xs"
               variant="light"
               aria-label={`Promote ${lane.vhost}`}
-              onClick={() => onPromote(workflows.map((w) => ({ workflow_id: w.id, version: 0 })))}
+              disabled={!workflows.some((w) => isTicked(w.id))}
+              onClick={() => onPromote(workflows.filter((w) => isTicked(w.id)).map((w) => ({ workflow_id: w.id, version: 0 })))}
             >
-              Promote {workflows.length}
+              Promote {workflows.filter((w) => isTicked(w.id)).length}
             </Button>
           ) : (
             <Badge color="green" variant="light" leftSection={<IconCheck size="0.8rem" />}>Up to date</Badge>
@@ -125,7 +142,13 @@ function Lane({ lane, onPromote }: { lane: ReadyLane; onPromote: (items: Release
         </Group>
         {workflows.map((w) => (
           <Group key={w.id} justify="space-between" wrap="nowrap" pl="lg">
-            <Text size="sm">{w.name}</Text>
+            <Checkbox
+              size="sm"
+              label={w.name}
+              aria-label={`Include ${w.name}`}
+              checked={isTicked(w.id)}
+              onChange={(e) => onTick(w.id, e.currentTarget.checked)}
+            />
             {w.last_sent_version > 0
               ? <Text size="xs" c="dimmed">v{w.last_sent_version} → v{w.version}</Text>
               : <Badge size="sm" variant="light" color="blue">New</Badge>}
