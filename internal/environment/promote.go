@@ -44,6 +44,14 @@ type Preview struct {
 	Changes        []Change  `json:"changes"`
 	Rules          Rules     `json:"rules"`
 	Ready          bool      `json:"ready"`
+	// Unmatched are the connections the workflow uses that have no match
+	// there yet, so they can be matched right where the problem shows.
+	// Production's candidates are left out: editors see a preview, and the
+	// matching screen that lists them is for administrators.
+	Unmatched []MatchRow `json:"unmatched,omitempty"`
+	// MissingEnvs are the server variables the workflow reads that are not
+	// set there.
+	MissingEnvs []string `json:"missing_envs,omitempty"`
 	// MissingSecrets are the secrets the workflow names that the linked
 	// instance lacks; the admin who approves it there fills in their values.
 	MissingSecrets []string `json:"missing_secrets,omitempty"`
@@ -222,8 +230,9 @@ func (s *Service) checkAgainst(ctx context.Context, p *Preview, l Link, token st
 		return storage.Workflow{}
 	}
 	p.Rules = r.info.Rules
-	srcMap, sinkMap, matched := s.matchRefs(ctx, l, wf, r.targets)
+	srcMap, sinkMap, matched, unmatched := s.matchRefs(ctx, l, wf, r.targets)
 	p.Checks = append(p.Checks, matched)
+	p.Unmatched = unmatched
 
 	out := rewriteRefs(s.applier.Portable(wf), srcMap, sinkMap)
 	secretNames, envNames := references(out)
@@ -242,6 +251,7 @@ func (s *Service) checkAgainst(ctx context.Context, p *Preview, l Link, token st
 	}
 	p.takesSecrets = slices.Contains(r.info.Features, FeatureSecrets)
 	p.Checks = append(p.Checks, presenceChecks(l, res, secretNames, envNames)...)
+	p.MissingEnvs = res.MissingEnvs
 	if soak := soakProblem(r.info.Rules, at, s.now()); soak != "" {
 		p.Checks = append(p.Checks, Check{Name: "Has run long enough", Blocking: true, Detail: soak})
 	} else if r.info.Rules.MinSoakMinutes > 0 {
@@ -285,7 +295,7 @@ func reachCheck(l Link, err error) Check {
 
 // matchRefs maps each connection wf uses to its match in the linked
 // instance, and says which ones have none.
-func (s *Service) matchRefs(ctx context.Context, l Link, wf storage.Workflow, targets Connections) (srcMap, sinkMap map[string]string, c Check) {
+func (s *Service) matchRefs(ctx context.Context, l Link, wf storage.Workflow, targets Connections) (srcMap, sinkMap map[string]string, c Check, rows []MatchRow) {
 	srcIDs, sinkIDs := workflowRefs(wf)
 	srcMap, sinkMap = map[string]string{}, map[string]string{}
 	var unmatched []string
@@ -294,11 +304,13 @@ func (s *Service) matchRefs(ctx context.Context, l Link, wf storage.Workflow, ta
 			conn, err := get(id)
 			if err != nil {
 				unmatched = append(unmatched, fmt.Sprintf("%s %s (not found here)", kind, id))
+				rows = append(rows, MatchRow{Kind: kind, ID: id, Name: id, Status: MatchMissing})
 				continue
 			}
 			t, status, _ := resolve(conn, l.Mapping, candidates)
 			if status != MatchMatched {
 				unmatched = append(unmatched, conn.Name)
+				rows = append(rows, MatchRow{Kind: kind, ID: conn.ID, Name: conn.Name, Type: conn.Type, VHost: conn.VHost, Status: status})
 				continue
 			}
 			into[id] = t.ID
@@ -316,9 +328,9 @@ func (s *Service) matchRefs(ctx context.Context, l Link, wf storage.Workflow, ta
 	total := len(srcIDs) + len(sinkIDs)
 	if len(unmatched) > 0 {
 		return srcMap, sinkMap, Check{Name: "Connections matched", Blocking: true,
-			Detail: fmt.Sprintf("%d of %d matched. Match these in Settings › Environments: %s", total-len(unmatched), total, strings.Join(unmatched, ", "))}
+			Detail: fmt.Sprintf("%d of %d matched. Match these in Settings › Environments: %s", total-len(unmatched), total, strings.Join(unmatched, ", "))}, rows
 	}
-	return srcMap, sinkMap, Check{Name: "Connections matched", OK: true, Blocking: true, Detail: fmt.Sprintf("%d of %d", total, total)}
+	return srcMap, sinkMap, Check{Name: "Connections matched", OK: true, Blocking: true, Detail: fmt.Sprintf("%d of %d", total, total)}, nil
 }
 
 // presenceChecks reports what the linked instance said it lacks.

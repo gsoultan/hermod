@@ -65,16 +65,24 @@ describe('a flow, opened read only', () => {
     expect(screen.getByRole('tab', { name: /Runs/ })).toHaveAttribute('aria-selected', 'true')
   })
 
-  it('keeps the header to Run with input, Stop, Edit flow and ⋯', async () => {
+  it('keeps the header to Run with input, Stop, Edit flow, Promote and ⋯', async () => {
+    server.use(
+      http.get('/api/environments/links', () => HttpResponse.json([
+        { id: 'l-1', name: 'Staging', url: 'https://stg', role: 'staging', created_by: 'root', created_at: '2026-10-27T10:00:00Z', reachable: true, vhost: 'prod' },
+      ])),
+      http.get('/api/environments/ready', () => HttpResponse.json([])),
+    )
     renderPage()
     await screen.findByText('Orders')
+    expect(await screen.findByRole('button', { name: 'Promote to Staging' })).toBeInTheDocument()
+    expect(screen.getByText('Up to date')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Back to flows' })).toHaveAttribute('href', '/workflows')
     expect(screen.getByRole('button', { name: 'Run with input' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Edit flow' })).toHaveAttribute('href', '/workflows/wf-1/edit')
     expect(screen.getAllByRole('link', { name: 'Edit flow' })).toHaveLength(1)
     await userEvent.click(screen.getByRole('button', { name: 'More' }))
-    for (const item of ['Export JSON', 'Clone', 'Promote', 'Version history', 'Compliance report', 'Delete flow']) {
+    for (const item of ['Export JSON', 'Clone', 'Version history', 'Compliance report', 'Delete flow']) {
       expect(await screen.findByRole('menuitem', { name: item, hidden: true })).toBeInTheDocument()
     }
   })
