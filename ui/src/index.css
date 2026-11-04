@@ -253,6 +253,31 @@
   }
 }
 
+/* Environments › Match connections: here → there, one row each. On a phone the
+   name and state share the first line and the picker takes the full width below. */
+.hermod-match-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.2fr) 104px;
+  grid-template-areas: 'here arrow there state';
+  align-items: center;
+  column-gap: var(--mantine-spacing-md);
+  row-gap: 8px;
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+  border-top: 1px solid var(--mantine-color-default-border);
+}
+.hermod-match-row:first-child { border-top: 0; }
+.hermod-match-here { grid-area: here; }
+.hermod-match-arrow { grid-area: arrow; }
+.hermod-match-there { grid-area: there; }
+.hermod-match-state { grid-area: state; }
+@media (max-width: 47.99em) {
+  .hermod-match-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'here state' 'there there';
+  }
+  .hermod-match-arrow, .hermod-match-row .hermod-row-icon { display: none !important; }
+}
+
 /* The add-a-step picker: its choices and rows are plain buttons that light on hover. */
 .hermod-pick:hover:not(:disabled) { background: var(--mantine-color-default-hover); }
 
