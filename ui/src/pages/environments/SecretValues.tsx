@@ -4,10 +4,11 @@ import {
 } from '@mantine/core'
 import { IconClipboardText, IconKey, IconSearch } from '@tabler/icons-react'
 
-/** A secret production lacks, and the flows that use it. */
+/** A secret production lacks, the flows that use it, and the sources or sinks there that read it. */
 export interface NeededSecret {
   name: string
   usedBy: string[]
+  via?: string[]
 }
 
 /** Up to this many are typed in the dialog itself; more open one place to fill them. */
@@ -15,13 +16,28 @@ export const INLINE_SECRETS = 5
 
 const usedByLabel = (s: NeededSecret) => (s.usedBy.length > 2 ? `${s.usedBy.length} flows` : s.usedBy.join(', '))
 
-/** Each secret once, in name order, with every flow that uses it. */
-export function neededSecrets(previews: { workflow_name: string; missing_secrets?: string[] | null }[]): NeededSecret[] {
-  const by = new Map<string, string[]>()
+/** What reads a secret: the connection when one does, else the flows. */
+function readBy(s: NeededSecret, many: boolean): string | undefined {
+  if (s.via?.length) return `Read by ${s.via.join(', ')}`
+  return many && s.usedBy.length ? `Used by ${usedByLabel(s)}` : undefined
+}
+
+/** Each secret once, in name order, with every flow that uses it and the connections that read it. */
+export function neededSecrets(previews: {
+  workflow_name: string
+  missing_secrets?: string[] | null
+  secret_uses?: Record<string, string[]> | null
+}[]): NeededSecret[] {
+  const by = new Map<string, NeededSecret>()
   for (const p of previews) {
-    for (const name of p.missing_secrets ?? []) by.set(name, [...(by.get(name) ?? []), p.workflow_name])
+    for (const name of p.missing_secrets ?? []) {
+      const s = by.get(name) ?? { name, usedBy: [], via: [] }
+      s.usedBy.push(p.workflow_name)
+      for (const c of p.secret_uses?.[name] ?? []) if (!s.via!.includes(c)) s.via!.push(c)
+      by.set(name, s)
+    }
   }
-  return [...by.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([name, usedBy]) => ({ name, usedBy }))
+  return [...by.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
 /** The non-blank values, which is all that is ever sent. */
@@ -143,7 +159,7 @@ export function SecretValues({ needed, values, onChange, where, mode }: Props) {
             <PasswordInput
               key={s.name}
               label={s.name}
-              description={needed.length > 1 && s.usedBy.length ? `Used by ${usedByLabel(s)}` : undefined}
+              description={readBy(s, needed.length > 1)}
               placeholder={`Value in ${where}`}
               autoComplete="new-password"
               value={values[s.name] ?? ''}
@@ -178,7 +194,7 @@ function ManySecrets({ needed, values, onChange, where, mode, onDone }: Props & 
   const filled = needed.length - empty
   const q = query.trim().toLowerCase()
   const rows = needed.filter((s) => (show === 'all' || emptyAtOpen.has(s.name)) &&
-    (!q || s.name.toLowerCase().includes(q) || s.usedBy.some((f) => f.toLowerCase().includes(q))))
+    (!q || s.name.toLowerCase().includes(q) || [...s.usedBy, ...(s.via ?? [])].some((f) => f.toLowerCase().includes(q))))
 
   const paste = () => {
     const got = parseEnvBlock(pasted, needed.map((s) => s.name))
@@ -235,7 +251,7 @@ function ManySecrets({ needed, values, onChange, where, mode, onDone }: Props & 
           <PasswordInput
             key={s.name}
             label={s.name}
-            description={`Used by ${usedByLabel(s)}`}
+            description={readBy(s, true)}
             placeholder={`Value in ${where}`}
             autoComplete="new-password"
             value={values[s.name] ?? ''}

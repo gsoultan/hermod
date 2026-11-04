@@ -117,6 +117,10 @@ approval, live, rejected or undone.
 Against a production that predates releases, the workflows are sent one by one and each is
 approved on its own there.
 
+The secrets a workflow uses are the ones its nodes name with `{{secret.NAME}}` **and** the ones the
+sources and sinks it uses read in their settings, such as a database password. A secret only a
+connection reads is listed with that connection ("Read by sink warehouse").
+
 Secrets are checked against production's vhost secrets and `HERMOD_SECRET_*` environment
 variables. A secret kept in an external secret manager cannot be seen from here, which is why a
 missing secret is a warning and not a blocker.

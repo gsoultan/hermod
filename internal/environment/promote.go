@@ -55,6 +55,9 @@ type Preview struct {
 	// MissingSecrets are the secrets the workflow names that the linked
 	// instance lacks; the admin who approves it there fills in their values.
 	MissingSecrets []string `json:"missing_secrets,omitempty"`
+	// SecretUses names, for a missing secret a source or sink there reads,
+	// each connection that reads it ("sink warehouse").
+	SecretUses map[string][]string `json:"secret_uses,omitempty"`
 	// takesSecrets says the linked instance takes secret values.
 	takesSecrets bool
 }
@@ -128,6 +131,21 @@ func references(wf storage.Workflow) (secretNames, envNames []string) {
 		})
 	}
 	return slices.Sorted(maps.Keys(found["secret"])), slices.Sorted(maps.Keys(found["env"]))
+}
+
+// configSecrets lists the secrets a source's or sink's settings name with
+// {{secret.NAME}}.
+func configSecrets(cfg map[string]string) []string {
+	var out []string
+	for _, v := range cfg {
+		for _, m := range tokenPattern.FindAllStringSubmatch(v, -1) {
+			if kind, name, ok := secrets.DottedReference(strings.TrimSpace(m[1])); ok && kind == "secret" && !slices.Contains(out, name) {
+				out = append(out, name)
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // walkStrings calls f with every string inside a decoded JSON value.
@@ -248,6 +266,7 @@ func (s *Service) checkAgainst(ctx context.Context, p *Preview, l Link, token st
 	}
 	if len(res.MissingSecrets) > 0 {
 		p.MissingSecrets = res.MissingSecrets
+		p.SecretUses = res.SecretUses
 	}
 	p.takesSecrets = slices.Contains(r.info.Features, FeatureSecrets)
 	p.Checks = append(p.Checks, presenceChecks(l, res, secretNames, envNames)...)

@@ -35,8 +35,18 @@ describe('secret value helpers', () => {
       { workflow_name: 'payouts', missing_secrets: ['STRIPE_KEY'] },
       { workflow_name: 'orders', missing_secrets: null },
     ])).toEqual([
-      { name: 'SLACK', usedBy: ['refunds'] },
-      { name: 'STRIPE_KEY', usedBy: ['refunds', 'payouts'] },
+      { name: 'SLACK', usedBy: ['refunds'], via: [] },
+      { name: 'STRIPE_KEY', usedBy: ['refunds', 'payouts'], via: [] },
+    ])
+  })
+
+  it('names the source or sink that reads a secret', () => {
+    expect(neededSecrets([
+      { workflow_name: 'refunds', missing_secrets: ['WH_PASSWORD', 'SLACK'], secret_uses: { WH_PASSWORD: ['sink warehouse'] } },
+      { workflow_name: 'payouts', missing_secrets: ['WH_PASSWORD'], secret_uses: { WH_PASSWORD: ['sink warehouse'] } },
+    ])).toEqual([
+      { name: 'SLACK', usedBy: ['refunds'], via: [] },
+      { name: 'WH_PASSWORD', usedBy: ['refunds', 'payouts'], via: ['sink warehouse'] },
     ])
   })
 
@@ -84,6 +94,11 @@ describe('typing secret values for production', () => {
     await user.type(box, 'hunter2')
     expect(last).toEqual({ WAREHOUSE_PASSWORD: 'hunter2' })
     expect(screen.getByText(/the approver fills the rest/)).toBeInTheDocument()
+  })
+
+  it('says which connection reads a secret', () => {
+    wrap(<Harness needed={[{ name: 'WH_PASSWORD', usedBy: ['orders'], via: ['sink warehouse'] }]} />)
+    expect(screen.getByText('Read by sink warehouse')).toBeInTheDocument()
   })
 
   it('fills many in one place: search, Empty, and a pasted .env block', async () => {

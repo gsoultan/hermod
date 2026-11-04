@@ -80,7 +80,23 @@ func (s *Service) PeerCheck(ctx context.Context, peer Peer, req CheckRequest) (C
 			}
 		}
 	}
-	res.MissingSecrets = missing(req.Secrets, func(name string) bool { return s.secrets != nil && s.secrets.HasSecret(ctx, vhost, name) })
+	uses := s.connectionSecrets(ctx, req.Sources, req.Sinks, func(v string) bool { return mayUse(peer, v) })
+	names := slices.Clone(req.Secrets)
+	for name := range uses {
+		if !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	res.MissingSecrets = missing(names, func(name string) bool { return s.secrets != nil && s.secrets.HasSecret(ctx, vhost, name) })
+	for _, name := range res.MissingSecrets {
+		if len(uses[name]) > 0 {
+			if res.SecretUses == nil {
+				res.SecretUses = map[string][]string{}
+			}
+			res.SecretUses[name] = uses[name]
+		}
+	}
 	res.MissingEnvs = missing(req.Envs, func(name string) bool { return s.secrets != nil && s.secrets.HasEnv(name) })
 	return res, nil
 }
@@ -140,7 +156,7 @@ func (s *Service) admit(ctx context.Context, peer Peer, sub Submission, rules Ru
 	}
 	wf = s.applier.Portable(wf)
 	needs := s.missingSecrets(ctx, wf, vhostOf(wf.VHost))
-	sentValues, err := s.admitSentSecrets(wf, vhostOf(wf.VHost), needs, sub.Secrets)
+	sentValues, err := s.admitSentSecrets(ctx, wf, vhostOf(wf.VHost), needs, sub.Secrets)
 	if err != nil {
 		return Promotion{}, wf, err
 	}
