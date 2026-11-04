@@ -9,6 +9,7 @@ import {
   IconAlertTriangle, IconArrowRight, IconCheck, IconChevronDown, IconPlus, IconRocket, IconX,
 } from '@tabler/icons-react'
 import { getSessionRole } from '@/auth/session'
+import { filledValues, neededSecrets, SecretValues } from './SecretValues'
 import { formatDateTime } from '@/utils/dateUtils'
 import {
   environmentKeys, getMatching, previewRelease, putMapping, sendRelease, useInstance, useReady,
@@ -82,6 +83,7 @@ function ReleaseForm({ items, versions, onClose }: { items: ReleaseItem[]; versi
   const [more, setMore] = useState(false)
   const [showChecks, setShowChecks] = useState(false)
   const [sent, setSent] = useState<SentRelease[] | null>(null)
+  const [secretValues, setSecretValues] = useState<Record<string, string>>({})
 
   const preview = useQuery({
     queryKey: ['environments', 'release-preview', kept],
@@ -101,9 +103,15 @@ function ReleaseForm({ items, versions, onClose }: { items: ReleaseItem[]; versi
   const where = [...new Set(groups.map((g) => g.link_name))].join(' and ') || 'the next environment'
   const goesLive = rules?.approval === 'none'
   const here = self?.name || 'Here'
+  const needed = neededSecrets(all)
+  const typed = filledValues(Object.fromEntries(needed.map((n) => [n.name, secretValues[n.name] ?? ''])))
+  const leftForApprover = needed.length - Object.keys(typed).length
 
   const send = useMutation({
-    mutationFn: () => sendRelease(kept, { note: note.trim(), start, auto_rollback: rollback }),
+    mutationFn: () => sendRelease(kept, {
+      note: note.trim(), start, auto_rollback: rollback,
+      ...(Object.keys(typed).length ? { secrets: typed } : {}),
+    }),
     onSuccess: setSent,
     onSettled: () => Promise.all([
       queryClient.invalidateQueries({ queryKey: environmentKeys.sent }),
@@ -186,6 +194,8 @@ function ReleaseForm({ items, versions, onClose }: { items: ReleaseItem[]; versi
         />
       )}
 
+      <SecretValues needed={needed} values={secretValues} onChange={setSecretValues} where={where} mode="send" />
+
       <Textarea
         label="Note for the approver"
         description="Optional"
@@ -244,6 +254,9 @@ function ReleaseForm({ items, versions, onClose }: { items: ReleaseItem[]; versi
           {!preview.data ? '' : toFix
             ? (single ? `Fix ${plural(toFix, 'thing')} to send.` : `Fix or leave out ${[...blocked.map((p) => p.workflow_name), ...unlinked.map((u) => u.workflow_name)].join(', ')} to send.`)
             : goesLive ? `Goes live in ${where} at once.` : `Goes live in ${where} after approval.`}
+          {!toFix && leftForApprover > 0 && (
+            <>{' '}<Text span inherit>{plural(leftForApprover, 'secret value')} left for the approver.</Text></>
+          )}
         </Text>
         <Group gap="sm">
           <Button variant="default" onClick={onClose}>Cancel</Button>

@@ -55,6 +55,17 @@ admin-only matching route, which the dialog calls for admins) and
 it. The flow page shows `PromoteStrip`/`usePromoteTarget` (link for the
 vhost, else the legacy every-vhost link; ready lane for how far behind).
 
+**Secret values UI (ui SecretValues.tsx).** One component for both sides
+(`mode: 'send' | 'approve'`): up to `INLINE_SECRETS` (5) are inputs in place,
+more open a window with search, an Empty filter fixed at open (rows do not
+vanish while typing), `parseEnvBlock` paste, Clear all. `neededSecrets`
+lists each name once with the flows using it; `filledValues` drops blanks,
+so a blank never reaches the server. The approve card asks for
+`secrets` minus `secrets_filled` and posts `{secrets}` only when something
+was typed (API from PR #361). ReleaseDialog uses it in `send` mode over
+`neededSecrets(all previews)`, sends `secrets` only when one was typed, and
+the footer says "N secret values left for the approver".
+
 **Container image config volume.** `/var/lib/hermod` must exist in the image
 owned by 65532 *before* `VOLUME`, or Docker creates new named/anonymous volumes
 root-owned and first-run setup fails with

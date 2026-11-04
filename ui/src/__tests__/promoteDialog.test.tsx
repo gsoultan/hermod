@@ -59,6 +59,55 @@ function common() {
 }
 
 describe('the promote dialog', () => {
+  it('asks for the values of secrets new to production and sends only what was typed', async () => {
+    signInAs('Editor', 'ada')
+    common()
+    const bodies: Record<string, unknown>[] = []
+    server.use(
+      http.post('/api/environments/releases/preview', () => HttpResponse.json(answer([
+        preview({ missing_secrets: ['STRIPE_KEY', 'SMTP_PASSWORD'] }),
+      ]))),
+      http.post('/api/environments/releases', async ({ request }) => {
+        bodies.push(await request.json() as Record<string, unknown>)
+        return HttpResponse.json([{ link_id: 'l-1', link_name: 'Production', promotions: [{ id: 'p-1', status: 'pending' }] }], { status: 201 })
+      }),
+    )
+    const user = userEvent.setup()
+    wrap(<ReleaseDialog opened onClose={() => {}} items={[{ workflow_id: 'wf-1', version: 0 }]} />)
+
+    expect(await screen.findByText('2 secrets are new to Production')).toBeInTheDocument()
+    expect(screen.getByText('2 secret values left for the approver.')).toBeInTheDocument()
+    await user.type(screen.getByLabelText('STRIPE_KEY'), 'sk_live_1')
+    expect(screen.getByText('1 secret value left for the approver.')).toBeInTheDocument()
+
+    const button = screen.getByRole('button', { name: 'Send for approval' })
+    await waitFor(() => expect(button).toBeEnabled())
+    await user.click(button)
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0].secrets).toEqual({ STRIPE_KEY: 'sk_live_1' })
+  })
+
+  it('sends no secrets field when none are needed', async () => {
+    signInAs('Editor', 'ada')
+    common()
+    const bodies: Record<string, unknown>[] = []
+    server.use(
+      http.post('/api/environments/releases/preview', () => HttpResponse.json(answer([preview()]))),
+      http.post('/api/environments/releases', async ({ request }) => {
+        bodies.push(await request.json() as Record<string, unknown>)
+        return HttpResponse.json([{ link_id: 'l-1', link_name: 'Production', promotions: [{ id: 'p-1', status: 'pending' }] }], { status: 201 })
+      }),
+    )
+    const user = userEvent.setup()
+    wrap(<ReleaseDialog opened onClose={() => {}} items={[{ workflow_id: 'wf-1', version: 0 }]} />)
+    const button = await screen.findByRole('button', { name: 'Send for approval' })
+    await waitFor(() => expect(button).toBeEnabled())
+    expect(screen.queryByText(/secret value/)).not.toBeInTheDocument()
+    await user.click(button)
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0]).not.toHaveProperty('secrets')
+  })
+
   it('says where it goes, who approves, and what changes, on one screen', async () => {
     signInAs('Editor', 'ada')
     common()
