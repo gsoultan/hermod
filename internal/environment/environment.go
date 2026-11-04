@@ -170,6 +170,9 @@ type Link struct {
 	// VHostCreated says the other instance created it when the link was made.
 	TargetVHost  string `json:"target_vhost,omitempty"`
 	VHostCreated bool   `json:"vhost_created,omitempty"`
+	// Decide says the other instance lets administrators here approve,
+	// reject and roll back what this link sends, as it said last time.
+	Decide bool `json:"decide,omitempty"`
 	// Pending is a vhost added to a connection that the other instance has
 	// not allowed yet: it holds no token, and Via names the link whose token
 	// asks again (see AddVHosts).
@@ -192,6 +195,9 @@ type Peer struct {
 	// FromVHost is the vhost it sends from, as it named it; shown, never
 	// trusted.
 	FromVHost string `json:"from_vhost,omitempty"`
+	// Decide lets its administrators approve, reject and roll back what it
+	// sent here, without signing in here.
+	Decide bool `json:"decide,omitempty"`
 	// Group is the ID of the peer an instance first paired as; every vhost
 	// it adds later is a peer of its own, with its own token, in that group.
 	// Empty on the first peer, whose group is its own ID.
@@ -226,6 +232,8 @@ type PairingCode struct {
 	VHost     string    `json:"vhost"`
 	CreatedBy string    `json:"created_by"`
 	ExpiresAt time.Time `json:"expires_at"`
+	// Decide is copied to the peer the code links.
+	Decide bool `json:"decide,omitempty"`
 	// AddVHosts lets the instance that redeems it add vhosts later without a
 	// new code.
 	AddVHosts bool `json:"add_vhosts,omitempty"`

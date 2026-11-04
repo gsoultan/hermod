@@ -36,6 +36,7 @@ const (
 	PathPeerPromote = "/api/environments/peer/promotions"
 	PathPeerRelease = "/api/environments/peer/releases"
 	PathPeerUnpair  = "/api/environments/peer/self"
+	PathPeerDecide  = "/api/environments/peer/decisions"
 	PathPeerVHosts  = "/api/environments/peer/vhosts"
 )
 
@@ -44,11 +45,30 @@ const (
 const (
 	// FeatureReleases: it takes several workflows in one release.
 	FeatureReleases = "releases"
+	// FeatureDecide: the linked instance's administrators may approve,
+	// reject and roll back what it sent.
+	FeatureDecide = "decide"
 	// FeatureSecrets: it takes values for the secrets a promotion needs.
 	FeatureSecrets = "secrets"
 	// FeatureAddVHosts: a connection adds vhosts without a new pairing code.
 	FeatureAddVHosts = "add_vhosts"
 )
+
+// What a Decision does.
+const (
+	DecisionApprove  = "approve"
+	DecisionReject   = "reject"
+	DecisionRollback = "rollback"
+)
+
+// Decision is an administrator on the sending instance approving, rejecting
+// or rolling back a promotion it sent. By is their username there.
+type Decision struct {
+	PromotionID string `json:"promotion_id"`
+	Action      string `json:"action"`
+	By          string `json:"by"`
+	Reason      string `json:"reason,omitempty"`
+}
 
 // AddVHostRequest asks to add a vhost there to the caller's connection.
 type AddVHostRequest struct {
@@ -87,6 +107,9 @@ type PairResult struct {
 	// for this link.
 	VHost        string `json:"vhost,omitempty"`
 	VHostCreated bool   `json:"vhost_created,omitempty"`
+	// Decide says administrators on the linked instance may decide what it
+	// sends.
+	Decide bool `json:"decide,omitempty"`
 }
 
 // PeerInfo describes the receiving instance to a linked one.
@@ -179,6 +202,8 @@ type Remote interface {
 	// Promotions lists what this instance sent there, as it stands there.
 	Promotions(ctx context.Context, baseURL, token string) ([]Promotion, error)
 	Unpair(ctx context.Context, baseURL, token string) error
+	// Decide approves, rejects or rolls back a promotion this instance sent.
+	Decide(ctx context.Context, baseURL, token string, d Decision) (Promotion, error)
 	// AddVHost adds a vhost there to the connection token belongs to.
 	AddVHost(ctx context.Context, baseURL, token string, req AddVHostRequest) (AddVHostResult, error)
 }
@@ -337,6 +362,12 @@ func (c *HTTPRemote) Promotions(ctx context.Context, baseURL, token string) ([]P
 
 func (c *HTTPRemote) Unpair(ctx context.Context, baseURL, token string) error {
 	return c.do(ctx, http.MethodDelete, baseURL, PathPeerUnpair, token, nil, nil)
+}
+
+func (c *HTTPRemote) Decide(ctx context.Context, baseURL, token string, d Decision) (Promotion, error) {
+	var out Promotion
+	err := c.do(ctx, http.MethodPost, baseURL, PathPeerDecide, token, d, &out)
+	return out, err
 }
 
 func (c *HTTPRemote) AddVHost(ctx context.Context, baseURL, token string, req AddVHostRequest) (AddVHostResult, error) {

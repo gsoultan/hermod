@@ -122,7 +122,7 @@ func (s *Service) issueVHostPeer(ctx context.Context, peers []Peer, reqs []VHost
 	added := Peer{
 		ID: uuid.NewString(), Name: peer.Name, URL: peer.URL, TokenHash: hashSecret(token),
 		CreatedBy: by, CreatedAt: s.now().UTC(), VHost: req.VHost, FromVHost: cleanName(req.FromVHost, ""),
-		Group: groupOf(peer), AddVHosts: peer.AddVHosts,
+		Group: groupOf(peer), AddVHosts: peer.AddVHosts, Decide: peer.Decide,
 	}
 	created, err := s.ensureVHost(ctx, req.VHost, peer.Name)
 	if err != nil {

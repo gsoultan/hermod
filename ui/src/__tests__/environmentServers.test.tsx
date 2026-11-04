@@ -181,7 +181,7 @@ describe('authorizing a connection', () => {
     wrap(<AcceptLinkPage />)
     expect(await screen.findByRole('radio', { name: /may add more on its own/ })).toBeChecked()
     await user.click(await screen.findByRole('button', { name: 'Allow' }))
-    await waitFor(() => expect(bodies).toEqual([{ label: 'https://stg.example.com', vhost: 'orders', add_vhosts: true }]))
+    await waitFor(() => expect(bodies).toEqual([{ label: 'https://stg.example.com', vhost: 'orders', add_vhosts: true, decide: true }]))
   })
 
   it('asks each time when the administrator chooses that', async () => {
@@ -199,6 +199,6 @@ describe('authorizing a connection', () => {
     wrap(<AcceptLinkPage />)
     await user.click(await screen.findByRole('radio', { name: /Ask me each time/ }))
     await user.click(await screen.findByRole('button', { name: 'Allow' }))
-    await waitFor(() => expect(bodies).toEqual([{ label: 'https://stg.example.com', vhost: 'orders' }]))
+    await waitFor(() => expect(bodies).toEqual([{ label: 'https://stg.example.com', vhost: 'orders', decide: true }]))
   })
 })
