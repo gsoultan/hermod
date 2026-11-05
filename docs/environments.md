@@ -121,6 +121,25 @@ The secrets a workflow uses are the ones its nodes name with `{{secret.NAME}}` *
 sources and sinks it uses read in their settings, such as a database password. A secret only a
 connection reads is listed with that connection ("Read by sink warehouse").
 
+### Sources and sinks production lacks
+
+A source or sink production has no match for does not have to be made there by hand first. When
+its credentials are secrets (`{{secret.NAME}}` or `{{env.NAME}}`), it travels with the release and
+is created in production, with the same ID, when the release is approved. Next time anything uses
+it, production already has it and reuses it. The dialog's **Connections** list shows each one:
+
+- **Uses Production's …**: production has it already (matched by mapping, name, or the same ID).
+- **Created in Production**: it comes with the release. Its other settings, such as a host or a
+  database name, can be changed for production right there; its secrets resolve in production on
+  their own. The approver's card says which connections approving creates.
+- **Needs one step**: a credential is typed in plain text, so it can't travel. **Move … to a
+  secret** stores that value as a secret here (named, say, `SLACK_ALERTS_TOKEN`), rewrites the
+  setting to `{{secret.SLACK_ALERTS_TOKEN}}`, and checks again; the secret then appears with the
+  ones production lacks so its value there can be typed.
+
+A connection that exists in production in another vhost is refused. At most 50 connections travel
+in one promotion. A production too old to create connections still needs them matched first.
+
 Secrets are checked against production's vhost secrets and `HERMOD_SECRET_*` environment
 variables. A secret kept in an external secret manager cannot be seen from here, which is why a
 missing secret is a warning and not a blocker.
@@ -269,9 +288,10 @@ All under `/api/environments`. Session routes need an administrator unless marke
 | `POST /links/{id}/vhosts` | administrator | Add vhosts to the connection `{id}` belongs to: `{"routes": [{"vhost", "target_vhost"}]}`; 201 with the new links, `pending` while production waits for an administrator |
 | `POST /links/{id}/test` | Editor | Check it answers; a pending vhost asks production again |
 | `GET /links/{id}/matching`, `PUT /links/{id}/mapping` | administrator | Connection matching |
-| `POST /links/{id}/preview`, `POST /links/{id}/promotions` | Editor | Check and promote. A preview lists `unmatched` connections (this side's, never production's) and `missing_envs` |
+| `POST /links/{id}/preview`, `POST /links/{id}/promotions` | Editor | Check and promote. A preview lists `unmatched` connections (this side's, never production's), `connections` (each with `status` uses, create or blocked) and `missing_envs`; a promotion takes `settings` (`{connection ID: {key: value}}`) for the connections it creates |
 | `GET /sent` | Editor | What this instance sent |
 | `POST /sent/{id}/approve`, `/reject`, `/rollback` | administrator | Decide it on the instance it went to, when that one allows it; `reject` and `rollback` take `{"reason"}`, `approve` takes `{"start_anyway"}`. A deploy that failed there answers 422 with `error` and `promotion` |
+| `POST /connections/{kind}/{id}/secret` | Editor | Move a plain-text credential of source or sink `{id}` to a secret: `{"key", "name"}`; 204, 409 when the secret exists |
 | `GET /ready` | Editor | Per connected vhost, what changed since it was last promoted |
 | `POST /releases/preview` | Editor | Check a release: `{"items": [{"workflow_id", "version"}]}` |
 | `POST /releases` | Editor | Send it, with `note`, `start` and `auto_rollback`. 201 with each destination's release; 502 with `error` and `sent` when only part went |

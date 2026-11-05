@@ -233,6 +233,16 @@ describe('approving on production', () => {
     expect(screen.queryByRole('radio', { name: /Keep it stopped/ })).not.toBeInTheDocument()
   })
 
+  it('names the connections approving creates here', async () => {
+    server.use(
+      http.get('/api/environments/promotions', () => HttpResponse.json([promotion({
+        connections: [{ kind: 'sink', id: 'k-slack', name: 'slack-alerts', type: 'slack' }, { kind: 'source', id: 's-crm', name: 'crm', type: 'mysql' }],
+      })])),
+    )
+    wrap(<EnvironmentsPage />)
+    expect(await screen.findByText('Approving creates sink slack-alerts and source crm in hr.')).toBeInTheDocument()
+  })
+
   it('says a flow was kept stopped for a missing secret', async () => {
     server.use(
       http.get('/api/environments/promotions', () => HttpResponse.json([

@@ -293,10 +293,13 @@ type Promotion struct {
 	Secrets []string `json:"secrets,omitempty"`
 	// SecretsFilled are the ones of Secrets the sender typed a value for;
 	// the values wait encrypted until the promotion is decided.
-	SecretsFilled  []string `json:"secrets_filled,omitempty"`
-	SecretsCopied  []string `json:"secrets_copied,omitempty"`
-	SecretsKept    []string `json:"secrets_kept,omitempty"`
-	SecretsMissing []string `json:"secrets_missing,omitempty"`
+	SecretsFilled []string `json:"secrets_filled,omitempty"`
+	// Connections are the sources and sinks it brings, created here when it
+	// is approved.
+	Connections    []CarriedConnection `json:"connections,omitempty"`
+	SecretsCopied  []string            `json:"secrets_copied,omitempty"`
+	SecretsKept    []string            `json:"secrets_kept,omitempty"`
+	SecretsMissing []string            `json:"secrets_missing,omitempty"`
 	// KeptStopped says it was deployed stopped although it was sent to
 	// start, because SecretsMissing were left without a value and the
 	// approver did not choose to start it anyway.

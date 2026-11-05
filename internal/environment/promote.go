@@ -58,6 +58,11 @@ type Preview struct {
 	// SecretUses names, for a missing secret a source or sink there reads,
 	// each connection that reads it ("sink warehouse").
 	SecretUses map[string][]string `json:"secret_uses,omitempty"`
+	// Connections are the sources and sinks the workflow uses, each with
+	// what happens to it there.
+	Connections []ConnectionRow `json:"connections,omitempty"`
+	// carried are the ones created there on approval, as they are sent.
+	carried []CarriedConnection
 	// takesSecrets says the linked instance takes secret values.
 	takesSecrets bool
 }
@@ -248,14 +253,26 @@ func (s *Service) checkAgainst(ctx context.Context, p *Preview, l Link, token st
 		return storage.Workflow{}
 	}
 	p.Rules = r.info.Rules
-	srcMap, sinkMap, matched, unmatched := s.matchRefs(ctx, l, wf, r.targets)
-	p.Checks = append(p.Checks, matched)
-	p.Unmatched = unmatched
+	m := s.matchRefs(ctx, l, wf, r.targets, slices.Contains(r.info.Features, FeatureCarry))
+	p.Checks = append(p.Checks, m.check)
+	p.Unmatched = m.rows
+	p.Connections, p.carried = m.conns, m.carried
 
-	out := rewriteRefs(s.applier.Portable(wf), srcMap, sinkMap)
+	out := rewriteRefs(s.applier.Portable(wf), m.srcMap, m.sinkMap)
 	secretNames, envNames := references(out)
+	carriedUses := carriedSecrets(m.carried)
+	for name := range carriedUses {
+		if !slices.Contains(secretNames, name) {
+			secretNames = append(secretNames, name)
+		}
+	}
+	slices.Sort(secretNames)
+	isCarried := func(id string) bool {
+		return slices.ContainsFunc(m.carried, func(c CarriedConnection) bool { return c.ID == id })
+	}
 	req := CheckRequest{WorkflowID: wf.ID, VHost: wf.VHost, Secrets: secretNames, Envs: envNames,
-		Sources: slices.Sorted(maps.Values(srcMap)), Sinks: slices.Sorted(maps.Values(sinkMap))}
+		Sources: slices.DeleteFunc(slices.Sorted(maps.Values(m.srcMap)), isCarried),
+		Sinks:   slices.DeleteFunc(slices.Sorted(maps.Values(m.sinkMap)), isCarried)}
 	res, err := s.remote.Check(ctx, l.URL, token, req)
 	if c := reachCheck(l, err); !c.OK {
 		p.Checks = append(p.Checks, c)
@@ -267,6 +284,14 @@ func (s *Service) checkAgainst(ctx context.Context, p *Preview, l Link, token st
 	if len(res.MissingSecrets) > 0 {
 		p.MissingSecrets = res.MissingSecrets
 		p.SecretUses = res.SecretUses
+		for _, name := range res.MissingSecrets {
+			if uses := carriedUses[name]; len(uses) > 0 {
+				if p.SecretUses == nil {
+					p.SecretUses = map[string][]string{}
+				}
+				p.SecretUses[name] = append(p.SecretUses[name], uses...)
+			}
+		}
 	}
 	p.takesSecrets = slices.Contains(r.info.Features, FeatureSecrets)
 	p.Checks = append(p.Checks, presenceChecks(l, res, secretNames, envNames)...)
@@ -313,43 +338,87 @@ func reachCheck(l Link, err error) Check {
 }
 
 // matchRefs maps each connection wf uses to its match in the linked
-// instance, and says which ones have none.
-func (s *Service) matchRefs(ctx context.Context, l Link, wf storage.Workflow, targets Connections) (srcMap, sinkMap map[string]string, c Check, rows []MatchRow) {
+// instance, and says which ones have none. With carry, one that has nothing
+// to match there is carried and created there on approval, under its own
+// ID, unless a credential in it is plain text.
+func (s *Service) matchRefs(ctx context.Context, l Link, wf storage.Workflow, targets Connections, carry bool) (m matched) {
 	srcIDs, sinkIDs := workflowRefs(wf)
-	srcMap, sinkMap = map[string]string{}, map[string]string{}
-	var unmatched []string
-	matchAll := func(kind string, ids []string, get func(string) (Connection, error), candidates []Connection, into map[string]string) {
+	m.srcMap, m.sinkMap = map[string]string{}, map[string]string{}
+	var unmatched, blocked []string
+	matchAll := func(kind string, ids []string, get func(string) (Connection, map[string]string, error), candidates []Connection, into map[string]string) {
 		for _, id := range ids {
-			conn, err := get(id)
+			conn, cfg, err := get(id)
 			if err != nil {
 				unmatched = append(unmatched, fmt.Sprintf("%s %s (not found here)", kind, id))
-				rows = append(rows, MatchRow{Kind: kind, ID: id, Name: id, Status: MatchMissing})
+				m.rows = append(m.rows, MatchRow{Kind: kind, ID: id, Name: id, Status: MatchMissing})
+				m.conns = append(m.conns, ConnectionRow{Kind: kind, ID: id, Name: id, Status: ConnUnmatched})
 				continue
 			}
-			t, status, _ := resolve(conn, l.Mapping, candidates)
-			if status != MatchMatched {
+			row := ConnectionRow{Kind: kind, ID: conn.ID, Name: conn.Name, Type: conn.Type}
+			t, status, manual := resolve(conn, l.Mapping, candidates)
+			switch {
+			case status == MatchMatched:
+				into[id] = t.ID
+				row.Status, row.TargetID, row.TargetName = ConnUses, t.ID, t.Name
+			case status == MatchMissing && !manual && carry:
+				row.Settings, row.PlainKeys = connSettings(cfg), plainKeys(cfg)
+				if len(row.PlainKeys) > 0 {
+					row.Status = ConnBlocked
+					blocked = append(blocked, fmt.Sprintf("%s (%s typed in plain text)", conn.Name, strings.Join(row.PlainKeys, ", ")))
+					break
+				}
+				row.Status = ConnCreate
+				into[id] = id
+				m.carried = append(m.carried, CarriedConnection{Kind: kind, ID: conn.ID, Name: conn.Name, Type: conn.Type, Config: maps.Clone(cfg)})
+			default:
+				row.Status = ConnUnmatched
 				unmatched = append(unmatched, conn.Name)
-				rows = append(rows, MatchRow{Kind: kind, ID: conn.ID, Name: conn.Name, Type: conn.Type, VHost: conn.VHost, Status: status})
-				continue
+				m.rows = append(m.rows, MatchRow{Kind: kind, ID: conn.ID, Name: conn.Name, Type: conn.Type, VHost: conn.VHost, Status: status})
 			}
-			into[id] = t.ID
+			m.conns = append(m.conns, row)
 		}
 	}
-	matchAll("source", srcIDs, func(id string) (Connection, error) {
+	matchAll("source", srcIDs, func(id string) (Connection, map[string]string, error) {
 		x, err := s.store.GetSource(ctx, id)
-		return Connection{ID: x.ID, Name: x.Name, Type: x.Type, VHost: x.VHost}, err
-	}, targets.Sources, srcMap)
-	matchAll("sink", sinkIDs, func(id string) (Connection, error) {
+		return Connection{ID: x.ID, Name: x.Name, Type: x.Type, VHost: x.VHost}, x.Config, err
+	}, targets.Sources, m.srcMap)
+	matchAll("sink", sinkIDs, func(id string) (Connection, map[string]string, error) {
 		x, err := s.store.GetSink(ctx, id)
-		return Connection{ID: x.ID, Name: x.Name, Type: x.Type, VHost: x.VHost}, err
-	}, targets.Sinks, sinkMap)
+		return Connection{ID: x.ID, Name: x.Name, Type: x.Type, VHost: x.VHost}, x.Config, err
+	}, targets.Sinks, m.sinkMap)
 
-	total := len(srcIDs) + len(sinkIDs)
+	m.check = connectionsCheck(l, len(srcIDs)+len(sinkIDs), len(m.carried), unmatched, blocked)
+	return m
+}
+
+// connectionsCheck says whether every connection is ready: matched there,
+// or carried there.
+func connectionsCheck(l Link, total, carried int, unmatched, blocked []string) Check {
+	var why []string
 	if len(unmatched) > 0 {
-		return srcMap, sinkMap, Check{Name: "Connections matched", Blocking: true,
-			Detail: fmt.Sprintf("%d of %d matched. Match these in Settings › Environments: %s", total-len(unmatched), total, strings.Join(unmatched, ", "))}, rows
+		why = append(why, "Match these in Settings › Environments: "+strings.Join(unmatched, ", "))
 	}
-	return srcMap, sinkMap, Check{Name: "Connections matched", OK: true, Blocking: true, Detail: fmt.Sprintf("%d of %d", total, total)}, nil
+	if len(blocked) > 0 {
+		why = append(why, "Move these credentials to a secret so the connection can be created there: "+strings.Join(blocked, "; "))
+	}
+	if len(why) > 0 {
+		return Check{Name: "Connections matched", Blocking: true,
+			Detail: fmt.Sprintf("%d of %d ready. %s", total-len(unmatched)-len(blocked), total, strings.Join(why, ". "))}
+	}
+	c := Check{Name: "Connections matched", OK: true, Blocking: true, Detail: fmt.Sprintf("%d of %d", total, total)}
+	if carried > 0 {
+		c.Detail = fmt.Sprintf("%d of %d; %d created in %s on approval", total-carried, total, carried, l.Name)
+	}
+	return c
+}
+
+// matched is what matchRefs found.
+type matched struct {
+	srcMap, sinkMap map[string]string
+	check           Check
+	rows            []MatchRow
+	conns           []ConnectionRow
+	carried         []CarriedConnection
 }
 
 // presenceChecks reports what the linked instance said it lacks.
@@ -407,6 +476,10 @@ type PromoteOptions struct {
 	// by name, for secrets the preview lists as missing there. They are sent
 	// on and never kept here.
 	SecretValues map[string]string `json:"secrets,omitempty"`
+	// Settings change a carried connection's settings for the receiving
+	// instance, by connection ID and setting: a host or database name that
+	// differs there. A credential can only become a reference.
+	Settings map[string]map[string]string `json:"settings,omitempty"`
 }
 
 // Promote sends a workflow version to a linked instance, after the same
@@ -435,9 +508,14 @@ func (s *Service) Promote(ctx context.Context, linkID, workflowID, sender string
 	if err != nil {
 		return Promotion{}, err
 	}
+	carried, err := withSettings(p.carried, opts.Settings)
+	if err != nil {
+		return Promotion{}, err
+	}
 	sent, err := s.remote.Submit(ctx, l.URL, token, Submission{
 		Workflow: out, FromVersion: p.FromVersion, FromVersionAt: p.FromVersionAt, Sender: sender,
 		Note: strings.TrimSpace(opts.Note), Start: opts.Start, AutoRollback: opts.AutoRollback, Secrets: values[0],
+		Connections: carried,
 	})
 	if err != nil {
 		return Promotion{}, err

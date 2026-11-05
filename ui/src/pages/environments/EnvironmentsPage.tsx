@@ -225,6 +225,8 @@ function ReleaseCard({ ps }: { ps: Promotion[] }) {
   const [values, setValues] = useState<Record<string, string>>({})
   const filledBySender = [...new Set(ps.flatMap((p) => p.secrets_filled ?? []))].sort()
   const [startAnyway, setStartAnyway] = useState(false)
+  // The sources and sinks the release brings, each once.
+  const created = [...new Map(ps.flatMap((p) => p.connections ?? []).map((c) => [`${c.kind}/${c.id}`, c])).values()]
   // Still without a value once approved: these decide whether it starts.
   const empty = head.start ? needed.map((n) => n.name).filter((n) => !(values[n] ?? '').trim()) : []
   const approve = useMutation({
@@ -246,6 +248,9 @@ function ReleaseCard({ ps }: { ps: Promotion[] }) {
           <Text size="sm" c="dimmed">{head.sender} · {formatDateTime(head.created_at)}</Text>
         </Group>
         {head.note && <Text>“{head.note}”</Text>}
+        {created.length > 0 && (
+          <Text size="sm">Approving creates {andList(created.map((c) => `${c.kind} ${c.name}`))} in {head.vhost}.</Text>
+        )}
         <Paper withBorder radius="md">
           {ps.map((p, i) => (
             <Box key={p.id} p="sm" style={i ? { borderTop: '1px solid var(--mantine-color-default-border)' } : undefined}>

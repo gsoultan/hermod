@@ -68,10 +68,12 @@ func (s *Service) connectionSecrets(ctx context.Context, sources, sinks []string
 
 // secretsUsed lists every secret wf needs here: the ones its nodes name and
 // the ones the sources and sinks it uses read.
-func (s *Service) secretsUsed(ctx context.Context, wf storage.Workflow) []string {
+func (s *Service) secretsUsed(ctx context.Context, wf storage.Workflow, carried []CarriedConnection) []string {
 	names, _ := references(wf)
 	sources, sinks := workflowRefs(wf)
-	for name := range s.connectionSecrets(ctx, sources, sinks, func(string) bool { return true }) {
+	uses := s.connectionSecrets(ctx, sources, sinks, func(string) bool { return true })
+	maps.Copy(uses, carriedSecrets(carried))
+	for name := range uses {
 		if !slices.Contains(names, name) {
 			names = append(names, name)
 		}
@@ -81,12 +83,12 @@ func (s *Service) secretsUsed(ctx context.Context, wf storage.Workflow) []string
 }
 
 // missingSecrets lists the secrets wf names that vhost here lacks.
-func (s *Service) missingSecrets(ctx context.Context, wf storage.Workflow, vhost string) []string {
+func (s *Service) missingSecrets(ctx context.Context, wf storage.Workflow, carried []CarriedConnection, vhost string) []string {
 	if s.secrets == nil {
 		return nil
 	}
 	var out []string
-	for _, name := range s.secretsUsed(ctx, wf) {
+	for _, name := range s.secretsUsed(ctx, wf, carried) {
 		if !s.secrets.HasSecret(ctx, vhost, name) {
 			out = append(out, name)
 		}
@@ -221,7 +223,7 @@ func valuesFor(previews []Preview, values map[string]string) ([]map[string]strin
 // admitSentSecrets checks the values a submission carries for a workflow
 // that lands in vhost here, where it lacks needs. It returns the ones to keep:
 // a value for a secret the vhost has is dropped, since it is never replaced.
-func (s *Service) admitSentSecrets(ctx context.Context, wf storage.Workflow, vhost string, needs []string, sent map[string]string) (map[string]string, error) {
+func (s *Service) admitSentSecrets(ctx context.Context, wf storage.Workflow, carried []CarriedConnection, vhost string, needs []string, sent map[string]string) (map[string]string, error) {
 	if len(sent) == 0 {
 		return nil, nil
 	}
@@ -231,7 +233,7 @@ func (s *Service) admitSentSecrets(ctx context.Context, wf storage.Workflow, vho
 	if len(sent) > maxSentSecrets {
 		return nil, fmt.Errorf("%w: a promotion carries at most %d secret values", ErrInvalid, maxSentSecrets)
 	}
-	named := s.secretsUsed(ctx, wf)
+	named := s.secretsUsed(ctx, wf, carried)
 	var unused []string
 	keep := map[string]string{}
 	for _, name := range slices.Sorted(maps.Keys(sent)) {

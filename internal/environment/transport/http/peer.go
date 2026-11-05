@@ -288,6 +288,38 @@ func (l liveStore) GetSink(ctx context.Context, id string) (storage.Sink, error)
 	return st.GetSink(ctx, id)
 }
 
+func (l liveStore) CreateSource(ctx context.Context, src storage.Source) error {
+	st, err := l.st()
+	if err != nil {
+		return err
+	}
+	return st.CreateSource(ctx, src)
+}
+
+func (l liveStore) UpdateSource(ctx context.Context, src storage.Source) error {
+	st, err := l.st()
+	if err != nil {
+		return err
+	}
+	return st.UpdateSource(ctx, src)
+}
+
+func (l liveStore) UpdateSink(ctx context.Context, snk storage.Sink) error {
+	st, err := l.st()
+	if err != nil {
+		return err
+	}
+	return st.UpdateSink(ctx, snk)
+}
+
+func (l liveStore) CreateSink(ctx context.Context, snk storage.Sink) error {
+	st, err := l.st()
+	if err != nil {
+		return err
+	}
+	return st.CreateSink(ctx, snk)
+}
+
 // PeerAddVHost adds a vhost here to the calling instance's connection.
 func (h *Handler) PeerAddVHost(w http.ResponseWriter, r *http.Request) {
 	var in environment.AddVHostRequest
