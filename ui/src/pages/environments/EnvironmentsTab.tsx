@@ -445,8 +445,8 @@ function PeerConnection({ group, onRevoke }: {
   )
 }
 
-/** Vhosts a connected instance asked to add, for an administrator to allow. */
-function VHostRequests() {
+/** Vhosts a connected instance asked to add, for an administrator to allow; also on the Approvals page. */
+export function VHostRequests() {
   const queryClient = useQueryClient()
   const { data: reqs } = useVHostRequests()
   const refresh = () => Promise.all([

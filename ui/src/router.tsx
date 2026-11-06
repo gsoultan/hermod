@@ -57,7 +57,7 @@ const ConnectionsPage = lazy(async () => ({ default: (await import('./pages/hubs
 const ActivityPage = lazy(async () => ({ default: (await import('./pages/hubs/ActivityPage')).ActivityPage }))
 const DeveloperPage = lazy(async () => ({ default: (await import('./pages/hubs/DeveloperPage')).DeveloperPage }))
 const SettingsHubPage = lazy(async () => ({ default: (await import('./pages/hubs/SettingsHubPage')).SettingsHubPage }))
-const ApprovalsPage = lazy(async () => ({ default: (await import('./pages/workflows/ApprovalsPage')).ApprovalsPage }))
+const ApprovalsHubPage = lazy(async () => ({ default: (await import('./pages/approvals/ApprovalsHubPage')).ApprovalsHubPage }))
 interface RouterContext {
   configStatus?: {
     configured: boolean
@@ -645,9 +645,10 @@ const marketplaceRoute = createRoute({
 const approvalsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/approvals',
+  validateSearch: hubSearch,
   component: () => (
     <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
-      <ApprovalsPage />
+      <ApprovalsHubPage />
     </Suspense>
   ),
 })

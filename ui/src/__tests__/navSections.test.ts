@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   PRIMARY_NAV,
   activityTabs,
+  approvalsTabs,
+  retiredHubTab,
   collapsesSidebar,
   connectionsTabs,
   developerTabs,
@@ -13,16 +15,16 @@ import {
 } from '@/components/layout/nav'
 
 describe('primary navigation', () => {
-  it('has exactly five places, in order', () => {
-    expect(PRIMARY_NAV.map((n) => n.label)).toEqual(['Home', 'Flows', 'Connections', 'Activity', 'Settings'])
-    expect(PRIMARY_NAV.map((n) => n.to)).toEqual(['/', '/workflows', '/connections', '/activity', '/settings'])
+  it('has exactly six places, in order', () => {
+    expect(PRIMARY_NAV.map((n) => n.label)).toEqual(['Home', 'Approvals', 'Flows', 'Connections', 'Activity', 'Settings'])
+    expect(PRIMARY_NAV.map((n) => n.to)).toEqual(['/', '/approvals', '/workflows', '/connections', '/activity', '/settings'])
   })
 
-  it('files every page under one of the five places', () => {
+  it('files every page under one of the six places', () => {
     expect(sectionOf('/')).toBe('home')
     expect(sectionOf('/workflows')).toBe('flows')
     expect(sectionOf('/workflows/abc/edit')).toBe('flows')
-    expect(sectionOf('/approvals')).toBe('flows')
+    expect(sectionOf('/approvals')).toBe('approvals')
     expect(sectionOf('/connections')).toBe('connections')
     expect(sectionOf('/sources/new')).toBe('connections')
     expect(sectionOf('/sinks/k1/edit')).toBe('connections')
@@ -92,6 +94,12 @@ describe('old links keep working', () => {
     expect(legacyRedirect('/secrets')).toEqual({ to: '/developer', search: { tab: 'secrets' } })
   })
 
+  it('sends the old Activity approvals tab to the Approvals page', () => {
+    expect(retiredHubTab('activity', 'approvals')).toEqual({ to: '/approvals', search: { tab: 'held' } })
+    expect(retiredHubTab('activity', 'logs')).toBeNull()
+    expect(retiredHubTab('connections', 'approvals')).toBeNull()
+  })
+
   it('leaves forms and detail pages where they are', () => {
     expect(legacyRedirect('/sources/new')).toBeNull()
     expect(legacyRedirect('/sinks/k1/edit')).toBeNull()
@@ -106,10 +114,10 @@ describe('hub tabs follow the role', () => {
   })
 
   it('keeps the audit log and machine learning behind their roles', () => {
-    expect(activityTabs('Viewer').map((t) => t.value)).toEqual(['logs', 'dead-letters', 'approvals', 'health', 'lineage', 'compliance', 'ai-budget'])
+    expect(activityTabs('Viewer').map((t) => t.value)).toEqual(['logs', 'dead-letters', 'health', 'lineage', 'compliance', 'ai-budget'])
     expect(activityTabs('Editor').map((t) => t.value)).toContain('ml')
     expect(activityTabs('Editor').map((t) => t.value)).not.toContain('audit')
-    expect(activityTabs('Administrator').map((t) => t.value)).toEqual(['logs', 'dead-letters', 'approvals', 'health', 'audit', 'lineage', 'compliance', 'ml', 'ai-budget'])
+    expect(activityTabs('Administrator').map((t) => t.value)).toEqual(['logs', 'dead-letters', 'health', 'audit', 'lineage', 'compliance', 'ml', 'ai-budget'])
   })
 
   it('shows secrets only to those who may change them', () => {
@@ -125,5 +133,14 @@ describe('hub tabs follow the role', () => {
       'Workspace', 'People', 'Notifications', 'Security', 'Releases', 'Developer', 'Audit log', 'My account', 'About Hermod',
     ])
     expect(settingsRows('Viewer').at(-1)?.to).toBe('/about')
+  })
+})
+
+describe('approvals', () => {
+  it('names the two kinds and shows how many of each wait', () => {
+    expect(approvalsTabs({ releases: 2, held: 0, requests: 1, total: 3 })).toEqual([
+      { value: 'releases', label: 'Releases', count: 3 },
+      { value: 'held', label: 'Held messages', count: 0 },
+    ])
   })
 })

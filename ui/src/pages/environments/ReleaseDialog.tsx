@@ -13,7 +13,7 @@ import { filledValues, neededSecrets, SecretValues } from './SecretValues'
 import { releaseConnections, ReleaseConnections, type ConnectionSettings } from './ReleaseConnections'
 import { formatDateTime } from '@/utils/dateUtils'
 import {
-  environmentKeys, getMatching, previewRelease, putMapping, sendRelease, useInstance, useReady,
+  environmentKeys, getMatching, previewRelease, putMapping, sendRelease, useInstance, useLinks, useReady,
   type ApprovalRule, type MatchRow, type Preview, type ReleaseGroup, type ReleaseItem, type SentRelease,
 } from '@/lib/environments'
 
@@ -506,8 +506,15 @@ function PreviewRow({ p, onLeaveOut, onFixed }: { p: Preview; onLeaveOut: (workf
   )
 }
 
-/** What happened to each release, and where to follow it. */
+/**
+ * What happened to each release, and where to follow it. A release that waits
+ * says who approves it and where they find it; an administrator who may decide
+ * it from here is taken straight to it.
+ */
 function Sent({ releases, groups, onClose }: { releases: SentRelease[]; groups: ReleaseGroup[]; onClose: () => void }) {
+  const isAdmin = getSessionRole() === 'Administrator'
+  const { data: links } = useLinks()
+  const decidesHere = (linkId: string) => isAdmin && (links ?? []).some((l) => l.id === linkId && l.decide)
   return (
     <Stack>
       {releases.map((r) => {
@@ -517,6 +524,11 @@ function Sent({ releases, groups, onClose }: { releases: SentRelease[]; groups: 
         return (
           <Alert key={r.link_id} color={live ? 'green' : 'blue'} icon={<IconCheck size="1rem" />}>
             {plural(r.promotions.length, 'workflow')}: the release {live ? 'is live' : 'waits for approval'} in {where}.
+            {!live && (decidesHere(r.link_id) ? (
+              <>{' '}<Anchor component={RouterLink} to="/approvals" search={{ tab: 'releases' } as never} size="sm" fw={600}>Approve it now</Anchor></>
+            ) : (
+              <>{' '}An administrator of {r.link_name} approves it under Approvals there.</>
+            ))}
           </Alert>
         )
       })}

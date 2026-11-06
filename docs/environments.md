@@ -158,9 +158,15 @@ take values.
 
 ## Approve it on production
 
-Production lists each release under **Environments › Waiting for you**: where it came from and the
-vhost it lands in, the sender, the note, and each workflow's changes. An administrator clicks
-**Approve and go live** or **Reject**, once for the whole release.
+Production lists each release under **Approvals › Releases**, the second entry of the side menu,
+whose red badge counts what waits for you; Home lists it under **Needs you** too, and **Releases**
+shows it under **Waiting for you**. The card says where it came from and the vhost it lands in, the
+sender, the note, and each workflow's changes. An administrator clicks **Approve and go live** or
+**Reject**, once for the whole release. A vhost a connection asks to add waits on the same tab.
+
+A release is not the same as a **held message** (the other tab of Approvals): that is one message an
+Approval step of a running flow paused, which an editor lets continue. Approving it changes nothing
+else.
 
 When a release uses secrets its vhost has no value for, the card asks for them under **N secrets
 have no value in hr yet**, leaving out the ones the sender already typed (named on the card).

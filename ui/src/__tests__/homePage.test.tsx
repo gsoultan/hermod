@@ -90,8 +90,8 @@ describe('Home', () => {
     expect(within(list).getByRole('link', { name: 'Fix it' })).toHaveAttribute('href', '/workflows/wf2')
     expect(within(list).getByText('42 messages are waiting in Dead letters')).toBeInTheDocument()
     expect(within(list).getByRole('link', { name: 'Retry them' })).toHaveAttribute('href', '/activity?tab=dead-letters')
-    expect(within(list).getByText('1 change waiting for your approval')).toBeInTheDocument()
-    expect(within(list).getByRole('link', { name: 'Review' })).toHaveAttribute('href', '/activity?tab=approvals')
+    expect(within(list).getByText('1 message held for your approval')).toBeInTheDocument()
+    expect(within(list).getByRole('link', { name: 'Review' })).toHaveAttribute('href', '/approvals?tab=held')
   })
 
   it('says so when nothing needs you', async () => {

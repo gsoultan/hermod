@@ -319,6 +319,37 @@ describe('the promote dialog', () => {
   })
 })
 
+describe('after sending for approval', () => {
+  const send = async (role: string, decide: boolean) => {
+    signInAs(role, 'ada')
+    common()
+    server.use(
+      http.get('/api/environments/links', () => HttpResponse.json([{ id: 'l-1', name: 'Production', url: 'https://prod', role: 'production', created_by: 'root', created_at: '', reachable: true, vhost: 'hr', decide }])),
+      http.post('/api/environments/releases/preview', () => HttpResponse.json(answer([preview()]))),
+      http.post('/api/environments/releases', () => HttpResponse.json([
+        { link_id: 'l-1', link_name: 'Production', release_id: 'r-1', promotions: [{ id: 'pr-1', status: 'pending' }] },
+      ], { status: 201 })),
+    )
+    const user = userEvent.setup()
+    wrap(<ReleaseDialog opened onClose={() => {}} items={[{ workflow_id: 'wf-1', version: 0 }]} />)
+    const button = await screen.findByRole('button', { name: 'Send for approval' })
+    await waitFor(() => expect(button).toBeEnabled())
+    await user.click(button)
+    await screen.findByText(/waits for approval in Production/)
+  }
+
+  it('says where the approver finds it', async () => {
+    await send('Editor', true)
+    expect(screen.getByText(/An administrator of Production approves it under Approvals there/)).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Approve it now' })).not.toBeInTheDocument()
+  })
+
+  it('takes an administrator who may decide from here straight to it', async () => {
+    await send('Administrator', true)
+    expect(screen.getByRole('link', { name: 'Approve it now' })).toHaveAttribute('href', '/approvals')
+  })
+})
+
 function Strip({ id, vhost }: { id: string; vhost: string }) {
   return <PromoteStrip here="Staging" target={usePromoteTarget(id, vhost, true)} />
 }
