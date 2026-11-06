@@ -1,4 +1,4 @@
-import { AppShell, Group, NavLink, Text, LoadingOverlay, Box, Button, Select, Tooltip, Stack, ScrollArea, Badge, ActionIcon, useMantineColorScheme, Kbd, Menu, Avatar, UnstyledButton, rem } from '@mantine/core';
+import { AppShell, Group, Indicator, NavLink, Text, LoadingOverlay, Box, Button, Select, Tooltip, Stack, ScrollArea, Badge, ActionIcon, useMantineColorScheme, Kbd, Menu, Avatar, UnstyledButton, rem } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import React, { useEffect, useRef, type ReactNode } from 'react';
 import { Link, useRouterState, useNavigate } from '@tanstack/react-router';
@@ -10,11 +10,12 @@ import { getSessionRole, getSessionUser, clearSession } from '@/auth/session';
 import { Spotlight, spotlight } from '@mantine/spotlight';
 import '@mantine/spotlight/styles.css';
 import { notifications } from '@mantine/notifications';
-import { IconActivity, IconBolt, IconBraces, IconChevronLeft, IconChevronRight, IconCloudUpload, IconDatabase, IconGitBranch, IconGitMerge, IconHistory, IconHome, IconInfoCircle, IconList, IconLogout, IconMoon, IconPlug, IconPlus, IconPuzzle, IconRocket, IconSearch, IconSettings, IconShieldLock, IconSun, IconUser, IconWorld } from '@tabler/icons-react';
+import { IconActivity, IconBolt, IconBraces, IconChevronLeft, IconChevronRight, IconCloudUpload, IconDatabase, IconGitBranch, IconGitMerge, IconHistory, IconHome, IconInbox, IconInfoCircle, IconList, IconLogout, IconMoon, IconPlug, IconPlus, IconPuzzle, IconRocket, IconSearch, IconSettings, IconShieldLock, IconSun, IconUser, IconWorld } from '@tabler/icons-react';
 import type { Workflow } from '@/types';
 import { ErrorBoundary } from './ErrorBoundary';
 import { useConfirm } from '@/components/common/ConfirmProvider';
 import { EnvironmentBadge } from './EnvironmentBadge';
+import { useWaitingApprovals } from '@/lib/approvals';
 import { BOTTOM_TABS_HEIGHT, FLOW_ACTIONS_HEIGHT, PRIMARY_NAV, collapsesSidebar, isCanvasRoute as canvasRoute, isFlowPage as flowPage, sectionOf, type Section } from './nav';
 
 interface LayoutProps {
@@ -23,6 +24,7 @@ interface LayoutProps {
 
 const NAV_ICONS: Record<Section, React.FC<any>> = {
   home: IconHome,
+  approvals: IconInbox,
   flows: IconGitBranch,
   connections: IconPlug,
   activity: IconActivity,
@@ -34,17 +36,21 @@ interface SideLinkProps {
   label: string;
   icon: React.FC<any>;
   badge?: React.ReactNode;
+  /** Shown as a dot on the icon when the rail is folded and the badge has no room. */
+  dot?: boolean;
   active: boolean;
   desktopOpened: boolean;
 }
 
-const SideLink = ({ to, label, icon: Icon, badge, active, desktopOpened }: SideLinkProps) => {
+const SideLink = ({ to, label, icon: Icon, badge, dot, active, desktopOpened }: SideLinkProps) => {
   const link = (
     <NavLink
       component={Link}
       to={to}
       label={desktopOpened ? label : null}
-      leftSection={<Icon size="1.2rem" stroke={1.6} />}
+      leftSection={!desktopOpened && dot
+        ? <Indicator color="red" size={8} offset={2}><Icon size="1.2rem" stroke={1.6} /></Indicator>
+        : <Icon size="1.2rem" stroke={1.6} />}
       rightSection={desktopOpened ? badge : null}
       active={active}
       aria-current={active ? 'page' : undefined}
@@ -242,6 +248,9 @@ export function Layout({ children }: LayoutProps) {
     if (vhostNames) setAvailableVHosts(vhostNames);
   }, [vhostNames, setAvailableVHosts]);
 
+  // What waits for your decision, for the Approvals badge; nothing is asked while signed out.
+  const waiting = useWaitingApprovals().total;
+
   if (isPublicRoute) {
     return <main>{children}</main>;
   }
@@ -278,6 +287,13 @@ export function Layout({ children }: LayoutProps) {
       description: 'What needs you, and your flows',
       onClick: () => navigate({ to: '/' }),
       leftSection: <IconHome size="1.2rem" />,
+    },
+    {
+      id: 'approvals',
+      label: 'Approvals',
+      description: 'Releases and held messages waiting for a decision',
+      onClick: () => navigate({ to: '/approvals' }),
+      leftSection: <IconInbox size="1.2rem" />,
     },
     {
       id: 'flows',
@@ -490,6 +506,15 @@ export function Layout({ children }: LayoutProps) {
   const initial = user?.username?.charAt(0).toUpperCase() || '?';
   const vhostLabel = selectedVHost && selectedVHost !== 'all' ? selectedVHost : 'All virtual hosts';
   const problems = Number(dashboardStats?.failed_workflows) || 0;
+  const navBadge = (key: Section) => {
+    if (key === 'flows' && problems > 0) {
+      return <Badge size="xs" variant="filled" color="red" aria-label={`${problems} flows with problems`}>{problems}</Badge>;
+    }
+    if (key === 'approvals' && waiting > 0) {
+      return <Badge size="xs" variant="filled" color="red" aria-label={`${waiting} waiting for you`}>{waiting}</Badge>;
+    }
+    return null;
+  };
 
   const navLinks = (compact: boolean) => PRIMARY_NAV.map((item) => (
     <SideLink
@@ -499,9 +524,8 @@ export function Layout({ children }: LayoutProps) {
       icon={NAV_ICONS[item.key]}
       active={section === item.key}
       desktopOpened={compact}
-      badge={item.key === 'flows' && problems > 0
-        ? <Badge size="xs" variant="filled" color="red" aria-label={`${problems} flows with problems`}>{problems}</Badge>
-        : null}
+      badge={navBadge(item.key)}
+      dot={navBadge(item.key) !== null}
     />
   ));
 
@@ -744,13 +768,18 @@ export function Layout({ children }: LayoutProps) {
                 component={Link}
                 to={item.to}
                 aria-current={active ? 'page' : undefined}
+                aria-label={item.key === 'approvals' && waiting > 0 ? `Approvals, ${waiting} waiting` : undefined}
                 style={{
                   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
                   minHeight: rem(56), fontSize: rem(11), fontWeight: 500,
                   color: active ? 'var(--mantine-color-indigo-6)' : 'var(--mantine-color-dimmed)',
                 }}
               >
-                <Icon size="1.4rem" stroke={1.6} />
+                {item.key === 'approvals' && waiting > 0 ? (
+                  <Indicator color="red" size={16} offset={2} label={waiting > 99 ? '99+' : waiting} aria-hidden style={{ display: 'flex' }}>
+                    <Icon size="1.4rem" stroke={1.6} />
+                  </Indicator>
+                ) : <Icon size="1.4rem" stroke={1.6} />}
                 {item.label}
               </UnstyledButton>
             );

@@ -69,7 +69,8 @@ function useRefresh() {
   return () => queryClient.invalidateQueries({ queryKey: environmentKeys.sent })
 }
 
-function WaitingRow({ ps, style }: { ps: Promotion[]; style?: React.CSSProperties }) {
+/** A release sent from here that waits there, decided from here; also shown on the Approvals page. */
+export function WaitingRow({ ps, style }: { ps: Promotion[]; style?: React.CSSProperties }) {
   const confirm = useConfirm()
   const refresh = useRefresh()
   const [rejecting, setRejecting] = useState(false)

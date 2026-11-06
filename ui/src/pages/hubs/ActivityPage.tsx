@@ -1,12 +1,12 @@
-import { lazy, type ComponentType } from 'react';
+import { lazy, useEffect, type ComponentType } from 'react';
+import { useNavigate, useSearch } from '@tanstack/react-router';
 import { HubPage } from '@/components/layout/HubPage';
-import { activityTabs } from '@/components/layout/nav';
+import { activityTabs, retiredHubTab } from '@/components/layout/nav';
 import { getSessionRole } from '@/auth/session';
 import { useHubTab } from './useHubTab';
 
 const LogsPage = lazy(async () => ({ default: (await import('../monitoring/LogsPage')).LogsPage }));
 const DeadLettersPage = lazy(async () => ({ default: (await import('../monitoring/DeadLettersPage')).DeadLettersPage }));
-const ApprovalsPage = lazy(async () => ({ default: (await import('../workflows/ApprovalsPage')).ApprovalsPage }));
 const GlobalHealthPage = lazy(async () => ({ default: (await import('../monitoring/GlobalHealthPage')).default }));
 const AuditLogsPage = lazy(async () => ({ default: (await import('../monitoring/AuditLogsPage')).AuditLogsPage }));
 const LineagePage = lazy(async () => ({ default: (await import('../monitoring/LineagePage')).LineagePage }));
@@ -17,7 +17,6 @@ const AIBudgetPage = lazy(async () => ({ default: (await import('../ai/AIBudgetP
 const PANELS: Record<string, ComponentType> = {
   logs: LogsPage,
   'dead-letters': DeadLettersPage,
-  approvals: ApprovalsPage,
   health: GlobalHealthPage,
   audit: AuditLogsPage,
   lineage: LineagePage,
@@ -29,6 +28,13 @@ const PANELS: Record<string, ComponentType> = {
 /** What happened and what is happening: logs, dead letters, health and insights. */
 export function ActivityPage() {
   const tabs = activityTabs(getSessionRole());
+  // Approvals moved to a place of its own; an old link to the tab lands there.
+  const search = useSearch({ strict: false }) as Record<string, unknown>;
+  const navigate = useNavigate();
+  const moved = retiredHubTab('activity', typeof search.tab === 'string' ? search.tab : '');
+  useEffect(() => {
+    if (moved) navigate({ to: moved.to, search: moved.search as never, replace: true });
+  }, [moved?.to, moved?.search?.tab]); // eslint-disable-line react-hooks/exhaustive-deps
   const [tab, setTab] = useHubTab(tabs);
   const Panel = PANELS[tab] ?? LogsPage;
   return (

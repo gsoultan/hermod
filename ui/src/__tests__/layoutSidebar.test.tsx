@@ -46,11 +46,11 @@ beforeEach(() => {
 })
 
 describe('the sidebar', () => {
-  it('offers the five places and nothing else at the top level', () => {
+  it('offers the six places and nothing else at the top level', () => {
     renderLayout()
     const nav = screen.getByRole('navigation', { name: 'Main' })
     const labels = within(nav).getAllByRole('link').map((a) => a.textContent?.trim())
-    expect(labels).toEqual(['Home', 'Flows', 'Connections', 'Activity', 'Settings'])
+    expect(labels).toEqual(['Home', 'Approvals', 'Flows', 'Connections', 'Activity', 'Settings'])
     expect(screen.queryByText('Main Menu')).not.toBeInTheDocument()
     expect(screen.queryByText('Administration')).not.toBeInTheDocument()
   })
@@ -104,11 +104,30 @@ describe('the sidebar', () => {
     expect(active.map((a) => a.textContent?.trim())).toEqual(['Connections'])
   })
 
-  it('gives phones the same five places as bottom tabs', () => {
+  it('gives phones the same six places as bottom tabs', () => {
     renderLayout()
     const tabs = screen.getByRole('navigation', { name: 'Bottom tabs' })
     expect(within(tabs).getAllByRole('link').map((a) => a.textContent?.trim())).toEqual([
-      'Home', 'Flows', 'Connections', 'Activity', 'Settings',
+      'Home', 'Approvals', 'Flows', 'Connections', 'Activity', 'Settings',
     ])
+  })
+
+  it('counts what waits for you on Approvals, in the sidebar and the bottom tabs', async () => {
+    server.use(
+      http.get('/api/approvals', () => HttpResponse.json({ data: [], total: 2 })),
+      http.get('/api/environments/promotions', () => HttpResponse.json([
+        { id: 'p1', peer_id: 'x', from_env: 'Staging', workflow_id: 'w', workflow_name: 'orders', vhost: 'hr', from_version: 1,
+          sender: 'ada', start: true, auto_rollback: false, status: 'pending', created_at: '' },
+      ])),
+      http.get('/api/environments/sent', () => HttpResponse.json([])),
+      http.get('/api/environments/links', () => HttpResponse.json([])),
+      http.get('/api/environments/rules', () => HttpResponse.json({ approval: 'any_admin', auto_rollback: false, min_soak_minutes: 0 })),
+      http.get('/api/environments/vhost-requests', () => HttpResponse.json([])),
+    )
+    renderLayout()
+    const nav = screen.getByRole('navigation', { name: 'Main' })
+    expect(await within(nav).findByLabelText('3 waiting for you')).toHaveTextContent('3')
+    const tabs = screen.getByRole('navigation', { name: 'Bottom tabs' })
+    expect(within(tabs).getByRole('link', { name: 'Approvals, 3 waiting' })).toHaveAttribute('href', '/approvals')
   })
 })

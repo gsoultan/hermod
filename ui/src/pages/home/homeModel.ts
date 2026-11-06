@@ -2,6 +2,7 @@ import type { DashboardStats } from '@/hooks/useDashboardStream';
 import type { Workflow } from '@/types';
 import { normalizeWorkflowStatus } from '@/utils/workflowStatus';
 import type { Tone } from '@/components/rows';
+import type { Waiting } from '@/lib/approvals';
 
 /**
  * What Home says, kept as plain functions so the words can be tested
@@ -36,7 +37,8 @@ interface AttentionInput {
   workflows: Pick<Workflow, 'id' | 'name' | 'active' | 'status'>[];
   stats: DashboardStats;
   deadLettersQueued: number;
-  pendingApprovals: number;
+  /** What waits for this person's decision (lib/approvals). */
+  waiting: Waiting;
 }
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -51,9 +53,11 @@ export function isStopped(wf: Pick<Workflow, 'active' | 'status'>): boolean {
 /**
  * The short list at the top of Home: each entry is one thing a person can
  * do something about, with the one button that does it. Stopped flows come
- * first because a stopped flow is the reason most people open Hermod.
+ * first because a stopped flow is the reason most people open Hermod; what
+ * waits for your decision comes next, because nothing moves until you decide.
+ * Each kind of approval gets its own row, worded for what approving it does.
  */
-export function attentionItems({ workflows, stats, deadLettersQueued, pendingApprovals }: AttentionInput): AttentionItem[] {
+export function attentionItems({ workflows, stats, deadLettersQueued, waiting }: AttentionInput): AttentionItem[] {
   const items: AttentionItem[] = [];
   for (const wf of workflows) {
     if (!isStopped(wf)) continue;
@@ -67,6 +71,33 @@ export function attentionItems({ workflows, stats, deadLettersQueued, pendingApp
       action: { label: 'Fix it', to: `/workflows/${wf.id}` },
     });
   }
+  if (waiting.releases > 0) {
+    items.push({
+      key: 'releases',
+      tone: 'info',
+      title: `${plural(waiting.releases, 'release', 'releases')} waiting to go live`,
+      detail: 'Flow versions sent from another environment. They go live here when you approve.',
+      action: { label: 'Review', to: '/approvals', search: { tab: 'releases' } },
+    });
+  }
+  if (waiting.requests > 0) {
+    items.push({
+      key: 'vhost-requests',
+      tone: 'info',
+      title: `${plural(waiting.requests, 'connected environment asks', 'connected environments ask')} to add a virtual host`,
+      detail: 'Allow it and releases can be sent into that virtual host too.',
+      action: { label: 'Review', to: '/approvals', search: { tab: 'releases' } },
+    });
+  }
+  if (waiting.held > 0) {
+    items.push({
+      key: 'held',
+      tone: 'info',
+      title: `${plural(waiting.held, 'message', 'messages')} held for your approval`,
+      detail: 'An Approval step in a running flow holds it until someone lets it continue.',
+      action: { label: 'Review', to: '/approvals', search: { tab: 'held' } },
+    });
+  }
   if (deadLettersQueued > 0) {
     items.push({
       key: 'dead-letters',
@@ -74,15 +105,6 @@ export function attentionItems({ workflows, stats, deadLettersQueued, pendingApp
       title: `${plural(deadLettersQueued, 'message is', 'messages are')} waiting in Dead letters`,
       detail: 'Each one failed at a step or a sink. Retry sends them again from where they failed.',
       action: { label: 'Retry them', to: '/activity', search: { tab: 'dead-letters' } },
-    });
-  }
-  if (pendingApprovals > 0) {
-    items.push({
-      key: 'approvals',
-      tone: 'info',
-      title: `${plural(pendingApprovals, 'change', 'changes')} waiting for your approval`,
-      detail: 'Nothing changes until someone approves.',
-      action: { label: 'Review', to: '/activity', search: { tab: 'approvals' } },
     });
   }
   if (stats.circuit_breakers_open > 0) {

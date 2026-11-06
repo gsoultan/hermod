@@ -2,15 +2,17 @@
  * The shape of the navigation, kept apart from the components so it can be
  * tested as data.
  *
- * Everything in Hermod lives in one of five places: Home, Flows, Connections,
- * Activity and Settings. A page that does not fit one of them goes inside one
- * of them, never into the sidebar. The retired top-level pages (Sources,
+ * Everything in Hermod lives in one of six places: Home, Approvals, Flows,
+ * Connections, Activity and Settings. A page that does not fit one of them
+ * goes inside one of them, never into the sidebar. Approvals has a place of
+ * its own because what waits for a person must be findable from anywhere:
+ * its sidebar entry carries the count. The retired top-level pages (Sources,
  * Sinks, Logs, Dead Letters, Mesh Health, ...) still answer at their old URLs
  * and redirect into the hub that now holds them, so bookmarks and links in
  * notifications keep working.
  */
 
-export type Section = 'home' | 'flows' | 'connections' | 'activity' | 'settings'
+export type Section = 'home' | 'approvals' | 'flows' | 'connections' | 'activity' | 'settings'
 
 export type Role = string | null | undefined
 
@@ -22,6 +24,7 @@ export interface NavItem {
 
 export const PRIMARY_NAV: readonly NavItem[] = [
   { key: 'home', to: '/', label: 'Home' },
+  { key: 'approvals', to: '/approvals', label: 'Approvals' },
   { key: 'flows', to: '/workflows', label: 'Flows' },
   { key: 'connections', to: '/connections', label: 'Connections' },
   { key: 'activity', to: '/activity', label: 'Activity' },
@@ -29,7 +32,8 @@ export const PRIMARY_NAV: readonly NavItem[] = [
 ]
 
 const SECTION_PREFIXES: ReadonlyArray<[Section, string[]]> = [
-  ['flows', ['/workflows', '/approvals']],
+  ['approvals', ['/approvals']],
+  ['flows', ['/workflows']],
   ['connections', ['/connections', '/sources', '/sinks', '/marketplace']],
   [
     'activity',
@@ -47,7 +51,6 @@ function startsWithPath(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(prefix + '/')
 }
 
-/** Which of the five places a URL belongs to; null for the public pages. */
 /**
  * How tall the phone's bottom tabs are: one 56px row of buttons, the 1px
  * border above it, and the home-indicator inset below. The tabs, the spacer
@@ -63,6 +66,7 @@ export const BOTTOM_TABS_HEIGHT = 'calc(3.5rem + 1px + env(safe-area-inset-botto
  */
 export const FLOW_ACTIONS_HEIGHT = 'calc(4.25rem + 1px + env(safe-area-inset-bottom))'
 
+/** Which of the six places a URL belongs to; null for the public pages. */
 export function sectionOf(pathname: string): Section | null {
   if (PUBLIC_PATHS.has(pathname)) return null
   if (pathname === '/') return 'home'
@@ -123,6 +127,25 @@ export function legacyRedirect(pathname: string): Redirect | null {
 export interface HubTab {
   value: string
   label: string
+  /** How many things in it wait for you; shown beside the label when above 0. */
+  count?: number
+}
+
+/**
+ * A hub tab that moved to a page of its own: where it went. The Approvals tab
+ * of Activity became the Held messages tab of Approvals.
+ */
+export function retiredHubTab(hub: Section, tab: string): Redirect | null {
+  if (hub === 'activity' && tab === 'approvals') return { to: '/approvals', search: { tab: 'held' } }
+  return null
+}
+
+/** The two kinds of approval, each with how many of it wait for you. */
+export function approvalsTabs(waiting: { releases: number; held: number; requests: number; total?: number }): HubTab[] {
+  return [
+    { value: 'releases', label: 'Releases', count: waiting.releases + waiting.requests },
+    { value: 'held', label: 'Held messages', count: waiting.held },
+  ]
 }
 
 const isAdmin = (role: Role) => role === 'Administrator'
@@ -140,7 +163,6 @@ export function activityTabs(role: Role): HubTab[] {
   const tabs: HubTab[] = [
     { value: 'logs', label: 'Logs' },
     { value: 'dead-letters', label: 'Dead letters' },
-    { value: 'approvals', label: 'Approvals' },
     { value: 'health', label: 'Mesh health' },
   ]
   if (isAdmin(role)) tabs.push({ value: 'audit', label: 'Audit log' })

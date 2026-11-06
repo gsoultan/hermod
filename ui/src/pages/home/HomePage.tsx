@@ -12,6 +12,7 @@ import type { Workflow } from '@/types';
 import { PageHeader, Row, RowList } from '@/components/rows';
 import { FlowRow } from '@/components/flows/FlowRow';
 import { useToggleFlow } from '@/components/flows/useToggleFlow';
+import { useWaitingApprovals } from '@/lib/approvals';
 import { attentionItems, greeting, isFirstRun, statusLine } from './homeModel';
 import { fromTo } from '@/pages/workflows/flowsModel';
 import { ConnectionBadge, PlatformPanel } from './PlatformPanel';
@@ -45,14 +46,7 @@ export function HomePage({ now = new Date() }: HomePageProps) {
     },
     refetchInterval: 30_000,
   });
-  const { data: approvals } = useQuery({
-    queryKey: ['approvals', 'pending-count'],
-    queryFn: async () => {
-      const res = await apiFetch('/api/approvals?status=pending&page=1&limit=1', { silent: true });
-      return (await res.json()) as { total?: number };
-    },
-    refetchInterval: 60_000,
-  });
+  const waiting = useWaitingApprovals();
   const { data: deadLetters } = useQuery({
     queryKey: ['dead-letters', 'stats', selectedVHost],
     queryFn: async () => {
@@ -68,7 +62,7 @@ export function HomePage({ now = new Date() }: HomePageProps) {
     workflows,
     stats,
     deadLettersQueued: deadLetters?.queued ?? 0,
-    pendingApprovals: approvals?.total ?? 0,
+    waiting,
   });
   const firstRun = !flowsLoading && isFirstRun(stats, workflows);
 

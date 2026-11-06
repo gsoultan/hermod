@@ -200,7 +200,8 @@ function Inbox() {
 const approverFor = (rules: Rules | undefined, vhost: string): ApprovalRule | undefined =>
   rules?.by_vhost?.[vhost]?.approval ?? rules?.approval
 
-function ReleaseCard({ ps }: { ps: Promotion[] }) {
+/** One release sent here, with what approving it needs; also shown on the Approvals page. */
+export function ReleaseCard({ ps }: { ps: Promotion[] }) {
   const queryClient = useQueryClient()
   const confirm = useConfirm()
   const { data: rules } = useRules()

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { EMPTY_STATS } from '@/hooks/useDashboardStream'
 import { attentionItems, greeting, isFirstRun, statusLine } from '@/pages/home/homeModel'
 
+const NONE = { releases: 0, held: 0, requests: 0, total: 0 }
+
 const wf = (over: Partial<{ id: string; name: string; active: boolean; status: string }>) => ({
   id: 'wf', name: 'Flow', active: true, status: 'running', ...over,
 })
@@ -29,7 +31,7 @@ describe('what needs you', () => {
       workflows: [wf({ id: 'a', name: 'Orders to warehouse', status: 'error' }), wf({ id: 'b', name: 'Billing sync' })],
       stats: EMPTY_STATS,
       deadLettersQueued: 0,
-      pendingApprovals: 0,
+      waiting: NONE,
     })
     expect(items).toHaveLength(1)
     expect(items[0]).toMatchObject({
@@ -44,28 +46,42 @@ describe('what needs you', () => {
       workflows: [],
       stats: { ...EMPTY_STATS, circuit_breakers_open: 2, backpressure: 0.9 },
       deadLettersQueued: 12,
-      pendingApprovals: 3,
+      waiting: { releases: 2, held: 3, requests: 1, total: 6 },
     })
     expect(items.map((i) => i.title)).toEqual([
+      '2 releases waiting to go live',
+      '1 connected environment asks to add a virtual host',
+      '3 messages held for your approval',
       '12 messages are waiting in Dead letters',
-      '3 changes waiting for your approval',
       '2 sinks stopped accepting writes',
       'A sink buffer is 90% full',
     ])
-    expect(items.map((i) => i.action.label)).toEqual(['Retry them', 'Review', 'See which', 'See which'])
-    expect(items[1].action.to).toBe('/activity')
-    expect(items[1].action.search).toEqual({ tab: 'approvals' })
+    expect(items.map((i) => i.action.label)).toEqual(['Review', 'Review', 'Review', 'Retry them', 'See which', 'See which'])
+    expect(items.slice(0, 3).map((i) => [i.action.to, i.action.search])).toEqual([
+      ['/approvals', { tab: 'releases' }],
+      ['/approvals', { tab: 'releases' }],
+      ['/approvals', { tab: 'held' }],
+    ])
+  })
+
+  it('says what each kind of approval does, so the two are not mixed up', () => {
+    const [release, held] = attentionItems({
+      workflows: [], stats: EMPTY_STATS, deadLettersQueued: 0, waiting: { releases: 1, held: 1, requests: 0, total: 2 },
+    })
+    expect(release.detail).toBe('Flow versions sent from another environment. They go live here when you approve.')
+    expect(held.detail).toBe('An Approval step in a running flow holds it until someone lets it continue.')
   })
 
   it('is empty when everything runs', () => {
-    expect(attentionItems({ workflows: [wf({})], stats: EMPTY_STATS, deadLettersQueued: 0, pendingApprovals: 0 })).toEqual([])
+    expect(attentionItems({ workflows: [wf({})], stats: EMPTY_STATS, deadLettersQueued: 0, waiting: NONE })).toEqual([])
   })
 
-  it('says one message, one change, one sink', () => {
-    const items = attentionItems({ workflows: [], stats: { ...EMPTY_STATS, circuit_breakers_open: 1 }, deadLettersQueued: 1, pendingApprovals: 1 })
+  it('says one release, one message, one sink', () => {
+    const items = attentionItems({ workflows: [], stats: { ...EMPTY_STATS, circuit_breakers_open: 1 }, deadLettersQueued: 1, waiting: { releases: 1, held: 1, requests: 0, total: 2 } })
     expect(items.map((i) => i.title)).toEqual([
+      '1 release waiting to go live',
+      '1 message held for your approval',
       '1 message is waiting in Dead letters',
-      '1 change waiting for your approval',
       '1 sink stopped accepting writes',
     ])
   })
