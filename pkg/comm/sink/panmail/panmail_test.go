@@ -13,6 +13,7 @@ package panmail
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -965,5 +966,149 @@ func TestWrite_ARealAfterColumnWins(t *testing.T) {
 
 	if got, _ := (*received)[0]["providerId"].(string); got != "column" {
 		t.Errorf("providerId = %q, want the row's own after column", got)
+	}
+}
+
+// A cancelled context means whoever asked stopped waiting — a workflow being
+// stopped or restarted mid-check — not that the gateway is down. The resolver
+// reports it as "lookup <host>: operation was canceled", and wrapping that in
+// "cannot reach the gateway" sent people off to debug DNS that was fine.
+func TestPing_ACancelledCheckIsNotReportedAsAnUnreachableGateway(t *testing.T) {
+	sink, err := New(baseConfig("https://panmail.example.com"), nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err = sink.Ping(ctx)
+	if err == nil {
+		t.Fatal("Ping succeeded on a cancelled context")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("Ping error %q does not wrap context.Canceled", err)
+	}
+	if strings.Contains(err.Error(), "cannot reach") {
+		t.Errorf("Ping error %q blames the gateway for a check that was cancelled", err)
+	}
+}
+
+// readyzGateway answers /readyz with status and body, and anything else with
+// 404. It records the paths asked for and whether an api key came along. The
+// method is not checked: the gateway answers readiness on any, and the SDK
+// sends a POST.
+func readyzGateway(t *testing.T, status int, body string) (*httptest.Server, *[]string, *[]string) {
+	t.Helper()
+	var mu sync.Mutex
+	var paths, keys []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		paths = append(paths, r.URL.Path)
+		keys = append(keys, r.Header.Get("X-API-Key"))
+		mu.Unlock()
+		if r.URL.Path != "/readyz" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &paths, &keys
+}
+
+// A port that accepts connections is not a gateway that can send: panmail's
+// /readyz answers 503 while its database is down or it is draining, and the
+// sink's health check has to say so rather than report it healthy.
+func TestPing_AsksTheGatewaysReadyzWithoutTheAPIKey(t *testing.T) {
+	srv, paths, keys := readyzGateway(t, http.StatusOK, `{"status":"ready"}`)
+	sink, err := New(baseConfig(srv.URL), nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	if err := sink.Ping(context.Background()); err != nil {
+		t.Fatalf("Ping against a ready gateway: %v", err)
+	}
+	if len(*paths) != 1 || (*paths)[0] != "/readyz" {
+		t.Errorf("gateway saw %v, want one request to /readyz", *paths)
+	}
+	for _, k := range *keys {
+		if k != "" {
+			t.Errorf("health check sent the api key %q to an unauthenticated endpoint", k)
+		}
+	}
+}
+
+func TestPing_ReportsAGatewayThatIsUpButNotReady(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, want string
+	}{
+		{"database down", `{"status":"not ready","failed":["database"]}`, "database"},
+		{"draining", `{"status":"shutting down"}`, "shutting down"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, _, _ := readyzGateway(t, http.StatusServiceUnavailable, tc.body)
+			sink, err := New(baseConfig(srv.URL), nil)
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+
+			err = sink.Ping(context.Background())
+			if err == nil {
+				t.Fatal("Ping passed against a gateway whose /readyz answered 503")
+			}
+			if !strings.Contains(err.Error(), "not ready") || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("Ping error %q does not say the gateway is not ready because of %q", err, tc.want)
+			}
+			if strings.Contains(err.Error(), "cannot reach") {
+				t.Errorf("Ping error %q calls a gateway that answered unreachable", err)
+			}
+		})
+	}
+}
+
+// A gateway older than /readyz, or a proxy in front of it that only forwards
+// the API, answers 404. That says nothing about readiness, so the check falls
+// back to whether the gateway's port accepts a connection, as before.
+func TestPing_FallsBackToAConnectWhenTheGatewayHasNoReadyz(t *testing.T) {
+	srv, _, _ := readyzGateway(t, http.StatusOK, "")
+	srv.Config.Handler = http.NotFoundHandler()
+	sink, err := New(baseConfig(srv.URL), nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	if err := sink.Ping(context.Background()); err != nil {
+		t.Errorf("Ping against a reachable gateway without /readyz: %v", err)
+	}
+}
+
+func TestPing_ReportsAnUnexpectedReadyzStatus(t *testing.T) {
+	srv, _, _ := readyzGateway(t, http.StatusInternalServerError, "boom")
+	sink, err := New(baseConfig(srv.URL), nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	err = sink.Ping(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "500") {
+		t.Errorf("Ping error = %v, want one naming HTTP 500", err)
+	}
+}
+
+// panmail serves its web UI on every unknown path, so a gateway older than
+// /readyz answers it 200 with a page. That is not a readiness answer, and it
+// is not a failure either: the check falls back to the connect it used to be.
+func TestPing_FallsBackToAConnectWhenReadyzAnswersAPage(t *testing.T) {
+	srv, _, _ := readyzGateway(t, http.StatusOK, "<!doctype html><title>panmail</title>")
+	sink, err := New(baseConfig(srv.URL), nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	if err := sink.Ping(context.Background()); err != nil {
+		t.Errorf("Ping against an older gateway that serves its UI at /readyz: %v", err)
 	}
 }

@@ -72,6 +72,7 @@ import (
 	"maps"
 	"net"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"text/template"
@@ -619,17 +620,23 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 	return nil
 }
 
-// Ping reports whether the gateway's host accepts a connection.
+// Ping reports whether the gateway can serve a send right now, by asking its
+// /readyz.
 //
 // It deliberately does not send anything: the gateway's only write procedure is
-// a send, and a health check that mails somebody is not a health check. A
-// successful ping therefore says the gateway is reachable, not that the api key
-// or the provider id are good — those are only learned from a real send.
+// a send, and a health check that mails somebody is not a health check. /readyz
+// is unauthenticated, so the api key is not sent either. A successful ping
+// therefore says the gateway is up and its database answers, not that the api
+// key or the provider id are good — those are only learned from a real send.
+//
+// /readyz rather than a bare connect: a gateway whose database is down, or that
+// is draining for a restart, still accepts connections, and a check that only
+// connected reported it healthy while every send failed.
 func (s *Sink) Ping(ctx context.Context) error {
 	if s.routed {
 		return s.pingAllowed(ctx)
 	}
-	return s.dial(ctx, s.cfg.BaseURL)
+	return s.checkReady(ctx, s.cfg.BaseURL)
 }
 
 // pingAllowed is the health check for a templated gateway, which has no one
@@ -651,7 +658,7 @@ func (s *Sink) pingAllowed(ctx context.Context) error {
 		if rule.wildcard {
 			continue
 		}
-		err := s.dial(ctx, scheme+rule.host)
+		err := s.checkReady(ctx, scheme+rule.host)
 		if err == nil {
 			return nil
 		}
@@ -662,6 +669,87 @@ func (s *Sink) pingAllowed(ctx context.Context) error {
 			"wildcard, so there is no host to check; add one concrete host to allowed_hosts")
 	}
 	return errors.Join(errs...)
+}
+
+// healthCheckTimeout bounds one readiness request or connect.
+const healthCheckTimeout = 10 * time.Second
+
+// readinessKey stands in for an api key when building a client to ask
+// /readyz. sdk.New requires one, and Client.Ready never sends it: the endpoint
+// is unauthenticated, and a tenant credential has no business on a request
+// that does nothing with it. A routed sink has no key until a message renders
+// one, so the real key is never used here either way.
+const readinessKey = "readiness-check"
+
+// checkReady asks the gateway at baseURL whether it can serve a request, with
+// the SDK's Client.Ready.
+//
+// The gateway saying no (*sdk.NotReadyError) is reported as not ready, with
+// what failed. A 5xx from whatever answered is reported too. Anything else —
+// a 404 or 405 from a gateway older than /readyz or a proxy that forwards only
+// the API, or a 200 page from something serving every path — says nothing
+// about readiness either way, so the check falls back to whether the gateway's
+// port accepts a connection, which is what it did before /readyz existed.
+func (s *Sink) checkReady(ctx context.Context, baseURL string) error {
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return fmt.Errorf("panmail sink: base url is not a url: %w", err)
+	}
+
+	opts := append(slices.Clone(s.opts), sdk.WithTimeout(healthCheckTimeout))
+	client, err := sdk.New(baseURL, readinessKey, opts...)
+	if err != nil {
+		return fmt.Errorf("panmail sink: %w", err)
+	}
+
+	err = client.Ready(ctx)
+	if err == nil {
+		return nil
+	}
+	var notReady *sdk.NotReadyError
+	if errors.As(err, &notReady) {
+		if len(notReady.Failed) > 0 {
+			return fmt.Errorf("panmail sink: the gateway at %s is up but not ready: %s failed: %w",
+				parsed.Host, strings.Join(notReady.Failed, ", "), err)
+		}
+		return fmt.Errorf("panmail sink: the gateway at %s is up but not ready (%s): %w",
+			parsed.Host, notReady.State, err)
+	}
+	var refused *sdk.APIError
+	if errors.As(err, &refused) {
+		if refused.Status >= 500 {
+			return fmt.Errorf("panmail sink: the gateway at %s answered its readiness check with HTTP %d: %w",
+				parsed.Host, refused.Status, err)
+		}
+		return s.dial(ctx, baseURL)
+	}
+	if ctx.Err() != nil || isTransportError(err) {
+		return unreachable(ctx, parsed.Host, err)
+	}
+	// A 200 without a readiness answer, or an answer cut short.
+	return s.dial(ctx, baseURL)
+}
+
+// isTransportError reports whether err is the request failing to reach
+// anything, as opposed to something answering.
+func isTransportError(err error) bool {
+	var netErr net.Error
+	var urlErr *url.Error
+	return errors.As(err, &netErr) || errors.As(err, &urlErr)
+}
+
+// unreachable words a failed health check against host. A cancelled check is
+// the caller giving up — a workflow stopping or restarting — not the gateway
+// being down. The resolver reports it as "lookup <host>: operation was
+// canceled", which under "cannot reach the gateway" read as a DNS outage that
+// was never there. A deadline is left alone: a gateway that does not answer in
+// time is unreachable.
+func unreachable(ctx context.Context, host string, err error) error {
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return fmt.Errorf("panmail sink: the check of the gateway at %s was stopped before it finished: %w",
+			host, context.Canceled)
+	}
+	return fmt.Errorf("panmail sink: cannot reach the gateway at %s: %w", host, err)
 }
 
 // dial reports whether something is listening where a gateway url points.
@@ -679,10 +767,10 @@ func (s *Sink) dial(ctx context.Context, baseURL string) error {
 		}
 	}
 
-	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	dialer := &net.Dialer{Timeout: healthCheckTimeout}
 	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(parsed.Hostname(), port))
 	if err != nil {
-		return fmt.Errorf("panmail sink: cannot reach the gateway at %s: %w", parsed.Host, err)
+		return unreachable(ctx, parsed.Host, err)
 	}
 	return conn.Close()
 }
