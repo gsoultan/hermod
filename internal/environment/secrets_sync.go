@@ -44,26 +44,39 @@ type SecretWriter interface {
 }
 
 // connectionSecrets maps each secret the sources and sinks here read to the
-// connections that read it ("source orders-db"). One that is not found, or
-// that may says is out of reach, is skipped.
-func (s *Service) connectionSecrets(ctx context.Context, sources, sinks []string, may func(vhost string) bool) map[string][]string {
+// connections that read it ("source orders-db"), and says in which setting.
+// One that is not found, or that may says is out of reach, is skipped.
+func (s *Service) connectionSecrets(ctx context.Context, sources, sinks []string, may func(vhost string) bool) (map[string][]string, places) {
 	uses := map[string][]string{}
-	add := func(label string, cfg map[string]string) {
-		for _, name := range configSecrets(cfg) {
-			uses[name] = append(uses[name], label)
+	where := places{}
+	add := func(kind, name string, cfg map[string]string) {
+		for _, secret := range configSecrets(cfg) {
+			uses[secret] = append(uses[secret], kind+" "+name)
 		}
+		where.merge(connectionPlaces(kind, name, cfg))
 	}
 	for _, id := range sources {
 		if src, err := s.store.GetSource(ctx, id); err == nil && may(src.VHost) {
-			add("source "+src.Name, src.Config)
+			add("source", src.Name, src.Config)
 		}
 	}
 	for _, id := range sinks {
 		if snk, err := s.store.GetSink(ctx, id); err == nil && may(snk.VHost) {
-			add("sink "+snk.Name, snk.Config)
+			add("sink", snk.Name, snk.Config)
 		}
 	}
-	return uses
+	return uses, where
+}
+
+// secretPlaces says where wf, the sources and sinks it uses here, and the
+// ones it brings use each secret.
+func (s *Service) secretPlaces(ctx context.Context, wf storage.Workflow, carried []CarriedConnection) places {
+	where := stepPlaces(wf)
+	sources, sinks := workflowRefs(wf)
+	_, conns := s.connectionSecrets(ctx, sources, sinks, func(string) bool { return true })
+	where.merge(conns)
+	where.merge(carriedPlaces(carried))
+	return where
 }
 
 // secretsUsed lists every secret wf needs here: the ones its nodes name and
@@ -71,7 +84,7 @@ func (s *Service) connectionSecrets(ctx context.Context, sources, sinks []string
 func (s *Service) secretsUsed(ctx context.Context, wf storage.Workflow, carried []CarriedConnection) []string {
 	names, _ := references(wf)
 	sources, sinks := workflowRefs(wf)
-	uses := s.connectionSecrets(ctx, sources, sinks, func(string) bool { return true })
+	uses, _ := s.connectionSecrets(ctx, sources, sinks, func(string) bool { return true })
 	maps.Copy(uses, carriedSecrets(carried))
 	for name := range uses {
 		if !slices.Contains(names, name) {

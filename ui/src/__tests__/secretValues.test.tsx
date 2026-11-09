@@ -9,7 +9,7 @@ import { server, signInAs } from '../test/setupTests'
 import { ConfirmProvider } from '@/components/common/ConfirmProvider'
 import { EnvironmentsPage } from '@/pages/environments/EnvironmentsPage'
 import {
-  filledValues, neededSecrets, parseEnvBlock, SecretValues, type NeededSecret,
+  filledValues, neededSecrets, parseEnvBlock, SecretValues, whereLine, type NeededSecret,
 } from '@/pages/environments/SecretValues'
 
 vi.mock('@tanstack/react-router', () => ({
@@ -35,8 +35,8 @@ describe('secret value helpers', () => {
       { workflow_name: 'payouts', missing_secrets: ['STRIPE_KEY'] },
       { workflow_name: 'orders', missing_secrets: null },
     ])).toEqual([
-      { name: 'SLACK', usedBy: ['refunds'], via: [] },
-      { name: 'STRIPE_KEY', usedBy: ['refunds', 'payouts'], via: [] },
+      { name: 'SLACK', usedBy: ['refunds'], via: [], places: [] },
+      { name: 'STRIPE_KEY', usedBy: ['refunds', 'payouts'], via: [], places: [] },
     ])
   })
 
@@ -45,9 +45,30 @@ describe('secret value helpers', () => {
       { workflow_name: 'refunds', missing_secrets: ['WH_PASSWORD', 'SLACK'], secret_uses: { WH_PASSWORD: ['sink warehouse'] } },
       { workflow_name: 'payouts', missing_secrets: ['WH_PASSWORD'], secret_uses: { WH_PASSWORD: ['sink warehouse'] } },
     ])).toEqual([
-      { name: 'SLACK', usedBy: ['refunds'], via: [] },
-      { name: 'WH_PASSWORD', usedBy: ['refunds', 'payouts'], via: ['sink warehouse'] },
+      { name: 'SLACK', usedBy: ['refunds'], via: [], places: [] },
+      { name: 'WH_PASSWORD', usedBy: ['refunds', 'payouts'], via: ['sink warehouse'], places: [{ kind: 'sink', name: 'warehouse' }] },
     ])
+  })
+
+  it('lists every step, source and sink that uses a secret, each once, and which flow a step is in', () => {
+    const step = { kind: 'step' as const, name: 'Look up plan price', field: 'Headers › Authorization', node_id: 'n4', value: '{{secret.TOKEN}}' }
+    const sink = { kind: 'sink' as const, name: 'warehouse', field: 'Password' }
+    expect(neededSecrets([
+      { workflow_name: 'orders', workflow_id: 'wf-1', missing_secrets: ['TOKEN'], secret_uses: { TOKEN: ['sink warehouse'] }, secret_places: { TOKEN: [step, sink] } },
+      { workflow_name: 'refunds', workflow_id: 'wf-2', missing_secrets: ['TOKEN'], secret_places: { TOKEN: [sink] } },
+    ])).toEqual([
+      { name: 'TOKEN', usedBy: ['orders', 'refunds'], via: ['sink warehouse'], places: [{ ...step, workflowId: 'wf-1' }, sink] },
+    ])
+  })
+
+  it('says how many secrets steps and connections use', () => {
+    const at = (kind: 'step' | 'source' | 'sink') => [{ kind, name: 'x' }]
+    expect(whereLine([
+      { name: 'A', usedBy: [], places: at('step') }, { name: 'B', usedBy: [], places: at('step') },
+      { name: 'C', usedBy: [], places: at('step') }, { name: 'D', usedBy: [], places: at('sink') },
+    ])).toBe('3 are used by steps and 1 by a sink.')
+    expect(whereLine([{ name: 'A', usedBy: [], places: at('source') }])).toBe('1 is used by a source.')
+    expect(whereLine([{ name: 'A', usedBy: [], places: [] }])).toBe('')
   })
 
   it('reads a .env block and keeps apart the names that are not needed', () => {
@@ -86,7 +107,7 @@ describe('typing secret values for production', () => {
   it('asks for a few right in place, never showing them', async () => {
     let last: Record<string, string> = {}
     const user = userEvent.setup()
-    wrap(<Harness needed={[{ name: 'SLACK_TOKEN', usedBy: ['orders'] }, { name: 'WAREHOUSE_PASSWORD', usedBy: ['orders'] }]} onValues={(v) => { last = v }} />)
+    wrap(<Harness needed={[{ name: 'SLACK_TOKEN', usedBy: ['orders'], places: [] }, { name: 'WAREHOUSE_PASSWORD', usedBy: ['orders'], places: [] }]} onValues={(v) => { last = v }} />)
     expect(screen.getByText('2 secrets are new to Production')).toBeInTheDocument()
     expect(screen.getByText(/never stored or shown here/)).toBeInTheDocument()
     const box = screen.getByLabelText('WAREHOUSE_PASSWORD')
@@ -96,13 +117,44 @@ describe('typing secret values for production', () => {
     expect(screen.getByText(/the approver fills the rest/)).toBeInTheDocument()
   })
 
-  it('says which connection reads a secret', () => {
-    wrap(<Harness needed={[{ name: 'WH_PASSWORD', usedBy: ['orders'], via: ['sink warehouse'] }]} />)
-    expect(screen.getByText('Read by sink warehouse')).toBeInTheDocument()
+  it('says which step, source or sink uses a secret, and in which setting', () => {
+    wrap(<Harness needed={[
+      { name: 'REDIS_PASSWORD', usedBy: ['orders'], places: [{ kind: 'step', name: 'Cache totals', field: 'Password' }] },
+      { name: 'WH_PASSWORD', usedBy: ['orders'], via: ['sink warehouse'], places: [{ kind: 'sink', name: 'warehouse', field: 'Password' }] },
+    ]} />)
+    expect(screen.getByText(/^1 is used by a step and 1 by a sink\./)).toBeInTheDocument()
+    expect(screen.getByText('Step')).toBeInTheDocument()
+    expect(screen.getByText('Cache totals')).toBeInTheDocument()
+    expect(screen.getByText('Sink')).toBeInTheDocument()
+    expect(screen.getByText('warehouse')).toBeInTheDocument()
+    expect(screen.getAllByText('· Password')).toHaveLength(2)
+  })
+
+  it('shows how a step uses a secret, and opens the step', async () => {
+    const user = userEvent.setup()
+    wrap(<Harness needed={[{
+      name: 'PRICING_TOKEN', usedBy: ['orders'],
+      places: [{ kind: 'step', name: 'Look up plan price', field: 'Headers › Authorization', node_id: 'n4', value: '{{concat("Bearer ", secret.PRICING_TOKEN)}}', workflowId: 'wf-1' }],
+    }]} />)
+    await user.click(screen.getByRole('button', { name: 'Where PRICING_TOKEN is used in Look up plan price' }))
+    const mark = await screen.findByText('PRICING_TOKEN', { selector: 'mark' })
+    expect(mark).toBeInTheDocument()
+    // jsdom gives the floating panel no layout, so it is read by its text, not its role.
+    expect((await screen.findByText(/Open step/)).closest('a')).toHaveAttribute('href', '/workflows/wf-1/edit')
+  })
+
+  it('shows two places and the rest on request', async () => {
+    const user = userEvent.setup()
+    const places = ['one', 'two', 'three', 'four'].map((name) => ({ kind: 'step' as const, name }))
+    wrap(<Harness needed={[{ name: 'KEY', usedBy: ['orders'], places }]} />)
+    expect(screen.queryByText('three')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'and 2 more' }))
+    expect(screen.getByText('four')).toBeInTheDocument()
   })
 
   it('fills many in one place: search, Empty, and a pasted .env block', async () => {
-    const needed = Array.from({ length: 14 }, (_, i) => ({ name: `SECRET_${String(i).padStart(2, '0')}`, usedBy: i % 2 ? ['payouts'] : ['refunds', 'payouts'] }))
+    const needed = Array.from({ length: 14 }, (_, i) => ({ name: `SECRET_${String(i).padStart(2, '0')}`, usedBy: i % 2 ? ['payouts'] : ['refunds', 'payouts'],
+      places: [{ kind: i % 3 ? 'sink' as const : 'step' as const, name: i % 3 ? 'warehouse' : `Step ${i}` }] }))
     let last: Record<string, string> = {}
     const user = userEvent.setup()
     wrap(<Harness needed={needed} onValues={(v) => { last = v }} />)
@@ -131,6 +183,24 @@ describe('typing secret values for production', () => {
     expect(last).toEqual({})
     await user.click(within(dialog).getByRole('button', { name: 'Done · 0 of 14 filled' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  }, 20000)
+
+  it('filters many by where they are used', async () => {
+    const needed = Array.from({ length: 8 }, (_, i) => ({
+      name: `SECRET_${i}`, usedBy: ['payouts'],
+      places: [{ kind: i % 2 ? 'sink' as const : 'step' as const, name: i % 2 ? 'warehouse' : `Step ${i}` }],
+    }))
+    const user = userEvent.setup()
+    wrap(<Harness needed={needed} />)
+    await user.click(screen.getByRole('button', { name: 'Fill in values' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Secret values for Production' })
+    const where = within(dialog).getByRole('group', { name: 'Where it is used' })
+    expect(within(where).queryByText(/^Sources/)).not.toBeInTheDocument()
+    await user.click(within(where).getByText('Steps (4)'))
+    expect(within(dialog).getAllByLabelText(/^SECRET_/)).toHaveLength(4)
+    expect(within(dialog).queryByLabelText('SECRET_1')).not.toBeInTheDocument()
+    await user.click(within(where).getByText('Anywhere'))
+    expect(within(dialog).getAllByLabelText(/^SECRET_/)).toHaveLength(8)
   })
 })
 

@@ -150,8 +150,23 @@ export interface Preview {
   missing_secrets?: string[] | null
   /** For a missing secret a source or sink there reads, those connections ("sink warehouse"). */
   secret_uses?: Record<string, string[]> | null
+  /** For each missing secret, every step, source and sink that uses it, and in which setting. */
+  secret_places?: Record<string, SecretPlace[]> | null
   /** Each source and sink it uses, and what happens to it there. */
   connections?: ConnectionRow[] | null
+}
+
+/**
+ * One place a secret is used: a step (with the setting as saved, so the
+ * person sees how), or a source or sink, whose settings are never sent.
+ */
+export interface SecretPlace {
+  kind: 'step' | 'source' | 'sink'
+  name: string
+  /** The setting that names it, as a person reads it ("Headers › Authorization"). */
+  field?: string
+  node_id?: string
+  value?: string
 }
 
 /** One setting of a connection created there; a credential's value shows only when it is a reference. */
@@ -208,6 +223,8 @@ export interface Promotion {
   secrets?: string[] | null
   /** The ones of secrets the sender typed a value for. */
   secrets_filled?: string[] | null
+  /** For each of secrets, every step, source and sink that uses it, and in which setting. */
+  secret_places?: Record<string, SecretPlace[]> | null
   /** After the deploy: created from typed values, already there by then, and still without a value. */
   secrets_copied?: string[] | null
   secrets_kept?: string[] | null

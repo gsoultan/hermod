@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -58,6 +57,9 @@ type Preview struct {
 	// SecretUses names, for a missing secret a source or sink there reads,
 	// each connection that reads it ("sink warehouse").
 	SecretUses map[string][]string `json:"secret_uses,omitempty"`
+	// SecretPlaces says, for each missing secret, every step, source and
+	// sink that uses it, and in which setting.
+	SecretPlaces map[string][]SecretPlace `json:"secret_places,omitempty"`
 	// Connections are the sources and sinks the workflow uses, each with
 	// what happens to it there.
 	Connections []ConnectionRow `json:"connections,omitempty"`
@@ -120,32 +122,30 @@ func rewriteRefs(wf storage.Workflow, srcMap, sinkMap map[string]string) storage
 	return out
 }
 
-var tokenPattern = regexp.MustCompile(`\{\{([^{}]*)\}\}`)
-
-// references lists the secrets and env variables a workflow's nodes name
-// with {{secret.NAME}} and {{env.NAME}}.
+// references lists the secrets and env variables a workflow's nodes read,
+// in every spelling the engine resolves: {{secret.NAME}}, secret("NAME"), a
+// secret inside a function, and the rest (secrets.References). Checking only
+// {{secret.NAME}} let a step's secret written by the value builder through
+// unasked, and the workflow landed without it.
 func references(wf storage.Workflow) (secretNames, envNames []string) {
 	found := map[string]map[string]bool{"secret": {}, "env": {}}
 	for _, n := range wf.Nodes {
 		walkStrings(n.Config, func(v string) {
-			for _, m := range tokenPattern.FindAllStringSubmatch(v, -1) {
-				if kind, name, ok := secrets.DottedReference(strings.TrimSpace(m[1])); ok && found[kind] != nil {
-					found[kind][name] = true
-				}
+			for _, ref := range secrets.References(v) {
+				found[ref.Kind][ref.Name] = true
 			}
 		})
 	}
 	return slices.Sorted(maps.Keys(found["secret"])), slices.Sorted(maps.Keys(found["env"]))
 }
 
-// configSecrets lists the secrets a source's or sink's settings name with
-// {{secret.NAME}}.
+// configSecrets lists the secrets a source's or sink's settings read.
 func configSecrets(cfg map[string]string) []string {
 	var out []string
 	for _, v := range cfg {
-		for _, m := range tokenPattern.FindAllStringSubmatch(v, -1) {
-			if kind, name, ok := secrets.DottedReference(strings.TrimSpace(m[1])); ok && kind == "secret" && !slices.Contains(out, name) {
-				out = append(out, name)
+		for _, ref := range secrets.References(v) {
+			if ref.Kind == "secret" && !slices.Contains(out, ref.Name) {
+				out = append(out, ref.Name)
 			}
 		}
 	}
@@ -284,6 +284,14 @@ func (s *Service) checkAgainst(ctx context.Context, p *Preview, l Link, token st
 	if len(res.MissingSecrets) > 0 {
 		p.MissingSecrets = res.MissingSecrets
 		p.SecretUses = res.SecretUses
+		where := stepPlaces(out)
+		if len(res.SecretPlaces) > 0 {
+			where.merge(res.SecretPlaces)
+		} else {
+			where.merge(placesFromUses(res.SecretUses))
+		}
+		where.merge(carriedPlaces(m.carried))
+		p.SecretPlaces = where.only(res.MissingSecrets)
 		for _, name := range res.MissingSecrets {
 			if uses := carriedUses[name]; len(uses) > 0 {
 				if p.SecretUses == nil {
