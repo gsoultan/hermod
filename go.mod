@@ -75,7 +75,7 @@ require (
 	github.com/gsoultan/metis-sdk v0.3.1
 	github.com/gsoultan/mimir-server v0.3.0
 	github.com/gsoultan/mimir-server-sdk v0.2.0
-	github.com/gsoultan/panmail-sdk v0.1.1
+	github.com/gsoultan/panmail-sdk v0.1.2
 	github.com/hamba/avro/v2 v2.31.0
 	github.com/hashicorp/vault/api v1.13.0
 	github.com/jackc/pglogrepl v0.0.0-20251213150135-2e8d0df862c1

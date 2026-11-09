@@ -688,8 +688,8 @@ github.com/gsoultan/mimir-server v0.3.0 h1:LMVzEV5VeNnqziifcrb+74Q99I5NEY38JYwb8
 github.com/gsoultan/mimir-server v0.3.0/go.mod h1:gOVyfeIRyGSCsrcQC7oywQ0BHumuLpmzKiCqC9KmR6g=
 github.com/gsoultan/mimir-server-sdk v0.2.0 h1:3TyvGeDcRa/iBVRB0NTB58jIpCGDhvTvr63WlLFrVjI=
 github.com/gsoultan/mimir-server-sdk v0.2.0/go.mod h1:xJXfYPK2yEWXmpqgc2uVNXXImwtgNcYzBW0N87P54/s=
-github.com/gsoultan/panmail-sdk v0.1.1 h1:dpYmvHugluCkRxReKqiNv0K3jdBTQZamX465DoFv2Xo=
-github.com/gsoultan/panmail-sdk v0.1.1/go.mod h1:nyPtNdRsP3kg4Vlk+3LJ2r3fBzwj1cahRpHGlcNMEaQ=
+github.com/gsoultan/panmail-sdk v0.1.2 h1:LxGjqvKoXwcFrf0PFRLUs0AO+npj3R3soQR+4ndZRKU=
+github.com/gsoultan/panmail-sdk v0.1.2/go.mod h1:nyPtNdRsP3kg4Vlk+3LJ2r3fBzwj1cahRpHGlcNMEaQ=
 github.com/gsterjov/go-libsecret v0.0.0-20161001094733-a6f4afe4910c h1:6rhixN/i8ZofjG1Y75iExal34USq5p+wiN1tpie8IrU=
 github.com/gsterjov/go-libsecret v0.0.0-20161001094733-a6f4afe4910c/go.mod h1:NMPJylDgVpX0MLRlPy15sqSwOFv/U1GZ2m21JhFfek0=
 github.com/hailocab/go-hostpool v0.0.0-20160125115350-e80d13ce29ed h1:5upAirOpQc1Q53c0bnx2ufif5kANL7bfZWcc6VJWJd8=

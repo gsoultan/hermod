@@ -22,3 +22,18 @@ Tests: `pkg/engine/health_cancel_test.go`,
 
 **Rule for new connectors.** A `Ping` error message must not blame the remote when
 `ctx.Err()` is `context.Canceled`; check the context before wording the error.
+
+## panmail Ping asks /readyz (panmail-sdk v0.1.2)
+
+A connect alone passed for a gateway whose database was down or that was draining:
+the port stays open. `Ping` now calls the SDK's `Client.Ready` (POST `/readyz`, no
+api key sent; a placeholder key satisfies `sdk.New`).
+
+- `*sdk.NotReadyError` → "up but not ready: database failed" / "(shutting down)".
+- `*sdk.APIError` with status ≥ 500 → reported with the status.
+- 404/405, or a 200 without a `{"status":"ready"}` body (an older gateway's SPA
+  serves every unknown path) → fall back to the TCP connect, the old behaviour.
+- Transport error → `unreachable`, which still words `context.Canceled` as "stopped".
+
+The panmail server contract lives in gsoultan/panmail `cmd/api/main.go` (`/healthz`
+checks nothing external, `/readyz` pings the database) and `docs/scaling.md`.
