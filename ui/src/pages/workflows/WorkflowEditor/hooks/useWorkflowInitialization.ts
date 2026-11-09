@@ -6,6 +6,7 @@ import { notifications } from '@mantine/notifications';
 import { useWorkflowStore } from '../store/useWorkflowStore';
 import { persistedSnapshot } from '../store/persistedSnapshot';
 import { clearDraftWorkflow, peekDraftWorkflow } from '@/lib/draftWorkflow';
+import { unroutedBranchEdges } from '../nodes/branchHandleId';
 
 const API_BASE = '/api';
 
@@ -76,6 +77,32 @@ function toStoreValues(workflow: any): any {
   // Same for each node's own preview: it ran on this workflow's nodes.
   newValues.nodePreviews = {};
   return newValues;
+}
+
+/**
+ * values without the edges out of a switch or router that name none of its
+ * cases or rules, and how many were dropped. Such an edge never carries a
+ * message, and the server refuses to save one; it is left over from renaming a
+ * case before the editor moved its edges with it. The baseline stays the
+ * server's version, so the removal shows as an unsaved change to save.
+ */
+function withoutUnroutedEdges(values: any): { values: any; dropped: number } {
+  const stale = new Set(unroutedBranchEdges(values.nodes, values.edges).map((e: any) => e.id));
+  if (stale.size === 0) return { values, dropped: 0 };
+  return { values: { ...values, edges: values.edges.filter((e: any) => !stale.has(e.id)) }, dropped: stale.size };
+}
+
+function notifyDroppedEdges(wId: string, dropped: number) {
+  if (dropped === 0) return;
+  notifications.show({
+    id: `workflow-unrouted-edges-${wId}`,
+    title: dropped === 1 ? 'Removed a connection to a missing case' : `Removed ${dropped} connections to missing cases`,
+    message:
+      'A switch or router case was renamed after its connection was drawn, so the connection ' +
+      'never carried a message. Check every case still has a connection, then save.',
+    color: 'orange',
+    autoClose: false,
+  });
 }
 
 /**
@@ -178,7 +205,9 @@ export function useWorkflowInitialization(id: string, selectedVHost: string) {
       // A draft is not on the server: measured against a blank workflow, the
       // whole draft counts as unsaved edits.
       const baseline = draft ? persistedSnapshot(toStoreValues(blankWorkflow(selectedVHost))) : serverSnap;
-      useWorkflowStore.setState({ ...values, ...noLiveState(), persistedBaseline: baseline });
+      const cleaned = withoutUnroutedEdges(values);
+      useWorkflowStore.setState({ ...cleaned.values, ...noLiveState(), persistedBaseline: baseline });
+      notifyDroppedEdges(wId, cleaned.dropped);
       return;
     }
     // Nothing on the server can be newer than a draft that was never saved,
@@ -201,8 +230,10 @@ export function useWorkflowInitialization(id: string, selectedVHost: string) {
     if (localSnap === state.persistedBaseline) {
       warnedFor.current = null;
       const { selectedNode } = state;
+      const cleaned = withoutUnroutedEdges(values);
+      notifyDroppedEdges(wId, cleaned.dropped);
       useWorkflowStore.setState({
-        ...values,
+        ...cleaned.values,
         persistedBaseline: serverSnap,
         // The open node's panel reads this copy, so it moves to the reloaded
         // node, or closes if the new version no longer has it.

@@ -7,6 +7,19 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — an edge left on a renamed switch case was saved and promoted
+
+Before #308, renaming a switch case or router rule left the edges drawn from it on the old name.
+The canvas stopped drawing them, but Save kept them, and promotion and import copied them to other
+instances. Such an edge never carries a message: a production workflow was found with an edge
+labelled `APPROVE` out of a switch whose case is `APPROVED`.
+
+Save, import, promotion and Start now refuse an edge out of a switch or router whose label names
+none of its cases or rules (`default` and unlabelled edges are still allowed). The editor removes
+such edges when it opens a workflow and says so; the removal is an unsaved change, so saving the
+workflow once clears it. A workflow already running is not stopped, but it cannot be started again
+until it has been opened and saved.
+
 ### Fixed — renaming a vhost left its workflows and users on the old name
 
 Everything a vhost holds is stored under the vhost's name, and a rename changed only the vhost
