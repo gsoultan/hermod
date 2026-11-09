@@ -308,7 +308,12 @@ func TestARecommendToolsWindowReachesTheModel(t *testing.T) {
 	st := &modelStore{store: &store{}, models: map[string]storage.MLModel{
 		"a/due": {VHost: "a", Name: "due", Backend: storage.MLBackendWorker, RemoteVersion: "1", Task: storage.MLTaskRecommendation},
 	}}
-	svc := ml.NewService(func() any { return st }, nil, nil).WithWorker(worker.New(srv.URL, "", nil))
+	// The fixture was built on 2026-10-01 ("today" in reorder.json), so its due
+	// dates are fixed. Measured from the wall clock, every customer drifted
+	// into a 14-day window by November and the test failed on any change.
+	today := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	svc := ml.NewService(func() any { return st }, nil, nil).WithWorker(worker.New(srv.URL, "", nil)).
+		WithClock(func() time.Time { return today })
 	m := models{svc: svc}
 	window, err := m.RecommendScenario(t.Context(), "a", "due", mcpserver.RecommendArgs{
 		For: &mcpserver.ScenarioFor{AllCustomers: true}, WithinDays: 14, K: 500})
@@ -324,7 +329,7 @@ func TestARecommendToolsWindowReachesTheModel(t *testing.T) {
 		len(window.Results[0].Items) >= len(all.Results[0].Items) {
 		t.Fatalf("%d customers due in 14 days of %d", len(window.Results[0].Items), len(all.Results[0].Items))
 	}
-	end := time.Now().UTC().AddDate(0, 0, 14).Format(time.DateOnly)
+	end := today.AddDate(0, 0, 14).Format(time.DateOnly)
 	for _, p := range window.Results[0].Items {
 		if p.DueDate >= end {
 			t.Errorf("%s due %s, after the window", p.ID, p.DueDate)
