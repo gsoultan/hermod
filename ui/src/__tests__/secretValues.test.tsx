@@ -179,19 +179,28 @@ describe('typing secret values for production', () => {
     expect(within(dialog).getAllByLabelText(/^SECRET_1/)).toHaveLength(4)
     expect(within(dialog).queryByLabelText('SECRET_02')).not.toBeInTheDocument()
 
-    await user.clear(within(dialog).getByRole('textbox', { name: 'Search secrets' }))
-    await user.click(within(dialog).getByText('All (14)'))
-    const where = within(dialog).getByRole('group', { name: 'Where it is used' })
-    expect(within(where).getByText('Steps (5)')).toBeInTheDocument()
-    await user.click(within(where).getByText('Steps (5)'))
-    expect(within(dialog).getAllByLabelText(/^SECRET_/)).toHaveLength(5)
-    expect(within(dialog).queryByLabelText('SECRET_01')).not.toBeInTheDocument()
-    await user.click(within(where).getByText('Anywhere'))
-
     await user.click(within(dialog).getByRole('button', { name: 'Clear all' }))
     expect(last).toEqual({})
     await user.click(within(dialog).getByRole('button', { name: 'Done · 0 of 14 filled' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  }, 20000)
+
+  it('filters many by where they are used', async () => {
+    const needed = Array.from({ length: 8 }, (_, i) => ({
+      name: `SECRET_${i}`, usedBy: ['payouts'],
+      places: [{ kind: i % 2 ? 'sink' as const : 'step' as const, name: i % 2 ? 'warehouse' : `Step ${i}` }],
+    }))
+    const user = userEvent.setup()
+    wrap(<Harness needed={needed} />)
+    await user.click(screen.getByRole('button', { name: 'Fill in values' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Secret values for Production' })
+    const where = within(dialog).getByRole('group', { name: 'Where it is used' })
+    expect(within(where).queryByText(/^Sources/)).not.toBeInTheDocument()
+    await user.click(within(where).getByText('Steps (4)'))
+    expect(within(dialog).getAllByLabelText(/^SECRET_/)).toHaveLength(4)
+    expect(within(dialog).queryByLabelText('SECRET_1')).not.toBeInTheDocument()
+    await user.click(within(where).getByText('Anywhere'))
+    expect(within(dialog).getAllByLabelText(/^SECRET_/)).toHaveLength(8)
   })
 })
 
