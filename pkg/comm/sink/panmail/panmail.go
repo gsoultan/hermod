@@ -682,6 +682,15 @@ func (s *Sink) dial(ctx context.Context, baseURL string) error {
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
 	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(parsed.Hostname(), port))
 	if err != nil {
+		// A cancelled check is the caller giving up — a workflow stopping or
+		// restarting — not the gateway being down. The resolver reports it as
+		// "lookup <host>: operation was canceled", which under "cannot reach the
+		// gateway" read as a DNS outage that was never there. A deadline is
+		// left alone: a gateway that does not answer in time is unreachable.
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return fmt.Errorf("panmail sink: the check of the gateway at %s was stopped before it finished: %w",
+				parsed.Host, context.Canceled)
+		}
 		return fmt.Errorf("panmail sink: cannot reach the gateway at %s: %w", parsed.Host, err)
 	}
 	return conn.Close()

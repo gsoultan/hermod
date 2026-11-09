@@ -409,6 +409,12 @@ func (r *Runner) closeSinksOnShutdown() {
 }
 
 func (r *Runner) checkHealth(interval time.Duration) {
+	// A pass the stop overtakes sees every ping fail with "operation was
+	// canceled". That is the stop, not an outage, so it reports nothing:
+	// marking the workflow "reconnecting" and logging an error here made each
+	// stop and restart read like a sink or source had gone down.
+	stopping := func() bool { return r.ctx.Err() != nil }
+
 	var err error
 	if readyChecker, ok := r.engine.currentSource().(hermod.ReadyChecker); ok {
 		err = readyChecker.IsReady(r.ctx)
@@ -416,6 +422,9 @@ func (r *Runner) checkHealth(interval time.Duration) {
 		err = r.engine.currentSource().Ping(r.ctx)
 	}
 
+	if err != nil && stopping() {
+		return
+	}
 	if err != nil {
 		r.engine.logger.Error("Background source health check failed", "workflow_id", r.engine.workflowID, "error", err.Error())
 		lastMsgTime := r.engine.statusTracker.GetLastMsgTime()
@@ -463,6 +472,9 @@ func (r *Runner) checkHealth(interval time.Duration) {
 			sinkID = r.engine.sinkIDs[i]
 		}
 		if err := snk.Ping(r.ctx); err != nil {
+			if stopping() {
+				return
+			}
 			r.engine.logger.Error("Background sink health check failed", "workflow_id", r.engine.workflowID, "sink_id", sinkID, "error", err.Error())
 			r.engine.setSinkStatus(sinkID, "reconnecting")
 			if allSinksOk {

@@ -13,6 +13,7 @@ package panmail
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -965,5 +966,29 @@ func TestWrite_ARealAfterColumnWins(t *testing.T) {
 
 	if got, _ := (*received)[0]["providerId"].(string); got != "column" {
 		t.Errorf("providerId = %q, want the row's own after column", got)
+	}
+}
+
+// A cancelled context means whoever asked stopped waiting — a workflow being
+// stopped or restarted mid-check — not that the gateway is down. The resolver
+// reports it as "lookup <host>: operation was canceled", and wrapping that in
+// "cannot reach the gateway" sent people off to debug DNS that was fine.
+func TestPing_ACancelledCheckIsNotReportedAsAnUnreachableGateway(t *testing.T) {
+	sink, err := New(baseConfig("https://panmail.example.com"), nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err = sink.Ping(ctx)
+	if err == nil {
+		t.Fatal("Ping succeeded on a cancelled context")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("Ping error %q does not wrap context.Canceled", err)
+	}
+	if strings.Contains(err.Error(), "cannot reach") {
+		t.Errorf("Ping error %q blames the gateway for a check that was cancelled", err)
 	}
 }
