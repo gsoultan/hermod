@@ -80,7 +80,7 @@ func (s *Service) PeerCheck(ctx context.Context, peer Peer, req CheckRequest) (C
 			}
 		}
 	}
-	uses := s.connectionSecrets(ctx, req.Sources, req.Sinks, func(v string) bool { return mayUse(peer, v) })
+	uses, where := s.connectionSecrets(ctx, req.Sources, req.Sinks, func(v string) bool { return mayUse(peer, v) })
 	names := slices.Clone(req.Secrets)
 	for name := range uses {
 		if !slices.Contains(names, name) {
@@ -97,6 +97,7 @@ func (s *Service) PeerCheck(ctx context.Context, peer Peer, req CheckRequest) (C
 			res.SecretUses[name] = uses[name]
 		}
 	}
+	res.SecretPlaces = where.only(res.MissingSecrets)
 	res.MissingEnvs = missing(req.Envs, func(name string) bool { return s.secrets != nil && s.secrets.HasEnv(name) })
 	return res, nil
 }
@@ -170,6 +171,7 @@ func (s *Service) admit(ctx context.Context, peer Peer, sub Submission, rules Ru
 		Note: strings.TrimSpace(sub.Note), Start: sub.Start, AutoRollback: sub.AutoRollback,
 		Changes: Diff(current, wf), Status: StatusPending, CreatedAt: s.now().UTC(), Secrets: needs,
 		SecretsFilled: slices.Sorted(maps.Keys(sentValues)), Connections: carried,
+		SecretPlaces: s.secretPlaces(ctx, wf, carried).only(needs),
 	}
 	return p, wf, nil
 }

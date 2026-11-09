@@ -168,7 +168,10 @@ type CheckResult struct {
 	// SecretUses names the connections here that read each missing secret
 	// a source or sink names; secrets only the workflow names are left out.
 	SecretUses map[string][]string `json:"secret_uses,omitempty"`
-	Current    *CurrentWorkflow    `json:"current,omitempty"`
+	// SecretPlaces says, for the same secrets, which setting of each
+	// connection names it. An older instance sends only SecretUses.
+	SecretPlaces map[string][]SecretPlace `json:"secret_places,omitempty"`
+	Current      *CurrentWorkflow         `json:"current,omitempty"`
 	// Problem says why the workflow cannot land at all, or is empty.
 	Problem string `json:"problem,omitempty"`
 }

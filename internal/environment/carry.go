@@ -137,6 +137,16 @@ func carriedSecrets(carried []CarriedConnection) map[string][]string {
 	return uses
 }
 
+// carriedPlaces says where the connections a promotion brings use each
+// secret.
+func carriedPlaces(carried []CarriedConnection) places {
+	where := places{}
+	for _, c := range carried {
+		where.merge(connectionPlaces(c.Kind, c.Name, c.Config))
+	}
+	return where
+}
+
 // admitCarried checks the connections a submission carries for wf, landing
 // in vhost here, and returns the ones to create: one already here is used
 // as it is.

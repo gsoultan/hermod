@@ -117,9 +117,19 @@ approval, live, rejected or undone.
 Against a production that predates releases, the workflows are sent one by one and each is
 approved on its own there.
 
-The secrets a workflow uses are the ones its nodes name with `{{secret.NAME}}` **and** the ones the
-sources and sinks it uses read in their settings, such as a database password. A secret only a
-connection reads is listed with that connection ("Read by sink warehouse").
+The secrets a workflow uses are the ones its steps read **and** the ones the sources and sinks it
+uses read in their settings, such as a database password. A step's secret is found in every
+spelling the engine resolves: `{{secret.NAME}}`, `secret("NAME")`, `secret:NAME`, and a secret inside
+a function, such as `{{concat("Bearer ", secret.NAME)}}` written by the value builder. The same goes
+for `{{env.NAME}}` and `env("NAME")`.
+
+Each secret is listed with where it is used: a **Step**, **Source** or **Sink** tag, its name, and
+the setting ("Step · Look up plan price · Headers › Authorization"). Two places show; the rest open
+with **and N more**. A step's name opens the setting as it is saved, with the secret marked, and an
+**Open step** link. With many secrets, the fill-in window filters by **Sources**, **Steps** and
+**Sinks**, and search matches step and connection names too. The approver sees the same places.
+Through the API, the preview and the promotion carry `secret_places`: for each secret a list of
+`{kind, name, field}`, plus `node_id` and `value` for a step. A connection's settings are never sent.
 
 ### Sources and sinks production lacks
 

@@ -294,6 +294,9 @@ type Promotion struct {
 	// SecretsFilled are the ones of Secrets the sender typed a value for;
 	// the values wait encrypted until the promotion is decided.
 	SecretsFilled []string `json:"secrets_filled,omitempty"`
+	// SecretPlaces says, for each of Secrets, every step, source and sink
+	// that uses it, and in which setting.
+	SecretPlaces map[string][]SecretPlace `json:"secret_places,omitempty"`
 	// Connections are the sources and sinks it brings, created here when it
 	// is approved.
 	Connections    []CarriedConnection `json:"connections,omitempty"`

@@ -222,6 +222,7 @@ export function ReleaseCard({ ps }: { ps: Promotion[] }) {
   const needed = neededSecrets(ps.map((p) => ({
     workflow_name: p.workflow_name,
     missing_secrets: (p.secrets ?? []).filter((n) => !(p.secrets_filled ?? []).includes(n)),
+    secret_places: p.secret_places,
   })))
   const [values, setValues] = useState<Record<string, string>>({})
   const filledBySender = [...new Set(ps.flatMap((p) => p.secrets_filled ?? []))].sort()

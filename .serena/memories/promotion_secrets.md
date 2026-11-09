@@ -39,6 +39,33 @@ path) or the approver -- never copied from staging.
 - Auto-deploy (approval `none`) uses only the sender's values; the rest lands
   in `SecretsMissing`.
 
+- **Which names count** (2026-11-09): `references()` and `configSecrets()` use
+  `secrets.References` (`pkg/security/secrets/references.go`), which reads every
+  spelling the engine resolves: whole tokens (`{{secret.X}}`, `{{secret("X")}}`,
+  `{{secret:X}}`), a secret inside a function in a token
+  (`{{concat("Bearer ", secret.X)}}`, what the value builder writes), a bare
+  expression (`secret("X")`, `concat(secret.X, "y")` -- dotted only when the bare
+  text holds a call, so prose like "secret.txt" is not one), and bare legacy
+  `secret:X`. Message fields (`{{.secret.x}}`, `source.secret.x`) and deeper paths
+  (`secret.A.b`) are not. Before this only exact `{{secret.NAME}}` counted, so a
+  step's secret written by the value builder was never asked for.
+- **Where each is used** (`secret_places.go`): `SecretPlace{kind step|source|sink,
+  name, field, node_id, value}`. `Preview.SecretPlaces` = sender's `stepPlaces(out)`
+  + receiver's `CheckResult.SecretPlaces` (connections, field only, never values;
+  older receiver: `placesFromUses(secret_uses)`) + `carriedPlaces`, kept to the
+  missing names. `Promotion.SecretPlaces` is computed by production in `admit`
+  (`Service.secretPlaces`). `secret_uses` is unchanged for older callers. Field
+  labels: `fieldLabel` (list entries named by their key/name/header, trailing
+  `value` dropped, config keys humanized with acronyms: "Headers › Authorization",
+  "API key"). Step `value` is clipped to 300 bytes.
+- UI (`SecretValues.tsx`): every row shows tags (Step blue, Source green, Sink
+  orange), two places then "and N more"; a step name opens a Popover with the
+  value (secret highlighted) and "Open step" (`/workflows/$id/edit`, send side
+  only, via `workflow_id`); summary "3 are used by steps and 1 by a sink."; the
+  many-secrets window has an Anywhere/Sources/Steps/Sinks chip filter.
+  Tests: `pkg/security/secrets/references_test.go`,
+  `internal/environment/step_secrets_test.go`, `ui/src/__tests__/secretValues.test.tsx`.
+
 UI is being folded into the promote redesign (separate thread): approval card
 inputs per `Promotion.Secrets`, "Approve and go live" off until filled.
 
