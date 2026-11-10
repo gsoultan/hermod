@@ -15,10 +15,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/engine/registry/noderetry"
+	"github.com/gsoultan/hermod/internal/engine/registry/nodes/control"
 	"github.com/gsoultan/hermod/internal/engine/registry/subflow"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/infra/evaluator"
@@ -253,6 +255,56 @@ func edgeIssues(wf storage.Workflow) (issues []ValidationIssue) {
 	return issues
 }
 
+// branchEdgeIssues refuses an edge out of a switch or router whose label names
+// none of its cases or rules.
+//
+// The engine sends a message down the edges labelled with the branch it chose,
+// so such an edge never carries a message. Renaming a case in an editor that
+// did not yet move the case's edges with it left them on the old name: hidden
+// on the canvas, but saved, and promoted and imported with the rest. Refusing
+// them here stops one from being saved or travelling to another instance; the
+// editor drops them when it opens the workflow, so saving it once clears them.
+func branchEdgeIssues(wf storage.Workflow) (issues []ValidationIssue) {
+	for _, n := range wf.Nodes {
+		names := control.BranchNames(n.Type, n.Config)
+		if len(names) == 0 {
+			continue
+		}
+		kind := "case"
+		if n.Type == "router" {
+			kind = "rule"
+		}
+		for _, e := range wf.Edges {
+			if e.SourceID != n.ID {
+				continue
+			}
+			label := e.SourceHandle
+			if l, ok := e.Config["label"].(string); ok && l != "" {
+				label = l
+			}
+			// An unlabelled edge takes every branch; default is always one.
+			if label == "" || label == "default" || slices.Contains(names, label) {
+				continue
+			}
+			issues = append(issues, ValidationIssue{
+				Severity: "error",
+				Message: fmt.Sprintf("Connection '%s' out of %s '%s' is labelled '%s', which matches no %s, so it never carries a message.",
+					e.ID, n.Type, branchNodeName(n), label, kind),
+				Recommendation: fmt.Sprintf("The %s was probably renamed after this connection was drawn. Open the workflow in the editor, which removes such connections, check every %s still has its connection, and save.", kind, kind),
+				NodeID:         n.ID,
+			})
+		}
+	}
+	return issues
+}
+
+func branchNodeName(n storage.WorkflowNode) string {
+	if l, ok := n.Config["label"].(string); ok && l != "" {
+		return l
+	}
+	return n.ID
+}
+
 // orphanIssues reports nodes that nothing feeds or that feed nothing.
 func orphanIssues(wf storage.Workflow) (issues []ValidationIssue) {
 	incoming := make(map[string]int)
@@ -337,6 +389,7 @@ func (h *WorkflowHandler) ValidateWorkflow(ctx context.Context, wf storage.Workf
 
 	issues = append(issues, h.cdcQueryTargetIssues(ctx, wf)...)
 	issues = append(issues, edgeIssues(wf)...)
+	issues = append(issues, branchEdgeIssues(wf)...)
 	issues = append(issues, orphanIssues(wf)...)
 	issues = append(issues, aiNodeIssues(wf)...)
 	issues = append(issues, retryIssues(wf)...)

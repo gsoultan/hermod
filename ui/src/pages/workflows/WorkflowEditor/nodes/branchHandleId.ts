@@ -146,3 +146,30 @@ export function remapBranchEdges<E extends { source: string; sourceHandle?: stri
   }
   return out;
 }
+
+/**
+ * The edges out of a switch or router whose label names none of its cases or
+ * rules, the way the engine reads the label: the edge's own label, else its
+ * handle. An unlabelled edge takes every branch, and `default` is always one.
+ *
+ * Such an edge never carries a message. Before remapBranchEdges, renaming a
+ * case left its edges on the old name: hidden on the canvas, but saved and
+ * promoted. The server refuses to save them now, so the editor drops them when
+ * it opens a workflow and saving once clears them.
+ */
+export function unroutedBranchEdges<
+  E extends { id: string; source: string; sourceHandle?: string | null; data?: any },
+>(nodes: { id: string; type?: string; data?: any }[], edges: E[]): E[] {
+  const branches = new Map<string, Set<string>>();
+  for (const n of nodes) {
+    if (n.type !== 'switch' && n.type !== 'router') continue;
+    const items = branchItems(n.data?.[n.type === 'switch' ? 'cases' : 'rules']);
+    branches.set(n.id, new Set(items.map((item, i) => branchHandleId(n.type as 'switch' | 'router', item?.label, i))));
+  }
+  return edges.filter((e) => {
+    const names = branches.get(e.source);
+    if (!names) return false;
+    const label = (typeof e.data?.label === 'string' && e.data.label) || e.sourceHandle || '';
+    return label !== '' && label !== 'default' && !names.has(label);
+  });
+}

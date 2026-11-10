@@ -188,6 +188,8 @@ func TestValidateWorkflowLeavesASwitchToItsOwnChecks(t *testing.T) {
 		"field": "region",
 		"cases": []any{map[string]any{"label": "eu", "value": "EU"}},
 	}}
+	// Its edge leaves from the case, not from a condition's true branch.
+	wf.Edges[1].SourceHandle = "eu"
 	for _, issue := range h.ValidateWorkflow(context.Background(), wf) {
 		if issue.NodeID == "cond1" && issue.Severity == "error" {
 			t.Errorf("a valid switch was flagged: %q", issue.Message)
