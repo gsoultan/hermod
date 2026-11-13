@@ -80,6 +80,10 @@ describe('TuningMetrics', () => {
   it('names a high error rate and backpressure in the insights', () => {
     renderMetrics({ status: status({ backpressure: 0.9 }) })
     expect(screen.getByText(/sink buffers are filling up/i)).toBeInTheDocument()
+    // The optimizer's runtime batch change never reached a running writer, so
+    // the page must not promise one.
+    expect(screen.queryByText(/raises the batch size/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/recommendations below/i)).toBeInTheDocument()
     expect(screen.getByText(/messages are failing/i)).toBeInTheDocument()
   })
 

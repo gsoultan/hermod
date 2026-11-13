@@ -58,6 +58,7 @@ var update = flag.Bool("update", false, "rewrite "+routesGolden+" from the curre
 // not listed — an unlisted package is a whole family of routes silently
 // outside the inventory, which is the failure this test exists to prevent.
 var routeDirs = []string{
+	"internal/advisor/transport/http",
 	"internal/aibudget/transport/http",
 	"internal/api",
 	"internal/approval/transport/http",

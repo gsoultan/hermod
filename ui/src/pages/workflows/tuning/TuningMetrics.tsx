@@ -121,7 +121,7 @@ export function TuningMetrics({ active, status, nodeNames, connectionNames }: Tu
       <Stack gap="xs">
         {backpressure > HIGH_BACKPRESSURE && (
           <Alert icon={<IconAlertTriangle size={16} />} title="Sink buffers are filling up" color="orange">
-            A sink is taking messages slower than they arrive. Hermod raises the batch size of a sink whose buffer is more than 80% full.
+            A sink is taking messages slower than they arrive. If it stays this way, Recommendations below says what to change.
           </Alert>
         )}
         {errorRate > HIGH_ERROR_RATE && (

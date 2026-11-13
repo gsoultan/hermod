@@ -33,6 +33,7 @@ import (
 	_ "github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/advisor"
 	"github.com/gsoultan/hermod/internal/ai"
 	"github.com/gsoultan/hermod/internal/aibudget"
 	"github.com/gsoultan/hermod/internal/discovery/service"
@@ -218,8 +219,11 @@ type Registry struct {
 	expressionSecrets *secrets.CachedManager
 	schemaRegistry    schema.Registry
 	optimizer         *optimizer.Optimizer
-	dqScorer          *governance.Scorer
-	meshManager       *mesh.Manager
+	// advisor keeps each running workflow's recent readings for the
+	// Tuning tab's recommendations; see registry_advisor.go.
+	advisor     *advisor.Advisor
+	dqScorer    *governance.Scorer
+	meshManager *mesh.Manager
 
 	discoveryService *service.DiscoveryService
 
@@ -497,6 +501,8 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 	go reg.runRetentionPurge()
 	go reg.startReconciliationLoop(ctx)
 	go reg.optimizer.Start(reg.ctx)
+	reg.advisor = advisor.New(advisor.DefaultCapacity)
+	go reg.runAdvisorSampler(advisor.SampleInterval)
 	go reg.runStatusFlusher()
 	go reg.runWatchedStatusPusher(watchedStatusInterval)
 	go reg.runDashboardSampler(dashboardSampleInterval())
