@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Alert, Badge, Box, Button, Group, Loader, Paper, SimpleGrid, Stack, Text, Title } from '@mantine/core'
-import { IconAlertCircle, IconBulb, IconCircleCheck, IconHourglass, IconTool } from '@tabler/icons-react'
-import type { Insight, InsightSeverity, InsightsReport } from '@/lib/insights'
+import { IconAlertCircle, IconBulb, IconCircleCheck, IconHourglass, IconSparkles, IconTool } from '@tabler/icons-react'
+import { explainInsights, type Insight, type InsightSeverity, type InsightsReport } from '@/lib/insights'
 import { proposalsKey, proposeFix } from '@/lib/proposals'
 
 interface RecommendationsProps {
@@ -74,6 +74,50 @@ function ProposeFix({ workflowId, finding }: { workflowId: string; finding: Insi
       {propose.error && (
         <Alert color="yellow" icon={<IconAlertCircle size="1rem" />} title="Could not propose this fix" w="100%">
           {(propose.error as Error).message}
+        </Alert>
+      )}
+    </Stack>
+  )
+}
+
+/**
+ * A model's plain reading of the findings, asked for on demand. The server
+ * sends it the findings only, and its answer is text: it changes nothing.
+ */
+function Explain({ workflowId }: { workflowId: string }) {
+  const explain = useMutation({
+    mutationFn: () => explainInsights(workflowId),
+    // Shown under the button; see ProposeFix.
+    onError: () => {},
+  })
+
+  if (explain.data) {
+    return (
+      <Paper withBorder p={{ base: 'sm', sm: 'md' }} radius="md" component="section" aria-label="AI explanation">
+        <Stack gap="xs">
+          <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{explain.data.text}</Text>
+          <Text size="xs" c="dimmed">
+            Written by {explain.data.model || explain.data.provider} from the recommendations below. It read no message
+            contents and cannot change the flow. Check it against the numbers before acting on it.
+          </Text>
+        </Stack>
+      </Paper>
+    )
+  }
+  return (
+    <Stack gap="xs" align="flex-start">
+      <Button
+        size="xs"
+        variant="default"
+        leftSection={<IconSparkles size="0.9rem" />}
+        onClick={() => explain.mutate()}
+        loading={explain.isPending}
+      >
+        Explain in plain words
+      </Button>
+      {explain.error && (
+        <Alert color="yellow" icon={<IconAlertCircle size="1rem" />} title="Could not write an explanation" w="100%">
+          {(explain.error as Error).message}
         </Alert>
       )}
     </Stack>
@@ -153,6 +197,7 @@ export function Recommendations({ workflowId, canApply, report, isLoading, error
           <Text size="sm">Nothing to improve right now. Every step and sink is keeping up.</Text>
         </Group>
       )}
+      {canApply && report.can_explain && findings.length > 0 && <Explain workflowId={workflowId} />}
       {findings.map((f) => (
         <FindingCard key={`${f.rule}:${f.node_id ?? ''}:${f.sink_id ?? ''}`} finding={f} workflowId={workflowId} canApply={canApply} />
       ))}

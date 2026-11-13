@@ -135,4 +135,45 @@ describe('Recommendations', () => {
     expect(screen.getAllByText(/no longer has this problem/i)).toHaveLength(1)
     expect(screen.queryByText('Action failed')).not.toBeInTheDocument()
   })
+
+  it('asks for a plain-language explanation and shows who wrote it', async () => {
+    let asked = 0
+    server.use(http.post('/api/workflows/wf-1/insights/explain', () => {
+      asked += 1
+      return HttpResponse.json({ text: 'Cache the lookup first.\n\nThen move the filter.', provider: 'openai', model: 'gpt-x' })
+    }))
+    renderIt({ canApply: true, report: report({ can_explain: true }) })
+
+    await userEvent.click(screen.getByRole('button', { name: /explain in plain words/i }))
+
+    expect(await screen.findByText(/cache the lookup first/i)).toBeInTheDocument()
+    expect(screen.getByText(/written by gpt-x/i)).toBeInTheDocument()
+    expect(screen.getByText(/cannot change the flow/i)).toBeInTheDocument()
+    expect(asked).toBe(1)
+  })
+
+  it('offers no explanation when the server has no model, nothing to explain, or a reader', () => {
+    renderIt({ canApply: true, report: report({ can_explain: false }) })
+    expect(screen.queryByRole('button', { name: /explain in plain words/i })).not.toBeInTheDocument()
+  })
+
+  it('offers no explanation with no findings', () => {
+    renderIt({ canApply: true, report: report({ can_explain: true, findings: [] }) })
+    expect(screen.queryByRole('button', { name: /explain in plain words/i })).not.toBeInTheDocument()
+  })
+
+  it('offers no explanation to someone who cannot edit the flow', () => {
+    renderIt({ canApply: false, report: report({ can_explain: true }) })
+    expect(screen.queryByRole('button', { name: /explain in plain words/i })).not.toBeInTheDocument()
+  })
+
+  it('says why an explanation could not be written', async () => {
+    server.use(http.post('/api/workflows/wf-1/insights/explain', () =>
+      HttpResponse.json({ error: 'AI budget: monthly token limit of vhost default reached' }, { status: 429 })))
+    renderIt({ canApply: true, report: report({ can_explain: true }) })
+    await userEvent.click(screen.getByRole('button', { name: /explain in plain words/i }))
+    expect(await screen.findByText(/monthly token limit/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/monthly token limit/i)).toHaveLength(1)
+    expect(screen.queryByText('Action failed')).not.toBeInTheDocument()
+  })
 })
