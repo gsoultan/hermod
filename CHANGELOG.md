@@ -7,6 +7,11 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — a traced line in the editor's live log logged an invalid-markup error
+
+A live log line that carries a trace shows a "Trace" badge after its message. The badge was
+rendered inside the message's paragraph, which is invalid HTML, so the browser console collected a
+React error for every such line while the log was streaming. The message is now a block container.
 ### Added — an optional AI explanation of a workflow's recommendations
 
 Editors can press "Explain in plain words" above a workflow's recommendations to have a language
