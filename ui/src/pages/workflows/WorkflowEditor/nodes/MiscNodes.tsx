@@ -130,6 +130,24 @@ const MergeNodeImpl = ({ id, data, selected }: any) => {
   );
 };
 
+const JoinNodeImpl = ({ id, data, selected }: any) => {
+  return (
+    <BaseNode id={id} type="Stateful Join" color="indigo" icon={IconGitMerge} data={data} selected={selected}>
+      <TargetHandle position={Position.Left} color="indigo" />
+      <PlusHandle type="source" position={Position.Right} nodeId={id} color="indigo" />
+    </BaseNode>
+  );
+};
+
+const CircuitBreakerNodeImpl = ({ id, data, selected }: any) => {
+  return (
+    <BaseNode id={id} type="Circuit Breaker" color="red" icon={IconShieldLock} data={data} selected={selected}>
+      <TargetHandle position={Position.Left} color="red" />
+      <PlusHandle type="source" position={Position.Right} nodeId={id} color="red" />
+    </BaseNode>
+  );
+};
+
 const StatefulNodeImpl = ({ id, data, selected }: any) => {
   return (
     <BaseNode id={id} type="Stateful" color="pink" icon={IconDatabase} data={data} selected={selected}>
@@ -255,6 +273,8 @@ export const TransformationNode = memo(TransformationNodeImpl);
 export const SwitchNode = memo(SwitchNodeImpl);
 export const RouterNode = memo(RouterNodeImpl);
 export const MergeNode = memo(MergeNodeImpl);
+export const JoinNode = memo(JoinNodeImpl);
+export const CircuitBreakerNode = memo(CircuitBreakerNodeImpl);
 export const StatefulNode = memo(StatefulNodeImpl);
 export const WaitNode = memo(WaitNodeImpl);
 export const ForeachNode = memo(ForeachNodeImpl);

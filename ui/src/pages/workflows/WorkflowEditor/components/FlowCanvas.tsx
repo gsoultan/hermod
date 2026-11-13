@@ -33,7 +33,9 @@ import {
   LogNode,
   CollectNode,
   DeduplicateNode,
-  NoteNode 
+  NoteNode,
+  JoinNode,
+  CircuitBreakerNode
 } from '../nodes/MiscNodes';
 import { ConditionNode } from '../nodes/ConditionNode';
 import { ApprovalNode } from '../nodes/ApprovalNode';
@@ -56,6 +58,8 @@ export const canvasNodeTypes = {
   switch: SwitchNode,
   router: RouterNode,
   merge: MergeNode,
+  join: JoinNode,
+  circuit_breaker: CircuitBreakerNode,
   stateful: StatefulNode,
   wait: WaitNode,
   foreach: ForeachNode,

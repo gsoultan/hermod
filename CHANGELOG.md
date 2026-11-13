@@ -7,6 +7,12 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — Stateful Join and Circuit Breaker were drawn as blank boxes
+
+Both steps are in the editor's palette and run on the engine, but neither canvas had a renderer for
+them. React Flow drew its default node instead: a bare box with no name, no icon and no "+" to
+connect the next step, and a console warning on every render. The editor and the workflow detail
+page now draw them like every other step.
 ### Added — an optional AI explanation of a workflow's recommendations
 
 Editors can press "Explain in plain words" above a workflow's recommendations to have a language
