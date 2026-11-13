@@ -454,12 +454,35 @@ func (r *Registry) RunWorkflowNodeContext(ctx context.Context, workflowID string
 // runWorkflowNode is RunWorkflowNode on a root context the caller chooses. A
 // running workflow uses its own lifetime context; a simulation adds its overlay
 // on the state store and its SQL sandbox to it (see previewContext).
+// withRegistry is ctx carrying r under hermod.RegistryKey. A running
+// workflow's walk already carries it (withNodeContext), so this allocates only
+// for a caller that starts from a bare context, such as a preview.
+func (r *Registry) withRegistry(ctx context.Context) context.Context {
+	if have, _ := ctx.Value(hermod.RegistryKey).(*Registry); have == r {
+		return ctx
+	}
+	return context.WithValue(ctx, hermod.RegistryKey, r)
+}
+
+// withNodeContext is ctx carrying what nodes and transformations look up on
+// it: r under hermod.RegistryKey, and r's state store under
+// hermod.StateStoreKey unless one is there already. A store already on the
+// context wins: a preview puts an overlay there, which reads the live store and
+// keeps every write to itself.
+func (r *Registry) withNodeContext(ctx context.Context) context.Context {
+	ctx = r.withRegistry(ctx)
+	if _, scoped := ctx.Value(hermod.StateStoreKey).(hermod.StateStore); !scoped && r.stateStore != nil {
+		ctx = context.WithValue(ctx, hermod.StateStoreKey, r.stateStore)
+	}
+	return ctx
+}
+
 func (r *Registry) runWorkflowNode(root context.Context, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
 	if msg == nil {
 		return nil, "", nil
 	}
 
-	ctx := context.WithValue(root, hermod.RegistryKey, r)
+	ctx := r.withRegistry(root)
 	// In a preview or a dry run, nodes that use the database take turns on
 	// the message's sandbox connection; see sqlutil.EnterNode.
 	ctx, leave := sqlutil.EnterNode(ctx)

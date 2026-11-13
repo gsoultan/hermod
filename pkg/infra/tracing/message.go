@@ -24,6 +24,7 @@ import (
 
 	"github.com/gsoultan/hermod"
 	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // TraceParentKey is the metadata key the trace context is written to. It is the
@@ -67,6 +68,12 @@ func Inject(ctx context.Context, msg hermod.Message) {
 	if msg == nil {
 		return
 	}
+	// The propagator writes nothing for a span context that is not valid,
+	// which with no TracerProvider installed is every one. Asking first saves
+	// boxing the carrier per message on the write path.
+	if !trace.SpanContextFromContext(ctx).IsValid() {
+		return
+	}
 	propagator.Inject(ctx, messageCarrier{msg: msg})
 }
 
@@ -76,6 +83,13 @@ func Inject(ctx context.Context, msg hermod.Message) {
 // trace rather than failing.
 func Extract(ctx context.Context, msg hermod.Message) context.Context {
 	if msg == nil {
+		return ctx
+	}
+	// Without a traceparent the propagator returns ctx unchanged; it only
+	// costs the carrier and the parse to find that out. Extract runs at the
+	// read, at every node and at every sink write, so a message nobody traces
+	// paid it three or more times.
+	if v, _ := hermod.MetadataValue(msg, TraceParentKey); v == "" {
 		return ctx
 	}
 	return propagator.Extract(ctx, messageCarrier{msg: msg})

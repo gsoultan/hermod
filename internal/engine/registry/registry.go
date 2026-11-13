@@ -1905,13 +1905,9 @@ func (r *Registry) doApplyTransformation(ctx context.Context, modifiedMsg hermod
 
 		start := time.Now()
 
-		// Pass Registry to transformer if it needs it (like for storage or lookup)
-		tctx := context.WithValue(ctx, hermod.RegistryKey, r)
-		// A store already on the context wins: a preview puts an overlay there,
-		// which reads the live store and keeps every write to itself.
-		if _, scoped := ctx.Value(hermod.StateStoreKey).(hermod.StateStore); !scoped && r.stateStore != nil {
-			tctx = context.WithValue(tctx, hermod.StateStoreKey, r.stateStore)
-		}
+		// The registry and the state store, for transformers that look them up.
+		// Already there on a running workflow's walk (withNodeContext).
+		tctx := r.withNodeContext(ctx)
 		res, err := t.Transform(tctx, modifiedMsg, config)
 
 		// Record trace step with before/after snapshots
