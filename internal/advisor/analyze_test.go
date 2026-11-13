@@ -370,3 +370,167 @@ func TestFilterEarlierCountsTheRunsItWouldSpare(t *testing.T) {
 		t.Fatalf("recommendation should count spared runs: %+v", f)
 	}
 }
+
+func TestFindingsThatAProposalCanApplyNameTheirFix(t *testing.T) {
+	flow := chain()
+	flow.TraceSampleRate = 0
+	flow.Nodes[1].Config = map[string]any{"transType": "db_lookup", "ttl": "0"}
+	r := Analyze(steady(nil), flow)
+	if f := find(r, RuleTraceSampling); f == nil || f.Fix != FixTraceSampling {
+		t.Fatalf("trace sampling fix = %+v", f)
+	}
+	if f := find(r, RuleLookupCacheOff); f == nil || f.Fix != FixLookupCache {
+		t.Fatalf("lookup cache fix = %+v", f)
+	}
+	// Moving a step is a design change only a person can make.
+	if f := find(r, RuleFilterEarlier); f == nil || f.Fix != "" {
+		t.Fatalf("filter-earlier must not offer a fix: %+v", f)
+	}
+}
+
+func TestReportSummarisesTheWindow(t *testing.T) {
+	r := Analyze(steady(func(i int, s *Sample) {
+		s.NodeErrors["lookup"] = uint64(i * 30)
+		s.DeadLetters = uint64(i * 30)
+	}), chain())
+	s := r.Summary
+	if s == nil {
+		t.Fatal("a ready report has no summary")
+	}
+	if s.Messages != 60000 || s.WindowSeconds != 600 || s.Throughput != 100 {
+		t.Fatalf("summary = %+v", s)
+	}
+	// lookup 40ms + filter 1ms on every message, sink 2ms on a fifth.
+	if s.StepTimeMs < 41.3 || s.StepTimeMs > 41.5 {
+		t.Fatalf("step time = %v ms, want about 41.4", s.StepTimeMs)
+	}
+	// 600 failed runs + 600 dead letters over 60000 messages.
+	if s.ErrorRate < 0.0199 || s.ErrorRate > 0.0201 {
+		t.Fatalf("error rate = %v, want 0.02", s.ErrorRate)
+	}
+	if c := Analyze(steady(nil)[:2], chain()); c.Summary != nil {
+		t.Fatal("a window too short to judge must not offer a summary")
+	}
+}
+
+func TestCompareSaysWhetherAChangeHelped(t *testing.T) {
+	before := Summary{Throughput: 40, StepTimeMs: 40, ErrorRate: 0.01, Messages: 7000, WindowSeconds: 180}
+	for name, tc := range map[string]struct {
+		after Summary
+		want  string
+	}{
+		"faster steps":      {Summary{Throughput: 40, StepTimeMs: 8, ErrorRate: 0.01, Messages: 7000, WindowSeconds: 180}, VerdictBetter},
+		"slower steps":      {Summary{Throughput: 40, StepTimeMs: 60, ErrorRate: 0.01, Messages: 7000, WindowSeconds: 180}, VerdictWorse},
+		"more failures":     {Summary{Throughput: 40, StepTimeMs: 8, ErrorRate: 0.10, Messages: 7000, WindowSeconds: 180}, VerdictWorse},
+		"about the same":    {Summary{Throughput: 41, StepTimeMs: 39, ErrorRate: 0.011, Messages: 7000, WindowSeconds: 180}, VerdictSame},
+		"fewer failures":    {Summary{Throughput: 40, StepTimeMs: 40, ErrorRate: 0.001, Messages: 7000, WindowSeconds: 180}, VerdictBetter},
+		"only less traffic": {Summary{Throughput: 10, StepTimeMs: 40, ErrorRate: 0.01, Messages: 1800, WindowSeconds: 180}, VerdictSame},
+	} {
+		if got := Compare(before, tc.after).Verdict; got != tc.want {
+			t.Errorf("%s: verdict = %q, want %q", name, got, tc.want)
+		}
+	}
+}
+
+func TestSummarySinceReadsOnlyAfterTheChange(t *testing.T) {
+	samples := steady(func(i int, s *Sample) {
+		if i >= 10 {
+			s.NodeLatency["lookup"] = 5 * time.Millisecond
+		}
+	})
+	since := samples[10].At
+	got, ok := SummarySince(samples, chain(), since)
+	if !ok {
+		t.Fatal("5 minutes after the change should be enough to summarise")
+	}
+	if got.StepTimeMs > 7 {
+		t.Fatalf("step time since the change = %v ms; readings from before it leaked in", got.StepTimeMs)
+	}
+	if _, ok := SummarySince(samples, chain(), samples[19].At); ok {
+		t.Fatal("30 seconds after a change is too soon to judge")
+	}
+}
+
+// hist is a cumulative run-time histogram with n runs in each named bucket;
+// bucket k holds runs of at most 2^k microseconds.
+func hist(buckets map[int]uint64) telemetry.LatencyHistogram {
+	var h telemetry.LatencyHistogram
+	for k, n := range buckets {
+		h[k] = n
+	}
+	return h
+}
+
+// A step that is fast for most messages and very slow for a few has a calm
+// average; only the spread of its run times shows the problem.
+func TestAnalyzeFlagsAStepThatIsOccasionallyVerySlow(t *testing.T) {
+	samples := steady(func(i int, s *Sample) {
+		n := uint64(i * 3000)
+		s.NodeLatency["lookup"] = 2 * time.Millisecond
+		// 90% of runs within ~1ms (bucket 10), 10% within ~524ms (bucket 19).
+		s.NodeTimes = map[string]telemetry.LatencyHistogram{
+			"lookup": hist(map[int]uint64{10: n * 9 / 10, 19: n / 10}),
+			"filter": hist(map[int]uint64{9: n}),
+		}
+	})
+	r := Analyze(samples, chain())
+	f := find(r, RuleSlowTail)
+	if f == nil {
+		t.Fatalf("no %s finding in %+v", RuleSlowTail, r.Findings)
+	}
+	if f.NodeID != "lookup" || f.Severity != SeverityMedium {
+		t.Errorf("finding = node %q severity %q, want lookup/medium", f.NodeID, f.Severity)
+	}
+	if !strings.Contains(f.Detail, "1 in 20") || !strings.Contains(f.Detail, "524 ms") {
+		t.Errorf("detail does not give the slow runs: %q", f.Detail)
+	}
+}
+
+func TestAnalyzeDoesNotFlagAnEvenStep(t *testing.T) {
+	samples := steady(func(i int, s *Sample) {
+		n := uint64(i * 3000)
+		s.NodeTimes = map[string]telemetry.LatencyHistogram{
+			// Slow, but evenly slow: that is the bottleneck rule's business.
+			"lookup": hist(map[int]uint64{15: n * 9 / 10, 16: n / 10}),
+		}
+	})
+	if f := find(Analyze(samples, chain()), RuleSlowTail); f != nil {
+		t.Errorf("flagged an even step: %+v", f)
+	}
+}
+
+// The spread is read over the window, not the engine's lifetime: slow runs
+// from before the window must not count.
+func TestSlowTailReadsOnlyTheWindow(t *testing.T) {
+	samples := steady(func(i int, s *Sample) {
+		n := uint64(i * 3000)
+		s.NodeTimes = map[string]telemetry.LatencyHistogram{
+			"lookup": hist(map[int]uint64{10: 1000 + n, 19: 5000}),
+		}
+	})
+	if f := find(Analyze(samples, chain()), RuleSlowTail); f != nil {
+		t.Errorf("counted runs from before the window: %+v", f)
+	}
+}
+
+func TestBottleneckShowsHowSlowTheSlowRunsAre(t *testing.T) {
+	samples := steady(func(i int, s *Sample) {
+		n := uint64(i * 3000)
+		s.NodeTimes = map[string]telemetry.LatencyHistogram{
+			"lookup": hist(map[int]uint64{15: n * 9 / 10, 16: n / 10}),
+		}
+	})
+	f := find(Analyze(samples, chain()), RuleBottleneck)
+	if f == nil {
+		t.Fatal("no bottleneck finding")
+	}
+	var got string
+	for _, e := range f.Evidence {
+		if e.Label == "95% of runs finish within" {
+			got = e.Value
+		}
+	}
+	if got != "65 ms" {
+		t.Errorf("p95 evidence = %q, want 65 ms (in %+v)", got, f.Evidence)
+	}
+}

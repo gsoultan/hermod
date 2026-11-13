@@ -18,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gsoultan/hermod/pkg/engine/telemetry"
 )
 
 // Report states. A flow that is off has no engine to read.
@@ -49,6 +51,7 @@ const (
 	RuleSourceLag        = "source_lag"
 	RuleLookupCacheOff   = "lookup_cache_off"
 	RuleTraceSampling    = "trace_sampling"
+	RuleSlowTail         = "slow_tail"
 )
 
 // What a window needs before rules that compare readings over time speak.
@@ -85,6 +88,11 @@ const (
 	lagRisingShare  = 0.7
 	lagSinkCalm     = 0.5
 	defaultBatch    = 100
+	// A step has a slow tail when the run time 95% of its runs stay within
+	// is this many times its median, and long enough to hold messages up.
+	slowTailRatio = 8
+	slowTailFloor = 100 * time.Millisecond
+	slowTailRuns  = 200
 )
 
 // Evidence is one number a finding was drawn from.
@@ -105,6 +113,9 @@ type Finding struct {
 	Detail         string     `json:"detail"`
 	Recommendation string     `json:"recommendation"`
 	Evidence       []Evidence `json:"evidence,omitempty"`
+	// Fix names the change Hermod can propose for this finding, for a person
+	// to approve. Empty when only a person can make the change.
+	Fix string `json:"fix,omitempty"`
 
 	// score orders findings of the same severity: bigger first.
 	score float64
@@ -118,10 +129,12 @@ type Report struct {
 	WindowEnd   time.Time `json:"window_end,omitzero"`
 	Samples     int       `json:"samples"`
 	// Processed is messages in the window; Throughput their average rate.
-	Processed        uint64    `json:"processed"`
-	Throughput       float64   `json:"throughput"`
-	BottleneckNodeID string    `json:"bottleneck_node_id,omitempty"`
-	Findings         []Finding `json:"findings"`
+	Processed        uint64  `json:"processed"`
+	Throughput       float64 `json:"throughput"`
+	BottleneckNodeID string  `json:"bottleneck_node_id,omitempty"`
+	// Summary is how the flow ran over the window; nil until it is ready.
+	Summary  *Summary  `json:"summary,omitempty"`
+	Findings []Finding `json:"findings"`
 }
 
 // window is the samples since the engine last started, with the deltas the
@@ -157,6 +170,17 @@ func (w window) latency(id string) time.Duration {
 	return time.Duration(total / float64(runs))
 }
 
+// times is a step's run times over the window, by bucket, and false when
+// the readings carry none for it.
+func (w window) times(id string) (telemetry.LatencyHistogram, bool) {
+	last, ok := w.last.NodeTimes[id]
+	if !ok {
+		return telemetry.LatencyHistogram{}, false
+	}
+	h := last.Since(w.first.NodeTimes[id])
+	return h, h.Total() > 0
+}
+
 // edge returns an edge's messages over the window, and false when the frame
 // does not count it.
 func (w window) edge(id string) (uint64, bool) {
@@ -188,6 +212,8 @@ func Analyze(samples []Sample, flow Flow) Report {
 	r.State = StateCollecting
 	if w.ready() {
 		r.State = StateReady
+		sum := summarise(w, flow)
+		r.Summary = &sum
 	}
 	r.Findings, r.BottleneckNodeID = findings(w, flow, r.State == StateReady, r.Processed)
 
@@ -223,6 +249,7 @@ func findings(w window, flow Flow, ready bool, processed uint64) ([]Finding, str
 		if b != nil {
 			bottleneckID = b.NodeID
 		}
+		out = append(out, slowTails(w, flow)...)
 		out = append(out, filterEarlier(w, flow)...)
 		out = append(out, sinkBackpressure(w, flow)...)
 		out = append(out, stepErrors(w, flow)...)
@@ -292,13 +319,72 @@ func bottleneck(w window, flow Flow) *Finding {
 		Detail: fmt.Sprintf("%s takes %s of the time this flow's steps spend on messages: %s per message over %s runs in the last %s.",
 			name, pct(share), dur(top.lat), count(top.runs), dur(w.span)),
 		Recommendation: bottleneckAdvice(n),
-		Evidence: []Evidence{
-			{"Share of step time", pct(share)},
-			{"Average per message", dur(top.lat)},
-			{"Runs in window", count(top.runs)},
-		},
-		score: share,
+		Evidence:       w.bottleneckEvidence(top.id, share, top.lat, top.runs),
+		score:          share,
 	}
+}
+
+// bottleneckEvidence is the numbers behind a bottleneck finding. How slow
+// the slow runs are is included when the readings carry run times.
+func (w window) bottleneckEvidence(id string, share float64, lat time.Duration, runs uint64) []Evidence {
+	ev := []Evidence{
+		{"Share of step time", pct(share)},
+		{"Average per message", dur(lat)},
+	}
+	if h, ok := w.times(id); ok {
+		ev = append(ev, Evidence{"95% of runs finish within", dur(h.Quantile(0.95))})
+	}
+	return append(ev, Evidence{"Runs in window", count(runs)})
+}
+
+// slowTails finds steps that are quick for most messages and very slow for
+// a few. Their average looks calm, so no other rule sees them, but each slow
+// run holds a place among the messages in flight.
+func slowTails(w window, flow Flow) []Finding {
+	var found []Finding
+	for _, n := range flow.Nodes {
+		if !timedStep(n.Type) {
+			continue
+		}
+		h, ok := w.times(n.ID)
+		if !ok || h.Total() < slowTailRuns {
+			continue
+		}
+		median, p95 := h.Quantile(0.5), h.Quantile(0.95)
+		if p95 < slowTailFloor || p95 < median*slowTailRatio {
+			continue
+		}
+		name := flow.name(n.ID)
+		found = append(found, Finding{
+			Rule:     RuleSlowTail,
+			Severity: SeverityMedium,
+			NodeID:   n.ID,
+			Title:    name + " is sometimes very slow",
+			Detail: fmt.Sprintf("Half of %s's runs finish within %s, but at least 1 in 20 takes more than %s (95%% finish within %s), over %s runs in the last %s.",
+				name, dur(median), dur(p95/2), dur(p95), count(h.Total()), dur(w.span)),
+			Recommendation: slowTailAdvice(n),
+			Evidence: []Evidence{
+				{"Half of runs finish within", dur(median)},
+				{"95% of runs finish within", dur(p95)},
+				{"Runs in window", count(h.Total())},
+			},
+			score: p95.Seconds(),
+		})
+	}
+	return found
+}
+
+// slowTailAdvice is what usually evens out a step of this kind.
+func slowTailAdvice(n Node) string {
+	switch {
+	case isLookup(n.Type) || n.Type == "redis_lookup" || n.Type == "http_request":
+		return "The system it calls answers slowly now and then. Give the call a timeout so one slow answer cannot hold the others up, and cache answers where the data allows it."
+	case n.Type == "sink":
+		return "The destination stalls now and then. Check it for locks, slow commits or rate limiting, and batch writes so a stall costs one call rather than many."
+	case n.Type == "execute_sql":
+		return "Some statements wait much longer than others, which usually means lock waits or a plan that changes with the value. Check the slow statements in the database's own log."
+	}
+	return "Open a slow run in Executions to see what those messages have in common, then give the slow path a timeout or route those messages apart."
 }
 
 // bottleneckAdvice is what usually speeds up a step of this kind.
@@ -647,6 +733,7 @@ func lookupCacheOffFindings(flow Flow, bottleneckID string) []Finding {
 			Detail:         name + "'s ttl is 0, so every message makes a round trip, even for a key it looked up a moment ago.",
 			Recommendation: "Unless every lookup must see the latest value, set a ttl (for example 5m) so repeated keys are answered from memory.",
 			Evidence:       []Evidence{{"ttl", "0 (cache off)"}},
+			Fix:            FixLookupCache,
 		})
 	}
 	return found
@@ -663,6 +750,7 @@ func traceSampling(flow Flow) *Finding {
 		Detail:         "Trace sampling is off, so Runs cannot show how long each step took for a particular message.",
 		Recommendation: "Set trace sampling to 1% to 5% in the flow's settings. It records a share of messages step by step, at a small storage cost.",
 		Evidence:       []Evidence{{"Trace sampling", "off"}},
+		Fix:            FixTraceSampling,
 	}
 }
 

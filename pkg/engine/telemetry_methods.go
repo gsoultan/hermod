@@ -210,6 +210,12 @@ func (e *Engine) NodeStats(nodeID string) *telemetry.NodeStats {
 	return e.statusTracker.NodeStats(nodeID)
 }
 
+// NodeLatencyHistograms returns each node's run-time histogram since the
+// engine started.
+func (e *Engine) NodeLatencyHistograms() map[string]telemetry.LatencyHistogram {
+	return e.statusTracker.NodeLatencyHistograms()
+}
+
 // EdgeCounter returns the message counter for the edge source -> target.
 // Resolve it once and keep it: adding to it builds no key.
 func (e *Engine) EdgeCounter(sourceNodeID, targetNodeID string) *atomic.Uint64 {

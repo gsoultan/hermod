@@ -20,6 +20,8 @@ export interface Insight {
   detail: string
   recommendation: string
   evidence?: InsightEvidence[]
+  /** The change Hermod can propose for this finding; absent when only a person can make it. */
+  fix?: string
 }
 
 /** advisor.Report: the advisor's reading of one flow's recent window. */

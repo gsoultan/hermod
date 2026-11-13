@@ -1,5 +1,11 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MantineProvider } from '@mantine/core'
+import { Notifications } from '@mantine/notifications'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { http, HttpResponse } from 'msw'
+import { server } from '../test/setupTests'
+import { mutationCache } from '@/lib/queryClient'
 import { Recommendations } from '@/pages/workflows/tuning/Recommendations'
 import type { InsightsReport } from '@/lib/insights'
 
@@ -29,9 +35,13 @@ function report(overrides: Partial<InsightsReport> = {}): InsightsReport {
 }
 
 function renderIt(props: Partial<Parameters<typeof Recommendations>[0]> = {}) {
+  // The app's own mutation cache, so its fallback "Action failed" toast is in play.
   return render(
     <MantineProvider>
-      <Recommendations report={report()} isLoading={false} error={null} {...props} />
+      <Notifications />
+      <QueryClientProvider client={new QueryClient({ mutationCache, defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
+        <Recommendations workflowId="wf-1" canApply={false} report={report()} isLoading={false} error={null} {...props} />
+      </QueryClientProvider>
     </MantineProvider>,
   )
 }
@@ -78,5 +88,51 @@ describe('Recommendations', () => {
   it('shows the server error when the report cannot load', () => {
     renderIt({ report: undefined, error: new Error('Forbidden') })
     expect(screen.getByText('Forbidden')).toBeInTheDocument()
+  })
+
+  const fixable = () => report({
+    findings: [
+      {
+        rule: 'lookup_cache_off', severity: 'medium', node_id: 'lookup', title: 'Find customer has its cache turned off',
+        detail: 'Every message makes a round trip.', recommendation: 'Set a ttl.', fix: 'enable_lookup_cache',
+      },
+      {
+        rule: 'bottleneck', severity: 'high', node_id: 'lookup', title: 'Find customer is the slowest step',
+        detail: 'Find customer takes 97% of step time.', recommendation: 'Set a ttl.',
+      },
+    ],
+  })
+
+  it('lets an editor turn a recommendation Hermod can apply into a fix to approve', async () => {
+    let sent: unknown = null
+    server.use(http.post('/api/workflows/wf-1/proposals', async ({ request }) => {
+      sent = await request.json()
+      return HttpResponse.json({ id: 'p-9', status: 'pending', title: 'Turn on the cache of Find customer' }, { status: 201 })
+    }))
+    renderIt({ canApply: true, report: fixable() })
+
+    // Only the finding with a fix offers it.
+    const buttons = screen.getAllByRole('button', { name: /propose this fix/i })
+    expect(buttons).toHaveLength(1)
+    await userEvent.click(buttons[0])
+
+    await waitFor(() => expect(sent).toEqual({ rule: 'lookup_cache_off', node_id: 'lookup' }))
+    expect(await screen.findByText(/waiting for approval under suggested fixes/i)).toBeInTheDocument()
+  })
+
+  it('does not offer a fix to someone who cannot edit the flow', () => {
+    renderIt({ canApply: false, report: fixable() })
+    expect(screen.queryByRole('button', { name: /propose this fix/i })).not.toBeInTheDocument()
+  })
+
+  it('says why a fix could not be proposed', async () => {
+    server.use(http.post('/api/workflows/wf-1/proposals', () =>
+      HttpResponse.json({ error: 'The flow no longer has this problem' }, { status: 409 })))
+    renderIt({ canApply: true, report: fixable() })
+    await userEvent.click(screen.getByRole('button', { name: /propose this fix/i }))
+    expect(await screen.findByText(/no longer has this problem/i)).toBeInTheDocument()
+    // Said once, next to the button: not again in a toast.
+    expect(screen.getAllByText(/no longer has this problem/i)).toHaveLength(1)
+    expect(screen.queryByText('Action failed')).not.toBeInTheDocument()
   })
 })

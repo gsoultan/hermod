@@ -284,6 +284,7 @@ POST /api/workflows/test
 POST /api/workflows/{id}/drain
 POST /api/workflows/{id}/executions/{run_id}/replay
 POST /api/workflows/{id}/nodes/{node_id}/test
+POST /api/workflows/{id}/proposals
 POST /api/workflows/{id}/proposals/{pid}/approve
 POST /api/workflows/{id}/proposals/{pid}/reject
 POST /api/workflows/{id}/rebuild

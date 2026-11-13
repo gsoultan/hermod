@@ -46,6 +46,9 @@ type Sample struct {
 	SinkBreaker map[string]string
 	// EdgeCounts is cumulative messages per canvas edge ID.
 	EdgeCounts map[string]uint64
+	// NodeTimes is each node's run times by bucket, cumulative since the
+	// engine started. It is not in the status frame; the sampler sets it.
+	NodeTimes map[string]telemetry.LatencyHistogram
 }
 
 // SampleFrom keeps what the advisor reads from a status frame.

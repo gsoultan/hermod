@@ -170,4 +170,43 @@ describe('Self-healing proposals', () => {
     renderPanel()
     expect(await screen.findByText(/no self-healing proposals/i)).toBeInTheDocument()
   })
+
+  const readings = (step: number, errors = 0) => ({ throughput: 40, step_time_ms: step, error_rate: errors, messages: 9000, window_seconds: 300 })
+
+  it('shows what an applied fix did to the flow', async () => {
+    server.use(http.get(`/api/workflows/${WF}/proposals`, () => HttpResponse.json({
+      data: [proposal({
+        status: 'applied', previous_version: 4, applied_version: 5, decided_at: '2026-10-09T11:05:00Z',
+        effect: { verdict: 'better', before: readings(41.2, 0.031), after: readings(1.3) },
+      })],
+    })))
+    renderPanel()
+
+    const effect = await screen.findByRole('table', { name: /effect of retry the warehouse sink longer/i })
+    const step = within(effect).getByText(/step time per message/i).closest('tr') as HTMLElement
+    expect(within(step).getByText('41.2 ms')).toBeInTheDocument()
+    expect(within(step).getByText('1.3 ms')).toBeInTheDocument()
+    const failures = within(effect).getByText(/failures/i).closest('tr') as HTMLElement
+    expect(within(failures).getByText('3.1%')).toBeInTheDocument()
+    expect(screen.getByText(/the flow runs better since this fix/i)).toBeInTheDocument()
+  })
+
+  it('says a fix made things worse so it can be rolled back', async () => {
+    server.use(http.get(`/api/workflows/${WF}/proposals`, () => HttpResponse.json({
+      data: [proposal({
+        status: 'applied', previous_version: 4, applied_version: 5,
+        effect: { verdict: 'worse', before: readings(2), after: readings(9) },
+      })],
+    })))
+    renderPanel()
+    expect(await screen.findByText(/the flow runs worse since this fix/i)).toBeInTheDocument()
+  })
+
+  it('says the effect of a fresh fix is still being measured', async () => {
+    server.use(http.get(`/api/workflows/${WF}/proposals`, () => HttpResponse.json({
+      data: [proposal({ status: 'applied', previous_version: 4, applied_version: 5, effect_pending: true })],
+    })))
+    renderPanel()
+    expect(await screen.findByText(/measuring what this fix changed/i)).toBeInTheDocument()
+  })
 })

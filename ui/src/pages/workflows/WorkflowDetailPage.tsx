@@ -709,13 +709,13 @@ export function WorkflowDetailPage() {
                   <Box>
                     <Title order={4} mb="xs">Recommendations</Title>
                     <Text size="sm" c="dimmed" mb="md">What Hermod would change to make this flow faster or steadier, read from its recent readings. Nothing changes on its own.</Text>
-                    <Recommendations report={insights.data} isLoading={insights.isLoading} error={insights.error as Error | null} />
+                    <Recommendations workflowId={id} canApply={canEdit} report={insights.data} isLoading={insights.isLoading} error={insights.error as Error | null} />
                   </Box>
                   <Divider />
                   {/* Proposals and Optimization were two tabs; both are Hermod suggesting how the flow could run better, so they are one. */}
                   <Box>
                     <Title order={4} mb="xs">Suggested fixes</Title>
-                    <Text size="sm" c="dimmed" mb="md">Settings changes Hermod proposes after repeated failures. Nothing changes until an editor approves one.</Text>
+                    <Text size="sm" c="dimmed" mb="md">Settings changes Hermod proposes, after repeated failures or from a recommendation above. Nothing changes until an editor approves one.</Text>
                     {activeTab === 'tuning' && <ProposalsPanel workflowId={id} canDecide={canEdit} />}
                   </Box>
                 </Stack>
