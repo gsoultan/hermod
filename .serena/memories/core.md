@@ -56,6 +56,8 @@ find a claim that outruns the code, fix the claim.
 - [Redis Lookup and Redis Set](redis_set_and_lookup.md) — both writers share
   `pkg/infra/rediskv`; a key whose token is missing is refused, NX is SET-only,
   and a batch goes out in one MULTI.
+- [The performance advisor](performance_advisor.md) — recommendations on the Tuning
+  tab, fixes as proposals, before/after, the optional AI explanation.
 - [The Tuning tab and the optimizer](tuning_metrics_and_optimizer.md) — how
   ErrorRate and Backpressure are computed, the optimizer's AI pass is off by
   default, and the chaos monkey that injected 10s sink failures (removed).

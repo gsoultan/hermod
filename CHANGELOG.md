@@ -7,6 +7,16 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — an optional AI explanation of a workflow's recommendations
+
+Editors can press "Explain in plain words" above a workflow's recommendations to have a language
+model say what is going on and which change to make first. It is **off** unless
+`HERMOD_ADVISOR_AI_PROVIDER` is set (with `HERMOD_ADVISOR_AI_MODEL`, `HERMOD_ADVISOR_AI_BASE_URL`
+and `HERMOD_ADVISOR_AI_API_KEY`, the key as a `{{secret("NAME")}}` reference resolved for the
+workflow's vhost). Only the recommendations are sent: their text, their numbers and step names,
+never message contents. Each call counts against the vhost's and the workflow's AI budget and is
+written to the audit log. The answer is text; it cannot change a workflow or create a proposal.
+
 ### Added — performance recommendations for a running workflow
 
 - **The Tuning tab says what to change.** A running workflow's Tuning tab has a Recommendations
