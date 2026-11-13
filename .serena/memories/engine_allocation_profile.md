@@ -230,3 +230,35 @@ permanently.
 **The lesson**: when a cheap thing fires too often, check what is downstream of
 it before making it fire less. Here the frequency was load-bearing and the cost
 was one layer down.
+
+## Third pass (2026-11-13): costs that did no work
+
+Main had drifted to 58.5/70.3/118.6 allocations per message (8/32/128 cols),
+inside the old +25% headroom, so the gate never fired. Profiling
+`BenchmarkWorkflowThroughput` found four costs, each answering a question
+whose answer was "nothing to do":
+
+| cost | share of allocs | fix |
+|---|---|---|
+| `tracing.Extract` x3 + `Inject` per message, no tracer | ~14% | return early on no `traceparent` / invalid span context (`untraced_cost_test.go`) |
+| `context.WithValue(RegistryKey)` per node and per transformation | ~8% | `withNodeContext` once per message in the router; `withRegistry` reuses it |
+| `ParseConditions` per message (map per triple-form condition) | ~10% | `evaluator.CheckConfigConditions` evaluates the config in place; the cached parse never escapes, so no shared state reaches a caller |
+| `secrets.ExpandSettings` re-boxing unchanged strings/slices into `any` | ~8% | `treeExpander.expand` returns the original interface value when unchanged (`expand_cost_test.go`, 0 allocs) |
+
+Plus CPU: `IsDebuggerAttached`/`BreakpointsWatched` took an RWMutex read lock
+per node per message (~7% CPU, reader-count cache-line bouncing); a
+`debuggerSubCount` atomic answers false without the lock.
+
+Result: 34.5/46.3/94.4 allocations per message, -39% bytes, budgets lowered
+to 35/47/95. Throughput: an A/B run in sequence showed -11%, an
+**interleaved** A/B (old, new, old, new... with prebuilt binaries) showed +5%
+not significant. Sequential runs on a shared VM drift; interleave before
+believing a throughput delta.
+
+Next on the CPU profile: `runtime.newstack`/`copystack` ~18% — each node runs
+on a fresh goroutine whose stack grows every message. Changing that touches
+the fan-out ownership contract ([[fanout_traversal_and_two_foreaches]]), so
+it needs its own design. `ExpandSettings` still walks the settings map per
+message (~5% CPU); precomputing "has any reference" per node would remove it,
+but must still re-read a rotated secret, so the cache key is the config, not
+the node.

@@ -59,10 +59,16 @@ type allocBudget struct {
 // a full status update per message (setSourceStatusOnChange), which was ~12
 // allocations a message and grew with the number of nodes once per-node
 // telemetry populated the maps it copies.
+//
+// Re-measured 2026-11-13 on linux/amd64, go1.27.4: 34.5/46.3/94.4. Main had
+// drifted to 58.5/70.3/118.6, inside the old headroom. Four costs that did no
+// work were removed: trace propagation for messages nobody traces, the
+// registry put on the context per node, condition lists rebuilt per message,
+// and node settings re-boxed by the secret expander when nothing changed.
 var workflowAllocBudgets = []allocBudget{
-	{cols: 8, perMessage: 49},
-	{cols: 32, perMessage: 61},
-	{cols: 128, perMessage: 109},
+	{cols: 8, perMessage: 35},
+	{cols: 32, perMessage: 47},
+	{cols: 128, perMessage: 95},
 }
 
 func TestWorkflowAllocationBudget(t *testing.T) {

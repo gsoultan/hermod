@@ -225,23 +225,49 @@ type treeExpander struct {
 	skip  func(key string) bool
 }
 
+// expand returns v itself, not a re-boxed copy, when nothing under it
+// changed: this runs over a node's settings on every message, and converting
+// an unchanged string or slice back to any allocates each time.
 func (t treeExpander) expand(v any) (any, bool, error) {
-	switch v := v.(type) {
+	var (
+		out     any
+		changed bool
+		err     error
+	)
+	switch tv := v.(type) {
 	case string:
-		s, err := ExpandTokenReferences(t.ctx, t.mgr, t.vhost, v)
-		if err != nil {
-			return nil, false, err
+		s, serr := ExpandTokenReferences(t.ctx, t.mgr, t.vhost, tv)
+		if serr != nil {
+			return nil, false, serr
 		}
-		return s, s != v, nil
+		if s == tv {
+			return v, false, nil
+		}
+		return s, true, nil
 	case map[string]any:
-		m, changed, err := t.expandMap(v)
-		return m, changed, err
+		out, changed, err = t.expandMap(tv)
 	case []map[string]any:
-		return expandList(v, t.expandMap)
+		var l []map[string]any
+		l, changed, err = expandList(tv, t.expandMap)
+		if changed {
+			out = l
+		}
 	case []any:
-		return expandList(v, t.expand)
+		var l []any
+		l, changed, err = expandList(tv, t.expand)
+		if changed {
+			out = l
+		}
+	default:
+		return v, false, nil
 	}
-	return v, false, nil
+	if err != nil {
+		return nil, false, err
+	}
+	if !changed {
+		return v, false, nil
+	}
+	return out, true, nil
 }
 
 // expandMap copies m only once a value under it changes.

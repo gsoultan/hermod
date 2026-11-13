@@ -34,6 +34,26 @@ write of one random workflow fail with `simulated engine failure` for 10 seconds
 dead letters and alerts that follow. It is gone, along with `Engine.SimulateFailure`, which nothing
 else called.
 
+### Performance — a third fewer allocations per message on a running workflow
+
+Four per-message costs that did no work are gone. Measured with `BenchmarkWorkflowThroughput`
+(source, condition, mapping, sink; 8/32/128 columns): allocations per message 58.5/70.3/118.6 →
+34.5/46.3/94.4, and bytes allocated −39% (geomean). Throughput on a shared 4-core machine did not
+change measurably (+5%, not significant); the gain is less garbage and less GC work.
+
+- Trace context is no longer extracted or injected for messages that carry no `traceparent`,
+  which with no tracer installed is every message.
+- The registry and state store go on a message's context once, not once per node and per
+  transformation.
+- A condition node evaluates its settings in place instead of rebuilding its condition list for
+  every message (`evaluator.CheckConfigConditions`).
+- The per-message scan of a node's settings for secret references returns them untouched when
+  there is no reference, instead of re-boxing every value.
+- Checking for an attached debugger no longer takes a shared lock before every node when nobody
+  is debugging (about 7% of CPU in the benchmark).
+
+The CI allocation budgets (`TestWorkflowAllocationBudget`) are lowered to the new figures.
+
 ### Upgrading
 
 - An FTP sink with TLS on, pointed at a server with a self-signed or otherwise untrusted

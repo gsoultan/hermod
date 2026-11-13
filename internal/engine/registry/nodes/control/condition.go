@@ -29,7 +29,9 @@ type ConditionNode struct{}
 
 // Execute evaluates conditions and returns the branch name ("true" or "false").
 func (n *ConditionNode) Execute(ctx context.Context, nctx interfaces.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
-	conditions := n.parseConditions(node)
+	// Read straight from the config: ParseConditions built a fresh list per
+	// message to answer the same question every time.
+	holds, err := evaluator.CheckConfigConditions(msg, node.Config)
 
 	// A regex that does not compile is not a condition that matches nothing:
 	// EvaluateConditions starts `match` at false and swallows the compile
@@ -41,7 +43,7 @@ func (n *ConditionNode) Execute(ctx context.Context, nctx interfaces.NodeContext
 	// Failing here instead hands the message to the engine's normal node
 	// failure path, so it is dead-lettered where a DLQ exists and loudly
 	// reported where one does not.
-	if err := evaluator.ValidateConditions(conditions); err != nil {
+	if err != nil {
 		var msgID string
 		if msg != nil {
 			msgID = msg.ID()
@@ -50,16 +52,10 @@ func (n *ConditionNode) Execute(ctx context.Context, nctx interfaces.NodeContext
 		return nil, "", fmt.Errorf("node %s: %w", node.ID, err)
 	}
 
-	if nctx.EvaluateConditions(msg, conditions) {
+	if holds {
 		return []hermod.Message{msg}, "true", nil
 	}
 	return []hermod.Message{msg}, "false", nil
-}
-
-// parseConditions delegates to the evaluator so the validator that checks a
-// saved workflow and the node that runs it read the config the same way.
-func (n *ConditionNode) parseConditions(node *storage.WorkflowNode) []map[string]any {
-	return evaluator.ParseConditions(node.Config)
 }
 
 // PreviewSafeNode marks this node as runnable from the editor's Test button:

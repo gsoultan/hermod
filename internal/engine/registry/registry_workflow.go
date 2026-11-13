@@ -670,11 +670,13 @@ func (r *Registry) setupWorkflowRouter(
 		// sinks: without this they inserted and updated real rows. The
 		// message's SQL runs in a transaction per database that its own nodes
 		// share and that is rolled back once its walk is over.
-		walkCtx := ctx
+		// The registry and state store go on the context once per message
+		// here, not once per node and transformation below it.
+		walkCtx := r.withNodeContext(ctx)
 		var sandbox *sqlutil.Sandbox
 		if eng.IsDryRun() {
 			sandbox = sqlutil.NewSandbox(ctx)
-			walkCtx = sqlutil.WithSandbox(ctx, sandbox)
+			walkCtx = sqlutil.WithSandbox(walkCtx, sandbox)
 		}
 
 		t.Traverse(walkCtx, sourceNodeID)
