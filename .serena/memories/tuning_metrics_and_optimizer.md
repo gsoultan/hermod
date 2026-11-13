@@ -24,10 +24,13 @@ flow is off instead of showing zeros. The feed is `useWorkflowWebSockets`'
 
 Every 30s per registered engine:
 
-1. Rule-based batch tuning from `SinkBufferFill`: fill > 0.8 raises batch size
-   x1.2 (max 10000) and batch timeout x1.1 (max 2s); fill < 0.1 after 1000
-   processed lowers batch size x0.8 (min 10). It does not touch concurrency or
-   retry policy, whatever older README text said.
+1. ~~Rule-based batch tuning~~ **removed (2026-11-13)**. It rewrote a running
+   sink's batch size from `SinkBufferFill`, but `runOn` in `pkg/engine/writer.go`
+   reads the batch size once into a local when the writer starts, so the change
+   never reached the writer: it only mutated the engine's copy of the config.
+   A full sink is now a recommendation, see
+   [the performance advisor](performance_advisor.md).
+   `TestOptimizerLeavesSinkSettingsAsTheOperatorSavedThem` holds it.
 2. Self-correction gates (`gate.Analyze`).
 3. AI pass — **`EnableAI: false` by default**, not exposed as a setting. Its
    triggers read ErrorRate/Backpressure, which were always 0, so it had never
@@ -43,6 +46,10 @@ production. It was removed with `Engine.SimulateFailure` and `isFailing` (a lock
 and a clock read per sink write). `TestOptimizerNeverInjectsFailures` runs 20,000
 cycles and fails on any injected failure. Fault injection belongs in tests.
 
-Still live: the batch heuristic raises a sink's `BatchSize` by 20% per cycle
-under buffer pressure, up to 10,000, silently. A lower ceiling and a visible
-note are waiting on Gembit's call.
+## Sink buffer fill was wrong for a stuck sink (fixed 2026-11-13, #383)
+
+Fill was `len(ch)/cap(ch)` with a 1000-slot channel, but at most `MaxInflight`
+(128) messages can be waiting, so a fully stuck sink read 12.7% (2.8% when
+batching) and the 80% backpressure warning could not fire. `sinkWriter` now
+counts what it holds (`held`) and `fill(inflight)` measures against
+min(channel cap, in-flight limit). `pkg/engine/sink_buffer_fill_test.go`.
