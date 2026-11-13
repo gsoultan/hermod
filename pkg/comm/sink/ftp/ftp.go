@@ -29,9 +29,11 @@ import (
 // FTPSink implements the hermod.Sink interface for uploading files to an FTP/FTPS server.
 type FTPSink struct {
 	addr             string
+	host             string
 	username         string
 	password         string
 	useTLS           bool
+	skipVerify       bool
 	timeout          time.Duration
 	rootDir          string
 	pathTemplate     string
@@ -52,6 +54,7 @@ func NewFTPSink(host string, port int, username, password string, useTLS bool, t
 	}
 	return &FTPSink{
 		addr:             addr,
+		host:             host,
 		username:         username,
 		password:         password,
 		useTLS:           useTLS,
@@ -65,13 +68,27 @@ func NewFTPSink(host string, port int, username, password string, useTLS bool, t
 	}, nil
 }
 
+// SetInsecureSkipVerify turns off FTPS certificate checks, for a server with a
+// self-signed certificate on a network the operator trusts. Off by default.
+func (s *FTPSink) SetInsecureSkipVerify(skip bool) { s.skipVerify = skip }
+
+// tlsConfig is the FTPS client configuration: the server's certificate is
+// checked against the configured host unless SetInsecureSkipVerify(true).
+func (s *FTPSink) tlsConfig() *tls.Config {
+	return &tls.Config{
+		ServerName:         s.host,
+		MinVersion:         tls.VersionTLS12,
+		InsecureSkipVerify: s.skipVerify, //nolint:gosec // only when the operator opts in
+	}
+}
+
 func (s *FTPSink) ensureClient(ctx context.Context) error {
 	if s.client != nil {
 		return nil
 	}
 	dialOpts := []goftp.DialOption{goftp.DialWithTimeout(s.timeout)}
 	if s.useTLS {
-		dialOpts = append(dialOpts, goftp.DialWithTLS(&tls.Config{InsecureSkipVerify: true}))
+		dialOpts = append(dialOpts, goftp.DialWithTLS(s.tlsConfig()))
 	}
 	c, err := goftp.Dial(s.addr, dialOpts...)
 	if err != nil {
