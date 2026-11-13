@@ -39,12 +39,13 @@ func NewHandler(h *handlers.Handler, svc *selfupdate.Service) *Handler {
 	return &Handler{Handler: h, svc: svc}
 }
 
-// RegisterRoutes mounts the update routes.
+// RegisterRoutes mounts the update routes. AdminOnly is the project's route
+// guard; guard inside it is what refuses the first-run bypass AdminOnly allows.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/system/updates", h.guard(h.getStatus))
-	mux.HandleFunc("POST /api/system/updates/check", h.guard(h.check))
-	mux.HandleFunc("POST /api/system/updates/install", h.guard(h.install))
-	mux.HandleFunc("PUT /api/system/updates/settings", h.guard(h.putSettings))
+	mux.Handle("GET /api/system/updates", h.AdminOnly(h.guard(h.getStatus)))
+	mux.Handle("POST /api/system/updates/check", h.AdminOnly(h.guard(h.check)))
+	mux.Handle("POST /api/system/updates/install", h.AdminOnly(h.guard(h.install)))
+	mux.Handle("PUT /api/system/updates/settings", h.AdminOnly(h.guard(h.putSettings)))
 }
 
 // guard admits administrators only, and only when there is an updater.

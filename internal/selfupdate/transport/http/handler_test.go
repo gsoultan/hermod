@@ -115,8 +115,8 @@ func TestOnlyAdministratorsReachUpdates(t *testing.T) {
 	for _, rt := range routes {
 		for _, u := range []*storage.User{nil, viewer, editor} {
 			w := call(h, u, rt.method, rt.path, rt.body)
-			if w.Code != http.StatusForbidden {
-				t.Errorf("%s %s as %v = %d, want 403", rt.method, rt.path, u, w.Code)
+			if w.Code != http.StatusForbidden && w.Code != http.StatusUnauthorized {
+				t.Errorf("%s %s as %v = %d, want 401 or 403", rt.method, rt.path, u, w.Code)
 			}
 		}
 	}
