@@ -106,6 +106,49 @@ AI mapping suggestions for nodes that keep failing validation are **off** unless
 `{{secret.NAME}}` reference, which is resolved for the failing workflow's vhost. Every string
 in the sample is PII-masked before it is sent.
 
+### Performance recommendations
+
+A running workflow's **Tuning** tab has a Recommendations section: what would make the workflow
+faster or steadier, most urgent first, each with the numbers it was drawn from.
+
+Hermod reads every running workflow once every 30 seconds and keeps the last two hours of those
+readings in memory. A reading holds counters and timings only (runs, failures and run times per
+step, sink buffer fill and breaker state, lag), never message contents. The window starts again
+when the workflow's engine restarts, and is gone when the server restarts. Recommendations that
+compare readings over time appear after about two minutes and 100 messages.
+
+| Recommendation | When it appears |
+| --- | --- |
+| Slowest step | One step takes 40% or more of the time all steps spend on messages |
+| Run a filter earlier | A step drops half or more of its messages after a slower step has already processed them |
+| Sink is backed up | A sink's buffer is 80% full or more in half of the readings |
+| Sink breaker keeps opening | A sink's circuit breaker opened during the window |
+| Step keeps failing | 5% or more of a step's runs failed |
+| Messages are being dead-lettered | Dead letters grew during the window |
+| Step is stuck | A step has had work in flight for 60 seconds without finishing any |
+| Source is falling behind | Lag is above 10,000 and still growing |
+| Step is sometimes very slow | 95% of a step's runs finish within a time at least 8 times its median, and at least 100 ms |
+| Lookup cache is off | A DB or API lookup has `ttl` set to `0` |
+| Runs are not being recorded | Trace sampling is off |
+
+Run times are counted in doubling buckets, so "95% of runs finish within" is an upper bound
+accurate to a factor of two.
+
+- `GET /api/workflows/{id}/insights` returns the report (anyone with access to the workflow's vhost).
+- `POST /api/workflows/{id}/proposals` with `{"rule": "...", "node_id": "..."}` turns a
+  recommendation Hermod can apply into a pending proposal (Editor and up). Today that is
+  `lookup_cache_off` (sets `ttl` to `5m`) and `trace_sampling` (sets the rate to 1%). The
+  request names the recommendation only; the server decides the change, and answers `409` if the
+  workflow no longer has that problem.
+
+Hermod never tunes a workflow on its own. A proposed fix is approved, versioned and rolled back
+exactly like a self-healing proposal. After approval the proposal shows step time per message,
+failures and throughput before the fix and since, once the workflow has run long enough to
+compare. Only the newest applied fix is measured.
+
+A sink's batch size is recommended but never proposed: it belongs to the sink connection, which
+other workflows may share.
+
 ## Workflows as MCP tools
 
 Hermod serves the [Model Context Protocol](https://modelcontextprotocol.io) at `POST /api/mcp`

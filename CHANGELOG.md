@@ -7,6 +7,38 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — performance recommendations for a running workflow
+
+- **The Tuning tab says what to change.** A running workflow's Tuning tab has a Recommendations
+  section that ranks what would make it faster or steadier, with the numbers behind each one: the
+  step that takes most of the step time, a filter that runs after an expensive step it could run
+  before, a sink that stays full or whose breaker keeps opening, a step that keeps failing or is
+  stuck, growing source lag, a step that is usually quick and sometimes very slow, a lookup with
+  its cache off, and trace sampling switched off. It reads a rolling two-hour window of counters
+  and timings held in memory, never message contents, and needs a few minutes of traffic first.
+  `GET /api/workflows/{id}/insights` serves the same report.
+- **Hermod proposes the fixes it can make; a person approves them.** Turning a lookup's cache on
+  and turning trace sampling on have a "Propose this fix" button for editors
+  (`POST /api/workflows/{id}/proposals`). The fix waits under Suggested fixes, changes nothing
+  until it is approved, and is saved as a workflow version that can be rolled back.
+- **An applied fix is measured.** Once the workflow has run for a few minutes since, the proposal
+  shows step time per message, failures and throughput before and since, and says whether the
+  workflow runs better, worse or the same.
+
+### Changed — the optimizer no longer changes a sink's batch size by itself
+
+The optimizer raised and lowered a running sink's batch size every 30 seconds. The change never
+reached the running writer, which reads its batch size once when it starts, so it had no effect on
+throughput while still altering settings nobody had asked it to. It is removed. A sink that stays
+full is now a recommendation on the Tuning tab.
+
+### Fixed — a stuck sink reported its buffer as almost empty
+
+A sink's buffer fill was measured against a 1000-slot channel that at most `MaxInflight` (128 by
+default) messages can ever occupy. A completely stuck sink read 12.7% full, or 2.8% while
+batching, so the backpressure warning at 80% could not appear. Fill is now measured against what
+can actually queue.
+
 ### Security — the public webhook endpoint, request body limits and FTPS certificates
 
 - **Webhook bodies are bounded.** `/api/webhooks/...` read a body of any size and inflated any
