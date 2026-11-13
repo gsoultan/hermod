@@ -77,6 +77,7 @@ var routeDirs = []string{
 	"internal/ml/transport/http",
 	"internal/schema/transport/http",
 	"internal/selfheal/transport/http",
+	"internal/selfupdate/transport/http",
 	"internal/sink/transport/http",
 	"internal/source/transport/http",
 	"internal/sse/transport/http",

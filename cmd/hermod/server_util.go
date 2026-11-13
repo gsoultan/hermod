@@ -64,6 +64,12 @@ func startAPI(ctx context.Context, o *Options, reg *registry.Registry, store, lo
 	server := api.NewServer(reg, store, cfg, o.configPath, aiSvc, logStore)
 	attachWorker(server, wrk, startWorker, logger)
 
+	// Checks for releases on the schedule the Updates page sets, and in
+	// automatic mode installs them.
+	updater := newUpdater(serverStore(server), server, logger)
+	server.SetUpdater(updater)
+	go updater.Run(ctx)
+
 	stopAutoscaler := startAutoscaler(o, store, configured, userSetup)
 	defer stopAutoscaler()
 

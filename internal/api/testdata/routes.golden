@@ -84,6 +84,7 @@ GET /api/sinks/{id}/workflows
 GET /api/sources
 GET /api/sources/{id}
 GET /api/sources/{id}/workflows
+GET /api/system/updates
 GET /api/users
 GET /api/users/{id}
 GET /api/version
@@ -242,6 +243,8 @@ POST /api/sources/sample
 POST /api/sources/test
 POST /api/sources/upload
 POST /api/sources/{id}/snapshot
+POST /api/system/updates/check
+POST /api/system/updates/install
 POST /api/transformations/detect-decryption
 POST /api/transformations/test
 POST /api/users
@@ -302,6 +305,7 @@ PUT /api/settings
 PUT /api/sinks/{id}
 PUT /api/sources/{id}
 PUT /api/sources/{id}/sample
+PUT /api/system/updates/settings
 PUT /api/users/{id}
 PUT /api/users/{id}/password
 PUT /api/vhosts/{id}

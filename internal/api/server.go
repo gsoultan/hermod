@@ -51,6 +51,8 @@ import (
 	mlhttp "github.com/gsoultan/hermod/internal/ml/transport/http"
 	schemahttp "github.com/gsoultan/hermod/internal/schema/transport/http"
 	selfhealhttp "github.com/gsoultan/hermod/internal/selfheal/transport/http"
+	"github.com/gsoultan/hermod/internal/selfupdate"
+	updateshttp "github.com/gsoultan/hermod/internal/selfupdate/transport/http"
 	sinkhttp "github.com/gsoultan/hermod/internal/sink/transport/http"
 	sourcehttp "github.com/gsoultan/hermod/internal/source/transport/http"
 	ssehttp "github.com/gsoultan/hermod/internal/sse/transport/http"
@@ -96,6 +98,28 @@ type Server struct {
 	// and from. Routes builds it when NewServer did not.
 	environments     *environment.Service
 	stopEnvironments func()
+
+	// updater checks for and installs Hermod releases. Nil in a server built
+	// without one (tests, tools), where the update routes answer 503.
+	updater *selfupdate.Service
+}
+
+// SetUpdater attaches the self-updater whose routes Routes mounts.
+func (s *Server) SetUpdater(u *selfupdate.Service) { s.updater = u }
+
+// BackupBeforeUpdate writes a backup when scheduled backups are configured,
+// so an update starts from a restorable point. With no backup directory there
+// is nothing to write to and it does nothing.
+func (s *Server) BackupBeforeUpdate(ctx context.Context) error {
+	cfg := s.Handler.Config
+	if cfg == nil || strings.TrimSpace(cfg.Backup.Directory) == "" {
+		return nil
+	}
+	_, err := infrahttp.NewInfraHandler(s.Handler).WriteBackup(ctx, infrahttp.BackupSchedule{
+		Directory: cfg.Backup.Directory,
+		Retention: cfg.Backup.Retention,
+	})
+	return err
 }
 
 // NewServer constructs a new Server with the provided engine registry and storage backend.
@@ -209,6 +233,7 @@ func (s *Server) Routes() http.Handler {
 		s.environments = envhttp.NewService(s.Handler, environment.NewHTTPRemote())
 	}
 	environmentH := envhttp.NewHandler(s.Handler, s.environments)
+	updatesH := updateshttp.NewHandler(s.Handler, s.updater)
 
 	// Health endpoints (unauthenticated; used by Kubernetes and load balancers)
 	mux.HandleFunc("GET /healthz", infraH.HandleLiveness)
@@ -251,6 +276,7 @@ func (s *Server) Routes() http.Handler {
 	aiBudgetH.RegisterRoutes(mux)
 	lineageH.RegisterRoutes(mux)
 	environmentH.RegisterRoutes(mux)
+	updatesH.RegisterRoutes(mux)
 
 	mux.HandleFunc("POST /api/graphql/{path...}", webhooksH.HandleGraphQL)
 

@@ -157,3 +157,7 @@ func Manage(cfg Config, action string, runFunc func(ctx context.Context)) error 
 func GetDefaultLogger(s service.Service) (service.Logger, error) {
 	return s.Logger(nil)
 }
+
+// Interactive reports whether the process was started from a terminal rather
+// than by a service manager.
+func Interactive() bool { return service.Interactive() }

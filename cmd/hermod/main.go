@@ -24,6 +24,7 @@ import (
 	"github.com/gsoultan/hermod/internal/api"
 	"github.com/gsoultan/hermod/internal/config"
 	"github.com/gsoultan/hermod/internal/runtimetune"
+	"github.com/gsoultan/hermod/internal/selfupdate/install"
 	"github.com/gsoultan/hermod/internal/service"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/internal/version"
@@ -60,9 +61,19 @@ func main() {
 		fmt.Printf("hermod %s\n", version.Version)
 		return
 	}
+	if o.checkUpdate || o.update || o.rollback {
+		os.Exit(runUpdateCommand(o))
+	}
 
 	if o.buildUI || (o.mode != "worker" && o.serviceAction == "" && !api.IsUIEmbedded() && !config.IsUIBuilt() && config.CanBuildUI() && os.Getenv("HERMOD_ENV") != "production") {
 		buildUIAndExit(o.mode)
+	}
+
+	// Count this start against a pending update, and roll back one that keeps
+	// failing. Only for a start that runs Hermod: installing or stopping the
+	// service is not a start of the new version.
+	if o.serviceAction == "" || o.serviceAction == "run" {
+		guardUpdate()
 	}
 
 	svcCfg := service.Config{
@@ -78,6 +89,11 @@ func main() {
 	}
 	// A listener that never came up must be reported to whatever supervises this
 	// process, or a misconfigured deployment looks healthy forever.
+	// An installed update asked for the process to stop gracefully and come
+	// back as the new binary.
+	if install.Requested() {
+		restartIntoBinary(updateEnv().Exe)
+	}
 	if exitCode != 0 {
 		os.Exit(exitCode)
 	}
@@ -141,6 +157,7 @@ func runApp(svcCtx context.Context, o *Options) int {
 	ctx, cancel := setupSignalHandler(svcCtx, logger, reg, store, logStore)
 	defer cancel()
 	runtimetune.StartScavenger(ctx)
+	go confirmUpdate(ctx, logger)
 
 	configured, userSetup := computeSetupStatus(ctx, store, config.IsDBConfigured())
 	if isWorkerModeWithPlatform(o) {
@@ -240,6 +257,8 @@ func setupSignalHandler(svcCtx context.Context, logger hermod.Logger, reg interf
 			logger.Info("Received signal, shutting down gracefully...", "signal", sig)
 		case <-svcCtx.Done():
 			logger.Info("Service manager requested shutdown, shutting down gracefully...")
+		case <-install.RestartRequested():
+			logger.Info("Update installed, shutting down gracefully to restart into it...")
 		}
 		cancel()
 		reg.StopAll()

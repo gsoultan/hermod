@@ -20,6 +20,17 @@ time it syncs, before it restarts anything, so a renamed workflow comes back up 
 sync interval. This also makes a source or sink edited on the control plane take effect on a worker
 running in its own process.
 
+### Added — Hermod can check for and install its own updates
+
+Settings → Updates shows the running version and whether a newer release is published, with
+Check now and Install. Updates can be automatic (within the running major version), manual (the
+default) or off. An install takes a backup when backups are configured, verifies the archive
+against the release's `checksums.txt`, runs the new binary before swapping it in atomically,
+restarts gracefully, and puts the previous binary back if the new one fails three starts running.
+`hermod --check-update`, `--update` and `--rollback` do the same from the command line. Containers
+and package installs are told to update the way they were installed. See
+[Updating Hermod](docs/updating.md).
+
 ### Fixed — an edge left on a renamed switch case was saved and promoted
 
 Before #308, renaming a switch case or router rule left the edges drawn from it on the old name.

@@ -25,6 +25,10 @@ find a claim that outruns the code, fix the claim.
 
 ### Memories
 
+- [Self-update](self_update.md) — Settings → Updates: GitHub release check,
+  automatic/manual/off, checksum + `--version` smoke test, atomic swap, exit 75
+  restart, and the boot guard that rolls back after three failed starts.
+
 - [Renaming a vhost](vhost_rename.md) — everything is keyed by the vhost's
   name, not its id; `UpdateVHost` carries a new name to every table (SQL in one
   transaction, Mongo re-runnably), and where to register a new vhost-keyed table.

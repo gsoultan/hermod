@@ -151,7 +151,6 @@ export function UserForm({ initialData, isEditing = false }: UserFormProps) {
         placeholder="Pick virtual hosts"
         data={vhosts?.map((v: { name: string }) => v.name) || []}
         value={user.vhosts}
-        maxValues={user.role === 'Administrator' ? undefined : 1}
         onChange={(value) => setUser({ ...user, vhosts: value })}
       />
       

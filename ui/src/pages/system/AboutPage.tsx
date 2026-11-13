@@ -1,7 +1,9 @@
-import { Box, Code, Divider, Group, Paper, Stack, Text, ThemeIcon, Title } from '@mantine/core';
+import { Anchor, Box, Code, Divider, Group, Paper, Stack, Text, ThemeIcon, Title } from '@mantine/core';
 import { IconBolt, IconCopyright } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import { apiFetch } from '@/api';
+import { getSessionRole } from '@/auth/session';
 import { PageHeader } from '@/components/rows';
 
 /** The copyright line, word for word as the LICENSE file at the repository root states it. */
@@ -48,6 +50,9 @@ export function AboutPage() {
             <Group gap="xs" wrap="wrap">
               <Text size="sm" fw={500} w={72}>Version</Text>
               <Text size="sm">{release || (build ? build : 'Unknown')}</Text>
+              {getSessionRole() === 'Administrator' && (
+                <Anchor component={Link} to="/updates" size="sm">Check for updates</Anchor>
+              )}
             </Group>
             {build && build !== release && (
               <Group gap="xs" wrap="nowrap" align="flex-start">
