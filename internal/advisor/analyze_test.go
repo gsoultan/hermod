@@ -348,3 +348,25 @@ func TestBottleneckAdviceFitsTheStep(t *testing.T) {
 		}
 	}
 }
+
+func TestPercentNeverRoundsToAllOrNothing(t *testing.T) {
+	for v, want := range map[float64]string{0.999: ">99%", 1: "100%", 0.001: "<1%", 0: "0%", 0.204: "20%"} {
+		if got := pct(v); got != want {
+			t.Errorf("pct(%v) = %q, want %q", v, got, want)
+		}
+	}
+}
+
+func TestBottleneckAdviceForALookupWithItsCacheOffSaysToTurnItOn(t *testing.T) {
+	got := bottleneckAdvice(Node{Type: "api_lookup", Config: map[string]any{"ttl": "0"}})
+	if !strings.Contains(got, "cache is off") {
+		t.Fatalf("advice %q should say the cache is off", got)
+	}
+}
+
+func TestFilterEarlierCountsTheRunsItWouldSpare(t *testing.T) {
+	f := find(Analyze(steady(nil), chain()), RuleFilterEarlier)
+	if f == nil || !strings.Contains(f.Recommendation, "48,000 of its 60,000 runs") {
+		t.Fatalf("recommendation should count spared runs: %+v", f)
+	}
+}

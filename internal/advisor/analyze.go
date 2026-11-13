@@ -13,6 +13,7 @@ package advisor
 import (
 	"cmp"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -303,6 +304,8 @@ func bottleneck(w window, flow Flow) *Finding {
 // bottleneckAdvice is what usually speeds up a step of this kind.
 func bottleneckAdvice(n Node) string {
 	switch {
+	case lookupCacheOff(n):
+		return "Its cache is off (ttl 0), so every message makes a round trip. Set a ttl (for example 5m) so repeated keys are answered from memory; for a database lookup, also make sure the key column is indexed."
 	case isLookup(n.Type) || n.Type == "redis_lookup" || n.Type == "fuzzy_lookup":
 		return "Keep the lookup's cache on and raise its ttl if the data allows it, so repeated keys skip the round trip. For a database lookup, make sure the key column is indexed."
 	case n.Type == "execute_sql":
@@ -359,12 +362,12 @@ func filterEarlier(w window, flow Flow) []Finding {
 			Title:    fmt.Sprintf("Run %s before %s", name, upstream),
 			Detail: fmt.Sprintf("%s lets %s of messages through, so %s are dropped after %s has already spent %s on each of them.",
 				name, pct(1-drop), pct(drop), upstream, dur(costlyLat)),
-			Recommendation: fmt.Sprintf("If %s does not use what %s adds, move it ahead of %s. That would have saved about %s of step time in the last %s.",
-				name, upstream, upstream, dur(saved), dur(w.span)),
+			Recommendation: fmt.Sprintf("If %s does not use what %s adds, move it ahead of %s. In the last %s that would have spared %s %s of its %s runs, about %s of its working time.",
+				name, upstream, upstream, dur(w.span), upstream, count(runs-passed), count(w.runs(costly)), dur(saved)),
 			Evidence: []Evidence{
 				{"Messages dropped", pct(drop)},
 				{upstream + " per message", dur(costlyLat)},
-				{"Step time that could be saved", dur(saved)},
+				{"Runs that could be skipped", count(runs - passed)},
 			},
 			score: saved.Seconds(),
 		})
@@ -682,7 +685,19 @@ func sinkIDs(w window) []string {
 	return ids
 }
 
-func pct(v float64) string { return fmt.Sprintf("%.0f%%", v*100) }
+// pct rounds a share to a whole percent, but never up to 100% or down to 0%
+// when it is not: "100% of step time" beside a step that took some reads as
+// a mistake.
+func pct(v float64) string {
+	switch r := math.Round(v * 100); {
+	case r >= 100 && v < 1:
+		return ">99%"
+	case r <= 0 && v > 0:
+		return "<1%"
+	default:
+		return fmt.Sprintf("%.0f%%", r)
+	}
+}
 
 func count(n uint64) string {
 	s := strconv.FormatUint(n, 10)
