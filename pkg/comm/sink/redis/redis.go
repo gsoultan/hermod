@@ -12,19 +12,21 @@ package redis
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/infra/rediskv"
 	"github.com/redis/go-redis/v9"
 )
 
 // RedisSink implements the hermod.Sink interface for Redis (using Streams).
 type RedisSink struct {
-	addr      string
-	password  string
+	conn      rediskv.Conn
 	stream    string
 	formatter hermod.Formatter
 	client    *redis.Client
@@ -34,13 +36,24 @@ type RedisSink struct {
 	lastConflict bool
 }
 
+// New builds the sink from its config: addr (host:port, a bare host, or a
+// redis:// or rediss:// URL), username, password, db, tls and stream. A
+// misconfiguration fails here, when the workflow starts, not on its first record.
+func New(cfg map[string]string, formatter hermod.Formatter) (*RedisSink, error) {
+	conn, err := rediskv.ParseConn(func(k string) string { return cfg[k] })
+	if err != nil {
+		return nil, fmt.Errorf("redis stream sink: %w", err)
+	}
+	stream := strings.TrimSpace(cfg["stream"])
+	if stream == "" {
+		return nil, errors.New("redis stream sink: the stream is required")
+	}
+	return &RedisSink{conn: conn, stream: stream, formatter: formatter}, nil
+}
+
+// NewRedisSink builds a sink from an address, password and stream.
 func NewRedisSink(addr string, password string, stream string, formatter hermod.Formatter) (*RedisSink, error) {
-	return &RedisSink{
-		addr:      addr,
-		password:  password,
-		stream:    stream,
-		formatter: formatter,
-	}, nil
+	return New(map[string]string{"addr": addr, "password": password, "stream": stream}, formatter)
 }
 
 func (s *RedisSink) init(ctx context.Context) error {
@@ -51,14 +64,11 @@ func (s *RedisSink) init(ctx context.Context) error {
 	}
 	s.mu.Unlock()
 
-	cl := redis.NewClient(&redis.Options{
-		Addr:     s.addr,
-		Password: s.password,
-	})
+	cl := rediskv.NewClient(s.conn)
 
 	if err := cl.Ping(ctx).Err(); err != nil {
 		cl.Close()
-		return err
+		return rediskv.ExplainConnError(s.conn, err)
 	}
 
 	s.mu.Lock()
@@ -109,7 +119,7 @@ func (s *RedisSink) Write(ctx context.Context, msg hermod.Message) error {
 		key := fmt.Sprintf("%s:%s:%s", ns, s.stream, id)
 		ok, err := cl.SetNX(ctx, key, "1", ttl).Result()
 		if err != nil {
-			return fmt.Errorf("redis idempotency setnx error: %w", err)
+			return fmt.Errorf("redis idempotency setnx error: %w", rediskv.ExplainConnError(s.conn, err))
 		}
 		if !ok {
 			// Duplicate message; treat as handled without re-publishing
@@ -139,7 +149,7 @@ func (s *RedisSink) Write(ctx context.Context, msg hermod.Message) error {
 	}).Err()
 
 	if err != nil {
-		return fmt.Errorf("failed to publish to redis stream: %w", err)
+		return fmt.Errorf("failed to publish to redis stream: %w", rediskv.ExplainConnError(s.conn, err))
 	}
 
 	return nil
@@ -165,7 +175,7 @@ func (s *RedisSink) Ping(ctx context.Context) error {
 		cl = s.client
 		s.mu.Unlock()
 	}
-	return cl.Ping(ctx).Err()
+	return rediskv.ExplainConnError(s.conn, cl.Ping(ctx).Err())
 }
 
 func (s *RedisSink) Close() error {

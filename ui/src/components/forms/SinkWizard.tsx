@@ -185,6 +185,7 @@ export function SinkWizard({
                   title={testResult.status === 'ok' ? 'Connected' : 'Connection Failed'}
                   withCloseButton
                   onClose={() => setTestResult(null)}
+                  style={{ whiteSpace: 'pre-line' }}
                 >
                   {testResult.message}
                 </Alert>

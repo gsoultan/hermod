@@ -95,7 +95,7 @@ func (s *RedisSetSink) WriteBatch(ctx context.Context, msgs []hermod.Message) er
 	if err != nil {
 		return err
 	}
-	return rediskv.ApplyAll(ctx, c, ops)
+	return rediskv.ExplainConnError(s.settings.Conn, rediskv.ApplyAll(ctx, c, ops))
 }
 
 func (s *RedisSetSink) Ping(ctx context.Context) error {
@@ -103,7 +103,7 @@ func (s *RedisSetSink) Ping(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return c.Ping(ctx).Err()
+	return rediskv.ExplainConnError(s.settings.Conn, c.Ping(ctx).Err())
 }
 
 func (s *RedisSetSink) Close() error {

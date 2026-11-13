@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -124,13 +123,12 @@ type Settings struct {
 // that is not set. Every failure is a misconfiguration, reported before any
 // record is written.
 func ParseSettings(get func(key string) string) (Settings, error) {
+	conn, err := ParseConn(get)
+	if err != nil {
+		return Settings{}, fmt.Errorf("redis set: %w", err)
+	}
 	s := Settings{
-		Conn: Conn{
-			Addr:     strings.TrimSpace(get("addr")),
-			Username: get("username"),
-			Password: get("password"),
-			TLS:      parseBool(get("tls")),
-		},
+		Conn:         conn,
 		Command:      strings.ToLower(strings.TrimSpace(get("command"))),
 		Key:          get("key"),
 		Field:        get("field"),
@@ -139,9 +137,6 @@ func ParseSettings(get func(key string) string) (Settings, error) {
 	}
 	if s.Command == "" {
 		s.Command = "set"
-	}
-	if s.Addr == "" {
-		return Settings{}, errors.New("redis set: addr is required")
 	}
 	if strings.TrimSpace(s.Key) == "" {
 		return Settings{}, errors.New("redis set: key is required")
@@ -154,13 +149,6 @@ func ParseSettings(get func(key string) string) (Settings, error) {
 	// than an only-if-absent that sometimes is not.
 	if s.OnlyIfAbsent && s.Command == "hset" {
 		return Settings{}, errors.New("redis set: only-if-absent applies to set, not hset")
-	}
-	if db := strings.TrimSpace(get("db")); db != "" {
-		n, err := strconv.Atoi(db)
-		if err != nil || n < 0 {
-			return Settings{}, fmt.Errorf("redis set: db %q is not a database number", db)
-		}
-		s.DB = n
 	}
 	if ttl := strings.TrimSpace(get("ttl")); ttl != "" {
 		d, err := time.ParseDuration(ttl)

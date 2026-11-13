@@ -1,5 +1,5 @@
-import { Checkbox, Select, Textarea, Alert } from '@mantine/core';
-import { TextInput } from '@/components/shared/ReferenceInputs';
+import { Checkbox, Select, Switch, Textarea, Alert } from '@mantine/core';
+import { PasswordInput, TextInput } from '@/components/shared/ReferenceInputs';
 import { FormRow } from '@/components/common/FormRow';
 
 interface QueueSinkConfigProps {
@@ -232,8 +232,43 @@ export function QueueSinkConfig({ type, config, updateConfig }: QueueSinkConfigP
     case 'redis':
       return (
         <>
-          <TextInput label="Address" placeholder="localhost:6379" value={config.addr || ''} onChange={(e) => updateConfig('addr', e.target.value)} required />
-          <TextInput label="Password" type="password" placeholder="Optional" value={config.password || ''} onChange={(e) => updateConfig('password', e.target.value)} />
+          <FormRow>
+            <TextInput
+              label="Address"
+              placeholder="redis.example.com:6379"
+              description="host:port, a host alone (port 6379), or a redis:// or rediss:// URL. If Hermod runs in Docker, localhost is the container: use the Redis service name."
+              value={config.addr || ''}
+              onChange={(e) => updateConfig('addr', e.target.value)}
+              required
+            />
+            <TextInput
+              label="Database"
+              placeholder="0"
+              inputMode="numeric"
+              value={config.db || ''}
+              onChange={(e) => updateConfig('db', e.target.value)}
+            />
+          </FormRow>
+          <FormRow>
+            <TextInput
+              label="Username"
+              placeholder="Optional, for an ACL user"
+              value={config.username || ''}
+              onChange={(e) => updateConfig('username', e.target.value)}
+            />
+            <PasswordInput
+              label="Password"
+              placeholder="Optional, requirepass or the ACL user's"
+              value={config.password || ''}
+              onChange={(e) => updateConfig('password', e.target.value)}
+            />
+          </FormRow>
+          <Switch
+            label="Use TLS"
+            description="On for managed Redis such as ElastiCache with encryption, Azure Cache, Upstash or Redis Cloud."
+            checked={config.tls === 'true'}
+            onChange={(e) => updateConfig('tls', e.currentTarget.checked ? 'true' : 'false')}
+          />
           <TextInput label="Stream" placeholder="hermod-stream" value={config.stream || ''} onChange={(e) => updateConfig('stream', e.target.value)} required />
         </>
       );

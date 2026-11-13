@@ -26,3 +26,4 @@ connector reference in `docs/connectors.md` (`redis_set` is sink-only there), th
 sink form (`RedisSetSinkConfig.tsx`), the transformation forms and the palette.
 Both Redis steps use the wide middle column in the transformation editor so a
 `customer:{{.after.customer_id}}` key shows in full.
+- Connection parsing and the refused/auth/TLS guidance: redis_connection_guidance.md.
