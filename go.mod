@@ -1,6 +1,6 @@
 module github.com/gsoultan/hermod
 
-go 1.27.3
+go 1.27.4
 
 // Every 1.x version published before 2026-09-02 was withdrawn: the releases and
 // tags were deleted, and both GHCR packages with them. They are unusable in any
