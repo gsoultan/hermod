@@ -18,6 +18,23 @@ export interface ProposalChange {
   after: unknown
 }
 
+/** How a flow ran over a stretch of time: advisor.Summary. */
+export interface FlowReadings {
+  throughput: number
+  step_time_ms: number
+  /** Failed step runs and dead letters over messages, 0 to 1. */
+  error_rate: number
+  messages: number
+  window_seconds: number
+}
+
+/** advisor.Effect: the flow before an applied fix and since. */
+export interface ProposalEffect {
+  verdict: 'better' | 'worse' | 'same'
+  before: FlowReadings
+  after: FlowReadings
+}
+
 export interface Proposal {
   id: string
   workflow_id: string
@@ -35,6 +52,10 @@ export interface Proposal {
   /** The version before the fix was applied: what a rollback restores. */
   previous_version?: number
   applied_version?: number
+  /** Set on the newest applied fix once the flow has run long enough since. */
+  effect?: ProposalEffect
+  /** The effect is not measurable yet: too few readings since the fix. */
+  effect_pending?: boolean
 }
 
 const base = (workflowId: string) => `/api/workflows/${encodeURIComponent(workflowId)}`
@@ -44,6 +65,17 @@ export const proposalsKey = (workflowId: string) => ['proposals', workflowId] as
 export async function listProposals(workflowId: string, signal?: AbortSignal): Promise<Proposal[]> {
   const body = await requestJson<{ data: Proposal[] | null }>(`${base(workflowId)}/proposals`, { signal })
   return body?.data ?? []
+}
+
+/**
+ * Turns one of the advisor's current recommendations into a pending proposal.
+ * The request names the finding only; the server decides what the fix changes.
+ */
+export function proposeFix(workflowId: string, finding: { rule: string; node_id?: string }): Promise<Proposal> {
+  return requestJson<Proposal>(`${base(workflowId)}/proposals`, {
+    method: 'POST',
+    body: JSON.stringify({ rule: finding.rule, node_id: finding.node_id ?? '' }),
+  })
 }
 
 export function approveProposal(workflowId: string, proposalId: string): Promise<Proposal> {
@@ -59,10 +91,15 @@ export function rollbackWorkflow(workflowId: string, version: number): Promise<u
   return requestJson<unknown>(`${base(workflowId)}/rollback/${version}`, { method: 'POST' })
 }
 
+/** The advisor reads a running flow every 30 seconds, so an effect cannot appear sooner. */
+const EFFECT_REFRESH_MS = 30_000
+
 export function useProposals(workflowId: string) {
   return useQuery({
     queryKey: proposalsKey(workflowId),
     queryFn: ({ signal }) => listProposals(workflowId, signal),
+    // A fresh fix has no comparison yet; ask again until the server has one.
+    refetchInterval: (query) => (query.state.data?.some((p) => p.effect_pending) ? EFFECT_REFRESH_MS : false),
   })
 }
 

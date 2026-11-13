@@ -7,7 +7,7 @@ import { useConfirm } from '@/components/common/ConfirmProvider'
 import { formatDateTime } from '@/utils/dateUtils'
 import { ApiRequestError } from '@/lib/executions'
 import {
-  approveProposal, formatPatchValue, proposalsKey, rejectProposal, rollbackWorkflow, type Proposal,
+  approveProposal, formatPatchValue, proposalsKey, rejectProposal, rollbackWorkflow, type Proposal, type ProposalEffect,
 } from '@/lib/proposals'
 
 const statusMeta: Record<string, { label: string; color: string }> = {
@@ -39,6 +39,52 @@ function describeFailure(err: unknown, action: 'approve' | 'reject' | 'rollback'
   }
   const verb = action === 'approve' ? 'Approving' : action === 'reject' ? 'Rejecting' : 'Rolling back'
   return { title: `${verb} failed`, message, color: 'red' }
+}
+
+const verdictMeta: Record<ProposalEffect['verdict'], { text: string; color: string }> = {
+  better: { text: 'The flow runs better since this fix.', color: 'green' },
+  worse: { text: 'The flow runs worse since this fix. Roll it back if that was not expected.', color: 'red' },
+  same: { text: 'No measurable change since this fix.', color: 'dimmed' },
+}
+
+const ms = (v: number) => `${v.toFixed(1)} ms`
+const share = (v: number) => `${(v * 100).toFixed(1)}%`
+const rate = (v: number) => `${v.toFixed(1)} msg/s`
+
+/** The flow before an applied fix and since, in the numbers the fix is judged by. */
+function EffectTable({ title, effect }: { title: string; effect: ProposalEffect }) {
+  const verdict = verdictMeta[effect.verdict] ?? verdictMeta.same
+  const rows: [string, string, string][] = [
+    ['Step time per message', ms(effect.before.step_time_ms), ms(effect.after.step_time_ms)],
+    ['Failures', share(effect.before.error_rate), share(effect.after.error_rate)],
+    // Shown, not judged: throughput follows what the source sends.
+    ['Throughput', rate(effect.before.throughput), rate(effect.after.throughput)],
+  ]
+  return (
+    <Stack gap={4}>
+      <Text size="sm" fw={600} c={verdict.color}>{verdict.text}</Text>
+      <Table.ScrollContainer minWidth={260}>
+        <Table aria-label={`Effect of ${title}`} verticalSpacing={4} fz="sm" withTableBorder>
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th>Reading</Table.Th>
+              <Table.Th ta="right">Before</Table.Th>
+              <Table.Th ta="right">Since</Table.Th>
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody>
+            {rows.map(([label, before, after]) => (
+              <Table.Tr key={label}>
+                <Table.Td>{label}</Table.Td>
+                <Table.Td ta="right" style={{ whiteSpace: 'nowrap' }}>{before}</Table.Td>
+                <Table.Td ta="right" style={{ whiteSpace: 'nowrap' }}>{after}</Table.Td>
+              </Table.Tr>
+            ))}
+          </Table.Tbody>
+        </Table>
+      </Table.ScrollContainer>
+    </Stack>
+  )
 }
 
 interface ProposalCardProps {
@@ -218,6 +264,13 @@ export function ProposalCard({ workflowId, proposal: p, canDecide }: ProposalCar
               </Table.Tbody>
             </Table>
           </Table.ScrollContainer>
+        )}
+
+        {p.status === 'applied' && p.effect && <EffectTable title={p.title} effect={p.effect} />}
+        {p.status === 'applied' && !p.effect && p.effect_pending && (
+          <Text size="sm" c="dimmed">
+            Measuring what this fix changed. A before and after comparison appears here after a few minutes of traffic.
+          </Text>
         )}
 
         {failure && (

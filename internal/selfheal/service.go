@@ -142,6 +142,10 @@ func (s *Service) List(ctx context.Context, workflowID string) ([]Proposal, erro
 
 // Approve applies a pending proposal through the workflow update path.
 func (s *Service) Approve(ctx context.Context, workflowID, id, username string) (Proposal, error) {
+	return s.approve(ctx, workflowID, id, username, nil)
+}
+
+func (s *Service) approve(ctx context.Context, workflowID, id, username string, baseline *Readings) (Proposal, error) {
 	if s.applier == nil {
 		return Proposal{}, ErrNoApplier
 	}
@@ -164,6 +168,7 @@ func (s *Service) Approve(ctx context.Context, workflowID, id, username string) 
 			return err
 		}
 		p.Status, p.PreviousVersion, p.AppliedVersion = StatusApplied, prev, applied
+		p.Baseline = baseline
 		return nil
 	}, username)
 }

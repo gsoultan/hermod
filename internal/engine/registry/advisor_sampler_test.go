@@ -60,3 +60,20 @@ func TestWorkflowInsightsForAFlowThatIsNotRunning(t *testing.T) {
 		t.Fatalf("report = %+v", rep)
 	}
 }
+
+// The status frame carries only a moving average per step; the spread of run
+// times is read from the engine separately and must reach the sample.
+func TestAdvisorSamplerKeepsEachStepsRunTimes(t *testing.T) {
+	r := newTestRegistry()
+	r.advisor = advisor.New(advisor.DefaultCapacity)
+	eng := pkgengine.NewEngine(nil, nil, nil)
+	eng.NodeStats("lookup").Observe(3*time.Millisecond, false)
+	r.engines["wf-1"] = &activeEngine{engine: eng, isWorkflow: true, workflow: storage.Workflow{ID: "wf-1"}}
+
+	r.sampleAdvisor(time.Now())
+
+	got := r.advisor.Samples("wf-1")
+	if len(got) != 1 || got[0].NodeTimes["lookup"].Total() != 1 {
+		t.Fatalf("samples = %+v, want one run of lookup in its run times", got)
+	}
+}

@@ -60,7 +60,9 @@ func (r *Registry) sampleAdvisor(at time.Time) {
 	ids := make(map[string]bool, len(engines))
 	for _, e := range engines {
 		ids[e.id] = true
-		r.advisor.Observe(e.id, advisor.SampleFrom(at, e.ae.engine.GetStatus()))
+		s := advisor.SampleFrom(at, e.ae.engine.GetStatus())
+		s.NodeTimes = e.ae.engine.NodeLatencyHistograms()
+		r.advisor.Observe(e.id, s)
 	}
 	r.advisor.Retain(ids)
 }
@@ -69,6 +71,27 @@ func (r *Registry) sampleAdvisor(at time.Time) {
 // describes the workflow as the engine runs it (sub-flows spliced in, the
 // sink settings it started with), not as it is stored now.
 func (r *Registry) WorkflowInsights(ctx context.Context, id string) advisor.Report {
+	flow, ok := r.advisorFlow(ctx, id)
+	if !ok {
+		return advisor.Analyze(nil, advisor.Flow{ID: id})
+	}
+	return r.advisor.Report(flow)
+}
+
+// WorkflowSummarySince is how a workflow running here has run since a
+// moment, and false when it is not running or has too few readings since
+// then to judge by.
+func (r *Registry) WorkflowSummarySince(ctx context.Context, id string, since time.Time) (advisor.Summary, bool) {
+	flow, ok := r.advisorFlow(ctx, id)
+	if !ok {
+		return advisor.Summary{}, false
+	}
+	return advisor.SummarySince(r.advisor.Samples(id), flow, since)
+}
+
+// advisorFlow describes a running workflow to the advisor; false when it is
+// not running here.
+func (r *Registry) advisorFlow(ctx context.Context, id string) (advisor.Flow, bool) {
 	r.mu.RLock()
 	ae, ok := r.engines[id]
 	var wf storage.Workflow
@@ -83,7 +106,7 @@ func (r *Registry) WorkflowInsights(ctx context.Context, id string) advisor.Repo
 	r.mu.RUnlock()
 
 	if r.advisor == nil || wf.ID == "" {
-		return advisor.Analyze(nil, advisor.Flow{ID: id})
+		return advisor.Flow{}, false
 	}
 	// Names only make the text readable; a sink that cannot be read keeps its ID.
 	if store := r.GetStorage(); store != nil {
@@ -94,5 +117,5 @@ func (r *Registry) WorkflowInsights(ctx context.Context, id string) advisor.Repo
 			}
 		}
 	}
-	return r.advisor.Report(advisor.FlowFrom(wf, sinks))
+	return advisor.FlowFrom(wf, sinks), true
 }

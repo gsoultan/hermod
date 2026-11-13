@@ -24,6 +24,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/gsoultan/hermod/internal/storage"
@@ -47,6 +50,9 @@ var (
 	// ErrStale is returned when the workflow no longer has the values the
 	// proposal was made against.
 	ErrStale = errors.New("the workflow changed since this fix was proposed; it was not applied")
+	// ErrNothingToFix is returned for a fix that is unknown or would change
+	// nothing in the workflow as it is now.
+	ErrNothingToFix = errors.New("there is nothing for this fix to change")
 	// ErrNoApplier is returned by Approve on a service built without one.
 	ErrNoApplier = errors.New("proposals cannot be applied here")
 )
@@ -77,6 +83,22 @@ type Proposal struct {
 	DecidedBy       string     `json:"decided_by,omitempty"`
 	PreviousVersion int        `json:"previous_version,omitempty"`
 	AppliedVersion  int        `json:"applied_version,omitempty"`
+	// Baseline is how the flow was running when the fix was approved, kept
+	// so its effect can be measured afterwards. Nil when the flow was not
+	// running, or had not run long enough to say.
+	Baseline *Readings `json:"baseline,omitempty"`
+}
+
+// Readings is how a flow ran over a stretch of time.
+type Readings struct {
+	// Throughput is messages a second.
+	Throughput float64 `json:"throughput"`
+	// StepTimeMs is the time all steps together spend on one message.
+	StepTimeMs float64 `json:"step_time_ms"`
+	// ErrorRate is failed step runs and dead letters over messages, 0 to 1.
+	ErrorRate     float64 `json:"error_rate"`
+	Messages      uint64  `json:"messages"`
+	WindowSeconds float64 `json:"window_seconds"`
 }
 
 // field reads and writes one patchable workflow field. Only the fields here
@@ -91,10 +113,69 @@ var fields = map[string]field{
 		get: func(wf storage.Workflow) any { return wf.MaxRetries },
 		set: func(wf *storage.Workflow, raw json.RawMessage) error { return json.Unmarshal(raw, &wf.MaxRetries) },
 	},
+	"/trace_sample_rate": {
+		get: func(wf storage.Workflow) any { return wf.TraceSampleRate },
+		set: func(wf *storage.Workflow, raw json.RawMessage) error { return json.Unmarshal(raw, &wf.TraceSampleRate) },
+	},
 	"/retry_interval": {
 		get: func(wf storage.Workflow) any { return wf.RetryInterval },
 		set: func(wf *storage.Workflow, raw json.RawMessage) error { return json.Unmarshal(raw, &wf.RetryInterval) },
 	},
+}
+
+// nodeTTLPath is the ttl setting of one lookup node. The node is named by
+// its ID, not its position, so a patch still finds it after nodes are added
+// or reordered.
+const (
+	nodePathPrefix = "/nodes/"
+	nodeTTLSuffix  = "/config/ttl"
+)
+
+func nodeTTLPath(nodeID string) string { return nodePathPrefix + nodeID + nodeTTLSuffix }
+
+// fieldFor resolves a patch path to the field it names.
+func fieldFor(path string) (field, bool) {
+	if f, ok := fields[path]; ok {
+		return f, true
+	}
+	id, ok := strings.CutPrefix(path, nodePathPrefix)
+	if !ok {
+		return field{}, false
+	}
+	id, ok = strings.CutSuffix(id, nodeTTLSuffix)
+	if !ok || id == "" || strings.Contains(id, "/") {
+		return field{}, false
+	}
+	return field{
+		get: func(wf storage.Workflow) any {
+			i := slices.IndexFunc(wf.Nodes, func(n storage.WorkflowNode) bool { return n.ID == id })
+			if i < 0 {
+				return nil
+			}
+			ttl, _ := wf.Nodes[i].Config["ttl"].(string)
+			return ttl
+		},
+		set: func(wf *storage.Workflow, raw json.RawMessage) error {
+			i := slices.IndexFunc(wf.Nodes, func(n storage.WorkflowNode) bool { return n.ID == id })
+			if i < 0 {
+				return fmt.Errorf("node %q is no longer in the workflow", id)
+			}
+			var ttl string
+			if err := json.Unmarshal(raw, &ttl); err != nil {
+				return err
+			}
+			// A workflow value shares its node slice and config maps with
+			// every copy of it, so both are copied before the write.
+			wf.Nodes = slices.Clone(wf.Nodes)
+			cfg := maps.Clone(wf.Nodes[i].Config)
+			if cfg == nil {
+				cfg = map[string]any{}
+			}
+			cfg["ttl"] = ttl
+			wf.Nodes[i].Config = cfg
+			return nil
+		},
+	}, true
 }
 
 func replace(path string, before, after any) Change {
@@ -107,7 +188,7 @@ func replace(path string, before, after any) Change {
 // longer holds the value the patch expects.
 func patched(wf storage.Workflow, patch []Change) (storage.Workflow, error) {
 	for _, c := range patch {
-		f, ok := fields[c.Path]
+		f, ok := fieldFor(c.Path)
 		if !ok || c.Op != "replace" {
 			return wf, fmt.Errorf("unsupported change %s %s", c.Op, c.Path)
 		}

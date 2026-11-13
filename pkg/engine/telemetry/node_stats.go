@@ -26,6 +26,8 @@ type NodeStats struct {
 	processed *atomic.Uint64
 	errors    *atomic.Uint64
 	latency   *atomic.Int64 // moving average, ns; 0 = never observed
+	// histogram counts every run by how long it took; see LatencyHistogram.
+	histogram latencyCounters
 
 	// nextSample is the UnixNano before which no further payload sample may
 	// be taken for this node; see ClaimSample.
@@ -168,6 +170,7 @@ func (n *NodeStats) Observe(d time.Duration, failed bool) {
 	if failed {
 		n.errors.Add(1)
 	}
+	n.histogram[latencyBucket(d)].Add(1)
 	// 0 means "never observed", so a run too fast to measure counts as 1ns.
 	sample := max(int64(d), 1)
 	for {

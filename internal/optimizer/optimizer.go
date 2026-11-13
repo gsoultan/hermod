@@ -12,14 +12,12 @@ package optimizer
 
 import (
 	"context"
-	"fmt"
 	"maps"
 	"sync"
 	"time"
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/engine"
-	"github.com/gsoultan/hermod/pkg/engine/config"
 	"github.com/gsoultan/hermod/pkg/engine/telemetry"
 )
 
@@ -28,7 +26,8 @@ type OptimizerConfig struct {
 	EnableAI             bool
 }
 
-// Optimizer tracks engine metrics and suggests/applies runtime tunings.
+// Optimizer watches running engines for failure patterns and proposes
+// fixes. It never changes an engine or a stored workflow itself.
 type Optimizer struct {
 	mu          sync.Mutex
 	registry    map[string]*engine.Engine
@@ -100,35 +99,16 @@ func (o *Optimizer) optimizeAll() {
 func (o *Optimizer) optimizeEngine(id string, e *engine.Engine) {
 	status := e.GetStatus()
 
-	// 1. Adaptive Batching & Concurrency Tuning
-	for sinkID, fill := range status.SinkBufferFill {
-		if fill > 0.8 {
-			o.logger.Info("Optimizer: high buffer pressure detected, increasing batch size and concurrency",
-				"workflow_id", id, "sink_id", sinkID, "fill", fmt.Sprintf("%.2f", fill))
+	// Sink sizing is not done here. This loop used to rewrite a running
+	// sink's batch size on its own; that is now a recommendation of
+	// internal/advisor, for a person to act on.
 
-			e.UpdateSinkConfig(sinkID, func(cfg *config.SinkConfig) {
-				// Increase batch size to handle more volume per request
-				cfg.BatchSize = min(int(float64(cfg.BatchSize)*1.2), 10000)
-				// Slightly increase timeout to allow filling larger batches
-				cfg.BatchTimeout = min(time.Duration(float64(cfg.BatchTimeout)*1.1), 2*time.Second)
-			})
-		} else if fill < 0.1 && status.ProcessedCount > 1000 {
-			// If buffer is very empty and we have processed enough messages (not just starting),
-			// maybe we can reduce batch size to improve latency.
-			e.UpdateSinkConfig(sinkID, func(cfg *config.SinkConfig) {
-				if cfg.BatchSize > 10 {
-					cfg.BatchSize = max(int(float64(cfg.BatchSize)*0.8), 10)
-				}
-			})
-		}
-	}
-
-	// 2. Self-Correction Gates
+	// Self-Correction Gates
 	if o.gate != nil {
 		o.gate.Analyze(id, e, status)
 	}
 
-	// 3. AI-Driven Pattern Recognition (Future)
+	// AI-Driven Pattern Recognition (Future)
 	if o.config.EnableAI {
 		o.runAIOptimization(id, e, status)
 	}

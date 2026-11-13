@@ -1,8 +1,14 @@
-import { Alert, Badge, Box, Group, Loader, Paper, SimpleGrid, Stack, Text, Title } from '@mantine/core'
-import { IconAlertCircle, IconBulb, IconCircleCheck, IconHourglass } from '@tabler/icons-react'
+import { useState } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Alert, Badge, Box, Button, Group, Loader, Paper, SimpleGrid, Stack, Text, Title } from '@mantine/core'
+import { IconAlertCircle, IconBulb, IconCircleCheck, IconHourglass, IconTool } from '@tabler/icons-react'
 import type { Insight, InsightSeverity, InsightsReport } from '@/lib/insights'
+import { proposalsKey, proposeFix } from '@/lib/proposals'
 
 interface RecommendationsProps {
+  workflowId: string
+  /** Editors and administrators may turn a recommendation into a fix to approve. */
+  canApply: boolean
   report: InsightsReport | undefined
   isLoading: boolean
   error: Error | null
@@ -28,7 +34,50 @@ function windowLength(report: InsightsReport): string | null {
   return `last ${Math.round(min / 60)} h`
 }
 
-function FindingCard({ finding }: { finding: Insight }) {
+/**
+ * Turns a recommendation into a pending fix. It changes nothing by itself:
+ * the fix waits under Suggested fixes until someone approves it.
+ */
+function ProposeFix({ workflowId, finding }: { workflowId: string; finding: Insight }) {
+  const queryClient = useQueryClient()
+  const [proposed, setProposed] = useState(false)
+  const propose = useMutation({
+    mutationFn: () => proposeFix(workflowId, finding),
+    onSuccess: () => {
+      setProposed(true)
+      queryClient.invalidateQueries({ queryKey: proposalsKey(workflowId) })
+    },
+  })
+
+  if (proposed) {
+    return (
+      <Group gap="xs" wrap="nowrap" c="green" role="status">
+        <IconCircleCheck size={16} aria-hidden style={{ flexShrink: 0 }} />
+        <Text size="sm">Waiting for approval under Suggested fixes, below. Nothing has changed yet.</Text>
+      </Group>
+    )
+  }
+  return (
+    <Stack gap="xs" align="flex-start">
+      <Button
+        size="xs"
+        variant="light"
+        leftSection={<IconTool size="0.9rem" />}
+        onClick={() => propose.mutate()}
+        loading={propose.isPending}
+      >
+        Propose this fix
+      </Button>
+      {propose.error && (
+        <Alert color="yellow" icon={<IconAlertCircle size="1rem" />} title="Could not propose this fix" w="100%">
+          {(propose.error as Error).message}
+        </Alert>
+      )}
+    </Stack>
+  )
+}
+
+function FindingCard({ finding, workflowId, canApply }: { finding: Insight; workflowId: string; canApply: boolean }) {
   const sev = severity[finding.severity] ?? severity.low
   return (
     <Paper withBorder p={{ base: 'sm', sm: 'md' }} radius="md" data-finding={finding.rule}>
@@ -52,6 +101,7 @@ function FindingCard({ finding }: { finding: Insight }) {
             ))}
           </SimpleGrid>
         )}
+        {canApply && finding.fix && <ProposeFix workflowId={workflowId} finding={finding} />}
       </Stack>
     </Paper>
   )
@@ -60,9 +110,10 @@ function FindingCard({ finding }: { finding: Insight }) {
 /**
  * What the performance advisor recommends for this flow, most urgent first.
  * The server draws every finding from the flow's recent readings and says
- * which numbers it used; nothing here changes the flow.
+ * which numbers it used. Nothing here changes the flow: a fix it can make is
+ * proposed for approval, never applied.
  */
-export function Recommendations({ report, isLoading, error }: RecommendationsProps) {
+export function Recommendations({ workflowId, canApply, report, isLoading, error }: RecommendationsProps) {
   if (error) {
     return (
       <Alert color="red" icon={<IconAlertCircle size="1rem" />} title="Could not load recommendations">
@@ -100,7 +151,7 @@ export function Recommendations({ report, isLoading, error }: RecommendationsPro
         </Group>
       )}
       {findings.map((f) => (
-        <FindingCard key={`${f.rule}:${f.node_id ?? ''}:${f.sink_id ?? ''}`} finding={f} />
+        <FindingCard key={`${f.rule}:${f.node_id ?? ''}:${f.sink_id ?? ''}`} finding={f} workflowId={workflowId} canApply={canApply} />
       ))}
     </Stack>
   )
