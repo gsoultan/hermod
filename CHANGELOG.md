@@ -7,6 +7,12 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — a list request could ask for the whole table
+
+`?limit=` on the list endpoints went into the query as it came, so one request with a very large
+value read an entire table — workflows, logs, audit log, traces — into memory. A page is now at
+most 1,000 rows, which is the largest the UI asks for. A client that sent a larger `limit` gets
+1,000 rows and pages for the rest.
 ### Added — an optional AI explanation of a workflow's recommendations
 
 Editors can press "Explain in plain words" above a workflow's recommendations to have a language

@@ -194,6 +194,11 @@ func (h *Handler) JsonError(w http.ResponseWriter, msg string, code int) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
+// MaxListPageSize is the largest page a list endpoint returns. The UI never
+// asks for more, and without a ceiling ?limit= is how one request reads a
+// whole table into memory.
+const MaxListPageSize = 1000
+
 func (h *Handler) ParseCommonFilter(r *http.Request) storage.CommonFilter {
 	f := storage.CommonFilter{
 		Page:   1,
@@ -217,7 +222,7 @@ func (h *Handler) ParseCommonFilter(r *http.Request) storage.CommonFilter {
 		f.Page = p
 	}
 	if l, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && l > 0 {
-		f.Limit = l
+		f.Limit = min(l, MaxListPageSize)
 	}
 
 	return f
