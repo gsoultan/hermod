@@ -335,6 +335,31 @@ say so.
 
 ---
 
+## Redis sinks cannot connect
+
+Test Connection, the workflow status and the sink's log line all carry the same
+message: the address Hermod dialled, the cause, and a "What to check" list for that
+cause (`pkg/infra/rediskv/conn.go`). By cause:
+
+- **connection refused**: nothing listens at that address. Check Redis is running
+  (`redis-cli -h <host> -p <port> PING` from the Hermod machine), the port matches
+  `port` in redis.conf, and `bind` lets in non-local clients (the default
+  `127.0.0.1 -::1` does not). Inside Docker or Kubernetes, `localhost` is Hermod's
+  own container: use the Redis service name or `host.docker.internal`.
+- **timeout**: a firewall, VPN or security group drops the port, or the host is wrong.
+- **NOAUTH / WRONGPASS**: the password is missing or does not match `requirepass`,
+  or the ACL user's password when Username is set.
+- **DENIED**: protected-mode refuses outside clients while no password is set. Set
+  `requirepass`; do not turn protected-mode off without one.
+- **max number of clients reached**: raise `maxclients` or find the holder with
+  `CLIENT LIST`.
+- **NOPERM**: the ACL user lacks the command or key pattern (`ACL SETUSER`).
+- **EOF, reset, or a TLS error**: TLS on the sink does not match the server. Managed
+  Redis usually needs TLS (or a `rediss://` address) and its TLS port.
+
+An empty address is refused when the workflow starts. Before, go-redis filled in
+`localhost:6379`, which read as a refused connection to a server nobody named.
+
 ## Things this runbook does not cover
 
 Stated so nobody assumes otherwise:

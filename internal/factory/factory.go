@@ -988,7 +988,7 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 	case "rabbitmq_queue":
 		return sinkrabbitmq.NewRabbitMQQueueSink(BuildConnectionString(cfg.Config, cfg.Type), cfg.Config["queue_name"], fmttr)
 	case "redis":
-		return sinkredis.NewRedisSink(cfg.Config["addr"], cfg.Config["password"], cfg.Config["stream"], fmttr)
+		return sinkredis.New(cfg.Config, fmttr)
 	case "redis_set":
 		return sinkredisset.New(cfg.Config, fmttr)
 	case "file":
