@@ -13,8 +13,11 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -92,23 +95,62 @@ func (h *WebhookHandler) authenticateWebhook(r *http.Request, config map[string]
 	return http.StatusOK, ""
 }
 
+// defaultMaxBodyBytes is the largest webhook body accepted, after any
+// Content-Encoding is undone, unless HERMOD_WEBHOOK_MAX_BODY_BYTES says
+// otherwise.
+const defaultMaxBodyBytes int64 = 10 << 20
+
+// errBodyTooLarge is a body past the limit, read raw or inflated.
+var errBodyTooLarge = errors.New("request body is larger than the limit")
+
+// maxBodyBytes is the handler's limit: its own field when set, else the
+// environment, else defaultMaxBodyBytes.
+func (h *WebhookHandler) maxBodyBytes() int64 {
+	if h.MaxBodyBytes > 0 {
+		return h.MaxBodyBytes
+	}
+	if v, err := strconv.ParseInt(os.Getenv("HERMOD_WEBHOOK_MAX_BODY_BYTES"), 10, 64); err == nil && v > 0 {
+		return v
+	}
+	return defaultMaxBodyBytes
+}
+
 // readRequestBody reads the request body and transparently decompresses it when
-// a supported Content-Encoding is present.
-func readRequestBody(r *http.Request) ([]byte, error) {
-	body, err := io.ReadAll(r.Body)
+// a supported Content-Encoding is present. The endpoint is public, so both the
+// bytes read and the bytes they inflate to are held to limit: without the
+// second, a kilobyte of zstd is gigabytes of memory.
+func readRequestBody(w http.ResponseWriter, r *http.Request, limit int64) ([]byte, error) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
 	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			return nil, errBodyTooLarge
+		}
 		return nil, err
 	}
 	encoding := r.Header.Get("Content-Encoding")
 	if encoding == "" {
 		return body, nil
 	}
-	comp, err := compression.NewCompressor(compression.Algorithm(encoding))
-	if err != nil {
+	algo := compression.Algorithm(encoding)
+	if _, err := compression.NewCompressor(algo); err != nil {
 		// Unknown encoding: pass the body through unchanged.
 		return body, nil //nolint:nilerr // unknown encodings are intentionally treated as plain bodies
 	}
-	return comp.Decompress(body)
+	out, err := compression.DecompressLimit(algo, body, limit)
+	if errors.Is(err, compression.ErrTooLarge) {
+		return nil, errBodyTooLarge
+	}
+	return out, err
+}
+
+// writeBodyError answers a body that could not be read.
+func writeBodyError(w http.ResponseWriter, err error) {
+	if errors.Is(err, errBodyTooLarge) {
+		http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
+		return
+	}
+	http.Error(w, "Failed to read body: "+err.Error(), http.StatusBadRequest)
 }
 
 // dispatchWebhook delivers the message to the webhook source, waking a parked
@@ -142,13 +184,48 @@ func writeDispatched(w http.ResponseWriter, r *http.Request, id string) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "dispatched", "id": id})
 }
 
-// collectHeaders flattens request headers into a string map for persistence.
+// redactedHeader replaces the value of a header that carries a credential.
+const redactedHeader = "[redacted]"
+
+// credentialHeaders are headers whose values are credentials by name.
+var credentialHeaders = map[string]bool{
+	"Authorization":       true,
+	"Proxy-Authorization": true,
+	"Cookie":              true,
+	"X-Api-Key":           true,
+}
+
+// isCredentialHeader reports whether a header's value should never be kept.
+// Beyond the named ones, any header whose name says it holds a token, key,
+// secret, password or signature is treated as one.
+func isCredentialHeader(name string) bool {
+	canonical := http.CanonicalHeaderKey(name)
+	if credentialHeaders[canonical] {
+		return true
+	}
+	lower := strings.ToLower(canonical)
+	for _, word := range []string{"token", "secret", "password", "signature", "api-key", "apikey", "auth"} {
+		if strings.Contains(lower, word) {
+			return true
+		}
+	}
+	return false
+}
+
+// collectHeaders flattens request headers into a string map for persistence,
+// with credential values replaced: saved requests are shown on the replay
+// screen and sit in the database, and neither is where an API key belongs.
 func collectHeaders(r *http.Request) map[string]string {
 	headers := make(map[string]string, len(r.Header))
 	for k, v := range r.Header {
-		if len(v) > 0 {
-			headers[k] = strings.Join(v, ", ")
+		if len(v) == 0 {
+			continue
 		}
+		if isCredentialHeader(k) {
+			headers[k] = redactedHeader
+			continue
+		}
+		headers[k] = strings.Join(v, ", ")
 	}
 	return headers
 }
@@ -168,9 +245,9 @@ func (h *WebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	// Full path for matching
 	fullPath := "/api/webhooks/" + path
 
-	body, err := readRequestBody(r)
+	body, err := readRequestBody(w, r, h.maxBodyBytes())
 	if err != nil {
-		http.Error(w, "Failed to read body: "+err.Error(), http.StatusBadRequest)
+		writeBodyError(w, err)
 		return
 	}
 
@@ -184,15 +261,6 @@ func (h *WebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	msg.SetAfter(body)
 	msg.SetMetadata("webhook_path", fullPath)
 	msg.SetMetadata("http_method", r.Method)
-
-	// Store webhook request for replay
-	_ = h.Storage.CreateWebhookRequest(r.Context(), storage.WebhookRequest{
-		Timestamp: time.Now(),
-		Path:      fullPath,
-		Method:    r.Method,
-		Headers:   collectHeaders(r),
-		Body:      body,
-	})
 
 	// Authenticate the request against its source's credentials, if any.
 	config, err := h.sourceConfig(r, "webhook", fullPath)
@@ -227,6 +295,20 @@ func (h *WebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		}
 		msg.SetMetadata(metaMimirEvent, ev.Type)
 		msg.SetMetadata(metaMimirEventID, ev.ID)
+	}
+
+	// Kept for replay only once the request is known to be for a real source
+	// and has passed its credentials. Saving earlier let anyone write to the
+	// database: the store keeps 50 requests per path, and the path is
+	// whatever the caller chose.
+	if config != nil {
+		_ = h.Storage.CreateWebhookRequest(r.Context(), storage.WebhookRequest{
+			Timestamp: time.Now(),
+			Path:      fullPath,
+			Method:    r.Method,
+			Headers:   collectHeaders(r),
+			Body:      body,
+		})
 	}
 
 	// A source set to answer synchronously holds the request until the
@@ -352,9 +434,13 @@ func (h *WebhookHandler) HandleGraphQL(w http.ResponseWriter, r *http.Request) {
 	}
 	fullPath := "/api/graphql/" + path
 
-	// Read body
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, h.maxBodyBytes()))
 	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			http.Error(w, errBodyTooLarge.Error(), http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "Failed to read body", http.StatusInternalServerError)
 		return
 	}

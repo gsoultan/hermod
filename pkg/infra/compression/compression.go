@@ -12,6 +12,7 @@ package compression
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 
@@ -118,3 +119,64 @@ func (c *zstdCompressor) Decompress(data []byte) ([]byte, error) {
 }
 
 func (c *zstdCompressor) Algorithm() Algorithm { return Zstd }
+
+// ErrTooLarge is returned by DecompressLimit when the output would pass the
+// limit.
+var ErrTooLarge = errors.New("decompressed data is larger than the limit")
+
+// DecompressLimit undoes algo on data, refusing with ErrTooLarge once the
+// output would pass limit bytes. Use it for anything that arrives from
+// outside: Decompress inflates whatever it is handed, and a few hundred bytes
+// of zstd can declare gigabytes. The output is read through a limit rather
+// than trusted from a header, except for snappy, whose block format states its
+// decoded length up front and decodes in one allocation of that length.
+func DecompressLimit(algo Algorithm, data []byte, limit int64) ([]byte, error) {
+	switch algo {
+	case None:
+		if int64(len(data)) > limit {
+			return nil, ErrTooLarge
+		}
+		return data, nil
+	case LZ4:
+		if len(data) == 0 {
+			return data, nil
+		}
+		return readLimit(lz4.NewReader(bytes.NewReader(data)), limit)
+	case Snappy:
+		n, err := snappy.DecodedLen(data)
+		if err != nil {
+			return nil, err
+		}
+		if int64(n) > limit {
+			return nil, ErrTooLarge
+		}
+		return snappy.Decode(nil, data)
+	case Zstd:
+		dec, err := zstd.NewReader(bytes.NewReader(data),
+			zstd.WithDecoderConcurrency(1),
+			zstd.WithDecoderMaxMemory(uint64(limit)+1))
+		if err != nil {
+			return nil, err
+		}
+		defer dec.Close()
+		out, err := readLimit(dec, limit)
+		if errors.Is(err, zstd.ErrDecoderSizeExceeded) || errors.Is(err, zstd.ErrWindowSizeExceeded) {
+			return nil, ErrTooLarge
+		}
+		return out, err
+	default:
+		return nil, fmt.Errorf("unsupported compression algorithm: %s", algo)
+	}
+}
+
+// readLimit reads r to its end, or fails with ErrTooLarge at limit+1 bytes.
+func readLimit(r io.Reader, limit int64) ([]byte, error) {
+	out, err := io.ReadAll(io.LimitReader(r, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(out)) > limit {
+		return nil, ErrTooLarge
+	}
+	return out, nil
+}

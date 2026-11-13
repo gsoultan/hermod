@@ -19,6 +19,10 @@ type WebhookHandler struct {
 
 	// seen is the mimir event ids each path has taken (mimir.go).
 	seen *recentEvents
+
+	// MaxBodyBytes caps a request body, after any Content-Encoding is
+	// undone. Zero means maxBodyBytes().
+	MaxBodyBytes int64
 }
 
 func NewWebhookHandler(h *handlers.Handler) *WebhookHandler {
