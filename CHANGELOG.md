@@ -7,6 +7,41 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Security — the public webhook endpoint, request body limits and FTPS certificates
+
+- **Webhook bodies are bounded.** `/api/webhooks/...` read a body of any size and inflated any
+  `Content-Encoding` (zstd, lz4, snappy) without limit, so a kilobyte of zstd could take gigabytes
+  of memory. Bodies are now capped at 10 MiB before and after decompression and answered `413`
+  past it. Set `HERMOD_WEBHOOK_MAX_BODY_BYTES` to change the cap. GraphQL ingress gets the same
+  raw cap.
+- **Only authenticated webhook requests are saved for replay.** Every request used to be written
+  to `webhook_requests` before its source was found or its credentials checked, so anyone could
+  write 50 rows for each path they made up. A request is now saved only for a path a webhook source
+  holds, and only after it passed that source's credentials.
+- **Saved webhook requests keep no credentials.** `Authorization`, `Cookie`, `X-API-Key` and any
+  header whose name says it carries a token, key, secret, password or signature are stored as
+  `[redacted]`. Requests saved before this upgrade still hold them; clear old rows if that matters.
+- **Every API request body is capped at 16 MiB.** Many handlers, login and the public form
+  endpoint among them, decoded bodies with no limit. Handlers with a tighter limit keep it; the
+  dataset file upload keeps its 200 MiB. Set `HERMOD_MAX_REQUEST_BODY_BYTES` to change it.
+- **The FTP sink checks the FTPS server's certificate.** It used to accept any certificate, so
+  anyone in the path could read the login.
+
+### Fixed — a random workflow failed for 10 seconds about every eight hours
+
+The optimizer ran a "chaos monkey": with probability 0.001 per 30-second cycle it made every sink
+write of one random workflow fail with `simulated engine failure` for 10 seconds, with the retries,
+dead letters and alerts that follow. It is gone, along with `Engine.SimulateFailure`, which nothing
+else called.
+
+### Upgrading
+
+- An FTP sink with TLS on, pointed at a server with a self-signed or otherwise untrusted
+  certificate, now fails to connect. Install a trusted certificate on the server, or tick **Skip
+  certificate verification** in the sink (`insecure_skip_verify: "true"`) if the network is trusted.
+- A client that sends webhook or API bodies over 10 MiB / 16 MiB gets `413`. Raise
+  `HERMOD_WEBHOOK_MAX_BODY_BYTES` or `HERMOD_MAX_REQUEST_BODY_BYTES` if that is expected.
+
 ### Fixed — renaming a vhost stopped every workflow in it
 
 A rename restarts each running workflow of the vhost under the new name. The restart built the
