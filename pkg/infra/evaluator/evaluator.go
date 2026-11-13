@@ -12,6 +12,7 @@ package evaluator
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/md5" //nolint:gosec // G501: hash() offers md5 as a fingerprint for matching systems that already store it, not for security
 	"crypto/sha256"
@@ -1875,88 +1876,78 @@ func EvaluateConditions(msg hermod.Message, conditions []map[string]any) bool {
 
 // conditionHolds evaluates one condition against msg.
 func conditionHolds(msg hermod.Message, field, op string, val any) bool {
-	match := false
 	fieldValRaw := EvaluateField(msg, field)
 	// Treat missing values consistently as empty string (UI simulator behavior)
 	fieldVal := stringify(fieldValRaw)
-
-	// Resolve templates/expressions in the value if present
-	valResolved := val
-	if vs, ok := val.(string); ok {
-		if strings.Contains(vs, "{{") && strings.Contains(vs, "}}") {
-			valResolved = resolveConditionValue(vs, msg)
-		} else {
-			valResolved = vs
-		}
-	}
+	valResolved := resolveConditionOperand(val, msg)
 	valStr := stringify(valResolved)
 
 	switch op {
 	case "=", "eq":
-		match = fieldVal == valStr || numericallyEqual(fieldValRaw, valResolved)
+		return fieldVal == valStr || numericallyEqual(fieldValRaw, valResolved)
 	case "!=", "neq":
-		match = fieldVal != valStr && !numericallyEqual(fieldValRaw, valResolved)
+		return fieldVal != valStr && !numericallyEqual(fieldValRaw, valResolved)
 	case ">", "gt", ">=", "gte", "<", "lt", "<=", "lte":
-		t1, isT1 := ToTime(fieldValRaw)
-		t2, isT2 := ToTime(valResolved)
-		if isT1 && isT2 && !isNumeric(fieldValRaw) && !isNumeric(valResolved) {
-			// Only use time comparison if they look like dates and are NOT simple numbers
-			// (to avoid treating small integers as unix timestamps when not intended)
-			switch op {
-			case ">", "gt":
-				match = t1.After(t2)
-			case ">=", "gte":
-				match = !t1.Before(t2)
-			case "<", "lt":
-				match = t1.Before(t2)
-			case "<=", "lte":
-				match = !t1.After(t2)
-			}
-		} else {
-			v1, ok1 := ToFloat64(fieldValRaw)
-			v2, ok2 := ToFloat64(valResolved)
-			if ok1 && ok2 {
-				switch op {
-				case ">", "gt":
-					match = v1 > v2
-				case ">=", "gte":
-					match = v1 >= v2
-				case "<", "lt":
-					match = v1 < v2
-				case "<=", "lte":
-					match = v1 <= v2
-				}
-			} else {
-				// Fallback to string comparison if not numbers
-				switch op {
-				case ">", "gt":
-					match = fieldVal > valStr
-				case ">=", "gte":
-					match = fieldVal >= valStr
-				case "<", "lt":
-					match = fieldVal < valStr
-				case "<=", "lte":
-					match = fieldVal <= valStr
-				}
-			}
-		}
+		c, ordered := compareOperands(fieldValRaw, valResolved, fieldVal, valStr)
+		return ordered && orderHolds(op, c)
 	case "contains":
-		match = strings.Contains(fieldVal, valStr)
+		return strings.Contains(fieldVal, valStr)
 	case "not_contains":
-		match = !strings.Contains(fieldVal, valStr)
+		return !strings.Contains(fieldVal, valStr)
 	case "regex":
 		re, err := compilePattern(valStr)
-		if err == nil {
-			match = re.MatchString(fieldVal)
-		}
+		return err == nil && re.MatchString(fieldVal)
 	case "not_regex":
 		re, err := compilePattern(valStr)
-		if err == nil {
-			match = !re.MatchString(fieldVal)
-		}
+		return err == nil && !re.MatchString(fieldVal)
 	}
+	return false
+}
 
-	return match
+// resolveConditionOperand resolves templates/expressions in a condition's
+// value when it holds any; other values are returned as they are.
+func resolveConditionOperand(val any, msg hermod.Message) any {
+	if vs, ok := val.(string); ok && strings.Contains(vs, "{{") && strings.Contains(vs, "}}") {
+		return resolveConditionValue(vs, msg)
+	}
+	return val
+}
+
+// compareOperands orders a field value against a condition value: as times
+// when both look like dates and neither is a plain number (so small integers
+// are not taken for unix timestamps), else as numbers, else as strings.
+// ordered is false when the numbers cannot be ordered (NaN), which fails
+// every ordering operator.
+func compareOperands(raw, resolved any, fieldVal, valStr string) (c int, ordered bool) {
+	t1, isT1 := ToTime(raw)
+	t2, isT2 := ToTime(resolved)
+	if isT1 && isT2 && !isNumeric(raw) && !isNumeric(resolved) {
+		return t1.Compare(t2), true
+	}
+	v1, ok1 := ToFloat64(raw)
+	v2, ok2 := ToFloat64(resolved)
+	if ok1 && ok2 {
+		if math.IsNaN(v1) || math.IsNaN(v2) {
+			return 0, false
+		}
+		return cmp.Compare(v1, v2), true
+	}
+	return strings.Compare(fieldVal, valStr), true
+}
+
+// orderHolds reports whether the ordering operator op accepts comparison c.
+func orderHolds(op string, c int) bool {
+	switch op {
+	case ">", "gt":
+		return c > 0
+	case ">=", "gte":
+		return c >= 0
+	case "<", "lt":
+		return c < 0
+	case "<=", "lte":
+		return c <= 0
+	}
+	return false
 }
 
 type mockMessage struct {
@@ -2575,68 +2566,80 @@ func numericallyEqual(fieldRaw, val any) bool {
 // The error is ValidateConditions': a regex that cannot compile, which would
 // otherwise reject every message without a word.
 func CheckConfigConditions(msg hermod.Message, config map[string]any) (bool, error) {
-	check := func(field, op string, val any) (bool, error) {
-		if err := validateCondition(field, op, val); err != nil {
-			return false, err
-		}
-		return conditionHolds(msg, field, op, val), nil
-	}
-	checkMap := func(cond map[string]any) (bool, error) {
-		field, _ := cond["field"].(string)
-		op, _ := cond["operator"].(string)
-		return check(field, op, cond["value"])
-	}
-
 	// Mirrors ParseObjectList: validation covers every condition before any
 	// verdict, so an invalid pattern after a failing condition is still
 	// reported.
-	var list []map[string]any
-	var items []any
 	switch v := config["conditions"].(type) {
 	case string:
 		if v != "" {
-			list = parseConditionList(v)
+			if list := parseConditionList(v); len(list) > 0 {
+				return checkConditionList(msg, list)
+			}
 		}
 	case []map[string]any:
-		list = v
+		if len(v) > 0 {
+			return checkConditionList(msg, v)
+		}
 	case []any:
-		items = v
-	}
-	if len(items) > 0 {
-		seen := false
-		for _, e := range items {
-			if m, ok := e.(map[string]any); ok {
-				seen = true
-				field, _ := m["field"].(string)
-				op, _ := m["operator"].(string)
-				if err := validateCondition(field, op, m["value"]); err != nil {
-					return false, err
-				}
-			}
-		}
-		if seen {
-			for _, e := range items {
-				if m, ok := e.(map[string]any); ok {
-					if holds, err := checkMap(m); err != nil || !holds {
-						return false, err
-					}
-				}
-			}
-			return true, nil
+		if holds, handled, err := checkConditionItems(msg, v); handled {
+			return holds, err
 		}
 	}
-	if len(list) > 0 {
-		if err := ValidateConditions(list); err != nil {
-			return false, err
-		}
-		for _, cond := range list {
-			if holds, err := checkMap(cond); err != nil || !holds {
-				return false, err
-			}
-		}
-		return true, nil
-	}
+	return checkSingleCondition(msg, config)
+}
 
+// checkConditionList validates every condition in list, then reports whether
+// all of them hold.
+func checkConditionList(msg hermod.Message, list []map[string]any) (bool, error) {
+	if err := ValidateConditions(list); err != nil {
+		return false, err
+	}
+	for _, cond := range list {
+		field, _ := cond["field"].(string)
+		op, _ := cond["operator"].(string)
+		if !conditionHolds(msg, field, op, cond["value"]) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// checkConditionItems is checkConditionList over a []any, skipping entries
+// that are not maps, without copying the maps out. handled is false when no
+// entry is a map, so the caller falls back to the single-condition form.
+func checkConditionItems(msg hermod.Message, items []any) (holds, handled bool, err error) {
+	for _, e := range items {
+		m, ok := e.(map[string]any)
+		if !ok {
+			continue
+		}
+		handled = true
+		field, _ := m["field"].(string)
+		op, _ := m["operator"].(string)
+		if err := validateCondition(field, op, m["value"]); err != nil {
+			return false, true, err
+		}
+	}
+	if !handled {
+		return false, false, nil
+	}
+	for _, e := range items {
+		m, ok := e.(map[string]any)
+		if !ok {
+			continue
+		}
+		field, _ := m["field"].(string)
+		op, _ := m["operator"].(string)
+		if !conditionHolds(msg, field, op, m["value"]) {
+			return false, true, nil
+		}
+	}
+	return true, true, nil
+}
+
+// checkSingleCondition evaluates the single field/operator/value form straight
+// from the config; no field means no condition.
+func checkSingleCondition(msg hermod.Message, config map[string]any) (bool, error) {
 	field, _ := config["field"].(string)
 	if field == "" {
 		return true, nil
@@ -2649,5 +2652,8 @@ func CheckConfigConditions(msg hermod.Message, config map[string]any) (bool, err
 	if _, isString := val.(string); !isString {
 		val = ""
 	}
-	return check(field, op, val)
+	if err := validateCondition(field, op, val); err != nil {
+		return false, err
+	}
+	return conditionHolds(msg, field, op, val), nil
 }
