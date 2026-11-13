@@ -53,13 +53,13 @@ func TestBodyLimitMiddlewareCapsAnUnguardedHandler(t *testing.T) {
 	srv := h.BodyLimitMiddlewareWithLimit(1024)(http.HandlerFunc(decodeAll))
 
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewReader(jsonOfSize(4096))))
+	srv.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/login", bytes.NewReader(jsonOfSize(4096))))
 	if rec.Code != http.StatusRequestEntityTooLarge {
 		t.Errorf("a 4 KiB body past a 1 KiB limit was answered %d, want 413", rec.Code)
 	}
 
 	rec = httptest.NewRecorder()
-	srv.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewReader(jsonOfSize(1024))))
+	srv.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/login", bytes.NewReader(jsonOfSize(1024))))
 	if rec.Code != http.StatusOK {
 		t.Errorf("a body at the limit was answered %d, want 200", rec.Code)
 	}
@@ -72,7 +72,7 @@ func TestBodyLimitMiddlewareLeavesTheDatasetUploadToItsOwnLimit(t *testing.T) {
 		read, _ = io.Copy(io.Discard, r.Body)
 	}))
 
-	req := httptest.NewRequest(http.MethodPut, "/api/vhosts/default/ml/datasets/sales/file", bytes.NewReader(make([]byte, 8192)))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/api/vhosts/default/ml/datasets/sales/file", bytes.NewReader(make([]byte, 8192)))
 	srv.ServeHTTP(httptest.NewRecorder(), req)
 	if read != 8192 {
 		t.Errorf("the dataset upload read %d of 8192 bytes; its own 200 MiB limit should apply, not the default", read)
