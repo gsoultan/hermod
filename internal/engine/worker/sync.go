@@ -78,6 +78,11 @@ func (w *Worker) sync(ctx context.Context, initial bool) {
 	}
 
 	srcMap, snkMap := w.loadResourceMaps(ctx)
+	// Before any workflow is compared or restarted: a restart builds its
+	// connectors from the registry's cache, which has to match storage.
+	if w.registry != nil {
+		w.registry.ForgetChangedResources(srcMap, snkMap)
+	}
 	w.updateActiveWorkflowMetrics(workflows, workerID, initial)
 
 	sctx := SyncContext{SourceMap: srcMap, SinkMap: snkMap, WorkerID: workerID}
