@@ -7,6 +7,19 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — renaming a vhost stopped every workflow in it
+
+A rename restarts each running workflow of the vhost under the new name. The restart built the
+workflow's sources and sinks from copies the engine had cached when the workflow first started, still
+under the old name, so a connector that reads a vhost secret looked for it under a name that no
+longer held it. The restart failed, the workflow showed Stopped, and every retry failed the same way
+until the process was restarted.
+
+The worker now drops any cached source or sink whose stored vhost, type or config has changed each
+time it syncs, before it restarts anything, so a renamed workflow comes back up on its own within one
+sync interval. This also makes a source or sink edited on the control plane take effect on a worker
+running in its own process.
+
 ### Added — Hermod can check for and install its own updates
 
 Settings → Updates shows the running version and whether a newer release is published, with

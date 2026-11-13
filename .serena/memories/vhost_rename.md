@@ -30,6 +30,15 @@ every workflow, user assignment and secret under a name no vhost had.
 - **Running workflows** need no handler code: the worker's sync compares
   `wf.VHost` (`workflowRuntimeConfigDiffers` in
   `internal/engine/worker/sync.go`) and restarts the engine under the new name.
+  The restart builds connectors through the registry's source/sink cache
+  (`GetSourceConfig`/`GetSinkConfig`), which a rename does not touch. Until
+  2026-11-13 that cache kept the old vhost name, so every connector reading a
+  vhost secret failed to resolve it and the whole vhost's workflows stayed
+  stopped. Each sync now calls `Registry.ForgetChangedResources`
+  (`internal/engine/registry/resource_cache.go`) with the sources and sinks it
+  just listed, dropping cached copies whose vhost, type or config moved, before
+  any workflow is compared or restarted. Guard test:
+  `TestRenamingAVHostKeepsItsWorkflowsRunning` (worker package).
 - **UI** (`VHostForm.tsx`): says what a rename moves, shows the server's error,
   and invalidates every query after a rename.
 
