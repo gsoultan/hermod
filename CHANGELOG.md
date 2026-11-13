@@ -7,6 +7,21 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Security — connector credentials were written to the activity log in the clear
+
+Creating or updating a source, a sink or a workflow records the saved object in the activity log
+and in the audit log. The object was recorded whole, so a database password, an API key, a
+connection string or a node's `apiKey` — encrypted in the table that owns it — was kept as plain
+text in `logs.data` and `audit_logs.payload`, returned by `GET /api/logs` and
+`GET /api/audit-logs`, and copied into every backup.
+
+Both now keep `[REDACTED]` in place of a credential. A credential is any value whose key the
+connector encryption already treats as one, read in snake_case, camelCase or header spelling, plus
+`Authorization` and `Cookie` headers. A `{{ }}` reference to a vhost secret is a name and is kept.
+
+Rows written before this change are not rewritten. Rotate any credential saved through the UI
+before upgrading if the activity log was readable by someone who should not hold it, or delete the
+old rows.
 ### Added — an optional AI explanation of a workflow's recommendations
 
 Editors can press "Explain in plain words" above a workflow's recommendations to have a language

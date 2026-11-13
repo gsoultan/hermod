@@ -772,14 +772,11 @@ func (h *Handler) RecordAuditLog(r *http.Request, level, message, action string,
 	var payloadStr string
 	if data != nil {
 		if str, ok := data.(string); ok {
-			l.Data = str
-			payloadStr = str
-		} else {
-			if b, err := json.Marshal(data); err == nil {
-				l.Data = string(b)
-				payloadStr = string(b)
-			}
+			payloadStr = string(redactAuditPayload([]byte(str)))
+		} else if b, err := json.Marshal(data); err == nil {
+			payloadStr = string(redactAuditPayload(b))
 		}
+		l.Data = payloadStr
 	}
 
 	_ = h.LogStorage.CreateLog(ctx, l)
