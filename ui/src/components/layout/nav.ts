@@ -41,7 +41,7 @@ const SECTION_PREFIXES: ReadonlyArray<[Section, string[]]> = [
   ],
   [
     'settings',
-    ['/settings', '/users', '/vhosts', '/workers', '/environments', '/promotions', '/profile', '/schemas', '/secrets', '/developer', '/about'],
+    ['/settings', '/users', '/vhosts', '/workers', '/environments', '/promotions', '/profile', '/schemas', '/secrets', '/developer', '/about', '/updates'],
   ],
 ]
 
@@ -194,6 +194,7 @@ export function settingsRows(role: Role): SettingsRow[] {
       { key: 'people', label: 'People', detail: 'Who can sign in and what they may do', to: '/users' },
       { key: 'notifications', label: 'Notifications', detail: 'Alerts, channels and quiet hours', to: '/settings', search: { tab: 'observability' } },
       { key: 'security', label: 'Security', detail: 'Sessions, passwords and access policy', to: '/settings', search: { tab: 'security' } },
+      { key: 'updates', label: 'Updates', detail: 'New releases, and whether they install by themselves', to: '/updates' },
     )
   }
   rows.push({ key: 'releases', label: 'Releases', detail: 'Environments and promotion between them', to: '/environments' })

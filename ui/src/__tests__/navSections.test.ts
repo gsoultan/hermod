@@ -37,6 +37,7 @@ describe('primary navigation', () => {
     expect(sectionOf('/lineage')).toBe('activity')
     expect(sectionOf('/compliance')).toBe('activity')
     expect(sectionOf('/ml/models')).toBe('activity')
+    expect(sectionOf('/updates')).toBe('settings')
     expect(sectionOf('/ai/budget')).toBe('activity')
     expect(sectionOf('/settings')).toBe('settings')
     expect(sectionOf('/users/new')).toBe('settings')
@@ -130,8 +131,9 @@ describe('hub tabs follow the role', () => {
     expect(viewer).toEqual(['Releases', 'Developer', 'My account', 'About Hermod'])
     expect(settingsRows('Editor').map((r) => r.label)).toEqual(['Releases', 'Developer', 'My account', 'About Hermod'])
     expect(settingsRows('Administrator').map((r) => r.label)).toEqual([
-      'Workspace', 'People', 'Notifications', 'Security', 'Releases', 'Developer', 'Audit log', 'My account', 'About Hermod',
+      'Workspace', 'People', 'Notifications', 'Security', 'Updates', 'Releases', 'Developer', 'Audit log', 'My account', 'About Hermod',
     ])
+    expect(settingsRows('Administrator').find((r) => r.label === 'Updates')?.to).toBe('/updates')
     expect(settingsRows('Viewer').at(-1)?.to).toBe('/about')
   })
 })
