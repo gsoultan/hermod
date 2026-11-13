@@ -155,6 +155,11 @@ type Registry struct {
 	debuggerSubs        map[string]map[chan DebuggerEvent]bool
 	statusSubsMu        sync.RWMutex
 	debuggerSubsMu      sync.RWMutex
+	// debuggerSubCount is the number of debugger subscribers across every
+	// workflow, written under debuggerSubsMu. The traversal asks about a
+	// debugger before every node and edge; at zero it answers without the
+	// lock, whose shared reader count otherwise bounces between cores.
+	debuggerSubCount atomic.Int32
 	debugChans          map[string]chan string
 	// debugHeld is the announcement of each pause in debugChans, by the same key.
 	debugHeld           map[string]DebuggerEvent

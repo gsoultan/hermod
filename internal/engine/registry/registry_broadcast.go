@@ -224,12 +224,16 @@ func (r *Registry) subscribeDebugger(workflowID string, stepping bool) chan Debu
 	}
 	ch := make(chan DebuggerEvent, 10)
 	r.debuggerSubs[workflowID][ch] = stepping
+	r.debuggerSubCount.Add(1)
 	return ch
 }
 
 func (r *Registry) UnsubscribeDebugger(workflowID string, ch chan DebuggerEvent) {
 	r.debuggerSubsMu.Lock()
 	defer r.debuggerSubsMu.Unlock()
+	if _, ok := r.debuggerSubs[workflowID][ch]; ok {
+		r.debuggerSubCount.Add(-1)
+	}
 	if r.debuggerSubs[workflowID] != nil {
 		delete(r.debuggerSubs[workflowID], ch)
 		if len(r.debuggerSubs[workflowID]) == 0 {
@@ -533,6 +537,9 @@ func (r *Registry) broadcastLiveMessageFromHermod(workflowID, nodeID string, msg
 // IsDebuggerAttached reports whether a stepping debugger is attached, which
 // stops every message before every node.
 func (r *Registry) IsDebuggerAttached(workflowID string) bool {
+	if r.debuggerSubCount.Load() == 0 {
+		return false
+	}
 	r.debuggerSubsMu.RLock()
 	defer r.debuggerSubsMu.RUnlock()
 	for _, stepping := range r.debuggerSubs[workflowID] {
@@ -546,6 +553,9 @@ func (r *Registry) IsDebuggerAttached(workflowID string) bool {
 // BreakpointsWatched reports whether any debugger is attached, stepping or not,
 // to answer the workflow's edge breakpoints.
 func (r *Registry) BreakpointsWatched(workflowID string) bool {
+	if r.debuggerSubCount.Load() == 0 {
+		return false
+	}
 	r.debuggerSubsMu.RLock()
 	defer r.debuggerSubsMu.RUnlock()
 	return len(r.debuggerSubs[workflowID]) > 0
