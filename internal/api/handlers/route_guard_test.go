@@ -93,11 +93,7 @@ var unguardedMutatingRoutes = map[string]string{
 	"POST /api/logout":                 "expires the caller's own session cookie; every role may end its own session",
 
 	// agent paths: called by worker processes, not humans
-	"POST /api/logs":                   "worker agents ship logs here (worker_api_client.go)",
-	"POST /api/logs/batch":             "worker agents ship batched logs here",
-	"POST /api/workers/{id}/heartbeat": "worker agents report liveness here",
-	"PATCH /api/workflows/{id}/status": "worker agents report workflow status",
-	"PATCH /api/workflows/{id}/stats":  "worker agents report throughput counters",
+	"POST /api/workers/{id}/heartbeat": "UpdateWorkerHeartbeat answers the worker itself or an Administrator",
 	"POST /api/worker/ai/check":        "worker agents ask whether a model call is within the vhost's AI budget; answers a worker token only",
 	"POST /api/worker/ai/usage":        "worker agents report a model call's tokens; answers a worker token only",
 
@@ -163,6 +159,7 @@ func TestEveryMutatingRouteIsGuarded(t *testing.T) {
 			// wrapper.
 			if strings.Contains(handler, "EditorOnly") ||
 				strings.Contains(handler, "AdminOnly") ||
+				strings.Contains(handler, "AgentOnly") ||
 				strings.Contains(handler, "RbacMiddleware") {
 				continue
 			}
@@ -223,5 +220,50 @@ func TestUnguardedRouteListIsHonest(t *testing.T) {
 			t.Errorf("unguardedMutatingRoutes lists %q, which is not registered anywhere; "+
 				"stale exemptions hide real gaps", route)
 		}
+	}
+}
+
+// TestEveryRouteNamingAWorkflowIsHeldToItsVHost is the same idea for the other
+// half of authorization. A role says what a caller may do; a vhost says to
+// what. Reading one workflow checked its vhost and nothing that changed,
+// started, stopped or deleted one did, each handler having been written without
+// the check -- so an Editor of one vhost could delete another's workflows.
+//
+// A route with a workflow's id in its path must run through inVHost, which
+// makes that check before the handler is reached, or through AgentOnly, which
+// answers the workers that run workflows of every vhost.
+func TestEveryRouteNamingAWorkflowIsHeldToItsVHost(t *testing.T) {
+	root, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatalf("resolving repo root: %v", err)
+	}
+	src, err := os.ReadFile(filepath.Join(root, "internal/workflow/transport/http/workflow.go"))
+	if err != nil {
+		t.Fatalf("reading the workflow routes: %v", err)
+	}
+
+	var open []string
+	seen := 0
+	for _, m := range routeRe.FindAllStringSubmatch(string(src), -1) {
+		method, route, handler := m[2], m[3], m[4]
+		if !strings.Contains(route, "/{id}") && !strings.Contains(route, "/{export_id}") {
+			continue
+		}
+		if strings.HasPrefix(route, "/api/workspaces/") {
+			continue // a workspace is not in a vhost
+		}
+		seen++
+		if strings.Contains(handler, "inVHost") || strings.Contains(handler, "AgentOnly") {
+			continue
+		}
+		open = append(open, method+" "+route)
+	}
+	if seen == 0 {
+		t.Fatal("found no routes naming a workflow; the scanner is broken, not the code")
+	}
+	if len(open) > 0 {
+		sort.Strings(open)
+		t.Errorf("%d route(s) name a workflow without checking the caller's vhost; wrap the "+
+			"handler in h.inVHost:\n  %s", len(open), strings.Join(open, "\n  "))
 	}
 }

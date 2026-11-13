@@ -7,6 +7,31 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Security — a vhost was not enforced on a workflow's actions, logs and streams
+
+A user is given the vhosts they may work in. Reading a workflow checked that; most of what acts on
+one did not, so an Editor given one vhost could, with a workflow's id, change, start, stop, drain,
+rebuild, roll back or delete a workflow in any other, create a workflow in a vhost they were not
+given, and read another vhost's health, compliance report, versions and validation. The log
+(`GET /api/logs`) and the live streams for logs, status, live messages and the debugger served
+every vhost to every session.
+
+- Every route that names a workflow now checks the caller's vhosts before the handler runs, and a
+  test fails the build if one is added without the check. A batch that names a workflow outside
+  the caller's vhosts is refused whole.
+- Creating a workflow, or saving one into another vhost, needs that vhost.
+- A user who is not an Administrator reads the log entries of the workflows, sources and sinks in
+  their vhosts. Entries about the platform, or about something since deleted, are an
+  Administrator's. The `total` returned still counts every entry.
+- A stream that names a workflow is refused for another vhost's; a stream of every workflow carries
+  only the caller's.
+- `PATCH /api/workflows/{id}/status`, `PATCH /api/workflows/{id}/stats`, `POST /api/logs` and
+  `POST /api/logs/batch` are where workers report. They took any session, a Viewer's included; they
+  now answer a worker or an Administrator. `POST /api/workers/{id}/heartbeat` answers that worker
+  or an Administrator.
+
+Administrators and single-vhost installations see no change. `default` remains open to every
+user, as before. The dashboard's totals are still counted across vhosts.
 ### Added — an optional AI explanation of a workflow's recommendations
 
 Editors can press "Explain in plain words" above a workflow's recommendations to have a language

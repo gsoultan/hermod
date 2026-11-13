@@ -24,14 +24,36 @@ import (
 	"github.com/gsoultan/hermod/pkg/engine/telemetry"
 )
 
+// watching holds a stream that names a workflow to the vhosts the caller may
+// work in, and refuses it before the connection is upgraded. A stream that
+// names none is every workflow's; the handlers filter that one event by event.
+// An id that is not a workflow's passes: the editor opens its streams for a
+// workflow that has not been saved yet, and nothing is published under an id
+// nobody has.
+func (h *WSHandler) watching(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimSpace(r.PathValue("workflowID"))
+		if id == "" {
+			id = strings.TrimSpace(r.URL.Query().Get("workflow_id"))
+		}
+		if id != "" && h.Storage != nil {
+			if wf, err := h.Storage.GetWorkflow(r.Context(), id); err == nil && !h.MayUseVHost(r, wf.VHost) {
+				h.JsonError(w, "Forbidden: you do not have access to this workflow's vhost", http.StatusForbidden)
+				return
+			}
+		}
+		next(w, r)
+	}
+}
+
 func (h *WSHandler) RegisterWSRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/ws/in/{path...}", h.HandleWSIn)
-	mux.HandleFunc("GET /api/ws/out/{workflowID}", h.HandleWSOut)
-	mux.HandleFunc("GET /api/ws/live", h.HandleLiveMessagesWS)
-	mux.HandleFunc("GET /api/ws/status", h.HandleStatusWS)
+	mux.HandleFunc("GET /api/ws/out/{workflowID}", h.watching(h.HandleWSOut))
+	mux.HandleFunc("GET /api/ws/live", h.watching(h.HandleLiveMessagesWS))
+	mux.HandleFunc("GET /api/ws/status", h.watching(h.HandleStatusWS))
 	mux.HandleFunc("GET /api/ws/dashboard", h.HandleDashboardWS)
-	mux.HandleFunc("GET /api/ws/logs", h.HandleLogsWS)
-	mux.HandleFunc("GET /api/ws/debugger", h.HandleDebuggerWS)
+	mux.HandleFunc("GET /api/ws/logs", h.watching(h.HandleLogsWS))
+	mux.HandleFunc("GET /api/ws/debugger", h.watching(h.HandleDebuggerWS))
 }
 
 var upgrader = websocket.Upgrader{
@@ -147,6 +169,9 @@ func (h *WSHandler) HandleStatusWS(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 
 	workflowID := strings.TrimSpace(r.URL.Query().Get("workflow_id"))
+	// Every workflow's status, to someone held to some vhosts, is the status
+	// of the workflows in those.
+	scope := h.ScopeOf(r)
 
 	// Actively read so we can observe pong/close frames and client disconnects.
 	done := startWSReadPump(conn)
@@ -170,6 +195,9 @@ func (h *WSHandler) HandleStatusWS(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		for _, snapshot := range h.Registry.GetAllStatuses() {
+			if !scope.Workflow(snapshot.WorkflowID) {
+				continue
+			}
 			if err := wsWriteJSON(conn, snapshot); err != nil {
 				return
 			}
@@ -184,6 +212,9 @@ func (h *WSHandler) HandleStatusWS(w http.ResponseWriter, r *http.Request) {
 		select {
 		case update := <-ch:
 			if workflowID != "" && !strings.EqualFold(update.WorkflowID, workflowID) {
+				continue
+			}
+			if workflowID == "" && !scope.Workflow(update.WorkflowID) {
 				continue
 			}
 			if err := wsWriteJSON(conn, update); err != nil {
@@ -273,8 +304,18 @@ func (h *WSHandler) HandleLogsWS(w http.ResponseWriter, r *http.Request) {
 		WorkflowID: workflowID,
 
 		Limit: 100}
+	scope := h.ScopeOf(r)
 	initialLogs, _, err := h.Storage.ListLogs(r.Context(), filter)
 	if err == nil {
+		if scope != nil && workflowID == "" {
+			visible := make([]storage.Log, 0, len(initialLogs))
+			for _, l := range initialLogs {
+				if scope.Log(l) {
+					visible = append(visible, l)
+				}
+			}
+			initialLogs = visible
+		}
 		if err := wsWriteJSON(conn, initialLogs); err != nil {
 			return
 		}
@@ -289,6 +330,9 @@ func (h *WSHandler) HandleLogsWS(w http.ResponseWriter, r *http.Request) {
 		case log, ok := <-ch:
 			if !ok {
 				return
+			}
+			if workflowID == "" && !scope.Log(log) {
+				continue
 			}
 			if err := wsWriteJSON(conn, log); err != nil {
 				return
@@ -318,6 +362,8 @@ func (h *WSHandler) HandleLiveMessagesWS(w http.ResponseWriter, r *http.Request)
 	// Actively read so we can observe pong/close frames and client disconnects.
 	done := startWSReadPump(conn)
 
+	scope := h.ScopeOf(r)
+
 	var ch chan registry.LiveMessage
 	if workflowID != "" {
 		ch = h.Registry.SubscribeWorkflowLiveMessages(workflowID)
@@ -339,6 +385,9 @@ func (h *WSHandler) HandleLiveMessagesWS(w http.ResponseWriter, r *http.Request)
 			// When using per-workflow subscription, we already filtered by workflowID.
 			// However, we still want to allow "test" messages if we are in test mode or if it's a global subscription.
 			if workflowID != "" && !strings.EqualFold(msg.WorkflowID, workflowID) && !strings.EqualFold(msg.WorkflowID, "test") {
+				continue
+			}
+			if workflowID == "" && !scope.Workflow(msg.WorkflowID) {
 				continue
 			}
 			if err := wsWriteJSON(conn, msg); err != nil {
