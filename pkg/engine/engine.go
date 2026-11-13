@@ -435,15 +435,11 @@ func (e *Engine) GetStatus() telemetry.StatusUpdate {
 		update.SinkCBStatuses[sw.sinkID] = sw.cbStatus
 		sw.cbMu.Unlock()
 
-		if sw.ch != nil {
-			capacity := cap(sw.ch)
-			if capacity > 0 {
-				fill := float64(len(sw.ch)) / float64(capacity)
-				update.SinkBufferFill[sw.sinkID] = fill
-				// The fullest buffer, not the average: one jammed sink among
-				// idle ones is the reading somebody needs to act on.
-				update.Backpressure = max(update.Backpressure, fill)
-			}
+		if fill, ok := sw.fill(cap(e.inFlightSem)); ok {
+			update.SinkBufferFill[sw.sinkID] = fill
+			// The fullest buffer, not the average: one jammed sink among
+			// idle ones is the reading somebody needs to act on.
+			update.Backpressure = max(update.Backpressure, fill)
 		}
 	}
 

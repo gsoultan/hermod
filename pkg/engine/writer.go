@@ -69,8 +69,13 @@ type sinkWriter struct {
 	// adjusts it, so it is an atomic. The actual hot-loop batch sizing uses a
 	// goroutine-local copy (see runOn) to keep sharded writers race-free.
 	currentBatchSize atomic.Int64
-	batchTimeout     time.Duration
-	updateMu         sync.RWMutex
+	// held is how many messages this writer has taken off its channel into a
+	// batch that is being built or written. They have left the channel but
+	// still hold their in-flight slots, so a sink's fill counts them; see
+	// Engine.GetStatus.
+	held         atomic.Int64
+	batchTimeout time.Duration
+	updateMu     sync.RWMutex
 }
 
 type pendingMessage struct {
@@ -1111,6 +1116,32 @@ func (sw *sinkWriter) recordFailure() {
 	}
 }
 
+// fill is how full the sink's queue is, from 0 to 1, against what can
+// actually reach it: messages waiting in its channels plus those it holds in
+// a batch, over the smaller of the channels' capacity and the engine's
+// in-flight limit. A message keeps its in-flight slot until its write
+// returns, so the in-flight limit is the most that can ever be waiting; read
+// against the channel's capacity alone, a sink that never returned showed
+// 127 of 1000, 12.7%. false when the writer has no channel yet.
+func (w *sinkWriter) fill(inflight int) (float64, bool) {
+	waiting, capacity := 0, 0
+	if w.ch != nil {
+		waiting, capacity = len(w.ch), cap(w.ch)
+	}
+	for _, sh := range w.shards {
+		waiting += len(sh)
+		capacity += cap(sh)
+	}
+	if capacity <= 0 {
+		return 0, false
+	}
+	if inflight > 0 && inflight < capacity {
+		capacity = inflight
+	}
+	f := float64(int64(waiting)+w.held.Load()) / float64(capacity)
+	return min(max(f, 0), 1), true
+}
+
 // snapshotConfig returns a copy of the writer's config under the same lock
 // UpdateSinkConfig takes to write it.
 //
@@ -1323,6 +1354,9 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 		if len(batch) == 0 {
 			return
 		}
+		// Every path out of flush has answered the whole batch, written or
+		// refused, so its messages stop counting as held when it returns.
+		defer w.held.Add(-int64(len(batch)))
 
 		start := time.Now()
 		if err := w.checkCircuitBreaker(); err != nil {
@@ -1467,6 +1501,7 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 					msg := pm.msg
 					if msg != nil {
 						batch = append(batch, pm)
+						w.held.Add(1)
 						// Only when something reads it. Summing payload sizes
 						// through Payload() copied every message's bytes to
 						// add up an integer that nothing consumed unless

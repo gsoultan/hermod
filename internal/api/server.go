@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	advisorhttp "github.com/gsoultan/hermod/internal/advisor/transport/http"
 	"github.com/gsoultan/hermod/internal/ai"
 	aibudgethttp "github.com/gsoultan/hermod/internal/aibudget/transport/http"
 	"github.com/gsoultan/hermod/internal/api/handlers"
@@ -207,6 +208,7 @@ func (s *Server) Routes() http.Handler {
 	infraH := infrahttp.NewInfraHandler(s.Handler)
 	workflowH := workflowhttp.NewWorkflowHandler(s.Handler)
 	executionsH := executionshttp.NewExecutionsHandler(s.Handler)
+	insightsH := advisorhttp.NewInsightsHandler(s.Handler)
 	sourceH := sourcehttp.NewSourceHandler(s.Handler)
 	sinkH := sinkhttp.NewSinkHandler(s.Handler)
 	approvalH := approvalhttp.NewApprovalHandler(s.Handler)
@@ -252,6 +254,7 @@ func (s *Server) Routes() http.Handler {
 
 	workflowH.RegisterWorkflowRoutes(mux)
 	executionsH.RegisterExecutionRoutes(mux)
+	insightsH.RegisterInsightsRoutes(mux)
 	sourceH.RegisterSourceRoutes(mux)
 	sinkH.RegisterSinkRoutes(mux)
 	approvalH.RegisterApprovalRoutes(mux)

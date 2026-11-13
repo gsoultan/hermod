@@ -128,6 +128,7 @@ GET /api/workflows/{id}/callers
 GET /api/workflows/{id}/executions
 GET /api/workflows/{id}/executions/{run_id}
 GET /api/workflows/{id}/health
+GET /api/workflows/{id}/insights
 GET /api/workflows/{id}/proposals
 GET /api/workflows/{id}/report
 GET /api/workflows/{id}/traces
