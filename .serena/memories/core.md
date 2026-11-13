@@ -283,6 +283,9 @@ find a claim that outruns the code, fix the claim.
   used to return the JWT key to any editor. Expression lookups are cached
   (60 s, 256 keys, 2 s timeout); `HERMOD_SECRETS_ALLOW_UNPREFIXED` is the
   one-release escape hatch.
+- [Audit trail redaction](audit_trail_redaction.md) — `RecordAuditLog` writes to
+  `logs.data` and `audit_logs.payload`; credentials become `[REDACTED]` by the
+  `configsecrets` key rule read in any spelling.
 - [A vhost's own secrets](vhost_secrets.md) — saved from the Secrets page,
   encrypted, read by that vhost's workflows first and the global manager after.
   The engine marks each message with its workflow's vhost (not data, not
