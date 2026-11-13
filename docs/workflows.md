@@ -149,6 +149,25 @@ compare. Only the newest applied fix is measured.
 A sink's batch size is recommended but never proposed: it belongs to the sink connection, which
 other workflows may share.
 
+#### Explaining the recommendations with AI
+
+An explanation in plain words is **off** unless `HERMOD_ADVISOR_AI_PROVIDER` is set, with
+`HERMOD_ADVISOR_AI_MODEL`, `HERMOD_ADVISOR_AI_BASE_URL` and `HERMOD_ADVISOR_AI_API_KEY`. The key
+must be a `{{secret("NAME")}}` reference, which is resolved for the workflow's vhost; a plaintext
+key is refused and the feature stays off.
+
+When it is on, editors see an "Explain in plain words" button above the recommendations
+(`POST /api/workflows/{id}/insights/explain`, Editor and up). One press makes one model call.
+
+- What is sent: the window's length and message count, and each recommendation's title, text and
+  numbers, up to 8 KB. Step names are in that text. Message contents are never sent; the advisor
+  does not hold them.
+- What it can do: return text. It cannot change a workflow or create a proposal, and the page says
+  which model wrote it.
+- What it costs: each call is checked against and counted in the vhost's and the workflow's
+  [AI budget](ai-automation.md), and answers `429` when the budget is spent. The answer is capped
+  at 600 tokens. Each call is written to the audit log as `AI_EXPLAIN_INSIGHTS`.
+
 ## Workflows as MCP tools
 
 Hermod serves the [Model Context Protocol](https://modelcontextprotocol.io) at `POST /api/mcp`

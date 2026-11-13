@@ -283,6 +283,7 @@ POST /api/workflows/import
 POST /api/workflows/test
 POST /api/workflows/{id}/drain
 POST /api/workflows/{id}/executions/{run_id}/replay
+POST /api/workflows/{id}/insights/explain
 POST /api/workflows/{id}/nodes/{node_id}/test
 POST /api/workflows/{id}/proposals
 POST /api/workflows/{id}/proposals/{pid}/approve
