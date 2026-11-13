@@ -51,7 +51,7 @@ function ProposeFix({ workflowId, finding }: { workflowId: string; finding: Insi
 
   if (proposed) {
     return (
-      <Group gap="xs" wrap="nowrap" c="green" role="status">
+      <Group gap="xs" wrap="nowrap" c="green" component="output">
         <IconCircleCheck size={16} aria-hidden style={{ flexShrink: 0 }} />
         <Text size="sm">Waiting for approval under Suggested fixes, below. Nothing has changed yet.</Text>
       </Group>
