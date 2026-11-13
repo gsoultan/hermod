@@ -106,6 +106,15 @@ export function FTPSinkConfig({ config, updateConfig }: FTPSinkConfigProps) {
           Use CSV preset (append daily file)
         </Button>
       </Group>
+      {config.tls === 'true' && (
+        <Checkbox
+          label="Skip certificate verification"
+          description="Accept any certificate the server presents. Only for a self-signed server on a network you trust: anyone in between could read the login."
+          checked={config.insecure_skip_verify === 'true'}
+          onChange={(e) => updateConfig('insecure_skip_verify', e.target.checked ? 'true' : 'false')}
+          my="sm"
+        />
+      )}
       <Checkbox 
         label="Create Missing Directories"
         checked={config.mkdirs !== 'false'}

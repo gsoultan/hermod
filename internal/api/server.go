@@ -396,12 +396,14 @@ func (s *Server) Routes() http.Handler {
 		fmt.Fprintf(w, "404 Not Found: %s %s", r.Method, r.URL.Path)
 	})
 
-	// Order: security headers -> CORS -> recover -> store-guard -> auth -> handlers
+	// Order: security headers -> CORS -> recover -> body limit -> store-guard -> auth -> handlers
 	return s.Handler.SecurityHeadersMiddleware(
 		s.Handler.CorsMiddleware(
 			s.Handler.RecoverMiddleware(
-				s.Handler.StoreGuardMiddleware(
-					s.Handler.AuthMiddleware(mux),
+				s.Handler.BodyLimitMiddleware(
+					s.Handler.StoreGuardMiddleware(
+						s.Handler.AuthMiddleware(mux),
+					),
 				),
 			),
 		),

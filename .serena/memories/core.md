@@ -58,8 +58,10 @@ find a claim that outruns the code, fix the claim.
   and a batch goes out in one MULTI.
 - [The Tuning tab and the optimizer](tuning_metrics_and_optimizer.md) — how
   ErrorRate and Backpressure are computed, the optimizer's AI pass is off by
-  default, and the chaos monkey that still injects 10s sink failures in
-  production.
+  default, and the chaos monkey that injected 10s sink failures (removed).
+- [Public endpoint limits](public_endpoint_limits.md) — webhook bodies capped
+  before and after decompression, history saved only after auth with
+  credentials redacted, the 16 MiB API body ceiling, FTPS certificate checks.
 - [About page and copyright](about_page_and_copyright.md) — `/about`, reachable
   from Settings and the account menu; its notice must match LICENSE.
 - [A flow's view and editor](flow_view_and_editor_layout.md) — one frame and one
