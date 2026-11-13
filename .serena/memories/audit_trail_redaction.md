@@ -28,3 +28,7 @@ Rows written before the change are not rewritten.
 
 Pass objects to `RecordAuditLog`, never a pre-formatted sentence containing a
 secret: text that is not JSON is stored as it came.
+
+A *name* must not sit under a credential's key. The vhost secrets handler
+audited `{"secret": "<NAME>"}` and lost the name to redaction; it now writes
+`secret_name`. `TestVHostSecretAPINeverRepeatsAValue` holds that.
