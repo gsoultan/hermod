@@ -5,6 +5,7 @@ import { Notifications } from '@mantine/notifications'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
 import { server } from '../test/setupTests'
+import { mutationCache } from '@/lib/queryClient'
 import { Recommendations } from '@/pages/workflows/tuning/Recommendations'
 import type { InsightsReport } from '@/lib/insights'
 
@@ -34,10 +35,11 @@ function report(overrides: Partial<InsightsReport> = {}): InsightsReport {
 }
 
 function renderIt(props: Partial<Parameters<typeof Recommendations>[0]> = {}) {
+  // The app's own mutation cache, so its fallback "Action failed" toast is in play.
   return render(
     <MantineProvider>
       <Notifications />
-      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
+      <QueryClientProvider client={new QueryClient({ mutationCache, defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
         <Recommendations workflowId="wf-1" canApply={false} report={report()} isLoading={false} error={null} {...props} />
       </QueryClientProvider>
     </MantineProvider>,
@@ -129,5 +131,8 @@ describe('Recommendations', () => {
     renderIt({ canApply: true, report: fixable() })
     await userEvent.click(screen.getByRole('button', { name: /propose this fix/i }))
     expect(await screen.findByText(/no longer has this problem/i)).toBeInTheDocument()
+    // Said once, next to the button: not again in a toast.
+    expect(screen.getAllByText(/no longer has this problem/i)).toHaveLength(1)
+    expect(screen.queryByText('Action failed')).not.toBeInTheDocument()
   })
 })

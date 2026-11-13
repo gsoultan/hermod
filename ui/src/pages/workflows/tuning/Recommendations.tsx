@@ -47,6 +47,9 @@ function ProposeFix({ workflowId, finding }: { workflowId: string; finding: Insi
       setProposed(true)
       queryClient.invalidateQueries({ queryKey: proposalsKey(workflowId) })
     },
+    // The failure is shown under the button; handling it here keeps the app's
+    // fallback toast from saying it a second time.
+    onError: () => {},
   })
 
   if (proposed) {
