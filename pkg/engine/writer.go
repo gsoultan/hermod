@@ -522,10 +522,6 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 	}
 	defer span.End()
 
-	if e.isFailing() {
-		return errors.New("simulated engine failure")
-	}
-
 	// Dry-run is checked before every other branch in this function. It used to
 	// sit below the safe-mode and failed-validation diverts, both of which write
 	// to the dead-letter sink, so a "dry" run performed real writes against a

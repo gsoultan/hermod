@@ -14,7 +14,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"math/rand"
 	"sync"
 	"time"
 
@@ -95,39 +94,6 @@ func (o *Optimizer) optimizeAll() {
 
 	for id, e := range engines {
 		o.optimizeEngine(id, e)
-	}
-
-	// 4. Chaos Monkey (Resilience Testing)
-	o.runChaosMonkey()
-}
-
-func (o *Optimizer) runChaosMonkey() {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-
-	// Only run if there are active engines and we want to test resilience
-	if len(o.registry) == 0 {
-		return
-	}
-
-	// Very low probability of failure simulation (e.g. 0.1% per optimization cycle)
-	if rand.Float64() > 0.001 {
-		return
-	}
-
-	// Pick a random engine to "perturb"
-	ids := make([]string, 0, len(o.registry))
-	for id := range o.registry {
-		ids = append(ids, id)
-	}
-	targetID := ids[rand.Intn(len(ids))]
-	_ = o.registry[targetID] // Ensure engine exists
-
-	o.logger.Warn("Chaos Monkey: Simulating node transient failure", "workflow_id", targetID)
-
-	// Simulate failure by temporarily pausing processing or injecting error metadata
-	if eng, ok := o.registry[targetID]; ok {
-		eng.SimulateFailure(10 * time.Second)
 	}
 }
 
