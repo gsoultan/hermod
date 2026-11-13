@@ -131,7 +131,7 @@ the Hermod name (`hermodName` slugifies). Mantine Select in tests: query the
 
 - The SDK's `go get` bumped shared deps (pgx, modernc sqlite, prometheus,
   aws-sdk). Run `go test -race -short ./...` after any SDK upgrade.
-- `golangci-lint` built with an older Go refuses this module's `go 1.27.3`.
-  What works: `GOTOOLCHAIN=go1.27.3 GOFLAGS=-mod=mod go run
+- `golangci-lint` built with an older Go refuses this module's `go` version.
+  What works: `GOTOOLCHAIN=go1.27.4 GOFLAGS=-mod=mod go run
   github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 run
   --new-from-rev=origin/main ./...`.
