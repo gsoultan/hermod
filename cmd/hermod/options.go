@@ -42,6 +42,9 @@ type Options struct {
 	versionFlag        bool
 	serviceAction      string
 	disableAutoscaler  bool
+	checkUpdate        bool
+	update             bool
+	rollback           bool
 }
 
 func parseOptions() *Options {
@@ -84,6 +87,9 @@ func (o *Options) defineOtherFlags() {
 	flag.BoolVar(&o.versionFlag, "version", false, "Print the version and exit")
 	flag.StringVar(&o.serviceAction, "service", "", "Service action: install, uninstall, start, stop, restart, status")
 	flag.BoolVar(&o.disableAutoscaler, "disable-autoscaler", false, "disable the autoscaler service")
+	flag.BoolVar(&o.checkUpdate, "check-update", false, "Say whether a newer release is published, then exit")
+	flag.BoolVar(&o.update, "update", false, "Download, verify and install the newest release in place of this binary, then exit; restart Hermod to run it")
+	flag.BoolVar(&o.rollback, "rollback", false, "Put back the binary the last update replaced, then exit")
 }
 
 func (o *Options) applyEnvOverrides() {

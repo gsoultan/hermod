@@ -34,6 +34,9 @@ are in [Deploying and running Hermod](deployment.md).
 `.deb`, `.rpm`, `.apk` and tarballs for Linux `amd64`/`arm64` are attached to each
 [release](https://github.com/gsoultan/hermod/releases).
 
+A binary installed from a tarball can update itself afterwards; see
+[Updating Hermod](updating.md). Packages are upgraded with your package manager.
+
 ## From source
 
 ```bash
