@@ -1213,6 +1213,9 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 		if err != nil {
 			return nil, err
 		}
+		if cfg.Config["insecure_skip_verify"] == "true" {
+			sink.SetInsecureSkipVerify(true)
+		}
 		return sink, nil
 	case "pubsub":
 		return pubsub.NewPubSubSink(cfg.Config["project_id"], cfg.Config["topic_id"], cfg.Config["credentials_json"], fmttr)

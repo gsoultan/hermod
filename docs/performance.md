@@ -25,6 +25,10 @@ Engine flags and settings:
     carrying a data map means marshalling it to JSON.
   - Leave it unset in production. Turn it on for one workflow while debugging, not as a default.
   - `HERMOD_DB_LOG_SAMPLE_RATE` thins what reaches the log table when you do need DEBUG on.
+- `HERMOD_MAX_REQUEST_BODY_BYTES` (default: 16 MiB)
+  - The largest request body the HTTP API reads. Handlers with a smaller limit of their own keep it;
+    the dataset file upload keeps its 200 MiB. Webhooks have their own 10 MiB limit,
+    `HERMOD_WEBHOOK_MAX_BODY_BYTES`, applied after decompression.
 - `engine.drain_timeout` (default: 10s)
   - Logs a warning if sink writers take longer than this to drain on shutdown. Set `0` to wait indefinitely.
 - `prioritize_dlq` (per‑workflow)

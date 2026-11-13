@@ -69,6 +69,19 @@ curl -X POST http://localhost:4000/api/webhooks/orders \
   -H "X-API-Key: $KEY" -H "X-Hub-Signature-256: sha256=$SIG" -d "$BODY"
 ```
 
+#### Body size and webhook history
+
+A body may be at most 10 MiB, measured after any `Content-Encoding` (`zstd`,
+`lz4`, `snappy`) is undone; a larger one is answered `413`. Set
+`HERMOD_WEBHOOK_MAX_BODY_BYTES` to change it. GraphQL requests have the same
+limit on the raw body.
+
+**Webhook history** keeps the last 50 requests per path, for replay. Only
+requests to a path a webhook source holds, and that passed its credentials,
+are kept. Header values that carry credentials (`Authorization`, `Cookie`,
+`X-API-Key`, and any header whose name mentions a token, key, secret,
+password, signature or auth) are stored as `[redacted]`.
+
 #### mimir-server events
 
 A webhook source whose **Sender** is **mimir-server events** (`"preset":

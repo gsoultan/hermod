@@ -105,10 +105,6 @@ type Engine struct {
 	stopMu  sync.Mutex
 	stopped bool
 
-	// Failure Simulation
-	failureSimMu sync.RWMutex
-	failUntil    time.Time
-
 	// Safe Mode (divert to DLQ)
 	safeModeMu sync.RWMutex
 	safeMode   bool
@@ -545,12 +541,6 @@ func (e *Engine) HardStop() {
 	}
 }
 
-func (e *Engine) isFailing() bool {
-	e.failureSimMu.RLock()
-	defer e.failureSimMu.RUnlock()
-	return time.Now().Before(e.failUntil)
-}
-
 func (e *Engine) SetSafeMode(enabled bool) {
 	e.safeModeMu.Lock()
 	defer e.safeModeMu.Unlock()
@@ -618,15 +608,6 @@ func (e *Engine) ReleaseNode(nodeID string) {
 		default:
 			// Should not happen if AcquireNode was called
 		}
-	}
-}
-
-func (e *Engine) SimulateFailure(duration time.Duration) {
-	e.failureSimMu.Lock()
-	defer e.failureSimMu.Unlock()
-	e.failUntil = time.Now().Add(duration)
-	if e.logger != nil {
-		e.logger.Warn("Engine: simulated failure injected", "duration", duration)
 	}
 }
 

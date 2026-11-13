@@ -36,8 +36,13 @@ Every 30s per registered engine:
    busy flow's concurrency without a ceiling. Guarded by
    `TestNewOptimizerLeavesTheAIPassOff`.
 
-**Open hazard, not fixed as of v1.23.0:** `optimizeAll` always calls
-`runChaosMonkey`, which with probability 0.001 per cycle picks a random registered
-engine and calls `SimulateFailure(10s)`; for those 10s `writer.go` returns
-`simulated engine failure` from every sink write. That is roughly one injected
-10-second outage every ~8 hours in production, and it now shows up in ErrorRate.
+**Fixed (2026-11-13):** `optimizeAll` used to call `runChaosMonkey`, which with
+probability 0.001 per 30s cycle made every sink write of a random workflow fail
+with `simulated engine failure` for 10s, about one outage every ~8 hours in
+production. It was removed with `Engine.SimulateFailure` and `isFailing` (a lock
+and a clock read per sink write). `TestOptimizerNeverInjectsFailures` runs 20,000
+cycles and fails on any injected failure. Fault injection belongs in tests.
+
+Still live: the batch heuristic raises a sink's `BatchSize` by 20% per cycle
+under buffer pressure, up to 10,000, silently. A lower ceiling and a visible
+note are waiting on Gembit's call.
