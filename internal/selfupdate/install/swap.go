@@ -95,38 +95,13 @@ func (in *Installer) Install(ctx context.Context, plan Plan, from string, progre
 	dir := filepath.Dir(in.Exe)
 
 	progress(PhaseDownloading)
-	var sumsBuf bytes.Buffer
-	if _, err := in.Fetch(ctx, plan.ChecksumsURL, maxChecksums, &sumsBuf); err != nil {
-		return fmt.Errorf("fetching checksums.txt: %w", err)
-	}
-	sums, err := ParseChecksums(&sumsBuf)
+	archive, err := in.download(ctx, plan, dir, func() { progress(PhaseVerifying) })
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrChecksum, err)
+		return err
 	}
-	want, ok := sums[plan.ArchiveName]
-	if !ok {
-		return fmt.Errorf("%w: checksums.txt has no entry for %s", ErrChecksum, plan.ArchiveName)
-	}
+	defer func() { _ = os.Remove(archive) }()
 
-	archive, err := os.CreateTemp(dir, tempPrefix+"*.tar.gz")
-	if err != nil {
-		return fmt.Errorf("cannot write next to the binary: %w", err)
-	}
-	defer func() { _ = os.Remove(archive.Name()) }()
-	hash := sha256.New()
-	_, err = in.Fetch(ctx, plan.ArchiveURL, orDefault(in.MaxArchive, DefaultMaxArchive), io.MultiWriter(archive, hash))
-	if cerr := archive.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		return fmt.Errorf("downloading %s: %w", plan.ArchiveName, err)
-	}
-
-	progress(PhaseVerifying)
-	if got := hex.EncodeToString(hash.Sum(nil)); got != want {
-		return fmt.Errorf("%w: %s is %s, published %s", ErrChecksum, plan.ArchiveName, got, want)
-	}
-	staged, err := in.stage(archive.Name(), dir)
+	staged, err := in.stage(archive, dir)
 	if err != nil {
 		return err
 	}
@@ -141,6 +116,60 @@ func (in *Installer) Install(ctx context.Context, plan Plan, from string, progre
 	}
 
 	progress(PhaseInstalling)
+	if err := in.swap(staged, plan.Tag, from); err != nil {
+		return err
+	}
+	swapped = true
+	return nil
+}
+
+// download fetches the archive beside the binary and proves it is the one
+// checksums.txt publishes, returning its path. verifying is called between the
+// two. On error nothing is left behind.
+func (in *Installer) download(ctx context.Context, plan Plan, dir string, verifying func()) (string, error) {
+	var sumsBuf bytes.Buffer
+	if _, err := in.Fetch(ctx, plan.ChecksumsURL, maxChecksums, &sumsBuf); err != nil {
+		return "", fmt.Errorf("fetching checksums.txt: %w", err)
+	}
+	sums, err := ParseChecksums(&sumsBuf)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", ErrChecksum, err)
+	}
+	want, ok := sums[plan.ArchiveName]
+	if !ok {
+		return "", fmt.Errorf("%w: checksums.txt has no entry for %s", ErrChecksum, plan.ArchiveName)
+	}
+
+	archive, err := os.CreateTemp(dir, tempPrefix+"*.tar.gz")
+	if err != nil {
+		return "", fmt.Errorf("cannot write next to the binary: %w", err)
+	}
+	keep := false
+	defer func() {
+		if !keep {
+			_ = os.Remove(archive.Name())
+		}
+	}()
+	hash := sha256.New()
+	_, err = in.Fetch(ctx, plan.ArchiveURL, orDefault(in.MaxArchive, DefaultMaxArchive), io.MultiWriter(archive, hash))
+	if cerr := archive.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return "", fmt.Errorf("downloading %s: %w", plan.ArchiveName, err)
+	}
+
+	verifying()
+	if got := hex.EncodeToString(hash.Sum(nil)); got != want {
+		return "", fmt.Errorf("%w: %s is %s, published %s", ErrChecksum, plan.ArchiveName, got, want)
+	}
+	keep = true
+	return archive.Name(), nil
+}
+
+// swap keeps the running binary for rollback, arms the boot guard and renames
+// staged over the binary.
+func (in *Installer) swap(staged, tag, from string) error {
 	if err := keepPrevious(in.Exe); err != nil {
 		return fmt.Errorf("cannot keep the current binary for rollback: %w", err)
 	}
@@ -150,14 +179,13 @@ func (in *Installer) Install(ctx context.Context, plan Plan, from string, progre
 	}
 	// Armed before the swap: the moment the new binary is in place it must be
 	// watched, and a marker with no swap behind it is disarmed below.
-	if err := writeMarker(in.Exe, &Marker{From: from, To: plan.Tag, At: now().UTC()}); err != nil {
+	if err := writeMarker(in.Exe, &Marker{From: from, To: tag, At: now().UTC()}); err != nil {
 		return fmt.Errorf("cannot record the pending update: %w", err)
 	}
 	if err := os.Rename(staged, in.Exe); err != nil {
 		_ = removeMarker(in.Exe)
 		return fmt.Errorf("cannot replace %s: %w", in.Exe, err)
 	}
-	swapped = true
 	return nil
 }
 
@@ -174,7 +202,7 @@ func (in *Installer) stage(archivePath, dir string) (string, error) {
 		err = cerr
 	}
 	if err == nil {
-		err = os.Chmod(name, 0o755)
+		err = os.Chmod(name, 0o755) //nolint:gosec // G302: the binary has to be executable, like the one it replaces.
 	}
 	if err != nil {
 		_ = os.Remove(name)
@@ -190,7 +218,7 @@ func (in *Installer) smokeTest(ctx context.Context, path, tag string) error {
 	}
 	out, err := run(ctx, path)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrSmokeTest, err)
+		return fmt.Errorf("%w: %w", ErrSmokeTest, err)
 	}
 	if !slices.Contains(strings.Fields(out), tag) {
 		return fmt.Errorf("%w: wanted %s, it printed %q", ErrSmokeTest, tag, strings.TrimSpace(out))
@@ -217,12 +245,12 @@ func keepPrevious(exe string) error {
 	if err := os.Link(exe, prev); err == nil {
 		return nil
 	}
-	src, err := os.Open(exe)
+	src, err := os.Open(exe) //nolint:gosec // G304: exe is the running binary, from os.Executable.
 	if err != nil {
 		return err
 	}
 	defer func() { _ = src.Close() }()
-	dst, err := os.OpenFile(prev, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o755)
+	dst, err := os.OpenFile(prev, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o755) //nolint:gosec // G302,G304: an executable copy of the running binary, kept for rollback.
 	if err != nil {
 		return err
 	}

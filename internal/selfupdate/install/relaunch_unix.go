@@ -17,5 +17,5 @@ import "syscall"
 // Relaunch replaces this process with exe, keeping its arguments, environment
 // and process id, for a Hermod started by hand with no supervisor to do it.
 func Relaunch(exe string, args, env []string) error {
-	return syscall.Exec(exe, args, env)
+	return syscall.Exec(exe, args, env) //nolint:gosec // G204: exe is the running binary and args are its own arguments.
 }

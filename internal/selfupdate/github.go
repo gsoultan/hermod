@@ -13,6 +13,7 @@ package selfupdate
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -79,7 +80,7 @@ func (g *GitHub) Releases(ctx context.Context) ([]Release, error) {
 	if resp.StatusCode != http.StatusOK {
 		if (resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests) &&
 			resp.Header.Get("X-RateLimit-Remaining") == "0" {
-			return nil, fmt.Errorf("GitHub's rate limit for anonymous requests from this address is used up; try again within the hour")
+			return nil, errors.New("GitHub's rate limit for anonymous requests from this address is used up; try again within the hour")
 		}
 		return nil, fmt.Errorf("GitHub answered %s when listing releases", resp.Status)
 	}

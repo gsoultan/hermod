@@ -79,7 +79,7 @@ func (r *recorder) install(_ context.Context, p install.Plan, _ string, progress
 	return r.err
 }
 
-func newService(t *testing.T, current string, src *staticSource, rec *recorder) (*Service, *memStore) {
+func newService(t *testing.T, current string, src *staticSource, rec *recorder) *Service {
 	t.Helper()
 	store := &memStore{}
 	svc := New(Config{
@@ -97,12 +97,12 @@ func newService(t *testing.T, current string, src *staticSource, rec *recorder) 
 			return nil
 		},
 	})
-	return svc, store
+	return svc
 }
 
 func TestCheckReportsNewerRelease(t *testing.T) {
 	src := &staticSource{releases: []Release{release("v1.24.9", false), release("v1.25.0", false)}}
-	svc, _ := newService(t, "v1.24.9 (Enterprise Edition)", src, &recorder{})
+	svc := newService(t, "v1.24.9 (Enterprise Edition)", src, &recorder{})
 	st, err := svc.Check(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -117,7 +117,7 @@ func TestCheckReportsNewerRelease(t *testing.T) {
 
 func TestCheckFailureIsReportedNotFatal(t *testing.T) {
 	src := &staticSource{err: errors.New("rate limited")}
-	svc, _ := newService(t, "v1.24.9", src, &recorder{})
+	svc := newService(t, "v1.24.9", src, &recorder{})
 	st, err := svc.Check(context.Background())
 	if err == nil || !strings.Contains(st.CheckError, "rate limited") || st.UpdateAvailable {
 		t.Fatalf("Check = %+v, %v", st, err)
@@ -127,7 +127,7 @@ func TestCheckFailureIsReportedNotFatal(t *testing.T) {
 func TestInstallRunsBackupThenInstallerThenRestart(t *testing.T) {
 	src := &staticSource{releases: []Release{release("v1.25.0", false)}}
 	rec := &recorder{}
-	svc, _ := newService(t, "v1.24.9", src, rec)
+	svc := newService(t, "v1.24.9", src, rec)
 	if err := svc.Install(context.Background(), "v1.25.0"); err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +148,7 @@ func TestInstallRunsBackupThenInstallerThenRestart(t *testing.T) {
 func TestInstallFailureDoesNotRestart(t *testing.T) {
 	src := &staticSource{releases: []Release{release("v1.25.0", false)}}
 	rec := &recorder{err: install.ErrChecksum}
-	svc, _ := newService(t, "v1.24.9", src, rec)
+	svc := newService(t, "v1.24.9", src, rec)
 	if err := svc.Install(context.Background(), "v1.25.0"); err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestInstallFailureDoesNotRestart(t *testing.T) {
 func TestInstallRefusals(t *testing.T) {
 	src := &staticSource{releases: []Release{release("v1.24.0", false), release("v1.25.0", false), release("v1.26.0-rc.1", true)}}
 	rec := &recorder{}
-	svc, _ := newService(t, "v1.24.9", src, rec)
+	svc := newService(t, "v1.24.9", src, rec)
 	for _, tag := range []string{"v1.24.0", "v1.24.9", "v9.9.9", "v1.26.0-rc.1"} {
 		if err := svc.Install(context.Background(), tag); !errors.Is(err, ErrNotOffered) {
 			t.Errorf("Install(%s) = %v, want ErrNotOffered", tag, err)
@@ -177,7 +177,7 @@ func TestInstallRefusals(t *testing.T) {
 func TestInstallBlockedWhereBinaryCannotBeReplaced(t *testing.T) {
 	src := &staticSource{releases: []Release{release("v1.25.0", false)}}
 	rec := &recorder{}
-	svc, _ := newService(t, "v1.24.9", src, rec)
+	svc := newService(t, "v1.24.9", src, rec)
 	svc.cfg.Capability = install.Capability{Reason: "container"}
 	if err := svc.Install(context.Background(), "v1.25.0"); !errors.Is(err, ErrCannotInstall) {
 		t.Fatalf("Install in a container = %v, want ErrCannotInstall", err)
@@ -188,7 +188,7 @@ func TestOneInstallAtATime(t *testing.T) {
 	src := &staticSource{releases: []Release{release("v1.25.0", false)}}
 	block := make(chan struct{})
 	rec := &recorder{}
-	svc, _ := newService(t, "v1.24.9", src, rec)
+	svc := newService(t, "v1.24.9", src, rec)
 	svc.cfg.Install = func(ctx context.Context, p install.Plan, f string, pr func(install.Phase)) error {
 		<-block
 		return rec.install(ctx, p, f, pr)
@@ -218,7 +218,7 @@ func TestTickAutomaticInstallsWithinMajorOnly(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			rec := &recorder{}
-			svc, _ := newService(t, "v1.24.9", &staticSource{releases: c.releases}, rec)
+			svc := newService(t, "v1.24.9", &staticSource{releases: c.releases}, rec)
 			if _, err := svc.SaveSettings(context.Background(), Settings{Mode: c.mode}); err != nil {
 				t.Fatal(err)
 			}
@@ -240,7 +240,7 @@ func TestTickAutomaticInstallsWithinMajorOnly(t *testing.T) {
 
 func TestTickDoesNotReinstallAVersionThatWasRolledBack(t *testing.T) {
 	rec := &recorder{}
-	svc, _ := newService(t, "v1.24.9", &staticSource{releases: []Release{release("v1.25.0", false)}}, rec)
+	svc := newService(t, "v1.24.9", &staticSource{releases: []Release{release("v1.25.0", false)}}, rec)
 	svc.cfg.Outcome = func() *install.Outcome {
 		return &install.Outcome{Result: install.ResultRolledBack, From: "v1.24.9", To: "v1.25.0"}
 	}
@@ -260,7 +260,7 @@ func TestTickDoesNotReinstallAVersionThatWasRolledBack(t *testing.T) {
 func TestTickRespectsOffAndInterval(t *testing.T) {
 	src := &staticSource{releases: []Release{release("v1.25.0", false)}}
 	now := time.Date(2026, 11, 13, 6, 0, 0, 0, time.UTC)
-	svc, _ := newService(t, "v1.24.9", src, &recorder{})
+	svc := newService(t, "v1.24.9", src, &recorder{})
 	svc.cfg.Now = func() time.Time { return now }
 
 	if _, err := svc.SaveSettings(context.Background(), Settings{Mode: ModeOff}); err != nil {

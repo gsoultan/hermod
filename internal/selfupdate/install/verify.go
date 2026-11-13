@@ -59,7 +59,7 @@ func ParseChecksums(r io.Reader) (map[string]string, error) {
 // .tar.gz into dst, refusing more than limit bytes. The release archive also
 // carries hermodctl, hermod-edge and docs; only the top-level entry counts.
 func ExtractBinary(archivePath, name string, dst io.Writer, limit int64) error {
-	f, err := os.Open(archivePath)
+	f, err := os.Open(archivePath) //nolint:gosec // G304: the temporary file Install downloaded and verified.
 	if err != nil {
 		return err
 	}

@@ -266,7 +266,7 @@ func (s *Service) Install(ctx context.Context, tag string) error {
 	s.phase, s.phaseErr = string(install.PhaseDownloading), ""
 	s.mu.Unlock()
 	s.wg.Add(1)
-	go s.run(plan)
+	go s.run(plan) //nolint:gosec // G118: an install outlives the request that started it; run bounds it with installTimeout.
 	return nil
 }
 
@@ -280,15 +280,8 @@ func (s *Service) plan(ctx context.Context, tag string) (install.Plan, error) {
 	if err != nil {
 		return install.Plan{}, err
 	}
-	include := s.Settings(ctx).IncludePrereleases
-	var rel *Release
-	for i := range releases {
-		r := &releases[i]
-		if r.Tag == tag && Canonical(r.Tag) == tag && !r.Draft && (include || !r.Prerelease && semver.Prerelease(tag) == "") {
-			rel = r
-		}
-	}
-	if rel == nil || !IsNewer(tag, s.cfg.Current) {
+	rel := findOffered(releases, tag, s.cfg.Current, s.Settings(ctx).IncludePrereleases)
+	if rel == nil {
 		return install.Plan{}, fmt.Errorf("%w: %s", ErrNotOffered, tag)
 	}
 	plan := install.Plan{Tag: tag, ArchiveName: install.ArchiveName(tag, s.cfg.GOOS, s.cfg.GOARCH)}
@@ -304,6 +297,26 @@ func (s *Service) plan(ctx context.Context, tag string) (install.Plan, error) {
 		return install.Plan{}, fmt.Errorf("release %s has no %s and checksums.txt to install from", tag, plan.ArchiveName)
 	}
 	return plan, nil
+}
+
+// findOffered returns the release tagged tag if it is one this instance would
+// offer: published, newer than current, and a pre-release only when asked for.
+func findOffered(releases []Release, tag, current string, includePrereleases bool) *Release {
+	if Canonical(tag) != tag || !IsNewer(tag, current) {
+		return nil
+	}
+	pre := semver.Prerelease(tag) != ""
+	for i := range releases {
+		r := &releases[i]
+		if r.Tag != tag || r.Draft {
+			continue
+		}
+		if (r.Prerelease || pre) && !includePrereleases {
+			continue
+		}
+		return r
+	}
+	return nil
 }
 
 func (s *Service) run(plan install.Plan) {
