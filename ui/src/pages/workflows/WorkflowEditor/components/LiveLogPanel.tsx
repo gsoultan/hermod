@@ -126,7 +126,7 @@ export const LiveLogPanel = ({ active, onTraceClick, onErrorClick }: LiveLogPane
                       <Badge size="xs" color={log.level === 'ERROR' ? 'red' : log.level === 'WARN' ? 'orange' : 'blue'} variant="light" style={{ minWidth: 50 }}>
                          {log.level}
                       </Badge>
-                      <Text size="xs" style={{ wordBreak: 'break-all', fontFamily: 'monospace' }}>
+                      <Text component="div" size="xs" style={{ wordBreak: 'break-all', fontFamily: 'monospace' }}>
                          {log.message}
                          {log.data && <Badge size="xs" ml="xs" variant="outline" color="blue">Trace</Badge>}
                       </Text>

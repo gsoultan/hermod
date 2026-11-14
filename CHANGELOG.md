@@ -116,6 +116,12 @@ reached the running writer, which reads its batch size once when it starts, so i
 throughput while still altering settings nobody had asked it to. It is removed. A sink that stays
 full is now a recommendation on the Tuning tab.
 
+### Fixed — a traced line in the editor's live log logged an invalid-markup error
+
+A live log line that carries a trace shows a "Trace" badge after its message. The badge was
+rendered inside the message's paragraph, which is invalid HTML, so the browser console collected a
+React error for every such line while the log was streaming. The message is now a block container.
+
 ### Fixed — a stuck sink reported its buffer as almost empty
 
 A sink's buffer fill was measured against a 1000-slot channel that at most `MaxInflight` (128 by
