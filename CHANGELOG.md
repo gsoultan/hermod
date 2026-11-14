@@ -84,6 +84,37 @@ workflow's vhost). Only the recommendations are sent: their text, their numbers 
 never message contents. Each call counts against the vhost's and the workflow's AI budget and is
 written to the audit log. The answer is text; it cannot change a workflow or create a proposal.
 
+### Added — each virtual host sets how long it keeps its audit log, workflow versions and approvals
+
+The audit log, the saved versions of every workflow and decided approvals were never purged, so
+they grew for as long as Hermod ran. A virtual host now has three limits, set by an Administrator
+on its page under **Settings → Virtual hosts** (and with **Default retention** on the list, for the
+`default` virtual host):
+
+- **Audit log, days**: entries about the virtual host's workflows, sources and sinks older than
+  this are deleted.
+- **Workflow versions, per workflow**: only the newest are kept.
+- **Approvals, days after the decision**: approved and rejected approvals older than this are
+  deleted. One still waiting is always kept.
+
+An empty limit keeps everything, and that is where every virtual host starts: upgrading deletes
+nothing until a limit is set. Limits are applied by the hourly retention sweep. The API is
+`GET` and `PUT /api/vhosts/{vhost}/retention` with `audit_log_days`, `workflow_versions` and
+`approval_days`; reading needs an Editor of the virtual host, saving an Administrator.
+
+Audit entries now record the virtual host they are about (`vhost` in `GET /api/audit-logs`, which
+also accepts `?vhost=`). On start, older entries take the virtual host of the workflow, source or
+sink they are about. Entries about users and logins, and entries about something since deleted,
+belong to no virtual host and are not touched by these limits. A workflow's own **Audit retention**
+still applies to the whole audit log as before.
+
+When the log is kept in a separate database from the configuration, older entries cannot be given
+a virtual host, and entries written under a virtual host's old name are not carried by a rename;
+both are kept rather than purged.
+
+On MongoDB this also fixes the version history itself: a workflow's versions were saved under one
+field name and read back under another, so the list was empty and a rollback found nothing.
+
 ### Added — performance recommendations for a running workflow
 
 - **The Tuning tab says what to change.** A running workflow's Tuning tab has a Recommendations
@@ -101,6 +132,21 @@ written to the audit log. The answer is text; it cannot change a workflow or cre
 - **An applied fix is measured.** Once the workflow has run for a few minutes since, the proposal
   shows step time per message, failures and throughput before and since, and says whether the
   workflow runs better, worse or the same.
+
+### Fixed — the first administrator could not promote a flow
+
+- **Promoting needed an administrator with every vhost listed.** The administrator that first-run
+  setup creates has no vhosts listed, because an Administrator has them all, and the promote dialog
+  answered "Forbidden: you do not have access to vhost hr" for any flow outside the default vhost.
+  Sending a release and moving a credential to a secret failed the same way.
+- **The sender was offered an approval production would refuse.** On the sending side, a release
+  production wants another administrator to approve showed Approve to the person who sent it and
+  counted in their Approvals badge. The sent log now keeps production's rule, and the sender is told
+  another administrator approves it.
+- **"Up to date" while it waited.** The line under a flow's header said Up to date as soon as a
+  version was sent. It now says the version waits for approval there, or was undone there.
+- The secrets check no longer says only names are sent while the dialog asks for the values, and
+  the texts that pointed at "Settings › Environments" name Settings › Workspace › Environments.
 
 ### Fixed — a Postgres CDC source could deliver its last change again after a clean stop
 
@@ -127,12 +173,25 @@ reached the running writer, which reads its batch size once when it starts, so i
 throughput while still altering settings nobody had asked it to. It is removed. A sink that stays
 full is now a recommendation on the Tuning tab.
 
+### Fixed — a traced line in the editor's live log logged an invalid-markup error
+
+A live log line that carries a trace shows a "Trace" badge after its message. The badge was
+rendered inside the message's paragraph, which is invalid HTML, so the browser console collected a
+React error for every such line while the log was streaming. The message is now a block container.
+
 ### Fixed — a stuck sink reported its buffer as almost empty
 
 A sink's buffer fill was measured against a 1000-slot channel that at most `MaxInflight` (128 by
 default) messages can ever occupy. A completely stuck sink read 12.7% full, or 2.8% while
 batching, so the backpressure warning at 80% could not appear. Fill is now measured against what
 can actually queue.
+
+### Fixed — Stateful Join and Circuit Breaker were drawn as blank boxes
+
+Both steps are in the editor's palette and run on the engine, but neither canvas had a renderer for
+them. React Flow drew its default node instead: a bare box with no name, no icon and no "+" to
+connect the next step, and a console warning on every render. The editor and the workflow detail
+page now draw them like every other step.
 
 ### Security — the public webhook endpoint, request body limits and FTPS certificates
 
@@ -154,12 +213,35 @@ can actually queue.
 - **The FTP sink checks the FTPS server's certificate.** It used to accept any certificate, so
   anyone in the path could read the login.
 
+### Fixed — Run Preview on a Pipeline step said "unknown transformation type"
+
+A Pipeline step runs its list of transformations in order when the workflow runs, but Run Preview
+sent it to the transformer registry, where `pipeline` is not a transformer. The editor showed
+`unknown transformation type "pipeline": no transformer is registered under that name` for a step
+that works. Preview now runs the pipeline's steps in order, each on the result of the one before,
+and shows the message that comes out of the last one; a step that filters the message out shows as
+filtered.
+
+Previewing a Merge, a Note or a subflow marker gave the same error. They change nothing in a
+message, and the answer now says so.
+
 ### Fixed — a random workflow failed for 10 seconds about every eight hours
 
 The optimizer ran a "chaos monkey": with probability 0.001 per 30-second cycle it made every sink
 write of one random workflow fail with `simulated engine failure` for 10 seconds, with the retries,
 dead letters and alerts that follow. It is gone, along with `Engine.SimulateFailure`, which nothing
 else called.
+
+### Fixed — on the Pebble log store, cleanup deleted the new rows and kept the old ones
+
+With `HERMOD_LOG_STORE` on Pebble, the retention sweep for activity logs and for the audit log
+removed every row **newer** than the cutoff and kept every older one, and both lists came back
+oldest first. The key was meant to sort newest first but was a negative number, which sorts the
+other way. Rows are now keyed newest first, a cleanup removes only rows older than the cutoff (as
+one range delete, without reading them), and the lists match the SQL stores. Rows written by
+earlier releases are moved to the new key once, at startup; on a large log store that first start
+takes longer. Rows the old cleanup already removed cannot be brought back. SQL and MongoDB log
+stores were not affected.
 
 ### Performance — a third fewer allocations per message on a running workflow
 
@@ -685,6 +767,87 @@ A simulation from **Test** replays hop by hop, can be paused, stepped and
 sped up, and is marked out of date once the graph is changed; edges added
 since the run are shown as new. Reduced motion shows the result without
 animation.
+
+### Added — an end-to-end suite that tests every page, connector, function and secret
+
+`ui/__tests__/coverage/` is a Playwright suite that drives the real UI against a running Hermod:
+every page and its tabs, every palette step and its settings drawer, every source and sink form
+(fields, required-field gating, Test Connection, save, edit, delete), every expression function in
+Set Fields, If, Switch and Filter, every way a workflow reads a secret or environment value, the
+editor's save, version history, clone, delete and turn on/off, and the connectors that can run on
+one machine (form, cron, HTTP polling and webhook sources; HTTP, file, SQLite and stdout sinks)
+with records really delivered. Its lists are read from the app's own source, so a new connector,
+function or page is covered by the next run. CI runs it as the `e2e-coverage` job in three shards.
+The scenarios, and which connectors are not run live and why, are in
+[docs/testing/e2e-scenarios.md](docs/testing/e2e-scenarios.md).
+
+### Fixed — an If node's Live Preview hid which branch it took
+
+Live Preview of an If or Switch node dropped the branch the engine chose and said the node
+"returned the message unchanged", which read as a condition that never held: a condition such as
+`array_len(source.users) > 0` looked always false while the engine took the true branch, in the
+simulation and in a running workflow alike. The preview now shows "Branch taken" with the branch.
+The If, Filter and Switch fields also warn about the two ways a function call really is always
+false: a function name that does not exist (`array_length`, with the name probably meant) and a
+field written bare inside a call (`array_len(users)`, which reads the text "users"; the field is
+`source.users`).
+
+### Fixed — a sample stored as a list of rows broke Preview and Test
+
+When a source's stored sample was a list of rows, the editor used the whole list as the message:
+Live Preview read it as `{"0": row}`, so every field sat one level down and a condition such as
+`array_len(source.users) > 0` went to the false branch, and the Test simulation sent the list
+itself, which the server refused. Both now run on the newest row, as the live sample view does.
+
+### Fixed — a Filter with conditions stored as a list let every record through
+
+A Filter node read its conditions only as the JSON string the editor saves. Conditions stored as a
+list, the shape the API and an imported workflow use, were not read, so the node kept every record.
+It now reads every stored shape, as If and Switch already did.
+
+### Fixed — list settings written with a space after each comma
+
+Cassandra and ScyllaDB hosts, Kafka brokers, Elasticsearch addresses and SMTP recipients were split
+on the comma alone, so `node1:9042, node2:9042`, the form's own example, gave a second host of
+" node2:9042" that never resolved. Each entry is now trimmed and empty entries are dropped.
+
+### Fixed — a fresh install offered no virtual host when adding a source or sink
+
+On a new install the only vhost is `default`, which is not stored as a row, so the Virtual host
+picker on Add source and Add sink was empty for an administrator and the form could not be
+completed. An administrator is now offered `default` alongside every stored vhost.
+
+### Fixed — choosing Salesforce on Add sink showed the error page
+
+The Salesforce sink's fields expected a form object the sink wizard never passes, so selecting
+Salesforce threw and the page fell to "Oops! System Interruption". It now takes the config and
+setter every other sink form takes, and writes the same keys.
+
+### Fixed — a ClickHouse sink could never leave the connection step
+
+The wizard gated the ClickHouse sink's connection step on Host and Port, but its form writes one
+Address (`addr`), which is what the factory reads. Next stayed disabled whatever was typed. It is
+now gated on the Address.
+
+### Fixed — the wizard's "Required:" tooltip named fields that were not on the page
+
+For eleven connectors the tooltip on a disabled Next named a field by a different name than the
+form shows it, for example "Server URL" for the NATS source's "NATS URL" and "Recipient" for the
+SMTP sink's "To". Each now uses the form's own label. The S3 Parquet schema example is also valid
+JSON now, so following it no longer leaves the field marked invalid.
+
+### Fixed — new webhook, form, gRPC, cron, HTTP, GraphQL and WebSocket sources logged a React error
+
+These forms rendered their inputs with no value on a new source, then with one after the first
+keystroke, which React reports as an input switching from uncontrolled to controlled. They now
+start empty instead of undefined.
+
+### Fixed — condition rows had no accessible names
+
+The Field, Operator and Value inputs of each If and Filter condition showed a caption but had no
+accessible name: a screen reader read the field by its placeholder and the operator as an unnamed
+list. Each is now named by its row ("Condition 1 field", "Condition 1 operator", "Condition 1
+value").
 
 ### Added — Promote workflows from staging to production
 

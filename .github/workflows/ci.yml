@@ -290,10 +290,27 @@ jobs:
       # reason each vulnerable path is unreachable, and still fails on anything
       # unexempted. A gate that is permanently red because of one unfixable
       # upstream advisory is a gate everyone learns to ignore.
+      # The scan builds a call graph of the whole program. Loading the packages
+      # alone takes 5.7 GB, measured, and on the runners where the rest does
+      # not fit the step did not fail: it sat in swap for 46 minutes until the
+      # runner stopped answering and the job ended with no log at all, against
+      # 10 minutes for the whole job when it fits.
+      #
+      # GOMEMLIMIT is set from the runner's own memory so the collector runs
+      # before the heap spills into swap instead of after; without it the heap
+      # is allowed to double between collections, and the garbage is what
+      # swaps. It is a soft limit, so a scan that truly needs more still gets
+      # it. The time limit is what turns a hang into a failure that has a log,
+      # and /usr/bin/time prints the peak memory, so the next change to this
+      # step starts from a number.
       - name: Govulncheck
+        timeout-minutes: 25
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
-          ./scripts/govulncheck.sh
+          mem_kb="$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)"
+          export GOMEMLIMIT="$((mem_kb * 3 / 4 / 1024))MiB"
+          echo "runner memory: $((mem_kb / 1024)) MiB, GOMEMLIMIT=$GOMEMLIMIT"
+          /usr/bin/time -v ./scripts/govulncheck.sh
       # security-check.sh shells out to golangci-lint by name (its static-
       # analysis step), and this job no longer inherits the binary from the
       # lint action next door. GOLANGCI_LINT_VERSION is the same value Verify
@@ -465,6 +482,69 @@ jobs:
             layout-audit.json
             form-audit.json
             test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # The coverage suite: every page, palette step, source and sink form,
+  # expression function, secret path and workflow feature, plus the connectors
+  # that run live on this machine. The lists come from the app's own source
+  # (ui/__tests__/coverage/catalog.ts), so a new connector, function or route
+  # is tested by the next run without editing this file. Scenario catalogue:
+  # docs/testing/e2e-scenarios.md.
+  #
+  # About an hour of browser time on one worker, so it is split across three
+  # runners. A shard is a slice of the test list, not of the stack: each runner
+  # starts its own Hermod.
+  e2e-coverage:
+    name: E2E coverage (${{ matrix.shard }}/3)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    env:
+      # env("E2E_REGION") falls back to the server's HERMOD_ENV_ variables;
+      # the suite is told the value so it can check the fallback (S4).
+      HERMOD_ENV_E2E_REGION: e2e-region-1
+      HERMOD_E2E_ENV_VALUE: e2e-region-1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      # Same reason as the e2e job: /tmp is a small tmpfs on these runners.
+      - name: Keep Go's temporary files on disk
+        run: |
+          mkdir -p "$RUNNER_TEMP/go-tmp"
+          echo "GOTMPDIR=$RUNNER_TEMP/go-tmp" >> "$GITHUB_ENV"
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install dependencies
+        run: |
+          bun install --frozen-lockfile
+          cd ui && bun install --frozen-lockfile
+      - name: Install Playwright browsers
+        run: bunx playwright install --with-deps chromium
+      - name: Start Hermod
+        run: ./scripts/dev.sh --sqlite --reset --detach
+      - name: E2E coverage suite
+        run: bunx playwright test ui/__tests__/coverage/ --shard=${{ matrix.shard }}/3
+      - name: Stop Hermod
+        if: always()
+        run: ./scripts/dev.sh --stop
+      - name: Upload results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-coverage-${{ matrix.shard }}
+          path: |
+            test-results/
+            .dev/logs/
           retention-days: 7
           if-no-files-found: ignore
 

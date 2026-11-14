@@ -96,6 +96,8 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
 
   const [previewResult, setPreviewResult] = useState<any>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  // The branch a routing node's preview took; null for every other node.
+  const [previewBranch, setPreviewBranch] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [configSearch, setConfigSearch] = useState('');
   const [focus, setFocus] = useState(readFocus);
@@ -188,15 +190,20 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
         onSuccess: (data: any) => {
           if (data?.error) {
             setPreviewError(data.error);
+            setPreviewBranch(null);
             setNodePreview(nodeId, null);
           } else if (typeof data?.branch === 'string') {
             // A routing node answers with the branch it took and the message
             // untouched. The panel's Result/Diff/Input tabs all expect a
-            // message, so hand it the message; the branch is what the Test
-            // button reports.
+            // message, so hand it the message -- and the branch, which is the
+            // answer. Dropping it left the panel comparing the message with
+            // itself and calling the condition a mismatch, so a condition that
+            // held looked like one that always fails.
             setPreviewResult(data.result ?? {});
+            setPreviewBranch(data.branch);
             setNodePreview(nodeId, data.result ?? null);
           } else {
+            setPreviewBranch(null);
             setPreviewResult(data);
             // The node after this one reads it as its input.
             setNodePreview(nodeId, data);
@@ -255,6 +262,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
     resetPreview();
     setPreviewResult(null);
     setPreviewError(null);
+    setPreviewBranch(null);
     setNodePreview(selectedNode.id, null);
   }, [hasInput, cancelPreview, resetPreview, selectedNode.id, setNodePreview]);
 
@@ -657,6 +665,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
             error={previewError || ((previewMutation as any)?.error?.message ?? null)}
             result={previewResult || (previewMutation as any)?.data}
             original={incomingPayload}
+            branch={previewBranch}
             onRun={runPreview}
             onFetchSample={onRefreshFields}
             fetchingSample={isRefreshing}

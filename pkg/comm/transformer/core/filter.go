@@ -12,7 +12,6 @@ package core
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/transformer"
@@ -29,27 +28,11 @@ func init() {
 type FilterTransformer struct{}
 
 func (t *FilterTransformer) Prepare(config map[string]any) (map[string]any, error) {
-	conditionsStr, _ := config["conditions"].(string)
-	var conditions []map[string]any
-	if conditionsStr != "" {
-		_ = json.Unmarshal([]byte(conditionsStr), &conditions)
-	}
-
-	// Fallback to old format if no conditions array
-	if len(conditions) == 0 {
-		field, _ := config["field"].(string)
-		op, _ := config["operator"].(string)
-		val, _ := config["value"].(string)
-		if field != "" {
-			conditions = append(conditions, map[string]any{
-				"field":    field,
-				"operator": op,
-				"value":    val,
-			})
-		}
-	}
-
-	if len(conditions) > 0 {
+	// ParseConditions reads every shape a config can carry them in: the JSON
+	// string the editor saves, the list an API or import writes, and the single
+	// field/operator/value of older workflows. Reading only the string made a
+	// list "no conditions", so every record passed.
+	if conditions := evaluator.ParseConditions(config); len(conditions) > 0 {
 		config["_parsed_conditions"] = conditions
 	}
 	return config, nil
@@ -62,28 +45,9 @@ func (t *FilterTransformer) Transform(ctx context.Context, msg hermod.Message, c
 
 	transType, _ := config["transType"].(string)
 
-	var conditions []map[string]any
-	if cached, ok := config["_parsed_conditions"].([]map[string]any); ok {
-		conditions = cached
-	} else {
-		conditionsStr, _ := config["conditions"].(string)
-		if conditionsStr != "" {
-			_ = json.Unmarshal([]byte(conditionsStr), &conditions)
-		}
-
-		// Fallback to old format if no conditions array
-		if len(conditions) == 0 {
-			field, _ := config["field"].(string)
-			op, _ := config["operator"].(string)
-			val, _ := config["value"].(string)
-			if field != "" {
-				conditions = append(conditions, map[string]any{
-					"field":    field,
-					"operator": op,
-					"value":    val,
-				})
-			}
-		}
+	conditions, cached := config["_parsed_conditions"].([]map[string]any)
+	if !cached {
+		conditions = evaluator.ParseConditions(config)
 	}
 
 	isValid := evaluator.EvaluateConditions(msg, conditions)

@@ -313,6 +313,16 @@ describe('approving on production', () => {
     expect(await screen.findByText('Approving creates sink slack-alerts and source crm in hr.')).toBeInTheDocument()
   })
 
+  it('counts one change as one change', async () => {
+    server.use(
+      http.get('/api/environments/promotions', () => HttpResponse.json([promotion({
+        changes: [{ kind: 'added', what: 'New workflow with 3 nodes' }],
+      })])),
+    )
+    wrap(<EnvironmentsPage />)
+    expect(await screen.findByText('1 change')).toBeInTheDocument()
+  })
+
   it('says a flow was kept stopped for a missing secret', async () => {
     server.use(
       http.get('/api/environments/promotions', () => HttpResponse.json([

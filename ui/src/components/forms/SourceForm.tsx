@@ -1,4 +1,5 @@
 import { Group, Stack, Alert, Text, Modal, ActionIcon, Tooltip, List } from '@mantine/core';
+import { connectionVHostChoices } from '@/lib/vhostChoices';
 import { useNavigate } from '@tanstack/react-router';
 import { useVHost } from '@/context/VHostContext';
 import { SecretNamesContext } from '@/components/shared/TemplateField';
@@ -22,7 +23,6 @@ async function fetchList(url: string): Promise<{ data: any[]; total: number }> {
   if (res.ok) return res.json();
   return { data: [], total: 0 };
 }
-const ADMIN_ROLE = 'Administrator' as const;
 
 export const SOURCE_TYPES = [
   { value: 'postgres', label: 'PostgreSQL' , group: 'Databases' },
@@ -176,9 +176,7 @@ export function SourceForm({
   const allSources = sourcesResponse.data?.data || [];
   const workspaces = Array.isArray(workspacesResponse.data) ? workspacesResponse.data : [];
 
-  const availableVHostsList: string[] = role === ADMIN_ROLE
-    ? vhosts.map((v: VHost) => v.name)
-    : (availableVHosts || []);
+  const availableVHostsList: string[] = connectionVHostChoices(role, vhosts as VHost[], availableVHosts || []);
 
   const useCDCChecked = source.config?.use_cdc !== 'false';
 

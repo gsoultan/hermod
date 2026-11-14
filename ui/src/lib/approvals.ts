@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '@/api'
 import { getSessionRole, getSessionUser } from '@/auth/session'
 import {
-  environmentKeys, groupByRelease, listLinks, listPromotions, listSent, listVHostRequests, getRules, releaseStatus,
+  environmentKeys, groupByRelease, listLinks, listPromotions, listSent, listVHostRequests, getRules, releaseStatus, sentByMeForAnother,
   type Link, type Promotion, type Rules,
 } from '@/lib/environments'
 
@@ -64,7 +64,8 @@ export function waitingApprovals(w: WaitingInput): Waiting {
       (w.rules?.by_vhost?.[p.vhost]?.approval ?? w.rules?.approval) === 'admin_except_sender' && p.sender.toLowerCase() === me
     releases += groupByRelease(list<Promotion>(w.received)).filter((ps) => releaseStatus(ps) === 'pending' && !mineToSkip(ps[0])).length
     const deciding = new Set(list<Link>(w.links).filter((l) => l.decide).map((l) => l.id))
-    releases += groupByRelease(list<Promotion>(w.sent)).filter((ps) => releaseStatus(ps) === 'pending' && deciding.has(ps[0].peer_id)).length
+    releases += groupByRelease(list<Promotion>(w.sent))
+      .filter((ps) => releaseStatus(ps) === 'pending' && deciding.has(ps[0].peer_id) && !sentByMeForAnother(ps[0], w.username)).length
     requests = w.vhostRequests
   }
   return { releases, held, requests, total: releases + held + requests }

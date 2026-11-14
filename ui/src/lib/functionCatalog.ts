@@ -152,3 +152,53 @@ export function notFunctions(value: string): NotAFunction[] {
   }
   return [...found.values()]
 }
+
+/** Every argument of every call in `expression`, nested calls included. */
+function callArguments(expression: string, out: string[]) {
+  const text = expression.trim()
+  const open = text.indexOf('(')
+  if (open <= 0 || !text.endsWith(')') || !/^[A-Za-z0-9_]+$/.test(text.slice(0, open).trim())) return
+  for (const argument of splitArguments(text.slice(open + 1, -1))) {
+    const a = argument.trim()
+    out.push(a)
+    callArguments(a, out)
+  }
+}
+
+/**
+ * What to say under a "field or expression" input -- a condition's Field, a
+ * Switch's field -- when the engine will read it as nothing: a function it does
+ * not have, or a field written bare inside a call. The engine reads a bare
+ * `users` there as the text "users", so array_len(users) is null; it has to be
+ * source.users. Only names in `fieldPaths` count as fields, so an argument such
+ * as `day` or `md5` is left alone.
+ *
+ * Either mistake makes the condition compare null with its value: false for
+ * every record, with no error anywhere to say why.
+ */
+export function expressionWarning(value: string, fieldPaths: readonly string[]): string | undefined {
+  const text = (value ?? '').trim()
+  if (!text) return undefined
+
+  const [unknown] = notFunctions(text)
+  if (unknown) {
+    const meant = unknown.suggestion ? ` Did you mean ${unknown.suggestion}()?` : ''
+    return unknown.becomes === 'text'
+      ? `${unknown.name} is not a function, so this is read as the text you see, not as a call.${meant}`
+      : `There is no function named ${unknown.name}, so it gives nothing and the comparison never holds.${meant}`
+  }
+
+  const fields = new Set(fieldPaths)
+  const expressions = text.includes('{{')
+    ? [...text.matchAll(/\{\{((?:(?!\}\}).)*)\}\}/gs)].map(([, inner]) => inner.trim().replace(/^\./, ''))
+    : [text]
+  for (const expression of expressions) {
+    const args: string[] = []
+    callArguments(expression, args)
+    const bare = args.find((a) => fields.has(a))
+    if (bare) {
+      return `Inside a function, ${bare} is read as the text "${bare}", not as the field. Write source.${bare} to read the field.`
+    }
+  }
+  return undefined
+}

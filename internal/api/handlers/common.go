@@ -867,6 +867,7 @@ func (h *Handler) RecordAuditLog(r *http.Request, level, message, action string,
 		EntityID:   entityID,
 		Payload:    payloadStr,
 		IP:         ip,
+		VHost:      h.auditVHost(ctx, entityType, entityID, payloadStr),
 	}
 	_ = h.LogStorage.CreateAuditLog(ctx, audit)
 }

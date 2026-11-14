@@ -1,6 +1,6 @@
 import { IconDots, IconEdit, IconHierarchy, IconPlus, IconTrash } from '@tabler/icons-react';
 import { useState } from 'react'
-import { ActionIcon, Box, Button, Group, Menu, Pagination, Paper } from '@mantine/core'
+import { ActionIcon, Box, Button, Group, Menu, Modal, Pagination, Paper } from '@mantine/core'
 import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/api'
 import { Link, useNavigate } from '@tanstack/react-router'
@@ -8,6 +8,7 @@ import type { VHost } from '@/types'
 import { useConfirm } from '@/components/common/ConfirmProvider';
 import { EmptyState, FilterBar, Row, RowList } from '@/components/rows';
 import { AdminListHeader } from './AdminListHeader';
+import { VHostRetentionForm } from '@/components/forms/VHostRetentionForm';
 
 export function VHostsPage({ embedded = false }: { embedded?: boolean }) {
   const confirm = useConfirm();
@@ -16,6 +17,7 @@ export function VHostsPage({ embedded = false }: { embedded?: boolean }) {
   const [search, setSearch] = useState('')
   const [activePage, setPage] = useState(1)
   const itemsPerPage = 30
+  const [defaultRetentionOpen, setDefaultRetentionOpen] = useState(false)
 
   const { data: vhostsResponse } = useSuspenseQuery<any>({
     queryKey: ['vhosts', activePage, search],
@@ -53,8 +55,18 @@ export function VHostsPage({ embedded = false }: { embedded?: boolean }) {
         title="Virtual hosts"
         lede="Keep environments, projects or teams apart inside one Hermod"
         back={{ to: '/settings', label: 'Back to settings', search: { tab: 'vhosts' } }}
-        actions={<Button leftSection={<IconPlus size="1rem" />} onClick={() => navigate({ to: '/vhosts/new' })}>Add virtual host</Button>}
+        actions={
+          <Group gap="sm">
+            <Button variant="default" onClick={() => setDefaultRetentionOpen(true)}>Default retention</Button>
+            <Button leftSection={<IconPlus size="1rem" />} onClick={() => navigate({ to: '/vhosts/new' })}>Add virtual host</Button>
+          </Group>
+        }
       />
+      {/* "default" holds every workflow that was given no virtual host and has
+          no row to open, so its retention is set from here. */}
+      <Modal opened={defaultRetentionOpen} onClose={() => setDefaultRetentionOpen(false)} title="History retention of the default virtual host" size="lg">
+        <VHostRetentionForm vhost="default" />
+      </Modal>
       <FilterBar search={{ value: search, onChange: (v) => { setSearch(v); setPage(1) }, placeholder: 'Search virtual hosts' }} />
 
       {vhosts.length === 0 ? (

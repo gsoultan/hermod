@@ -404,7 +404,7 @@ func (s *Service) matchRefs(ctx context.Context, l Link, wf storage.Workflow, ta
 func connectionsCheck(l Link, total, carried int, unmatched, blocked []string) Check {
 	var why []string
 	if len(unmatched) > 0 {
-		why = append(why, "Match these in Settings › Environments: "+strings.Join(unmatched, ", "))
+		why = append(why, "Match these in Settings › Workspace › Environments: "+strings.Join(unmatched, ", "))
 	}
 	if len(blocked) > 0 {
 		why = append(why, "Move these credentials to a secret so the connection can be created there: "+strings.Join(blocked, "; "))
@@ -439,7 +439,7 @@ func presenceChecks(l Link, res CheckResult, secretNames, envNames []string) []C
 		c := Check{Name: "Secrets exist in " + l.Name, OK: len(res.MissingSecrets) == 0}
 		if !c.OK {
 			c.Detail = "Not found in the vhost's secrets there: " + strings.Join(res.MissingSecrets, ", ") +
-				". Only their names are sent; the admin who approves it there fills in the values (or leaves them blank when a secret manager serves them)."
+				". You can type its value for there before sending; otherwise the approver there does (leave it blank when a secret manager serves it)."
 		}
 		out = append(out, c)
 	}
@@ -528,7 +528,7 @@ func (s *Service) Promote(ctx context.Context, linkID, workflowID, sender string
 	if err != nil {
 		return Promotion{}, err
 	}
-	sent.PeerID, sent.FromEnv, sent.VHost = l.ID, l.Name, p.VHost
+	sent.PeerID, sent.FromEnv, sent.VHost, sent.Approval = l.ID, l.Name, p.VHost, p.Rules.Approval
 	return sent, s.recordSent(ctx, sent)
 }
 
