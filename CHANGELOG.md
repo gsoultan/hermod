@@ -7,6 +7,31 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Security — the history of received webhooks needed no login
+
+`GET /api/webhooks/requests` answered anyone who could reach the API port with the headers and
+body of the last requests every webhook had received. Everything under `/api/webhooks/` is public
+so that a sender with no session can deliver, and the history is served from under the same
+prefix. It now needs a session, as does `POST /api/webhooks/requests/{id}/replay`. A caller who is
+not an administrator sees and replays only the requests of webhooks in the vhosts they may see;
+the history of a path whose source was deleted is an administrator's. Delivering to a webhook is
+unchanged. **If your API port was reachable by people who should not read webhook payloads, treat
+what those webhooks received as disclosed.**
+
+### Added — the Transactional SQL sink: dependent writes to several tables in one transaction
+
+A new sink, `txsql`, runs an ordered list of `INSERT`, `UPDATE`, `DELETE`, `MERGE` or `SELECT`
+statements against one database inside one transaction, and lets a later statement use what an
+earlier one returned: `{{order.id}}` from an `INSERT ... RETURNING id`, `OUTPUT inserted.id` on SQL
+Server, or the last-insert id on MySQL. `forEach` runs a statement once per element of a list, so
+an order and its lines are one message and one transaction. If any statement fails, nothing is
+written. A data error is parked in the dead-letter sink with the failing statement's name, while
+the rest of the batch commits; a deadlock or lost connection is retried. A variable that resolves
+to nothing refuses the message by default (`on_unresolved: null` binds NULL instead), and
+`expect: one` refuses an empty `RETURNING`, so a child is never written with a NULL parent. Runs on
+PostgreSQL, YugabyteDB, MySQL, MariaDB, SQL Server and SQLite, with live tests against the first
+three. It has no editor form yet. See [Transactional SQL sink](docs/transactional-sql-sink.md).
+
 ### Security — connector credentials were written to the activity log in the clear
 
 Creating or updating a source, a sink or a workflow records the saved object in the activity log
@@ -22,20 +47,6 @@ connector encryption already treats as one, read in snake_case, camelCase or hea
 Rows written before this change are not rewritten. Rotate any credential saved through the UI
 before upgrading if the activity log was readable by someone who should not hold it, or delete the
 old rows.
-
-### Added — the Transactional SQL sink: dependent writes to several tables in one transaction
-
-A new sink, `txsql`, runs an ordered list of `INSERT`, `UPDATE`, `DELETE`, `MERGE` or `SELECT`
-statements against one database inside one transaction, and lets a later statement use what an
-earlier one returned: `{{order.id}}` from an `INSERT ... RETURNING id`, `OUTPUT inserted.id` on SQL
-Server, or the last-insert id on MySQL. `forEach` runs a statement once per element of a list, so
-an order and its lines are one message and one transaction. If any statement fails, nothing is
-written. A data error is parked in the dead-letter sink with the failing statement's name, while
-the rest of the batch commits; a deadlock or lost connection is retried. A variable that resolves
-to nothing refuses the message by default (`on_unresolved: null` binds NULL instead), and
-`expect: one` refuses an empty `RETURNING`, so a child is never written with a NULL parent. Runs on
-PostgreSQL, YugabyteDB, MySQL, MariaDB, SQL Server and SQLite, with live tests against the first
-three. It has no editor form yet. See [Transactional SQL sink](docs/transactional-sql-sink.md).
 
 ### Added — an optional AI explanation of a workflow's recommendations
 
