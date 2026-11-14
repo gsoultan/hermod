@@ -290,10 +290,27 @@ jobs:
       # reason each vulnerable path is unreachable, and still fails on anything
       # unexempted. A gate that is permanently red because of one unfixable
       # upstream advisory is a gate everyone learns to ignore.
+      # The scan builds a call graph of the whole program. Loading the packages
+      # alone takes 5.7 GB, measured, and on the runners where the rest does
+      # not fit the step did not fail: it sat in swap for 46 minutes until the
+      # runner stopped answering and the job ended with no log at all, against
+      # 10 minutes for the whole job when it fits.
+      #
+      # GOMEMLIMIT is set from the runner's own memory so the collector runs
+      # before the heap spills into swap instead of after; without it the heap
+      # is allowed to double between collections, and the garbage is what
+      # swaps. It is a soft limit, so a scan that truly needs more still gets
+      # it. The time limit is what turns a hang into a failure that has a log,
+      # and /usr/bin/time prints the peak memory, so the next change to this
+      # step starts from a number.
       - name: Govulncheck
+        timeout-minutes: 25
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
-          ./scripts/govulncheck.sh
+          mem_kb="$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)"
+          export GOMEMLIMIT="$((mem_kb * 3 / 4 / 1024))MiB"
+          echo "runner memory: $((mem_kb / 1024)) MiB, GOMEMLIMIT=$GOMEMLIMIT"
+          /usr/bin/time -v ./scripts/govulncheck.sh
       # security-check.sh shells out to golangci-lint by name (its static-
       # analysis step), and this job no longer inherits the binary from the
       # lint action next door. GOLANGCI_LINT_VERSION is the same value Verify
