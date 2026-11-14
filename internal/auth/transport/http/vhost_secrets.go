@@ -99,7 +99,7 @@ func (h *AuthHandler) PutVHostSecret(w http.ResponseWriter, r *http.Request) {
 	}
 	h.forgetCachedVHostSecret(vhost, secret.Name)
 	h.RecordAuditLog(r, "INFO", "Saved secret "+secret.Name+" in vhost "+vhost, "update", vhost, "vhost", "",
-		map[string]string{"secret": secret.Name})
+		map[string]string{"secret_name": secret.Name})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -120,7 +120,7 @@ func (h *AuthHandler) DeleteVHostSecret(w http.ResponseWriter, r *http.Request) 
 	}
 	h.forgetCachedVHostSecret(vhost, name)
 	h.RecordAuditLog(r, "INFO", "Deleted secret "+name+" in vhost "+vhost, "delete", vhost, "vhost", "",
-		map[string]string{"secret": name})
+		map[string]string{"secret_name": name})
 	w.WriteHeader(http.StatusNoContent)
 }
 

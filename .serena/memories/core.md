@@ -291,6 +291,9 @@ find a claim that outruns the code, fix the claim.
   The engine marks each message with its workflow's vhost (not data, not
   metadata); the API never returns a value, so the preview endpoints are where
   the vhost check matters. Test Connection still reads the global manager only.
+- [Audit trail redaction](audit_trail_redaction.md) — `RecordAuditLog` writes to
+  `logs.data` and `audit_logs.payload`; credentials become `[REDACTED]` by the
+  `configsecrets` key rule read in any spelling.
 - [Branches that meet again](branch_rejoin_join_barrier.md) — the join
   barrier pruned a node whose last in-edge was a prune even with a message
   waiting in it, so a condition's straight-to-sink branch lost every message
