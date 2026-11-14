@@ -22,14 +22,14 @@ import (
 	"github.com/gsoultan/hermod/internal/engine/registry"
 )
 
-func previewStatus(t *testing.T, ctx context.Context, transformation map[string]any) (int, string) {
+func previewStatus(t *testing.T, transformation map[string]any) (int, string) {
 	t.Helper()
 	body, _ := json.Marshal(map[string]any{
 		"transformation": transformation,
 		"message":        map[string]any{"id": "m", "operation": "create", "table": "t", "after": map[string]any{"name": "ana"}},
 	})
 	h := &WorkflowHandler{Handler: &handlers.Handler{Registry: &registry.Registry{}}}
-	req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/transformations/test", bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/transformations/test", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
 	h.TestTransformation(rec, req)
 	return rec.Code, rec.Body.String()
@@ -46,7 +46,7 @@ func TestPreviewOfAStepThatCannotRunIsNotAServerError(t *testing.T) {
 		"a type nothing is registered for": {"type": "no_such_step", "config": map[string]any{}},
 		"a pipeline holding a broken step": {"type": "transformation", "config": map[string]any{"transType": "pipeline", "steps": string(steps)}},
 	} {
-		code, body := previewStatus(t, t.Context(), transformation)
+		code, body := previewStatus(t, transformation)
 		if code != http.StatusUnprocessableEntity {
 			t.Errorf("%s: status %d, want 422: %s", name, code, body)
 		}
