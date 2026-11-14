@@ -38,6 +38,7 @@ async function openSetFields(page: Page) {
   };
   const source = await post('/api/sources', {
     name: `escape-src-${stamp}`, type: 'webhook', vhost: 'default', active: false, config: { path: `/escape-${stamp}` },
+    sample: JSON.stringify({ id: 7, city: 'Jakarta' }),
   });
   created.sources.push(source.id);
   const workflow = await post('/api/workflows', {
@@ -46,10 +47,10 @@ async function openSetFields(page: Page) {
       { id: 'n-src', type: 'source', ref_id: source.id, x: 100, y: 100 },
       {
         id: 'n-set', type: 'transformation', x: 400, y: 100,
-        config: { transType: 'set', lastSample: { id: 7, city: 'Jakarta' }, 'column.note': 'source.city' },
+        config: { transType: 'set', 'column.note': 'source.city' },
       },
     ],
-    edges: [],
+    edges: [{ id: 'e-src-set', source_id: 'n-src', target_id: 'n-set' }],
   });
   created.workflows.push(workflow.id);
 

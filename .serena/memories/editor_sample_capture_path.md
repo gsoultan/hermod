@@ -68,8 +68,10 @@ two-source workflow is no longer previewed with one branch's data on both.
   writes it into the source node and saving the workflow stores it in the
   node's config, but the refresh icon and auto-capture write only the source
   record. Checked first, it made a refresh change nothing downstream. Now it
-  is the last resort. Two workflows sharing one source each keep their own copy
-  (seen in `hermod_metadata`).
+  is the last resort. Since the saved-workflow cleanup it is no longer
+  persisted at all: `nodeclean` drops `lastSample` and `testResult` on save,
+  on read and in the start-up sweep, so the only lasting sample is the source
+  record's own `sample` (see `workflow_node_hygiene.md`).
 - **Creating a workflow without a sink only warns; running one is refused.**
   `workflow_validation.go` treats a missing sink as a warning, and
   `Registry.ValidateWorkflow` rejects it ("no sink node reachable from any

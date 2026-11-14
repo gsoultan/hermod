@@ -25,6 +25,9 @@ find a claim that outruns the code, fix the claim.
 
 ### Memories
 
+- [What a saved workflow node may hold](workflow_node_hygiene.md) — `nodeclean`
+  drops connection copies and editor state, moves typed step credentials to
+  `WF_…` vhost secrets, and sweeps old rows at start-up; the UI mirror.
 - [Self-update](self_update.md) — Settings → Updates: GitHub release check,
   automatic/manual/off, checksum + `--version` smoke test, atomic swap, exit 75
   restart, and the boot guard that rolls back after three failed starts.

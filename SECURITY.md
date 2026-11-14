@@ -370,6 +370,28 @@ and the UI. Someone who can author a workflow that uses a secret can read it in
 that workflow's preview, or send it wherever the workflow sends data. Give the
 Editor role on a vhost only to people who may know its secrets.
 
+### A saved workflow holds no credential
+
+A workflow's stored JSON (`workflows.nodes`, each workflow version, an export
+and a promotion) keeps only what the engine runs (`internal/storage/nodeclean`):
+
+- **Sources and sinks:** a node holds its label and type. The connection,
+  password included, lives encrypted in the source or sink's own row and is
+  never copied into the workflow.
+- **Typed step credentials:** a password, token, auth header or API key typed
+  into an API lookup, Redis lookup or AI step is saved as a vhost secret named
+  `WF_<workflow>_<step>_<FIELD>` in the workflow's vhost, and the step keeps
+  `{{secret.WF_…}}`. A value that is already a `{{ }}` reference is kept.
+- **Editor state:** a step's captured sample and test result are not stored.
+- **Read and start-up:** reads apply the same rule, and start-up rewrites rows
+  saved before it, once (SQL and MongoDB).
+- **Export and promotion:** any credential still in a step is replaced with
+  `[REDACTED]`. The export bundle's `sources` and `sinks` still carry their
+  connection settings so an import can recreate them.
+
+The encrypt step's `key` is not moved: it is not read as a template, so a
+`{{secret.…}}` there would not resolve, and it is still stored as typed.
+
 ### A table name can come from a message
 
 When a SQL sink is not pinned to a table it takes one from the message, and a

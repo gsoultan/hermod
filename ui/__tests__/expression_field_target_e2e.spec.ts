@@ -38,7 +38,7 @@ test('a function on a Mapping field keeps its result in a real field', async ({ 
 
   const sourceRes = await apiRequest(page, '/api/sources', {
     method: 'POST',
-    body: { name: `map-fn-src-${stamp}`, type: 'webhook', vhost: 'default', active: false, config: { path: `/map-fn-${stamp}` } },
+    body: { name: `map-fn-src-${stamp}`, type: 'webhook', vhost: 'default', active: false, config: { path: `/map-fn-${stamp}` }, sample: JSON.stringify(ROW) },
   });
   expect(sourceRes.status, sourceRes.body).toBeLessThan(400);
   const source = JSON.parse(sourceRes.body);
@@ -48,9 +48,9 @@ test('a function on a Mapping field keeps its result in a real field', async ({ 
     name: `map-fn-${stamp}`, vhost: 'default', active: false,
     nodes: [
       { id: 'n-src', type: 'source', ref_id: source.id, x: 100, y: 100 },
-      { id: 'n-map', type: 'transformation', x: 400, y: 100, config: { transType: 'mapping', lastSample: ROW, mapping: MAPPING, ...config } },
+      { id: 'n-map', type: 'transformation', x: 400, y: 100, config: { transType: 'mapping', mapping: MAPPING, ...config } },
     ],
-    edges: [],
+    edges: [{ id: 'e-src-map', source_id: 'n-src', target_id: 'n-map' }],
   });
 
   // A call with nowhere to write is refused when the workflow is saved, not

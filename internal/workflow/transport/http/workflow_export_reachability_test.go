@@ -272,15 +272,15 @@ func TestExportLeavesSampledRowsBehind(t *testing.T) {
 		t.Errorf("the export dropped node configuration along with the samples: %v", configs)
 	}
 
-	// Stripping is for the export only: the stored workflow keeps what the
-	// editor reads.
+	// The stored workflow does not keep them either: a sampled row is the
+	// source's (sources.sample), never the workflow's (nodeclean).
 	stored, err := store.GetWorkflow(ctx, "wf-samples")
 	if err != nil {
 		t.Fatalf("re-read workflow: %v", err)
 	}
 	for _, n := range stored.Nodes {
-		if n.ID == "n-src" && n.Config["lastSample"] == nil {
-			t.Error("exporting the workflow deleted lastSample from the stored copy")
+		if n.Config["lastSample"] != nil || n.Config["testResult"] != nil {
+			t.Errorf("the stored workflow keeps a sampled row on %s", n.ID)
 		}
 	}
 }

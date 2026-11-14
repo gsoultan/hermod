@@ -34,6 +34,7 @@ import (
 	"github.com/gsoultan/hermod/internal/lineage"
 	lineagehttp "github.com/gsoultan/hermod/internal/lineage/transport/http"
 	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/internal/storage/nodeclean"
 	"github.com/gsoultan/hermod/internal/workflow/redact"
 	"github.com/gsoultan/hermod/pkg/comm/message"
 	"github.com/gsoultan/hermod/pkg/comm/transformer/security"
@@ -1070,6 +1071,7 @@ func (h *WorkflowHandler) CreateWorkflow(w http.ResponseWriter, r *http.Request)
 		_ = h.recordVersion(r.Context(), wf, 1, username, "Created")
 	}
 
+	wf = h.asSaved(r.Context(), wf)
 	h.RecordAuditLog(r, "INFO", "Created workflow "+wf.Name, "CREATE", wf.ID, "", "", wf)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1126,10 +1128,37 @@ func (h *WorkflowHandler) UpdateWorkflow(w http.ResponseWriter, r *http.Request)
 
 	_ = h.recordVersion(r.Context(), wf, nextVersion, username, "Auto-saved on update")
 
+	wf = h.asSaved(r.Context(), wf)
 	h.RecordAuditLog(r, "INFO", "Updated workflow "+wf.Name, "UPDATE", wf.ID, "", "", wf)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(wf)
+}
+
+// asSaved is sent as storage kept it. Storage removes what a saved node may
+// not hold and moves credentials typed into steps into the vhost's secrets,
+// so the editor is answered with the {{secret.NAME}} it now holds rather than
+// the plaintext it sent, and a value cached under one of those names is
+// forgotten so the next message reads the new one.
+func (h *WorkflowHandler) asSaved(ctx context.Context, sent storage.Workflow) storage.Workflow {
+	saved, err := h.Storage.GetWorkflow(ctx, sent.ID)
+	if err != nil {
+		// Never echo a credential back, even when the re-read failed.
+		saved = sent
+		saved.Nodes, _ = nodeclean.Nodes(sent.Nodes)
+		saved.Nodes = redact.StepCredentials(saved.Nodes)
+		return saved
+	}
+	if h.Registry != nil {
+		vhost := saved.VHost
+		if vhost == "" {
+			vhost = "default"
+		}
+		for _, name := range nodeclean.MovedSecrets(sent.Nodes, saved.Nodes) {
+			h.Registry.InvalidateVHostSecret(vhost, name)
+		}
+	}
+	return saved
 }
 
 func (h *WorkflowHandler) DeleteWorkflow(w http.ResponseWriter, r *http.Request) {
@@ -1751,7 +1780,10 @@ func stripWorkflowRuntime(wf storage.Workflow) storage.Workflow {
 	wf.TotalLag = 0
 	// A provider key typed into an AI node is a credential, and a bundle is
 	// downloaded, shared and committed. A {{secret("NAME")}} reference stays.
-	wf.Nodes = redact.AIKeys(stripCapturedSamples(wf.Nodes))
+	// Storage moves a typed step credential into a secret when it saves one,
+	// so StepCredentials only meets a workflow a store without secrets kept.
+	nodes, _ := nodeclean.Nodes(stripCapturedSamples(wf.Nodes))
+	wf.Nodes = redact.StepCredentials(redact.AIKeys(nodes))
 	return wf
 }
 

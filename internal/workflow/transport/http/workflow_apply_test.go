@@ -16,6 +16,7 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/gsoultan/hermod/internal/api/handlers"
@@ -189,5 +190,35 @@ func TestPortableDropsRuntimeColumns(t *testing.T) {
 	}
 	if err := h.Validate(t.Context(), got); err != nil {
 		t.Fatalf("Validate: %v", err)
+	}
+}
+
+// A version is the workflow's configuration. Its run state (status, lease,
+// counters) is a fact about the moment it was saved, and a rollback that
+// restored it set a running workflow's status and counters back in time.
+func TestAVersionKeepsNoRunStateAndARollbackKeepsTodays(t *testing.T) {
+	st, h, _ := newApplyFixture(t)
+	before := retried(validWorkflow("wf", "orders", ""), 2)
+	before.Status, before.OwnerID, before.TotalProcessed = "Stopped", "old-owner", 10
+	st.workflows["wf"] = before
+	if _, _, err := h.ApplyWorkflowChange(t.Context(), before, retried(before, 7), "ada", "m"); err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range st.versions {
+		for _, junk := range []string{`"status":"Stopped"`, `"owner_id":"old-owner"`, `"total_processed":10`} {
+			if strings.Contains(v.Config, junk) {
+				t.Errorf("version %d keeps %s: %s", v.Version, junk, v.Config)
+			}
+		}
+	}
+	now := st.workflows["wf"]
+	now.Status, now.OwnerID, now.TotalProcessed = "Running", "owner-now", 99
+	st.workflows["wf"] = now
+	if _, err := h.RollbackWorkflowTo(t.Context(), "wf", 1, "rina"); err != nil {
+		t.Fatal(err)
+	}
+	got := st.workflows["wf"]
+	if got.MaxRetries != 2 || got.Status != "Running" || got.OwnerID != "owner-now" || got.TotalProcessed != 99 {
+		t.Fatalf("after rollback: retries %d status %q owner %q processed %d", got.MaxRetries, got.Status, got.OwnerID, got.TotalProcessed)
 	}
 }

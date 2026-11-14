@@ -25,7 +25,9 @@ test.afterEach(async ({ page }) => {
 });
 
 /** Saves a workflow holding one transformation node and opens that node. */
-async function openNode(page: Page, name: string, config: Record<string, unknown>) {
+// The node previews the source's own sample, wired into it: a workflow does
+// not keep sampled rows in its nodes (internal/storage/nodeclean).
+async function openNode(page: Page, name: string, sample: Record<string, unknown>, config: Record<string, unknown>) {
   await login(page);
   const stamp = Date.now();
   const post = async (path: string, body: unknown) => {
@@ -35,6 +37,7 @@ async function openNode(page: Page, name: string, config: Record<string, unknown
   };
   const source = await post('/api/sources', {
     name: `${name}-src-${stamp}`, type: 'webhook', vhost: 'default', active: false, config: { path: `/${name}-${stamp}` },
+    sample: JSON.stringify(sample),
   });
   created.sources.push(source.id);
   const workflow = await post('/api/workflows', {
@@ -43,7 +46,7 @@ async function openNode(page: Page, name: string, config: Record<string, unknown
       { id: 'n-src', type: 'source', ref_id: source.id, x: 100, y: 100 },
       { id: 'n-node', type: 'transformation', x: 400, y: 100, config },
     ],
-    edges: [],
+    edges: [{ id: 'e-src-node', source_id: 'n-src', target_id: 'n-node' }],
   });
   created.workflows.push(workflow.id);
 
@@ -56,7 +59,7 @@ async function openNode(page: Page, name: string, config: Record<string, unknown
 
 test('options typed into a Fuzzy Lookup are what it matches against', async ({ page }) => {
   test.setTimeout(120000);
-  await openNode(page, 'fuzzy-opts', { transType: 'fuzzy_lookup', lastSample: { id: 7, city: 'jakrta' }, field: 'city' });
+  await openNode(page, 'fuzzy-opts', { id: 7, city: 'jakrta' }, { transType: 'fuzzy_lookup', field: 'city' });
 
   const options = page.getByRole('textbox', { name: 'Options (JSON Array)' });
   const preview = page.getByTestId('live-preview');
@@ -76,9 +79,8 @@ test('options typed into a Fuzzy Lookup are what it matches against', async ({ p
 
 test('the word length and stop words set on a Term Extraction are the ones it uses', async ({ page }) => {
   test.setTimeout(120000);
-  await openNode(page, 'term-settings', {
+  await openNode(page, 'term-settings', { id: 7, note: 'The urgent refund was for an old order' }, {
     transType: 'term_extraction',
-    lastSample: { id: 7, note: 'The urgent refund was for an old order' },
     field: 'note',
   });
 
