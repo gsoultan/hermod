@@ -43,7 +43,10 @@ func (testStore) CreateAuditLog(context.Context, storage.AuditLog) error { retur
 func (testStore) CreateLog(context.Context, storage.Log) error           { return nil }
 
 var users = map[string]*storage.User{
-	"admin":  {ID: "u-admin", Username: "root", Role: storage.RoleAdministrator, VHosts: []string{"*"}},
+	"admin": {ID: "u-admin", Username: "root", Role: storage.RoleAdministrator, VHosts: []string{"*"}},
+	// owner is the administrator first-run setup creates: no vhosts are
+	// listed, because an Administrator has every one.
+	"owner":  {ID: "u-owner", Username: "owner", Role: storage.RoleAdministrator},
 	"editor": {ID: "u-ed", Username: "ada", Role: storage.RoleEditor, VHosts: []string{"default"}},
 	"viewer": {ID: "u-vw", Username: "vic", Role: storage.RoleViewer, VHosts: []string{"default"}},
 }

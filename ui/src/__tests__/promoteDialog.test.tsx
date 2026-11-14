@@ -249,7 +249,7 @@ describe('the promote dialog', () => {
     wrap(<ReleaseDialog opened onClose={() => {}} items={[{ workflow_id: 'wf-1', version: 0 }]} />)
 
     expect(await screen.findByText('3 things to fix before sending')).toBeInTheDocument()
-    expect(screen.getByText('An administrator matches it here, or in Settings › Environments.')).toBeInTheDocument()
+    expect(screen.getByText('An administrator matches it here, or in Settings › Workspace › Environments.')).toBeInTheDocument()
     expect(screen.getByText('2. REGION is not set on the Production server')).toBeInTheDocument()
     expect(screen.getByText('HERMOD_ENV_REGION')).toBeInTheDocument()
     expect(screen.getByText(/Production wants 60/)).toBeInTheDocument()
@@ -378,6 +378,23 @@ describe('the flow page strip', () => {
 
     wrap(<Strip id="wf-2" vhost="hr" />)
     expect(await screen.findByText('not there yet')).toBeInTheDocument()
+  })
+
+  it('does not call a version up to date while it waits for approval or after it was undone', async () => {
+    const sentAs = (status: string) => server.use(http.get('/api/environments/sent', () => HttpResponse.json([
+      { id: 'pr-2', peer_id: 'l-1', from_env: 'Production', workflow_id: 'wf-7', workflow_name: 'audit', vhost: 'hr',
+        from_version: 5, sender: 'ada', start: true, auto_rollback: true, status, created_at: '2026-11-14T04:21:13Z' },
+    ])))
+    sentAs('pending')
+    const { unmount } = wrap(<Strip id="wf-7" vhost="hr" />)
+    expect(await screen.findByText('v5 waits for approval there')).toBeInTheDocument()
+    expect(screen.queryByText('Up to date')).not.toBeInTheDocument()
+    unmount()
+
+    sentAs('rolled_back')
+    wrap(<Strip id="wf-7" vhost="hr" />)
+    expect(await screen.findByText('v5 was undone there')).toBeInTheDocument()
+    expect(screen.queryByText('Up to date')).not.toBeInTheDocument()
   })
 
   it('says up to date, and shows nothing where no environment is connected', async () => {

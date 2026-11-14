@@ -64,6 +64,16 @@ describe('what is waiting for you', () => {
     expect(waitingApprovals({ ...none, role: 'Administrator', username: 'root', sent, links }).releases).toBe(1)
   })
 
+  it('leaves out a release you sent from here when production wants another administrator', () => {
+    const sent = [
+      promo({ id: 'a', peer_id: 'l-1', release_id: 'r1', sender: 'Root', approval: 'admin_except_sender' }),
+      promo({ id: 'b', peer_id: 'l-1', release_id: 'r2', sender: 'root', approval: 'any_admin' }),
+      promo({ id: 'c', peer_id: 'l-1', release_id: 'r3', sender: 'grace', approval: 'admin_except_sender' }),
+    ]
+    const links = [link({ id: 'l-1', decide: true })]
+    expect(waitingApprovals({ ...none, role: 'Administrator', username: 'root', sent, links }).releases).toBe(2)
+  })
+
   it('adds held messages and connection requests to the total', () => {
     const w = waitingApprovals({ ...none, role: 'Administrator', username: 'root', held: 3, vhostRequests: 1 })
     expect(w).toEqual({ releases: 0, held: 3, requests: 1, total: 4 })

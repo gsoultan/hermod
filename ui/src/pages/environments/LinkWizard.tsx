@@ -159,7 +159,7 @@ export function LinkWizard({ opened, onClose, links = [], onAddVHosts }: LinkWiz
             </Button>
             <Divider label="or use a pairing code" labelPosition="center" />
             <Text size="sm" c="dimmed">
-              Someone else can create a code in {host} under Settings › Environments › Create pairing code, and read it
+              Someone else can create a code in {host} under Settings › Workspace › Environments › Create pairing code, and read it
               to you. A code works once, for 10 minutes, and its workflows land in the vhost it was made for.
             </Text>
             <Group align="flex-end">
