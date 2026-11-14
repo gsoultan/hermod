@@ -289,6 +289,23 @@ func (h *Handler) HasVHostAccess(vhost string, allowedVHosts []string) bool {
 	return false
 }
 
+// isWebhookHistoryPath reports whether path is the stored history of what
+// webhooks received, or the replay of one entry of it. Both live under
+// /api/webhooks/, which is public because a webhook's sender has no session;
+// these two are read by people, and need one.
+func isWebhookHistoryPath(path string) bool {
+	const history = "/api/webhooks/requests"
+	if path == history {
+		return true
+	}
+	rest, ok := strings.CutPrefix(path, history+"/")
+	if !ok {
+		return false
+	}
+	id, ok := strings.CutSuffix(rest, "/replay")
+	return ok && id != "" && !strings.Contains(id, "/")
+}
+
 func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
@@ -305,7 +322,7 @@ func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 			path == "/api/auth/2fa/setup/pending" ||
 			path == "/api/auth/2fa/verify/pending" ||
 			path == "/api/config/status" || path == "/api/version" ||
-			strings.HasPrefix(path, "/api/webhooks/") ||
+			(strings.HasPrefix(path, "/api/webhooks/") && !isWebhookHistoryPath(path)) ||
 			strings.HasPrefix(path, "/api/forms/") ||
 			// A chat source's API key, widget key, Slack signing secret or
 			// Telegram secret token is this endpoint's credential, checked by
