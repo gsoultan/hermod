@@ -149,6 +149,8 @@ export const detailNodeTypes = {
   switch: StepNode,
   router: StepNode,
   merge: StepNode,
+  join: StepNode,
+  circuit_breaker: StepNode,
   stateful: StepNode,
   wait: StepNode,
   foreach: StepNode,

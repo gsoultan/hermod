@@ -129,6 +129,13 @@ default) messages can ever occupy. A completely stuck sink read 12.7% full, or 2
 batching, so the backpressure warning at 80% could not appear. Fill is now measured against what
 can actually queue.
 
+### Fixed — Stateful Join and Circuit Breaker were drawn as blank boxes
+
+Both steps are in the editor's palette and run on the engine, but neither canvas had a renderer for
+them. React Flow drew its default node instead: a bare box with no name, no icon and no "+" to
+connect the next step, and a console warning on every render. The editor and the workflow detail
+page now draw them like every other step.
+
 ### Security — the public webhook endpoint, request body limits and FTPS certificates
 
 - **Webhook bodies are bounded.** `/api/webhooks/...` read a body of any size and inflated any
