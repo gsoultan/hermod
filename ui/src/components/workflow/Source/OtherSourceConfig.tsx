@@ -51,7 +51,7 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
         <CronInput 
           label="Cron Schedule" 
           placeholder="*/5 * * * *" 
-          value={config.schedule} 
+          value={config.schedule ?? ''} 
           onChange={(val) => updateConfig('schedule', val)} 
           description="Standard cron expression or '@every 5m'. Example: '0 * * * *' (every hour)."
           required 
@@ -59,7 +59,7 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
         <JsonInput
           label="Static Payload"
           placeholder='{ "action": "trigger", "data": "hello" }'
-          value={config.payload}
+          value={config.payload ?? ''}
           onChange={(val) => updateConfig('payload', val)}
           description="The message payload that will be emitted when the cron triggers."
           minRows={10}
@@ -75,7 +75,7 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
         <TextInput 
           label={`${sourceType === 'webhook' ? 'Webhook' : sourceType === 'form' ? 'Form' : 'gRPC'} Path`}
           placeholder={sourceType === 'grpc' ? GRPC_EXAMPLE_PATH : `/api/${sourceType === 'webhook' ? 'webhooks' : 'forms'}/my-source`}
-          value={config.path}
+          value={config.path ?? ''}
           onChange={(e) => updateConfig('path', e.target.value)}
           description={sourceType === 'grpc' ? 'A name for this source, not a URL. Clients send it in PublishRequest.path, exactly as written here.' : `Relative path for the ${sourceType}. Full URL will be: http://hermod-host:8080/api/${sourceType === 'webhook' ? 'webhooks' : 'forms'}/YOUR_PATH.`}
           required 
@@ -244,21 +244,21 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
         <TextInput 
           label="Spreadsheet ID" 
           placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms" 
-          value={config.spreadsheet_id} 
+          value={config.spreadsheet_id ?? ''} 
           onChange={(e) => updateConfig('spreadsheet_id', e.target.value)} 
           required 
         />
         <TextInput 
           label="Range" 
           placeholder="Sheet1!A1:Z" 
-          value={config.range} 
+          value={config.range ?? ''} 
           onChange={(e) => updateConfig('range', e.target.value)} 
           required 
         />
         <JsonInput
           label="Credentials (JSON)"
           placeholder='{ "type": "service_account", ... }'
-          value={config.credentials}
+          value={config.credentials ?? ''}
           onChange={(val) => updateConfig('credentials', val)}
           minRows={10}
           formatOnBlur
@@ -274,7 +274,7 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
         <TextInput 
           label="Property ID" 
           placeholder="123456789" 
-          value={config.property_id} 
+          value={config.property_id ?? ''} 
           onChange={(e) => updateConfig('property_id', e.target.value)} 
           required 
           description="Google Analytics 4 Property ID"
@@ -282,7 +282,7 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
         <JsonInput
           label="Credentials JSON"
           placeholder='{ "type": "service_account", ... }'
-          value={config.credentials_json}
+          value={config.credentials_json ?? ''}
           onChange={(val) => updateConfig('credentials_json', val)}
           required
           minRows={5}
@@ -291,7 +291,7 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
         <TextInput 
           label="Metrics" 
           placeholder="activeUsers,sessions" 
-          value={config.metrics} 
+          value={config.metrics ?? ''} 
           onChange={(e) => updateConfig('metrics', e.target.value)} 
           required 
           description="Comma-separated list of metrics"
@@ -299,7 +299,7 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
         <TextInput 
           label="Dimensions" 
           placeholder="city,pagePath" 
-          value={config.dimensions} 
+          value={config.dimensions ?? ''} 
           onChange={(e) => updateConfig('dimensions', e.target.value)} 
           required 
           description="Comma-separated list of dimensions"
@@ -307,7 +307,7 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
         <TextInput 
           label="Poll Interval" 
           placeholder="1h" 
-          value={config.poll_interval} 
+          value={config.poll_interval ?? ''} 
           onChange={(e) => updateConfig('poll_interval', e.target.value)} 
         />
       </Stack>
@@ -320,21 +320,21 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
         <TextInput 
           label="Project ID" 
           placeholder="my-project-id" 
-          value={config.project_id} 
+          value={config.project_id ?? ''} 
           onChange={(e) => updateConfig('project_id', e.target.value)} 
           required 
         />
         <TextInput 
           label="Collection" 
           placeholder="users" 
-          value={config.collection} 
+          value={config.collection ?? ''} 
           onChange={(e) => updateConfig('collection', e.target.value)} 
           required 
         />
         <JsonInput
           label="Credentials JSON"
           placeholder='{ "type": "service_account", ... }'
-          value={config.credentials_json}
+          value={config.credentials_json ?? ''}
           onChange={(val) => updateConfig('credentials_json', val)}
           required
           minRows={5}
@@ -343,14 +343,14 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
         <TextInput 
           label="Timestamp Field" 
           placeholder="updated_at" 
-          value={config.timestamp_field} 
+          value={config.timestamp_field ?? ''} 
           onChange={(e) => updateConfig('timestamp_field', e.target.value)} 
           description="Field used to track last processed document"
         />
         <TextInput 
           label="Poll Interval" 
           placeholder="1m" 
-          value={config.poll_interval} 
+          value={config.poll_interval ?? ''} 
           onChange={(e) => updateConfig('poll_interval', e.target.value)} 
         />
       </Stack>
@@ -360,7 +360,7 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
   if (sourceType === 'http') {
     return (
       <Stack gap="md">
-        <TextInput label="URL" placeholder="https://api.example.com/data" value={config.url} onChange={(e) => updateConfig('url', e.target.value)} required />
+        <TextInput label="URL" placeholder="https://api.example.com/data" value={config.url ?? ''} onChange={(e) => updateConfig('url', e.target.value)} required />
         <Select 
           label="Method" 
           data={['GET', 'POST']} 
@@ -370,20 +370,20 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
         <TextInput 
           label="Poll Interval" 
           placeholder="1m" 
-          value={config.poll_interval} 
+          value={config.poll_interval ?? ''} 
           onChange={(e) => updateConfig('poll_interval', e.target.value)} 
           description="How often to poll the endpoint (e.g. 1m, 1h, 30s)"
         />
         <TextInput 
           label="Headers (Comma separated)" 
           placeholder="Authorization: Bearer token, Content-Type: application/json" 
-          value={config.headers} 
+          value={config.headers ?? ''} 
           onChange={(e) => updateConfig('headers', e.target.value)} 
         />
         <TextInput 
           label="Data Path (GJSON)" 
           placeholder="data.items" 
-          value={config.data_path} 
+          value={config.data_path ?? ''} 
           onChange={(e) => updateConfig('data_path', e.target.value)} 
           description="Path to the data in the JSON response using GJSON syntax."
         />
@@ -394,16 +394,16 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
   if (sourceType === 'graphql') {
     return (
       <Stack gap="md">
-        <TextInput label="Endpoint URL" placeholder="https://api.example.com/graphql" value={config.url} onChange={(e) => updateConfig('url', e.target.value)} required />
+        <TextInput label="Endpoint URL" placeholder="https://api.example.com/graphql" value={config.url ?? ''} onChange={(e) => updateConfig('url', e.target.value)} required />
         <JsonInput
           label="Query"
           placeholder="query { ... }"
-          value={config.query}
+          value={config.query ?? ''}
           onChange={(val) => updateConfig('query', val)}
           minRows={8}
           required
         />
-        <TextInput label="Poll Interval" placeholder="1m" value={config.poll_interval} onChange={(e) => updateConfig('poll_interval', e.target.value)} />
+        <TextInput label="Poll Interval" placeholder="1m" value={config.poll_interval ?? ''} onChange={(e) => updateConfig('poll_interval', e.target.value)} />
       </Stack>
     );
   }
@@ -414,27 +414,27 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
         <TextInput 
           label="WebSocket URL" 
           placeholder="wss://example.com/stream" 
-          value={config.url} 
+          value={config.url ?? ''} 
           onChange={(e) => updateConfig('url', e.target.value)} 
           required 
         />
         <TextInput 
           label="Headers (Comma separated)" 
           placeholder="Authorization: Bearer token, X-Custom: value" 
-          value={config.headers} 
+          value={config.headers ?? ''} 
           onChange={(e) => updateConfig('headers', e.target.value)} 
         />
         <TextInput 
           label="Subprotocols" 
           placeholder="proto1, proto2" 
-          value={config.subprotocols} 
+          value={config.subprotocols ?? ''} 
           onChange={(e) => updateConfig('subprotocols', e.target.value)} 
         />
         <FormRow>
           <TextInput 
             label="Connect Timeout" 
             placeholder="10s" 
-            value={config.connect_timeout} 
+            value={config.connect_timeout ?? ''} 
             onChange={(e) => updateConfig('connect_timeout', e.target.value)} 
             description="Initial connection timeout"
             mih={80}
@@ -442,7 +442,7 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
           <TextInput 
             label="Read Timeout" 
             placeholder="10s" 
-            value={config.read_timeout} 
+            value={config.read_timeout ?? ''} 
             onChange={(e) => updateConfig('read_timeout', e.target.value)} 
             description="Message read timeout"
             mih={80}
@@ -452,7 +452,7 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
           <TextInput 
             label="Heartbeat Interval" 
             placeholder="30s" 
-            value={config.heartbeat_interval} 
+            value={config.heartbeat_interval ?? ''} 
             onChange={(e) => updateConfig('heartbeat_interval', e.target.value)} 
             description="Keep-alive ping frequency"
             mih={80}
@@ -460,7 +460,7 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
           <TextInput 
             label="Reconnect Base" 
             placeholder="1s" 
-            value={config.reconnect_base} 
+            value={config.reconnect_base ?? ''} 
             onChange={(e) => updateConfig('reconnect_base', e.target.value)} 
             description="Initial backoff delay"
             mih={80}
@@ -470,7 +470,7 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
           <TextInput 
             label="Reconnect Max" 
             placeholder="30s" 
-            value={config.reconnect_max} 
+            value={config.reconnect_max ?? ''} 
             onChange={(e) => updateConfig('reconnect_max', e.target.value)} 
             description="Maximum backoff delay"
             mih={80}
@@ -478,7 +478,7 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
           <TextInput 
             label="Max Message Bytes" 
             placeholder="1048576" 
-            value={config.max_message_bytes} 
+            value={config.max_message_bytes ?? ''} 
             onChange={(e) => updateConfig('max_message_bytes', e.target.value)} 
             description="Maximum message size"
             mih={80}

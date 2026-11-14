@@ -106,6 +106,28 @@ export function ownPayloadOf(
   sources: any[] | undefined,
   nodeSamples: Record<string, any> | undefined
 ): any | null {
+  return oneRecord(payloadOf(node, sources, nodeSamples));
+}
+
+/**
+ * A sample stored as a list of rows is one message per row; the newest is the
+ * one to run on, as the live sample view shows. Used whole, Live Preview read
+ * it as {"0": row} -- every field one level down, so a condition on any of
+ * them was false -- and the simulation sent an array the backend refused.
+ */
+function oneRecord(payload: any): any | null {
+  if (!Array.isArray(payload)) return payload;
+  for (let i = payload.length - 1; i >= 0; i--) {
+    if (payload[i] && typeof payload[i] === 'object' && !Array.isArray(payload[i])) return payload[i];
+  }
+  return null;
+}
+
+function payloadOf(
+  node: Node,
+  sources: any[] | undefined,
+  nodeSamples: Record<string, any> | undefined
+): any | null {
   const live = nodeSamples?.[node.id];
   if (live) return live;
   if (node.type === 'source') {

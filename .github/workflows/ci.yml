@@ -485,6 +485,69 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  # The coverage suite: every page, palette step, source and sink form,
+  # expression function, secret path and workflow feature, plus the connectors
+  # that run live on this machine. The lists come from the app's own source
+  # (ui/__tests__/coverage/catalog.ts), so a new connector, function or route
+  # is tested by the next run without editing this file. Scenario catalogue:
+  # docs/testing/e2e-scenarios.md.
+  #
+  # About an hour of browser time on one worker, so it is split across three
+  # runners. A shard is a slice of the test list, not of the stack: each runner
+  # starts its own Hermod.
+  e2e-coverage:
+    name: E2E coverage (${{ matrix.shard }}/3)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    env:
+      # env("E2E_REGION") falls back to the server's HERMOD_ENV_ variables;
+      # the suite is told the value so it can check the fallback (S4).
+      HERMOD_ENV_E2E_REGION: e2e-region-1
+      HERMOD_E2E_ENV_VALUE: e2e-region-1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      # Same reason as the e2e job: /tmp is a small tmpfs on these runners.
+      - name: Keep Go's temporary files on disk
+        run: |
+          mkdir -p "$RUNNER_TEMP/go-tmp"
+          echo "GOTMPDIR=$RUNNER_TEMP/go-tmp" >> "$GITHUB_ENV"
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install dependencies
+        run: |
+          bun install --frozen-lockfile
+          cd ui && bun install --frozen-lockfile
+      - name: Install Playwright browsers
+        run: bunx playwright install --with-deps chromium
+      - name: Start Hermod
+        run: ./scripts/dev.sh --sqlite --reset --detach
+      - name: E2E coverage suite
+        run: bunx playwright test ui/__tests__/coverage/ --shard=${{ matrix.shard }}/3
+      - name: Stop Hermod
+        if: always()
+        run: ./scripts/dev.sh --stop
+      - name: Upload results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-coverage-${{ matrix.shard }}
+          path: |
+            test-results/
+            .dev/logs/
+          retention-days: 7
+          if-no-files-found: ignore
+
   # Deployment artifacts.
   #
   # The image and the chart are only exercised at release time otherwise, which

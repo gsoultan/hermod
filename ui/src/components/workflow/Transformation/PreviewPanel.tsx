@@ -29,6 +29,12 @@ interface PreviewPanelProps {
    * fetched sample does not start a run.
    */
   runsOnDemand?: boolean;
+  /**
+   * The branch a routing node (If, Switch, Router) sent the message down. Such
+   * a node never changes the message, so without this the panel had nothing to
+   * show but the input again -- and called that a mismatch.
+   */
+  branch?: string | null;
 }
 
 /** Short enough to sit on one line; the full value is in the JSON below. */
@@ -79,7 +85,7 @@ function simpleDiff(orig: any, trans: any): any {
   return d;
 }
 
-export function PreviewPanel({ title = 'Preview', loading, error, result, original, onRun, targetField, onFetchSample, fetchingSample, runsOnDemand }: PreviewPanelProps) {
+export function PreviewPanel({ title = 'Preview', loading, error, result, original, onRun, targetField, onFetchSample, fetchingSample, runsOnDemand, branch }: PreviewPanelProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('transformed');
   const [copied, setCopied] = useState(false);
 
@@ -181,13 +187,16 @@ export function PreviewPanel({ title = 'Preview', loading, error, result, origin
   // and looking exactly like a node that had worked. That is the shape of a
   // decrypt node pointed at a field it cannot read: the value comes back
   // identical, with no error anywhere to say why.
+  // A routing node leaves the message as it is by design; which way it sent the
+  // message is its result, shown on its own line below.
+  const routed = typeof branch === 'string' && !busy && !error;
   const madeNoChange = useMemo(() => {
-    if (busy || error || result === undefined || result === null || original === undefined || original === null) {
+    if (routed || busy || error || result === undefined || result === null || original === undefined || original === null) {
       return false;
     }
     const a = stableJson(original);
     return a !== '' && a === stableJson(result);
-  }, [busy, error, original, result]);
+  }, [routed, busy, error, original, result]);
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(body);
@@ -256,6 +265,15 @@ export function PreviewPanel({ title = 'Preview', loading, error, result, origin
                 : 'nothing at this path — the lookup matched no row, or the key path resolved to nothing'}
             </Text>
           </Stack>
+        )}
+
+        {routed && (
+          <Group gap={6} wrap="nowrap" data-testid="preview-branch">
+            <Badge size="sm" variant="light" color={branch === 'false' ? 'orange' : 'teal'}>
+              Branch taken
+            </Badge>
+            <Text size="sm" fw={700} ff="monospace" truncate>{branch}</Text>
+          </Group>
         )}
 
         {madeNoChange && (

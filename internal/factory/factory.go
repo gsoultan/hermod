@@ -254,7 +254,7 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 	case "cassandra":
 		hosts := []string{"localhost"}
 		if h, ok := cfg.Config["hosts"]; ok && h != "" {
-			hosts = strings.Split(h, ",")
+			hosts = splitList(h)
 		}
 		src = sourcecassandra.NewCassandraSource(hosts, tables, idField, pollInterval, useCDC)
 	case "yugabyte":
@@ -262,7 +262,7 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 	case "scylladb":
 		hosts := []string{"localhost"}
 		if h, ok := cfg.Config["hosts"]; ok && h != "" {
-			hosts = strings.Split(h, ",")
+			hosts = splitList(h)
 		}
 		src = sourcescylladb.NewScyllaDBSource(hosts, tables, idField, pollInterval, useCDC)
 	case "clickhouse":
@@ -439,7 +439,7 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 	case "sqlite":
 		src = sourcesqlite.NewSQLiteSource(connString, tables, useCDC)
 	case "kafka":
-		brokers := strings.Split(cfg.Config["brokers"], ",")
+		brokers := splitList(cfg.Config["brokers"])
 		ks := sourcekafka.NewKafkaSource(brokers, cfg.Config["topic"], cfg.Config["group_id"], cfg.Config["username"], cfg.Config["password"])
 		dec, err := buildRecordDecoder(cfg.Config)
 		if err != nil {
@@ -994,7 +994,7 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 	case "file":
 		return file.NewFileSink(cfg.Config["filename"], fmttr)
 	case "kafka":
-		brokers := strings.Split(cfg.Config["brokers"], ",")
+		brokers := splitList(cfg.Config["brokers"])
 		// transactional_id makes every batch one Kafka transaction, with the
 		// source consumer group's offsets committed inside it.
 		if txnID := strings.TrimSpace(cfg.Config["transactional_id"]); txnID != "" {
@@ -1076,7 +1076,7 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 		useExisting := cfg.Config["use_existing_table"] == "true"
 		truncateTable := cfg.Config["truncate_table"] == "true"
 		syncColumns := cfg.Config["sync_columns"] == "true"
-		hosts := strings.Split(cfg.Config["hosts"], ",")
+		hosts := splitList(cfg.Config["hosts"])
 		return sinkcassandra.NewCassandraSink(hosts, cfg.Config["keyspace"], cfg.Config["table"], mappings, useExisting, cfg.Config["delete_strategy"], cfg.Config["soft_delete_column"], cfg.Config["soft_delete_value"], cfg.Config["operation_mode"], truncateTable, syncColumns), nil
 	case "mongodb":
 		mappings, _ := sqlutil.ParseColumnMappings(cfg.Config["column_mappings"])
@@ -1139,7 +1139,7 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 			Table:       cfg.Config["table"],
 		}), nil
 	case "elasticsearch":
-		addresses := strings.Split(cfg.Config["addresses"], ",")
+		addresses := splitList(cfg.Config["addresses"])
 		return elasticsearch.NewElasticsearchSink(
 			addresses,
 			cfg.Config["username"],
@@ -1308,7 +1308,7 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 	case "smtp":
 		port, _ := strconv.Atoi(cfg.Config["port"])
 		ssl := cfg.Config["ssl"] == "true"
-		to := strings.Split(cfg.Config["to"], ",")
+		to := splitList(cfg.Config["to"])
 		s3Config := smtpTemplateS3Config(cfg.Config)
 		s := smtp.NewSmtpSink(
 			cfg.Config["host"],
@@ -1723,6 +1723,20 @@ func substituteConnectorEnv(in map[string]string) map[string]string {
 	out := make(map[string]string, len(in))
 	for k, v := range in {
 		out[k] = config.SubstituteConnectorEnvVars(v)
+	}
+	return out
+}
+
+// splitList reads a comma-separated setting the way the forms show one,
+// "node1:9042, node2:9042": each entry trimmed, empty entries dropped. A
+// plain strings.Split kept the space after each comma, so every host but the
+// first failed to resolve.
+func splitList(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
 	}
 	return out
 }
