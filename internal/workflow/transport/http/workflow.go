@@ -1956,7 +1956,9 @@ func (h *WorkflowHandler) ExportWorkflow(w http.ResponseWriter, r *http.Request)
 			return
 		}
 
-		bundle.Sources = append(bundle.Sources, stripSourceRuntime(src))
+		src = stripSourceRuntime(src)
+		src.Config = withoutCredentials(src.Config)
+		bundle.Sources = append(bundle.Sources, src)
 		if src.Type == "batch_sql" {
 			if underlying := src.Config["source_id"]; underlying != "" && !seen[underlying] {
 				sourceRefs = append(sourceRefs, exportRef{id: underlying, nodeID: ref.nodeID})
@@ -1974,7 +1976,9 @@ func (h *WorkflowHandler) ExportWorkflow(w http.ResponseWriter, r *http.Request)
 			h.JsonError(w, "Failed to read sink "+ref.id+" for export: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		bundle.Sinks = append(bundle.Sinks, stripSinkRuntime(snk))
+		snk = stripSinkRuntime(snk)
+		snk.Config = withoutCredentials(snk.Config)
+		bundle.Sinks = append(bundle.Sinks, snk)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -2028,6 +2032,19 @@ func (h *WorkflowHandler) ImportWorkflow(w http.ResponseWriter, r *http.Request)
 				return
 			}
 		}
+	}
+
+	// An export leaves connection credentials out. Fill them from this
+	// instance's own connections, and refuse before writing anything when one
+	// is neither here nor typed in.
+	missing, err := h.restoreWithheldCredentials(ctx, &bundle)
+	if err != nil {
+		h.JsonError(w, "Failed to read the bundle's connections: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if len(missing) > 0 {
+		writeMissingCredentials(w, missing)
+		return
 	}
 
 	// 1. Upsert Sources.

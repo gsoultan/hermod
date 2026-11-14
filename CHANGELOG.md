@@ -90,8 +90,13 @@ any secret reference does. A value that already is a `{{ }}` reference is left a
 versions are stored the same way and no longer carry run state, so a rollback keeps today's status
 and counters. Exports and promotions also replace any remaining step credential with `[REDACTED]`.
 
-The export bundle's `sources` and `sinks` still carry their connection settings, so an import can
-recreate them; treat an export file as a credential.
+An export file no longer carries connection credentials either. Each source and sink setting that
+holds one (a key the at-rest encryption treats as a credential, or an address with a password in it)
+is written as `[REDACTED]`; a `{{secret.…}}` reference is kept. Importing the file where it was
+exported fills those from the existing connections with the same id, so nothing has to be typed.
+Anywhere else `POST /api/workflows/import` answers `422` with `missing_credentials` (kind, id, name,
+field) and writes nothing, and the import wizard shows those fields empty, says the file left them
+out, and names each one still needed.
 
 ### Added — an optional AI explanation of a workflow's recommendations
 
@@ -309,6 +314,9 @@ The CI allocation budgets (`TestWorkflowAllocationBudget`) are lowered to the ne
   step credentials move into the workflow's vhost secrets. Take a backup first if you want the old
   rows. A promotion to another instance now asks for those `WF_…` secrets there like any other
   secret reference.
+- A workflow exported by this version cannot be imported on another instance until its connection
+  passwords are typed in the import wizard (or filled into the file). Files exported by earlier
+  versions still carry their passwords and import as before; delete any you have shared.
 - An FTP sink with TLS on, pointed at a server with a self-signed or otherwise untrusted
   certificate, now fails to connect. Install a trusted certificate on the server, or tick **Skip
   certificate verification** in the sink (`insecure_skip_verify: "true"`) if the network is trusted.

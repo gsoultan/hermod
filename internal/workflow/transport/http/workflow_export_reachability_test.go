@@ -131,11 +131,42 @@ func TestExportImportRoundTripAcrossInstances(t *testing.T) {
 		t.Fatalf("export: HTTP %d, body %s", exportRR.Code, exportRR.Body.String())
 	}
 	exported := exportRR.Body.Bytes()
+	for _, secret := range []string{"s3cret-orders", "s3cret-crm", "s3cret-dw"} {
+		if bytes.Contains(exported, []byte(secret)) {
+			t.Errorf("the export file carries the connection password %q", secret)
+		}
+	}
 
-	// Import into the target — the bytes as downloaded, nothing rewritten.
+	// Import into the target — the bytes as downloaded. The target has none of
+	// these connections, so it asks for the passwords the file left out and
+	// writes nothing.
 	importReq := httptest.NewRequestWithContext(ctx, "POST", "/api/workflows/import", bytes.NewReader(exported))
 	importReq.Header.Set("Content-Type", "application/json")
 	importRR := httptest.NewRecorder()
+	handlerFor(target).ServeHTTP(importRR, importReq)
+	if importRR.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("import without the passwords: HTTP %d (want 422), body %s", importRR.Code, importRR.Body.String())
+	}
+	if _, err := target.GetWorkflow(ctx, "wf-orders"); err == nil {
+		t.Fatal("an import that is missing credentials wrote the workflow")
+	}
+
+	// Typed in, as the import wizard does, it imports.
+	var typed storage.WorkflowExportBundle
+	if err := json.Unmarshal(exported, &typed); err != nil {
+		t.Fatalf("decode export: %v", err)
+	}
+	passwords := map[string]string{"src-main": "s3cret-orders", "src-lookup": "s3cret-crm", "snk-out": "s3cret-dw"}
+	for i := range typed.Sources {
+		typed.Sources[i].Config["db_password"] = passwords[typed.Sources[i].ID]
+	}
+	for i := range typed.Sinks {
+		typed.Sinks[i].Config["db_password"] = passwords[typed.Sinks[i].ID]
+	}
+	typedBytes, _ := json.Marshal(typed)
+	importReq = httptest.NewRequestWithContext(ctx, "POST", "/api/workflows/import", bytes.NewReader(typedBytes))
+	importReq.Header.Set("Content-Type", "application/json")
+	importRR = httptest.NewRecorder()
 	handlerFor(target).ServeHTTP(importRR, importReq)
 	if importRR.Code != http.StatusCreated {
 		t.Fatalf("import: HTTP %d, body %s", importRR.Code, importRR.Body.String())
@@ -190,8 +221,9 @@ func TestExportImportRoundTripAcrossInstances(t *testing.T) {
 		t.Errorf("the imported source carries the origin's replication cursor: lsn = %q", got.State["lsn"])
 	}
 
-	// Re-importing the same bundle is an update, not a second create, and must
-	// leave the target's own runtime state alone.
+	// Re-importing the file as downloaded is an update, not a second create,
+	// needs no password typed (the target now has its own), and must leave the
+	// target's own runtime state alone.
 	if err := target.UpdateSourceState(ctx, "src-main", map[string]string{"lsn": "0/FF00FF"}); err != nil {
 		t.Fatalf("advancing the target's cursor: %v", err)
 	}

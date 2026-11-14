@@ -386,8 +386,10 @@ and a promotion) keeps only what the engine runs (`internal/storage/nodeclean`):
 - **Read and start-up:** reads apply the same rule, and start-up rewrites rows
   saved before it, once (SQL and MongoDB).
 - **Export and promotion:** any credential still in a step is replaced with
-  `[REDACTED]`. The export bundle's `sources` and `sinks` still carry their
-  connection settings so an import can recreate them.
+  `[REDACTED]`. So is every credential in the bundle's `sources` and `sinks`
+  (`withoutCredentials`): an import fills it from the connection with the same
+  id on that instance, or refuses with `422` and `missing_credentials` until it
+  is typed in.
 
 The encrypt step's `key` is not moved: it is not read as a template, so a
 `{{secret.…}}` there would not resolve, and it is still stored as typed.

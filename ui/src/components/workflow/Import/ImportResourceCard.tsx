@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import {
   Card, Stack, Group, Text, TextInput, Select, Badge, Alert, Button, Divider, Radio, Code,
 } from '@mantine/core'
-import { IconAlertTriangle, IconPlugConnected, IconCheck, IconX } from '@tabler/icons-react'
+import { IconAlertTriangle, IconPlugConnected, IconCheck, IconX, IconLock } from '@tabler/icons-react'
 import type { Conflict, ConflictDecision, ImportResource } from '@/utils/importBundle'
 
 export interface TestState {
@@ -118,6 +118,17 @@ export function ImportResourceCard({
         </Group>
 
         <Divider label="Connection" labelPosition="left" />
+
+        {resource.withheld?.length ? (
+          <Alert color="blue" variant="light" icon={<IconLock size="1rem" />} data-testid="withheld-credentials">
+            The file leaves out {resource.withheld.map((k, i) => (
+              <span key={k}>{i ? ', ' : ''}<Code>{k}</Code></span>
+            ))}, so no password travels in it.{' '}
+            {conflict && decision === 'overwrite'
+              ? `Leave ${resource.withheld.length > 1 ? 'them' : 'it'} blank to keep what ${conflict.existingName} already has here, or type a new one.`
+              : `Type ${resource.withheld.length > 1 ? 'them' : 'it'} in below.`}
+          </Alert>
+        ) : null}
 
         {children}
 
