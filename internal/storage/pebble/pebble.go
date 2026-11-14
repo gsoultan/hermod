@@ -58,7 +58,14 @@ func NewPebbleStorage(path string) (storage.Storage, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &pebbleStorage{db: db}, nil
+	s := &pebbleStorage{db: db}
+	for _, prefix := range []string{logKeyPrefix, auditKeyPrefix} {
+		if err := s.rekeyLegacyTimeKeys(prefix); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("rekeying pebble %q rows: %w", prefix, err)
+		}
+	}
+	return s, nil
 }
 
 // newPebbleOptions returns conservative, explicitly-bounded options so the
@@ -118,8 +125,7 @@ func (s *pebbleStorage) CreateLog(ctx context.Context, l storage.Log) error {
 		return err
 	}
 	// Key: l:<reverse_timestamp>:<uuid>
-	key := fmt.Sprintf("l:%020d:%s", 999999999999999999-l.Timestamp.UnixNano(), l.ID)
-	return s.db.Set([]byte(key), data, pebble.Sync)
+	return s.db.Set(timeKey(logKeyPrefix, l.Timestamp, l.ID), data, pebble.Sync)
 }
 
 func (s *pebbleStorage) CreateLogs(ctx context.Context, logs []storage.Log) error {
@@ -137,8 +143,7 @@ func (s *pebbleStorage) CreateLogs(ctx context.Context, logs []storage.Log) erro
 		if err != nil {
 			return err
 		}
-		key := fmt.Sprintf("l:%020d:%s", 999999999999999999-l.Timestamp.UnixNano(), l.ID)
-		if err := batch.Set([]byte(key), data, pebble.Sync); err != nil {
+		if err := batch.Set(timeKey(logKeyPrefix, l.Timestamp, l.ID), data, pebble.Sync); err != nil {
 			return err
 		}
 	}
@@ -275,24 +280,7 @@ func (s *pebbleStorage) DeleteLogs(ctx context.Context, filter storage.LogFilter
 }
 
 func (s *pebbleStorage) PurgeLogs(ctx context.Context, before time.Time) error {
-	startKey := fmt.Sprintf("l:%020d", 999999999999999999-before.UnixNano())
-	iter, err := s.db.NewIter(&pebble.IterOptions{
-		LowerBound: []byte(startKey),
-		UpperBound: []byte("m:"),
-	})
-	if err != nil {
-		return err
-	}
-	defer iter.Close()
-
-	batch := s.db.NewBatch()
-	defer batch.Close()
-	for iter.First(); iter.Valid(); iter.Next() {
-		if err := batch.Delete(iter.Key(), pebble.Sync); err != nil {
-			return err
-		}
-	}
-	return batch.Commit(pebble.Sync)
+	return s.purgeTimeKeysBefore(logKeyPrefix, before)
 }
 
 // Audit Log methods
@@ -309,8 +297,7 @@ func (s *pebbleStorage) CreateAuditLog(ctx context.Context, a storage.AuditLog) 
 		return err
 	}
 	// Key: a:<reverse_timestamp>:<uuid>
-	key := fmt.Sprintf("a:%020d:%s", 999999999999999999-a.Timestamp.UnixNano(), a.ID)
-	return s.db.Set([]byte(key), data, pebble.Sync)
+	return s.db.Set(timeKey(auditKeyPrefix, a.Timestamp, a.ID), data, pebble.Sync)
 }
 
 func (s *pebbleStorage) ListAuditLogs(ctx context.Context, filter storage.AuditFilter) ([]storage.AuditLog, int, error) {
@@ -372,24 +359,7 @@ func (s *pebbleStorage) ListAuditLogs(ctx context.Context, filter storage.AuditF
 }
 
 func (s *pebbleStorage) PurgeAuditLogs(ctx context.Context, before time.Time) error {
-	startKey := fmt.Sprintf("a:%020d", 999999999999999999-before.UnixNano())
-	iter, err := s.db.NewIter(&pebble.IterOptions{
-		LowerBound: []byte(startKey),
-		UpperBound: []byte("b:"),
-	})
-	if err != nil {
-		return err
-	}
-	defer iter.Close()
-
-	batch := s.db.NewBatch()
-	defer batch.Close()
-	for iter.First(); iter.Valid(); iter.Next() {
-		if err := batch.Delete(iter.Key(), pebble.Sync); err != nil {
-			return err
-		}
-	}
-	return batch.Commit(pebble.Sync)
+	return s.purgeTimeKeysBefore(auditKeyPrefix, before)
 }
 
 // Trace methods
