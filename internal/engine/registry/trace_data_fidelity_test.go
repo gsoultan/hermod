@@ -249,12 +249,21 @@ func TestTraceStepsRecordTheirOwnMessagesData(t *testing.T) {
 	// snapshot over the message. A count alone would pass while the one step
 	// that exercises a given path had not arrived.
 	want := []string{"workflow_start", "router", "enrich", "set"}
+	const pipelineSteps = 2
 	traced := func() bool {
 		if store.tracedMessages() < records {
 			return false
 		}
 		for i := 1; i <= records; i++ {
-			if !hasNodes(store.stepsFor(fmt.Sprintf("m-%d", i)), want) {
+			steps := store.stepsFor(fmt.Sprintf("m-%d", i))
+			if !hasNodes(steps, want) {
+				return false
+			}
+			// The pipeline node records one step per pipeline step, each on its
+			// own goroutine. The first to land satisfies the node-id check
+			// above, so the second has to be waited for by count, or the
+			// assertions below run before it arrives.
+			if countNode(steps, "set") < pipelineSteps {
 				return false
 			}
 		}
