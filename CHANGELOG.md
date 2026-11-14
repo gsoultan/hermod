@@ -7,12 +7,16 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
-### Fixed — a list request could ask for the whole table
+### Security — the history of received webhooks needed no login
 
-`?limit=` on the list endpoints went into the query as it came, so one request with a very large
-value read an entire table — workflows, logs, audit log, traces — into memory. A page is now at
-most 1,000 rows, which is the largest the UI asks for. A client that sent a larger `limit` gets
-1,000 rows and pages for the rest.
+`GET /api/webhooks/requests` answered anyone who could reach the API port with the headers and
+body of the last requests every webhook had received. Everything under `/api/webhooks/` is public
+so that a sender with no session can deliver, and the history is served from under the same
+prefix. It now needs a session, as does `POST /api/webhooks/requests/{id}/replay`. A caller who is
+not an administrator sees and replays only the requests of webhooks in the vhosts they may see;
+the history of a path whose source was deleted is an administrator's. Delivering to a webhook is
+unchanged. **If your API port was reachable by people who should not read webhook payloads, treat
+what those webhooks received as disclosed.**
 
 ### Added — the Transactional SQL sink: dependent writes to several tables in one transaction
 
@@ -55,6 +59,13 @@ written to the audit log. The answer is text; it cannot change a workflow or cre
 - **An applied fix is measured.** Once the workflow has run for a few minutes since, the proposal
   shows step time per message, failures and throughput before and since, and says whether the
   workflow runs better, worse or the same.
+
+### Fixed — a list request could ask for the whole table
+
+`?limit=` on the list endpoints went into the query as it came, so one request with a very large
+value read an entire table — workflows, logs, audit log, traces — into memory. A page is now at
+most 1,000 rows, which is the largest the UI asks for. A client that sent a larger `limit` gets
+1,000 rows and pages for the rest.
 
 ### Changed — the optimizer no longer changes a sink's batch size by itself
 

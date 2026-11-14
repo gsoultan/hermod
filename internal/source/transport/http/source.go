@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -743,16 +744,69 @@ func (h *SourceHandler) ProxyFetch(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// webhookVHosts answers, for each webhook path, the vhost of the source that
+// listens on it. What a webhook received belongs to that vhost.
+func (h *SourceHandler) webhookVHosts(ctx context.Context) (map[string]string, error) {
+	sources, _, err := h.Storage.ListSources(ctx, storage.CommonFilter{})
+	if err != nil {
+		return nil, err
+	}
+	paths := make(map[string]string)
+	for _, src := range sources {
+		if src.Type != "webhook" {
+			continue
+		}
+		if p := src.Config["path"]; p != "" {
+			paths[p] = src.VHost
+		}
+	}
+	return paths, nil
+}
+
+// ListWebhookRequests serves what webhooks received, to a signed-in caller and
+// only for the vhosts that caller may see. An administrator sees all of it,
+// including the history of a path whose source has since been deleted.
 func (h *SourceHandler) ListWebhookRequests(w http.ResponseWriter, r *http.Request) {
+	role, vhosts := h.GetRoleAndVHosts(r)
+	if role == "" {
+		h.JsonError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 	filter := storage.WebhookRequestFilter{
 		CommonFilter: h.ParseCommonFilter(r),
 		Path:         r.URL.Query().Get("path"),
 	}
 
-	requests, total, err := h.Storage.ListWebhookRequests(r.Context(), filter)
+	var (
+		requests []storage.WebhookRequest
+		total    int
+		err      error
+	)
+	switch role {
+	case storage.RoleAdministrator:
+		requests, total, err = h.Storage.ListWebhookRequests(r.Context(), filter)
+	default:
+		var owners map[string]string
+		if owners, err = h.webhookVHosts(r.Context()); err != nil {
+			break
+		}
+		if filter.Path != "" {
+			vhost, known := owners[filter.Path]
+			if !known || !h.HasVHostAccess(vhost, vhosts) {
+				h.JsonError(w, "Forbidden: you don't have access to this webhook", http.StatusForbidden)
+				return
+			}
+			requests, total, err = h.Storage.ListWebhookRequests(r.Context(), filter)
+			break
+		}
+		requests, total, err = h.listVisibleWebhookRequests(r.Context(), filter, owners, vhosts)
+	}
 	if err != nil {
 		h.JsonError(w, "Failed to list webhook requests: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if requests == nil {
+		requests = []storage.WebhookRequest{}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -762,12 +816,61 @@ func (h *SourceHandler) ListWebhookRequests(w http.ResponseWriter, r *http.Reque
 	})
 }
 
+// listVisibleWebhookRequests is the history with no path named, for a caller
+// who is not an administrator: the newest requests across the webhooks of the
+// vhosts they may see. The store keeps a bounded history per path, so reading
+// each path's newest page and merging them is a bounded amount of work.
+func (h *SourceHandler) listVisibleWebhookRequests(ctx context.Context, filter storage.WebhookRequestFilter, owners map[string]string, vhosts []string) ([]storage.WebhookRequest, int, error) {
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	page := max(filter.Page, 1)
+	var (
+		all   []storage.WebhookRequest
+		total int
+	)
+	for path, vhost := range owners {
+		if !h.HasVHostAccess(vhost, vhosts) {
+			continue
+		}
+		one := filter
+		one.Path = path
+		one.Page = 1
+		one.Limit = page * limit
+		got, n, err := h.Storage.ListWebhookRequests(ctx, one)
+		if err != nil {
+			return nil, 0, err
+		}
+		all = append(all, got...)
+		total += n
+	}
+	sort.SliceStable(all, func(i, j int) bool { return all[i].Timestamp.After(all[j].Timestamp) })
+	start := min((page-1)*limit, len(all))
+	end := min(start+limit, len(all))
+	return all[start:end], total, nil
+}
+
 func (h *SourceHandler) ReplayWebhookRequest(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	req, err := h.Storage.GetWebhookRequest(r.Context(), id)
 	if err != nil {
 		h.JsonError(w, "Webhook request not found", http.StatusNotFound)
 		return
+	}
+	// Held to the vhost of the webhook it was sent to, and answered as missing
+	// otherwise: an id must not tell a caller that another vhost's request
+	// exists.
+	if role, vhosts := h.GetRoleAndVHosts(r); role != storage.RoleAdministrator {
+		owners, err := h.webhookVHosts(r.Context())
+		if err != nil {
+			h.JsonError(w, "Failed to replay webhook request: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if vhost, known := owners[req.Path]; !known || !h.HasVHostAccess(vhost, vhosts) {
+			h.JsonError(w, "Webhook request not found", http.StatusNotFound)
+			return
+		}
 	}
 
 	msg := message.AcquireMessage()
