@@ -548,6 +548,65 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  # Promote to production across two real Hermods: staging on localhost:4005
+  # and production on 127.0.0.1:4006. They must differ by hostname, or their
+  # session cookies overwrite each other (ui/__tests__/promote/env.ts). Both
+  # are fresh, and the suite signs in as the administrator first-run setup
+  # created. Ports are pinned because dev.sh steps over a taken port, and the
+  # suite is told where production is.
+  e2e-promote:
+    name: E2E promote (staging to production)
+    runs-on: ubuntu-latest
+    env:
+      HERMOD_E2E_STAGING_URL: http://localhost:4005
+      HERMOD_E2E_PROD_URL: http://127.0.0.1:4006
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Keep Go's temporary files on disk
+        run: |
+          mkdir -p "$RUNNER_TEMP/go-tmp"
+          echo "GOTMPDIR=$RUNNER_TEMP/go-tmp" >> "$GITHUB_ENV"
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install dependencies
+        run: |
+          bun install --frozen-lockfile
+          cd ui && bun install --frozen-lockfile
+      - name: Install Playwright browsers
+        run: bunx playwright install --with-deps chromium
+      - name: Start staging
+        run: HERMOD_DEV_API_PORT=4005 HERMOD_DEV_GRPC_PORT=50051 ./scripts/dev.sh --sqlite --reset --detach
+      - name: Start production
+        run: |
+          HERMOD_DEV_DIR="$PWD/.dev-prod" HERMOD_DEV_API_PORT=4006 HERMOD_DEV_GRPC_PORT=50052 HERMOD_DEV_UI_PORT=5176 \
+            ./scripts/dev.sh --sqlite --reset --detach
+      - name: E2E promote suite
+        run: bunx playwright test ui/__tests__/promote/
+      - name: Stop both
+        if: always()
+        run: |
+          HERMOD_DEV_DIR="$PWD/.dev-prod" ./scripts/dev.sh --stop || true
+          ./scripts/dev.sh --stop || true
+      - name: Upload results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-promote
+          path: |
+            test-results/
+            .dev/logs/
+            .dev-prod/logs/
+          retention-days: 7
+          if-no-files-found: ignore
+
   # Deployment artifacts.
   #
   # The image and the chart are only exercised at release time otherwise, which

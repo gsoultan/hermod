@@ -97,6 +97,9 @@ bunx playwright test ui/__tests__/coverage/   # the coverage suite
 ./scripts/dev.sh --stop
 ```
 
+The promote suite in `ui/__tests__/promote/` needs a second Hermod, as production; how to start
+both is under D in [testing/e2e-scenarios.md](testing/e2e-scenarios.md).
+
 #### Legacy End-to-End Tests (Cypress)
 1. Ensure the development server is running (default: `http://localhost:5173`).
 2. Run Cypress:

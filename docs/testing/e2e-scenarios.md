@@ -13,7 +13,7 @@ bunx playwright test ui/__tests__/coverage/conditions_e2e.spec.ts   # one scenar
 ./scripts/dev.sh --stop
 ```
 
-CI runs it as the `e2e-coverage` job, split into three shards (`--shard=N/3`), each with its own
+The promote suite (D, below) needs a second Hermod and runs on its own. CI runs the coverage suite as the `e2e-coverage` job, split into three shards (`--shard=N/3`), each with its own
 Hermod. The job starts Hermod with `HERMOD_ENV_E2E_REGION` set and tells the suite the value in
 `HERMOD_E2E_ENV_VALUE`, so the `env()` fallback (S4) runs there. Locally S4 is skipped unless both
 are set.
@@ -129,6 +129,55 @@ covered by `workflow_surface_e2e`, `simulation_path_e2e` and `workflow_export_im
 
 The HTTP "sink" is a server the test starts on 127.0.0.1 (`Receiver` in `helpers.ts`), which records
 what arrives and can serve a body for a polling source to read.
+
+### D: promote to production (`ui/__tests__/promote/promote_e2e.spec.ts`)
+
+Two real Hermods: staging, which sends, and production, which receives. Run apart from the coverage
+suite, because it needs both:
+
+```bash
+HERMOD_DEV_API_PORT=4005 HERMOD_DEV_GRPC_PORT=50051 ./scripts/dev.sh --sqlite --reset --detach
+HERMOD_DEV_DIR=$PWD/.dev-prod HERMOD_DEV_API_PORT=4006 HERMOD_DEV_GRPC_PORT=50052 HERMOD_DEV_UI_PORT=5176 \
+  ./scripts/dev.sh --sqlite --reset --detach
+bunx playwright test ui/__tests__/promote/
+HERMOD_DEV_DIR=$PWD/.dev-prod ./scripts/dev.sh --stop && ./scripts/dev.sh --stop
+```
+
+Four things about that setup matter, and each one hid a bug before:
+
+- **Different hostnames.** Staging is `localhost:4005` and production `127.0.0.1:4006`. Both set a
+  host-only session cookie of the same name, and a browser keeps cookies per host, not per port, so
+  two ports of `localhost` sign each other out. The suite refuses to start when the two share one.
+- **The API ports, not Vite.** `dev.sh` stops every Vite of the checkout when it starts, so the
+  second stack takes the first one's dev UI down. Each API port serves the built UI.
+- **The administrator first-run setup created**, whose vhosts are null, not a test user with `"*"`.
+- **A vhost that is not `default`** (`hr`), which every vhost check lets through.
+
+Both instances must be fresh (`--reset`): the scenarios build on each other, run in order and are
+not retried, since a retry would start over against instances the first attempt changed. Pin the
+ports when restarting, or `dev.sh` steps over the port its own previous run still holds.
+`HERMOD_E2E_STAGING_URL` and `HERMOD_E2E_PROD_URL` point it elsewhere.
+
+The flow, in `hr`: a webhook source and an HTTP sink whose headers read `CRM_KEY` and
+`WELCOME_TOKEN` (both carried to production, which has neither), and a stdout sink production
+already has under the same name (matched).
+
+| ID | Scenario |
+| :--- | :--- |
+| D1 | A fresh instance says on Releases that it has no role. Settings › Workspace › Environments sets Staging and Production; the badge beside the logo appears and links there. |
+| D2 | Connect a server: address, vhost, Next, "Sign in to … and approve" opens production in a popup, "Create hr and allow", and the wizard reaches step 3 with hr created there. Then a pairing code made on production for payroll: a wrong code is refused with its message, the right one links, and the server card lists both vhosts. |
+| D3 | Match connections: the same-named stdout sink is Matched, the other two are Missing with a link to create them in production; search narrows by name, and All / To check / Matched count and filter. |
+| D4 | The line under the flow's header says "not there yet", then "v1 waits for approval there" once sent, "Up to date" once live, "last sent v1 · 1 version to promote" after an edit, and "was undone there" after an automatic undo. |
+| D5 | The Promote dialog as the setup admin in hr: the checks answer 200, not 403; it sends v1 (the version saved at creation); signups and crm say "Created in Production" and audit-log uses production's; 2 secrets are new there, the sender types CRM_KEY and 1 value is left for the approver; Send for approval shows the sent screen. |
+| D6 | On staging, under production's default rule, the sender's waiting row says another administrator approves it, Approve is disabled and the sidebar counts nothing. With "Any administrator approves" and decisions allowed from staging, the next version is approved from staging and goes live there. |
+| D7 | On production, its own `admin` (the sender's name) cannot approve. Another administrator sees the release counted, "1 change" (not "1 changes"), the connections it creates, who typed which secret, the box for WELCOME_TOKEN, and Keep stopped chosen; Approve and go live; Releases shows Live with Undo and "Kept stopped until WELCOME_TOKEN has a value", and CRM_KEY is saved with its value never listed. A later version is rejected with a reason, which both sides keep. |
+| D8 | A version that adds an HTTP sink nobody listens on is approved, starts failing, and is Undone on its own within the watch's 30-second round, on production and in staging's sent list. |
+| D9 | An editor without hr gets 403 on preview and send; a viewer has no Promote button and is told who promotes; an editor cannot link or make a pairing code, on either side. |
+| D10 | Releases lists a lane per vhost with each ready flow ticked; unticking one turns "Promote all ready (N)" into "Promote N−1 of N", and the dialog leaves it out. Add vhosts to Production connects finance without a pairing code, and production creates it. |
+| D11 | Ten wrong pairing codes in a row void the outstanding ones, and too many attempts from one address get 429. Last, because that limit would refuse the suite's own links. |
+
+The rules behind the API-level edge cases (secret names, what a carried connection may hold, peer
+tokens) are tested in Go, in `internal/environment`.
 
 ## What is not covered live, and why
 

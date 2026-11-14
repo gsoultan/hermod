@@ -72,6 +72,7 @@ ui/test-results/
 /hermod_e2e.db-wal
 /registry.test
 .dev/
+.dev-prod/
 layout-audit.json
 form-audit.json
 # Screenshots and geometry dumps from the sidebar/visual audit — regenerated on

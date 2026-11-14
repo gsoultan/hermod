@@ -76,3 +76,25 @@ array_len(source.users) > 0 goes true in Test for an object sample, a JSON-strin
 source feeds it and whether a step sits between. Suspects: the live sample
 (`nodeSamples`, the last real message) takes precedence over the stored sample
 in Test; or an upstream step changes the record.
+
+## Promote suite (ui/__tests__/promote/)
+
+Two Hermods: staging `localhost:4005`, production `127.0.0.1:4006` (CI job
+`e2e-promote`; how to start both is under D in docs/testing/e2e-scenarios.md).
+- Different hostnames or the two session cookies (same name, host-only)
+  overwrite each other. The spec refuses to start if they share one.
+- Use the API ports, not Vite: dev.sh's signature sweep kills every Vite of the
+  checkout, so starting the second stack kills the first one's UI.
+- Pin HERMOD_DEV_API_PORT when restarting: dev.sh picks ports *before* it stops
+  its own previous run, so an unpinned restart lands on 4007.
+- Fresh instances only (`--reset`); serial, retries 0. D11 (pairing guesses) runs
+  last: the 30/hour pair limit is per address and would refuse the suite's links.
+- Production's own `admin` has the sender's name, so under admin_except_sender
+  it cannot approve; D7 uses `prod-approver`.
+- The sent log keeps the rule production gave *at send time*; changing the rule
+  afterwards does not enable Approve on staging for that release. Set the rule
+  before sending.
+- Staging answers a wrong pairing code with 502 (production's 400 passed on as
+  the linked instance refusing), by design in writeErr.
+- Found: a flow had no version until its first edit, so promoting it at once
+  sent "v0". Create now records version 1 for every workflow.

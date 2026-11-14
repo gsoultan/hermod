@@ -148,6 +148,26 @@ field name and read back under another, so the list was empty and a rollback fou
 - The secrets check no longer says only names are sent while the dialog asks for the values, and
   the texts that pointed at "Settings › Environments" name Settings › Workspace › Environments.
 
+### Added — end-to-end tests for promoting a flow from staging to production
+
+`ui/__tests__/promote/` runs the whole promote path in a browser across two real Hermods, staging on
+`localhost` and production on `127.0.0.1`, signed in as the administrator first-run setup created,
+with the flow in the vhost `hr`: setting each instance's role, connecting the two by signing in to
+production in a popup and by a pairing code (and refusing a wrong one), matching connections, the
+line under a flow's header, the promote checks, carried connections and typed secrets, approving
+from staging and from production, keeping a flow stopped for a missing secret, rejecting with a
+reason, automatic undo of a release that starts failing, who may promote, link and approve, the
+Releases lanes, adding a vhost to a connected server, and the limits on guessing pairing codes. CI
+runs it as the `e2e-promote` job. The scenarios are listed under D in
+[docs/testing/e2e-scenarios.md](docs/testing/e2e-scenarios.md).
+
+### Fixed — a flow promoted before its first edit went out as "v0"
+
+A new flow had no saved version until it was first changed, so promoting it straight away sent "v0":
+the line under its header said "v0 waits for approval there", and production's approval card named
+the same version that does not exist. A new flow is now saved as version 1 when it is created, as a
+sub-flow already was, and its first change is version 2. Version history lists the creation as well.
+
 ### Fixed — a list request could ask for the whole table
 
 `?limit=` on the list endpoints went into the query as it came, so one request with a very large
