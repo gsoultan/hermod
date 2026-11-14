@@ -113,6 +113,7 @@ GET /api/vhosts/{vhost}/ml/scripts
 GET /api/vhosts/{vhost}/ml/scripts/{name}
 GET /api/vhosts/{vhost}/ml/sources/{id}/columns
 GET /api/vhosts/{vhost}/ml/sources/{id}/tables
+GET /api/vhosts/{vhost}/retention
 GET /api/vhosts/{vhost}/secrets
 GET /api/webhooks/requests
 GET /api/webhooks/{path...}
@@ -324,6 +325,7 @@ PUT /api/vhosts/{vhost}/ml/models/{name}/retrain
 PUT /api/vhosts/{vhost}/ml/models/{name}/scoring
 PUT /api/vhosts/{vhost}/ml/quotas
 PUT /api/vhosts/{vhost}/ml/scripts/{name}
+PUT /api/vhosts/{vhost}/retention
 PUT /api/vhosts/{vhost}/secrets/{name}
 PUT /api/workers/{id}
 PUT /api/workflows/{id}

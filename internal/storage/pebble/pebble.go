@@ -336,6 +336,9 @@ func (s *pebbleStorage) ListAuditLogs(ctx context.Context, filter storage.AuditF
 		if filter.To != nil && !a.Timestamp.Before(*filter.To) {
 			continue
 		}
+		if filter.VHost != "" && a.VHost != filter.VHost {
+			continue
+		}
 		if filter.UserID != "" && a.UserID != filter.UserID {
 			continue
 		}

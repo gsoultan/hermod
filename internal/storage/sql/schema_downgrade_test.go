@@ -245,7 +245,7 @@ import (
 // a misread. The same change added workflows.dead_letter_key_fields, which an
 // older binary neither selects nor writes: its UPDATE leaves the column as it
 // was, so a rollback keeps the setting for when the newer binary returns.
-const knownSchemaFingerprint = "8b807eb37882e4559016a0b6a0866c69904206773e21f01db31a78be690539f1"
+const knownSchemaFingerprint = "5c3479b4161ded325e5f45645f0e37260836bf68b68c1cd705ce372be527c7c5"
 
 func TestSchemaVersionIsReconsideredWhenTheSchemaChanges(t *testing.T) {
 	if got := SchemaFingerprint(); got != knownSchemaFingerprint {

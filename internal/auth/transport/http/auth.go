@@ -69,6 +69,8 @@ func (h *AuthHandler) RegisterAuthRoutes(mux *http.ServeMux) {
 	// A vhost's secrets. EditorOnly is the role floor; each handler also checks
 	// that the caller has the vhost. The worker route is the only one that
 	// returns a value, and it answers a worker's token only.
+	mux.Handle("GET /api/vhosts/{vhost}/retention", h.EditorOnly(h.GetVHostRetention))
+	mux.Handle("PUT /api/vhosts/{vhost}/retention", h.AdminOnly(h.PutVHostRetention))
 	mux.Handle("GET /api/vhosts/{vhost}/secrets", h.EditorOnly(h.ListVHostSecrets))
 	mux.Handle("PUT /api/vhosts/{vhost}/secrets/{name}", h.EditorOnly(h.PutVHostSecret))
 	mux.Handle("DELETE /api/vhosts/{vhost}/secrets/{name}", h.EditorOnly(h.DeleteVHostSecret))

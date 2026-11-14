@@ -27,6 +27,7 @@ import (
 var vhostNameCollections = []string{
 	"workflows", "sources", "sinks", deadLettersCollection, "dashboard_history",
 	mlJobsCollection, mlJobResultsCollection, mlFeedbackCollection, mlPredictionLogsCollection,
+	"audit_logs",
 }
 
 // vhostPrefixedCollections have an _id that starts with the vhost's name and
@@ -36,9 +37,9 @@ var vhostPrefixedCollections = []string{
 	vhostSecretsCollection, mlModelsCollection, mlScriptsCollection, mlBlobsCollection, mlSchedulesCollection,
 }
 
-// vhostIDCollections have the vhost's name as their whole _id: one document
+// vhostCollections have the vhost's name as their whole _id: one document
 // per vhost.
-var vhostIDCollections = []string{mlQuotasCollection, aiBudgetsCollection}
+var vhostCollections = []string{mlQuotasCollection, aiBudgetsCollection}
 
 // UpdateVHost saves the vhost's name and description, and carries a new name
 // to everything kept under the old one: workflows, sources, sinks, users'
@@ -103,10 +104,15 @@ func (s *mongoStorage) renameVHostContents(ctx context.Context, from, to string)
 	if err != nil {
 		return err
 	}
-	for _, name := range vhostIDCollections {
+	for _, name := range vhostCollections {
 		if err := s.moveVHostDocs(ctx, name, bson.M{"_id": from}, func(bson.M) (string, error) { return to, nil }); err != nil {
 			return err
 		}
+	}
+	// The vhost's retention is a settings document keyed by its name.
+	if err := s.moveVHostDocs(ctx, "settings", bson.M{"_id": storage.VHostRetentionSettingPrefix + from},
+		func(bson.M) (string, error) { return storage.VHostRetentionSettingPrefix + to, nil }); err != nil {
+		return err
 	}
 	return s.renameVHostInUsers(ctx, from, to)
 }

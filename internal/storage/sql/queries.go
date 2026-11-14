@@ -709,7 +709,8 @@ var commonQueries = map[string]string{
 			entity_type TEXT NOT NULL,
 			entity_id TEXT NOT NULL,
 			payload TEXT,
-			ip TEXT
+			ip TEXT,
+			vhost TEXT
 		)`,
 	QueryInitSchemasTable: `CREATE TABLE IF NOT EXISTS schemas (
 			id TEXT PRIMARY KEY,
@@ -1065,8 +1066,8 @@ var commonQueries = map[string]string{
 
 	QueryGetSetting: "SELECT value FROM settings WHERE key = ?",
 
-	QueryCreateAuditLog: "INSERT INTO audit_logs (id, timestamp, user_id, username, action, entity_type, entity_id, payload, ip) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-	QueryListAuditLogs:  "SELECT id, timestamp, user_id, username, action, entity_type, entity_id, payload, ip FROM audit_logs",
+	QueryCreateAuditLog: "INSERT INTO audit_logs (id, timestamp, user_id, username, action, entity_type, entity_id, payload, ip, vhost) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryListAuditLogs:  "SELECT id, timestamp, user_id, username, action, entity_type, entity_id, payload, ip, vhost FROM audit_logs",
 	QueryCountAuditLogs: "SELECT COUNT(*) FROM audit_logs",
 	QueryPurgeAuditLogs: "DELETE FROM audit_logs WHERE timestamp < ?",
 	// Scoped to one workflow, always. The unscoped form this replaces was

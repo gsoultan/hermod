@@ -25,7 +25,7 @@ import (
 var vhostNameTables = []string{
 	"workflows", "sources", "sinks", "dead_letters", "dashboard_history",
 	"ml_jobs", "ml_job_results", "ml_feedback", "ml_prediction_logs",
-	"ml_quotas", "ai_budgets",
+	"ml_quotas", "ai_budgets", "audit_logs",
 }
 
 // vhostKeyedTable is a table whose id is built from the vhost's name, so a
@@ -131,6 +131,11 @@ func (s *sqlStorage) renameVHostContents(ctx context.Context, tx *sql.Tx, from, 
 		if err := s.txExec(ctx, tx, "UPDATE "+table+" SET vhost = ? WHERE vhost = ?", to, from); err != nil {
 			return fmt.Errorf("moving %s: %w", table, err)
 		}
+	}
+	// The vhost's retention is a settings row keyed by its name.
+	if err := s.txExec(ctx, tx, "UPDATE settings SET "+s.settingKeyColumn()+" = ? WHERE "+s.settingKeyColumn()+" = ?",
+		storage.VHostRetentionSettingPrefix+to, storage.VHostRetentionSettingPrefix+from); err != nil {
+		return fmt.Errorf("moving the retention setting: %w", err)
 	}
 	for _, kt := range vhostKeyedTables {
 		if err := s.renameVHostKeyedRows(ctx, tx, kt, from, to); err != nil {
@@ -238,4 +243,13 @@ func (s *sqlStorage) renamedUserVHosts(ctx context.Context, tx *sql.Tx, from, to
 		return nil, fmt.Errorf("reading users: %w", err)
 	}
 	return changes, nil
+}
+
+// settingKeyColumn is the settings table's key column as the dialect needs it
+// written: key is a reserved word in MySQL.
+func (s *sqlStorage) settingKeyColumn() string {
+	if strings.Contains(s.queries.get(QuerySaveSetting), "`key`") {
+		return "`key`"
+	}
+	return "key"
 }

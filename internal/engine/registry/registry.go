@@ -642,6 +642,8 @@ func (r *Registry) purgeRetention() {
 		return
 	}
 
+	r.purgeVHostHistory(ctx, store, logStore, workflows)
+
 	// One sweep of the trace tables, built from every workflow's own window,
 	// rather than one full-table delete per workflow per hour driven by
 	// whichever cutoff the loop happened to be holding.

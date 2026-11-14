@@ -469,6 +469,11 @@ type AuditLog struct {
 	EntityID   string    `json:"entity_id"`
 	Payload    string    `json:"payload,omitempty"` // Details about the change (JSON)
 	IP         string    `json:"ip,omitempty"`
+	// VHost is the name of the vhost the row is about, as every other table
+	// keeps it. It is empty for rows about the deployment itself (users,
+	// logins) and for rows written before the column existed. A vhost's audit
+	// retention acts on this.
+	VHost string `json:"vhost,omitempty" bson:"vhost,omitempty"`
 }
 
 type AuditFilter struct {

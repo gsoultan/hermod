@@ -1582,6 +1582,7 @@ func (s *mongoStorage) CreateAuditLog(ctx context.Context, log storage.AuditLog)
 		"entity_id":   log.EntityID,
 		"payload":     log.Payload,
 		"ip":          log.IP,
+		"vhost":       log.VHost,
 	})
 	return err
 }
@@ -1814,6 +1815,9 @@ func (s *mongoStorage) ListAuditLogs(ctx context.Context, filter storage.AuditFi
 
 	if filter.Search != "" {
 		query["$or"] = searchAcross(filter.Search, storage.AuditLogSearchFields...)
+	}
+	if filter.VHost != "" {
+		query["vhost"] = filter.VHost
 	}
 	if filter.UserID != "" {
 		query["user_id"] = filter.UserID
