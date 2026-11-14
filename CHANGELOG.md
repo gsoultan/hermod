@@ -7,11 +7,16 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
-### Fixed — a traced line in the editor's live log logged an invalid-markup error
+### Security — the history of received webhooks needed no login
 
-A live log line that carries a trace shows a "Trace" badge after its message. The badge was
-rendered inside the message's paragraph, which is invalid HTML, so the browser console collected a
-React error for every such line while the log was streaming. The message is now a block container.
+`GET /api/webhooks/requests` answered anyone who could reach the API port with the headers and
+body of the last requests every webhook had received. Everything under `/api/webhooks/` is public
+so that a sender with no session can deliver, and the history is served from under the same
+prefix. It now needs a session, as does `POST /api/webhooks/requests/{id}/replay`. A caller who is
+not an administrator sees and replays only the requests of webhooks in the vhosts they may see;
+the history of a path whose source was deleted is an administrator's. Delivering to a webhook is
+unchanged. **If your API port was reachable by people who should not read webhook payloads, treat
+what those webhooks received as disclosed.**
 
 ### Added — the Transactional SQL sink: dependent writes to several tables in one transaction
 
@@ -61,6 +66,12 @@ The optimizer raised and lowered a running sink's batch size every 30 seconds. T
 reached the running writer, which reads its batch size once when it starts, so it had no effect on
 throughput while still altering settings nobody had asked it to. It is removed. A sink that stays
 full is now a recommendation on the Tuning tab.
+
+### Fixed — a traced line in the editor's live log logged an invalid-markup error
+
+A live log line that carries a trace shows a "Trace" badge after its message. The badge was
+rendered inside the message's paragraph, which is invalid HTML, so the browser console collected a
+React error for every such line while the log was streaming. The message is now a block container.
 
 ### Fixed — a stuck sink reported its buffer as almost empty
 
