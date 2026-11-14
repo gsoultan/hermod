@@ -77,7 +77,13 @@ func newBatchTestServer(t *testing.T, store *recordingLogStorage) *httptest.Serv
 	h := NewLogHandler(&handlers.Handler{LogStorage: store})
 	mux := http.NewServeMux()
 	h.RegisterLogRoutes(mux)
-	srv := httptest.NewServer(mux)
+	// The routes answer a worker; these tests are about what a worker's batch
+	// does once it is in.
+	asWorker := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		worker := &storage.User{ID: "worker:w1", Role: storage.RoleEditor, VHosts: []string{"*"}}
+		mux.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), handlers.UserContextKey, worker)))
+	})
+	srv := httptest.NewServer(asWorker)
 	t.Cleanup(srv.Close)
 	return srv
 }

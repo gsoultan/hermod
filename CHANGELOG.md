@@ -18,6 +18,32 @@ the history of a path whose source was deleted is an administrator's. Delivering
 unchanged. **If your API port was reachable by people who should not read webhook payloads, treat
 what those webhooks received as disclosed.**
 
+### Security — a vhost was not enforced on a workflow's actions, logs and streams
+
+A user is given the vhosts they may work in. Reading a workflow checked that; most of what acts on
+one did not, so an Editor given one vhost could, with a workflow's id, change, start, stop, drain,
+rebuild, roll back or delete a workflow in any other, create a workflow in a vhost they were not
+given, and read another vhost's health, compliance report, versions and validation. The log
+(`GET /api/logs`) and the live streams for logs, status, live messages and the debugger served
+every vhost to every session.
+
+- Every route that names a workflow now checks the caller's vhosts before the handler runs, and a
+  test fails the build if one is added without the check. A batch that names a workflow outside
+  the caller's vhosts is refused whole.
+- Creating a workflow, or saving one into another vhost, needs that vhost.
+- A user who is not an Administrator reads the log entries of the workflows, sources and sinks in
+  their vhosts. Entries about the platform, or about something since deleted, are an
+  Administrator's. The `total` returned still counts every entry.
+- A stream that names a workflow is refused for another vhost's; a stream of every workflow carries
+  only the caller's.
+- `PATCH /api/workflows/{id}/status`, `PATCH /api/workflows/{id}/stats`, `POST /api/logs` and
+  `POST /api/logs/batch` are where workers report. They took any session, a Viewer's included; they
+  now answer a worker or an Administrator. `POST /api/workers/{id}/heartbeat` answers that worker
+  or an Administrator.
+
+Administrators and single-vhost installations see no change. `default` remains open to every
+user, as before. The dashboard's totals are still counted across vhosts.
+
 ### Added — the Transactional SQL sink: dependent writes to several tables in one transaction
 
 A new sink, `txsql`, runs an ordered list of `INSERT`, `UPDATE`, `DELETE`, `MERGE` or `SELECT`
@@ -31,6 +57,22 @@ to nothing refuses the message by default (`on_unresolved: null` binds NULL inst
 `expect: one` refuses an empty `RETURNING`, so a child is never written with a NULL parent. Runs on
 PostgreSQL, YugabyteDB, MySQL, MariaDB, SQL Server and SQLite, with live tests against the first
 three. It has no editor form yet. See [Transactional SQL sink](docs/transactional-sql-sink.md).
+
+### Security — connector credentials were written to the activity log in the clear
+
+Creating or updating a source, a sink or a workflow records the saved object in the activity log
+and in the audit log. The object was recorded whole, so a database password, an API key, a
+connection string or a node's `apiKey` — encrypted in the table that owns it — was kept as plain
+text in `logs.data` and `audit_logs.payload`, returned by `GET /api/logs` and
+`GET /api/audit-logs`, and copied into every backup.
+
+Both now keep `[REDACTED]` in place of a credential. A credential is any value whose key the
+connector encryption already treats as one, read in snake_case, camelCase or header spelling, plus
+`Authorization` and `Cookie` headers. A `{{ }}` reference to a vhost secret is a name and is kept.
+
+Rows written before this change are not rewritten. Rotate any credential saved through the UI
+before upgrading if the activity log was readable by someone who should not hold it, or delete the
+old rows.
 
 ### Added — an optional AI explanation of a workflow's recommendations
 
@@ -59,6 +101,13 @@ written to the audit log. The answer is text; it cannot change a workflow or cre
 - **An applied fix is measured.** Once the workflow has run for a few minutes since, the proposal
   shows step time per message, failures and throughput before and since, and says whether the
   workflow runs better, worse or the same.
+
+### Fixed — a list request could ask for the whole table
+
+`?limit=` on the list endpoints went into the query as it came, so one request with a very large
+value read an entire table — workflows, logs, audit log, traces — into memory. A page is now at
+most 1,000 rows, which is the largest the UI asks for. A client that sent a larger `limit` gets
+1,000 rows and pages for the rest.
 
 ### Changed — the optimizer no longer changes a sink's batch size by itself
 

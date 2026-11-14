@@ -283,11 +283,17 @@ find a claim that outruns the code, fix the claim.
   used to return the JWT key to any editor. Expression lookups are cached
   (60 s, 256 keys, 2 s timeout); `HERMOD_SECRETS_ALLOW_UNPREFIXED` is the
   one-release escape hatch.
+- [Vhost enforcement on actions](vhost_enforcement_on_actions.md) — `inVHost`,
+  `VHostScope`, `AgentOnly`: toggle, delete, logs and streams are held to the
+  caller's vhosts, and a route guard test keeps new `{id}` routes wrapped.
 - [A vhost's own secrets](vhost_secrets.md) — saved from the Secrets page,
   encrypted, read by that vhost's workflows first and the global manager after.
   The engine marks each message with its workflow's vhost (not data, not
   metadata); the API never returns a value, so the preview endpoints are where
   the vhost check matters. Test Connection still reads the global manager only.
+- [Audit trail redaction](audit_trail_redaction.md) — `RecordAuditLog` writes to
+  `logs.data` and `audit_logs.payload`; credentials become `[REDACTED]` by the
+  `configsecrets` key rule read in any spelling.
 - [Branches that meet again](branch_rejoin_join_barrier.md) — the join
   barrier pruned a node whose last in-edge was a prune even with a message
   waiting in it, so a condition's straight-to-sink branch lost every message

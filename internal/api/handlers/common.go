@@ -194,6 +194,11 @@ func (h *Handler) JsonError(w http.ResponseWriter, msg string, code int) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
+// MaxListPageSize is the largest page a list endpoint returns. The UI never
+// asks for more, and without a ceiling ?limit= is how one request reads a
+// whole table into memory.
+const MaxListPageSize = 1000
+
 func (h *Handler) ParseCommonFilter(r *http.Request) storage.CommonFilter {
 	f := storage.CommonFilter{
 		Page:   1,
@@ -217,7 +222,7 @@ func (h *Handler) ParseCommonFilter(r *http.Request) storage.CommonFilter {
 		f.Page = p
 	}
 	if l, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && l > 0 {
-		f.Limit = l
+		f.Limit = min(l, MaxListPageSize)
 	}
 
 	return f
@@ -242,6 +247,39 @@ func (h *Handler) AllowConnectorVHost(w http.ResponseWriter, r *http.Request, vh
 	}
 	h.JsonError(w, "Forbidden: no access to vhost "+vhost, http.StatusForbidden)
 	return false
+}
+
+// MayUseVHost reports whether the caller may work in vhost: an Administrator
+// may in all of them, anyone else in the ones they were given. A request with
+// no user is one the server made itself.
+func (h *Handler) MayUseVHost(r *http.Request, vhost string) bool {
+	role, vhosts := h.GetRoleAndVHosts(r)
+	return role == "" || role == storage.RoleAdministrator || h.HasVHostAccess(vhost, vhosts)
+}
+
+// IsWorkerPrincipal reports whether u is a worker process that authenticated
+// with its worker token, not a person with a session.
+func IsWorkerPrincipal(u *storage.User) bool {
+	return u != nil && strings.HasPrefix(u.ID, "worker:")
+}
+
+// AgentOnly guards a route that worker processes report to. It answers a
+// worker and, so the same thing can be done by hand in an emergency, an
+// Administrator. A worker is given the Editor role so that it can read what it
+// runs; without this guard that made every such route open to every session.
+func (h *Handler) AgentOnly(next http.HandlerFunc) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, ok := r.Context().Value(UserContextKey).(*storage.User)
+		if !ok {
+			h.JsonError(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if user.Role != storage.RoleAdministrator && !IsWorkerPrincipal(user) {
+			h.JsonError(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+		next(w, r)
+	})
 }
 
 func (h *Handler) HasVHostAccess(vhost string, allowedVHosts []string) bool {
@@ -789,14 +827,11 @@ func (h *Handler) RecordAuditLog(r *http.Request, level, message, action string,
 	var payloadStr string
 	if data != nil {
 		if str, ok := data.(string); ok {
-			l.Data = str
-			payloadStr = str
-		} else {
-			if b, err := json.Marshal(data); err == nil {
-				l.Data = string(b)
-				payloadStr = string(b)
-			}
+			payloadStr = string(redactAuditPayload([]byte(str)))
+		} else if b, err := json.Marshal(data); err == nil {
+			payloadStr = string(redactAuditPayload(b))
 		}
+		l.Data = payloadStr
 	}
 
 	_ = h.LogStorage.CreateLog(ctx, l)
