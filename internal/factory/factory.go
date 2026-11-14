@@ -1047,6 +1047,8 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 		truncateTable := cfg.Config["truncate_table"] == "true"
 		syncColumns := cfg.Config["sync_columns"] == "true"
 		return sinksqlite.NewSQLiteSink(BuildConnectionString(cfg.Config, cfg.Type), cfg.Config["table"], mappings, useExisting, cfg.Config["delete_strategy"], cfg.Config["soft_delete_column"], cfg.Config["soft_delete_value"], cfg.Config["operation_mode"], truncateTable, syncColumns), nil
+	case "txsql":
+		return newTxSQLSink(cfg.Config)
 	case "eventstore":
 		driver := cfg.Config["driver"]
 		dsn := cfg.Config["dsn"]
