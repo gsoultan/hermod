@@ -85,11 +85,13 @@ func (s *sqlStorage) CleanStoredWorkflows(ctx context.Context) (int, error) {
 // readNodeRows reads the nodes column of every workflow, or of every version.
 // The two statements are literals, never caller input.
 func (s *sqlStorage) readNodeRows(ctx context.Context, versions bool) ([]storedNodes, error) {
-	query := "SELECT id, id, vhost, nodes FROM workflows"
+	var rows *sql.Rows
+	var err error
 	if versions {
-		query = "SELECT id, workflow_id, '', nodes FROM workflow_versions"
+		rows, err = s.db.QueryContext(ctx, s.prepareQuery("SELECT id, workflow_id, '', nodes FROM workflow_versions"))
+	} else {
+		rows, err = s.db.QueryContext(ctx, s.prepareQuery("SELECT id, id, vhost, nodes FROM workflows"))
 	}
-	rows, err := s.db.QueryContext(ctx, s.prepareQuery(query))
 	if err != nil {
 		return nil, err
 	}
@@ -109,11 +111,12 @@ func (s *sqlStorage) readNodeRows(ctx context.Context, versions bool) ([]storedN
 
 // writeNodes replaces one workflow's or version's nodes column.
 func (s *sqlStorage) writeNodes(ctx context.Context, versions bool, id, nodes string) error {
-	query := "UPDATE workflows SET nodes = ? WHERE id = ?"
+	var err error
 	if versions {
-		query = "UPDATE workflow_versions SET nodes = ? WHERE id = ?"
+		_, err = s.db.ExecContext(ctx, s.prepareQuery("UPDATE workflow_versions SET nodes = ? WHERE id = ?"), nodes, id)
+	} else {
+		_, err = s.db.ExecContext(ctx, s.prepareQuery("UPDATE workflows SET nodes = ? WHERE id = ?"), nodes, id)
 	}
-	_, err := s.db.ExecContext(ctx, s.prepareQuery(query), nodes, id)
 	return err
 }
 
