@@ -7,6 +7,41 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Security — the history of received webhooks needed no login
+
+`GET /api/webhooks/requests` answered anyone who could reach the API port with the headers and
+body of the last requests every webhook had received. Everything under `/api/webhooks/` is public
+so that a sender with no session can deliver, and the history is served from under the same
+prefix. It now needs a session, as does `POST /api/webhooks/requests/{id}/replay`. A caller who is
+not an administrator sees and replays only the requests of webhooks in the vhosts they may see;
+the history of a path whose source was deleted is an administrator's. Delivering to a webhook is
+unchanged. **If your API port was reachable by people who should not read webhook payloads, treat
+what those webhooks received as disclosed.**
+
+### Added — the Transactional SQL sink: dependent writes to several tables in one transaction
+
+A new sink, `txsql`, runs an ordered list of `INSERT`, `UPDATE`, `DELETE`, `MERGE` or `SELECT`
+statements against one database inside one transaction, and lets a later statement use what an
+earlier one returned: `{{order.id}}` from an `INSERT ... RETURNING id`, `OUTPUT inserted.id` on SQL
+Server, or the last-insert id on MySQL. `forEach` runs a statement once per element of a list, so
+an order and its lines are one message and one transaction. If any statement fails, nothing is
+written. A data error is parked in the dead-letter sink with the failing statement's name, while
+the rest of the batch commits; a deadlock or lost connection is retried. A variable that resolves
+to nothing refuses the message by default (`on_unresolved: null` binds NULL instead), and
+`expect: one` refuses an empty `RETURNING`, so a child is never written with a NULL parent. Runs on
+PostgreSQL, YugabyteDB, MySQL, MariaDB, SQL Server and SQLite, with live tests against the first
+three. It has no editor form yet. See [Transactional SQL sink](docs/transactional-sql-sink.md).
+
+### Added — an optional AI explanation of a workflow's recommendations
+
+Editors can press "Explain in plain words" above a workflow's recommendations to have a language
+model say what is going on and which change to make first. It is **off** unless
+`HERMOD_ADVISOR_AI_PROVIDER` is set (with `HERMOD_ADVISOR_AI_MODEL`, `HERMOD_ADVISOR_AI_BASE_URL`
+and `HERMOD_ADVISOR_AI_API_KEY`, the key as a `{{secret("NAME")}}` reference resolved for the
+workflow's vhost). Only the recommendations are sent: their text, their numbers and step names,
+never message contents. Each call counts against the vhost's and the workflow's AI budget and is
+written to the audit log. The answer is text; it cannot change a workflow or create a proposal.
+
 ### Added — each virtual host sets how long it keeps its audit log, workflow versions and approvals
 
 The audit log, the saved versions of every workflow and decided approvals were never purged, so
@@ -34,30 +69,6 @@ still applies to the whole audit log as before.
 When the log is kept in a separate database from the configuration, older entries cannot be given
 a virtual host, and entries written under a virtual host's old name are not carried by a rename;
 both are kept rather than purged.
-
-### Added — the Transactional SQL sink: dependent writes to several tables in one transaction
-
-A new sink, `txsql`, runs an ordered list of `INSERT`, `UPDATE`, `DELETE`, `MERGE` or `SELECT`
-statements against one database inside one transaction, and lets a later statement use what an
-earlier one returned: `{{order.id}}` from an `INSERT ... RETURNING id`, `OUTPUT inserted.id` on SQL
-Server, or the last-insert id on MySQL. `forEach` runs a statement once per element of a list, so
-an order and its lines are one message and one transaction. If any statement fails, nothing is
-written. A data error is parked in the dead-letter sink with the failing statement's name, while
-the rest of the batch commits; a deadlock or lost connection is retried. A variable that resolves
-to nothing refuses the message by default (`on_unresolved: null` binds NULL instead), and
-`expect: one` refuses an empty `RETURNING`, so a child is never written with a NULL parent. Runs on
-PostgreSQL, YugabyteDB, MySQL, MariaDB, SQL Server and SQLite, with live tests against the first
-three. It has no editor form yet. See [Transactional SQL sink](docs/transactional-sql-sink.md).
-
-### Added — an optional AI explanation of a workflow's recommendations
-
-Editors can press "Explain in plain words" above a workflow's recommendations to have a language
-model say what is going on and which change to make first. It is **off** unless
-`HERMOD_ADVISOR_AI_PROVIDER` is set (with `HERMOD_ADVISOR_AI_MODEL`, `HERMOD_ADVISOR_AI_BASE_URL`
-and `HERMOD_ADVISOR_AI_API_KEY`, the key as a `{{secret("NAME")}}` reference resolved for the
-workflow's vhost). Only the recommendations are sent: their text, their numbers and step names,
-never message contents. Each call counts against the vhost's and the workflow's AI budget and is
-written to the audit log. The answer is text; it cannot change a workflow or create a proposal.
 
 ### Added — performance recommendations for a running workflow
 
