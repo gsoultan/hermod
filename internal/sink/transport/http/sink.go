@@ -25,6 +25,7 @@ import (
 	"github.com/gsoultan/hermod/internal/factory"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/comm/sink/txsql"
 	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
 )
 
@@ -144,6 +145,10 @@ func (h *SinkHandler) CreateSink(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Name, Type, and VHost are mandatory", http.StatusBadRequest)
 		return
 	}
+	if err := checkSinkConfig(snk); err != nil {
+		h.JsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	role, vhosts := h.GetRoleAndVHosts(r)
 	if role != storage.RoleAdministrator {
@@ -180,6 +185,10 @@ func (h *SinkHandler) UpdateSink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	snk.ID = id
+	if err := checkSinkConfig(snk); err != nil {
+		h.JsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	role, vhosts := h.GetRoleAndVHosts(r)
 	if role != storage.RoleAdministrator {
@@ -733,6 +742,19 @@ func exampleRow() map[string]any {
 
 func (h *SinkHandler) ValidateEmail(w http.ResponseWriter, r *http.Request) {
 	// Full implementation would go here, moved from server.go
+}
+
+// checkSinkConfig refuses a configuration that can be judged without
+// connecting to anything and could never run. Saving it would only move the
+// refusal to the moment its workflow starts, further from the form that can
+// fix it.
+func checkSinkConfig(snk storage.Sink) error {
+	if snk.Type == "txsql" {
+		if _, err := txsql.ParseConfig(snk.Config); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (h *SinkHandler) checkActiveWorkflows(ctx context.Context, sinkID string) error {
