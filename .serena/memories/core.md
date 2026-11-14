@@ -86,6 +86,8 @@ find a claim that outruns the code, fix the claim.
 - [Connector conformance suite](connector_conformance_suite.md) — the contract
   every source and sink must pass, the defects it found, and the two traps
   (vendor hostnames, unroutable addresses) that make it slow.
+- [Connector credentials and roles](connector_credentials_by_role.md) — a Viewer gets
+  `[REDACTED]` from the source and sink read endpoints; Editors get the stored value.
 - [Session auth is cookie-only](session_auth_cookie_only.md) — the JWT is not
   reachable from JavaScript; streams authenticate by cookie; logout is real.
 - [Postgres sink and polling](postgres_sink_and_polling_updates.md) — singleflight

@@ -58,6 +58,15 @@ to nothing refuses the message by default (`on_unresolved: null` binds NULL inst
 PostgreSQL, YugabyteDB, MySQL, MariaDB, SQL Server and SQLite, with live tests against the first
 three. It has no editor form yet. See [Transactional SQL sink](docs/transactional-sql-sink.md).
 
+### Security — a Viewer was given every connector's stored credentials
+
+The source and sink lists, and each connector's own page, answered with the config as stored:
+database passwords, API keys and tokens, in the clear, to any signed-in user of the vhost. A Viewer
+reads connectors and cannot change them, so nothing a Viewer does needs the credential. For a Viewer
+each one is now returned as `[REDACTED]`. An empty value and a `{{ }}` reference to a vhost secret
+are still shown. Editors and Administrators get the config as before, because the edit form saves
+back what it loaded.
+
 ### Security — connector credentials were written to the activity log in the clear
 
 Creating or updating a source, a sink or a workflow records the saved object in the activity log

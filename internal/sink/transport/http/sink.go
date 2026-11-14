@@ -103,6 +103,10 @@ func (h *SinkHandler) ListSinks(w http.ResponseWriter, r *http.Request) {
 		sinks = filtered
 	}
 
+	for i := range sinks {
+		sinks[i].Config = h.ConfigForCaller(r, sinks[i].Config)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"data":  sinks,
@@ -129,6 +133,8 @@ func (h *SinkHandler) GetSink(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	snk.Config = h.ConfigForCaller(r, snk.Config)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(snk)
