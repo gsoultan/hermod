@@ -29,7 +29,6 @@ import (
 	"github.com/gsoultan/hermod/internal/ai"
 	"github.com/gsoultan/hermod/internal/api/handlers"
 	"github.com/gsoultan/hermod/internal/engine/registry"
-	"github.com/gsoultan/hermod/internal/engine/registry/subflow"
 	"github.com/gsoultan/hermod/internal/governance"
 	"github.com/gsoultan/hermod/internal/lineage"
 	lineagehttp "github.com/gsoultan/hermod/internal/lineage/transport/http"
@@ -1060,16 +1059,14 @@ func (h *WorkflowHandler) CreateWorkflow(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// A caller pins a saved version of a sub-flow, so a new one is saved as
-	// version 1 straight away instead of only on its first update.
-	if subflow.IsSubflow(wf) {
-		user, _ := r.Context().Value(handlers.UserContextKey).(*storage.User)
-		username := "System"
-		if user != nil {
-			username = user.Username
-		}
-		_ = h.recordVersion(r.Context(), wf, 1, username, "Created")
+	// A new workflow is saved as version 1 straight away instead of only on
+	// its first update: a caller pins a saved version of a sub-flow, and a
+	// flow promoted before its first edit would otherwise go out as "v0".
+	creator := "System"
+	if user, _ := r.Context().Value(handlers.UserContextKey).(*storage.User); user != nil {
+		creator = user.Username
 	}
+	_ = h.recordVersion(r.Context(), wf, 1, creator, "Created")
 
 	wf = h.asSaved(r.Context(), wf)
 	h.RecordAuditLog(r, "INFO", "Created workflow "+wf.Name, "CREATE", wf.ID, "", "", wf)
