@@ -102,6 +102,17 @@ written to the audit log. The answer is text; it cannot change a workflow or cre
   shows step time per message, failures and throughput before and since, and says whether the
   workflow runs better, worse or the same.
 
+### Fixed — a Postgres CDC source could deliver its last change again after a clean stop
+
+Postgres sends a transaction as its rows and then a commit record, and on the next start it replays
+every transaction that commits beyond the confirmed position. The source hands a row on as soon as
+it arrives, so the row could be written and acknowledged, and the workflow stopped, while the commit
+record was still unread. The position confirmed on stop was then the row's own, before the commit,
+and the next start delivered that transaction a second time. As it stops, the source now reads on to
+the commit of the transaction it is inside, for at most a second, and confirms that. It does not
+when the transaction has a row that was never handed on: that transaction is replayed whole, as
+before.
+
 ### Fixed — a list request could ask for the whole table
 
 `?limit=` on the list endpoints went into the query as it came, so one request with a very large
