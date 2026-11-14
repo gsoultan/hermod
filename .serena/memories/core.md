@@ -83,6 +83,8 @@ find a claim that outruns the code, fix the claim.
 - [sqlutil owns dialect differences](sqlutil_owns_dialect_differences.md) —
   row limits, placeholders and quoting live in one place; the Oracle `ROWNUM`
   row-skipping bug is why.
+- [Dashboard and vhosts](dashboard_vhost_scope.md) — `Handler.DashboardVHost` holds the stats,
+  history and stream endpoints to the caller's vhosts; what "all" means for a non-administrator.
 - [Connector conformance suite](connector_conformance_suite.md) — the contract
   every source and sink must pass, the defects it found, and the two traps
   (vendor hostnames, unroutable addresses) that make it slow.
