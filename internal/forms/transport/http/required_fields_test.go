@@ -44,6 +44,9 @@ type formStore struct {
 func (f *formStore) ListSources(context.Context, storage.CommonFilter) ([]storage.Source, int, error) {
 	return []storage.Source{f.src}, 1, nil
 }
+
+// The audit row of a submission is stamped with the vhost of the form's source.
+func (f *formStore) GetSource(context.Context, string) (storage.Source, error) { return f.src, nil }
 func (f *formStore) CreateFormSubmission(context.Context, storage.FormSubmission) error {
 	return nil
 }

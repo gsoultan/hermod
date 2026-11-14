@@ -84,6 +84,37 @@ workflow's vhost). Only the recommendations are sent: their text, their numbers 
 never message contents. Each call counts against the vhost's and the workflow's AI budget and is
 written to the audit log. The answer is text; it cannot change a workflow or create a proposal.
 
+### Added — each virtual host sets how long it keeps its audit log, workflow versions and approvals
+
+The audit log, the saved versions of every workflow and decided approvals were never purged, so
+they grew for as long as Hermod ran. A virtual host now has three limits, set by an Administrator
+on its page under **Settings → Virtual hosts** (and with **Default retention** on the list, for the
+`default` virtual host):
+
+- **Audit log, days**: entries about the virtual host's workflows, sources and sinks older than
+  this are deleted.
+- **Workflow versions, per workflow**: only the newest are kept.
+- **Approvals, days after the decision**: approved and rejected approvals older than this are
+  deleted. One still waiting is always kept.
+
+An empty limit keeps everything, and that is where every virtual host starts: upgrading deletes
+nothing until a limit is set. Limits are applied by the hourly retention sweep. The API is
+`GET` and `PUT /api/vhosts/{vhost}/retention` with `audit_log_days`, `workflow_versions` and
+`approval_days`; reading needs an Editor of the virtual host, saving an Administrator.
+
+Audit entries now record the virtual host they are about (`vhost` in `GET /api/audit-logs`, which
+also accepts `?vhost=`). On start, older entries take the virtual host of the workflow, source or
+sink they are about. Entries about users and logins, and entries about something since deleted,
+belong to no virtual host and are not touched by these limits. A workflow's own **Audit retention**
+still applies to the whole audit log as before.
+
+When the log is kept in a separate database from the configuration, older entries cannot be given
+a virtual host, and entries written under a virtual host's old name are not carried by a rename;
+both are kept rather than purged.
+
+On MongoDB this also fixes the version history itself: a workflow's versions were saved under one
+field name and read back under another, so the list was empty and a rollback found nothing.
+
 ### Added — performance recommendations for a running workflow
 
 - **The Tuning tab says what to change.** A running workflow's Tuning tab has a Recommendations

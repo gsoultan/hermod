@@ -25,6 +25,8 @@ find a claim that outruns the code, fix the claim.
 
 ### Memories
 
+- [Per-vhost history retention](vhost_history_retention.md) — a vhost limits its audit log,
+  workflow versions and decided approvals; how audit rows get a vhost; the Pebble key trap.
 - [Self-update](self_update.md) — Settings → Updates: GitHub release check,
   automatic/manual/off, checksum + `--version` smoke test, atomic swap, exit 75
   restart, and the boot guard that rolls back after three failed starts.

@@ -54,6 +54,8 @@ func seedVHostContents(t *testing.T, s *sqlStorage, vhost string) {
 	_, err = s.AddAIUsage(ctx, vhost, "2026-11", "wf-"+vhost, storage.AIUsageDelta{InputTokens: 10})
 	must("usage", err)
 	must("dead letter", s.PutDeadLetter(ctx, sampleDeadLetter("dl-"+vhost, vhost, "wf-"+vhost, at)))
+	must("audit log", s.CreateAuditLog(ctx, storage.AuditLog{Timestamp: at, Action: "UPDATE", EntityType: "workflow", EntityID: "wf-" + vhost, VHost: vhost}))
+	must("retention", storage.SaveVHostRetention(ctx, s, vhost, storage.VHostRetention{AuditLogDays: 90}))
 	must("dashboard sample", s.RecordDashboardSample(ctx, storage.DashboardSample{VHost: vhost, Timestamp: at, TotalProcessed: 3}))
 }
 
@@ -111,6 +113,12 @@ func countVHostContents(t *testing.T, s *sqlStorage, vhost string) map[string]bo
 	if dls, _, err := s.ListDeadLetters(ctx, storage.DeadLetterFilter{VHosts: []string{vhost}}); err == nil {
 		found["dead letter"] = slices.ContainsFunc(dls, func(d storage.DeadLetter) bool { return d.VHost == vhost })
 	}
+	if rows, _, err := s.ListAuditLogs(ctx, storage.AuditFilter{CommonFilter: storage.CommonFilter{VHost: vhost}}); err == nil {
+		found["audit log"] = len(rows) > 0
+	}
+	if r, err := storage.LoadVHostRetention(ctx, s, vhost); err == nil {
+		found["retention"] = r.AuditLogDays == 90
+	}
 	if hist, err := s.GetDashboardHistory(ctx, vhost, time.Time{}, 10); err == nil {
 		found["dashboard sample"] = len(hist) > 0
 	}
@@ -120,6 +128,7 @@ func countVHostContents(t *testing.T, s *sqlStorage, vhost string) map[string]bo
 var vhostContents = []string{
 	"workflow", "source", "sink", "secret", "model", "prediction log", "script", "blob", "job",
 	"quotas", "schedule", "feedback", "budget", "usage", "dead letter", "dashboard sample",
+	"audit log", "retention",
 }
 
 // Renaming a vhost must carry everything that belongs to it to the new name.
