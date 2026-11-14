@@ -65,12 +65,6 @@ func (h *WorkflowHandler) latestVersion(ctx context.Context, id string) int {
 
 // recordVersion stores wf as version n of its history.
 func (h *WorkflowHandler) recordVersion(ctx context.Context, wf storage.Workflow, n int, username, message string) error {
-	// The config is the workflow without its graph, which is kept apart.
-	cfg := wf
-	cfg.Nodes = nil
-	cfg.Edges = nil
-	configJSON, _ := json.Marshal(cfg)
-
 	if err := h.Storage.CreateWorkflowVersion(ctx, storage.WorkflowVersion{
 		ID:             uuid.New().String(),
 		WorkflowID:     wf.ID,
@@ -79,7 +73,7 @@ func (h *WorkflowHandler) recordVersion(ctx context.Context, wf storage.Workflow
 		Edges:          wf.Edges,
 		TraceRetention: wf.TraceRetention,
 		AuditRetention: wf.AuditRetention,
-		Config:         string(configJSON),
+		Config:         versionConfig(wf),
 		CreatedAt:      time.Now(),
 		CreatedBy:      username,
 		Message:        message,
@@ -87,6 +81,27 @@ func (h *WorkflowHandler) recordVersion(ctx context.Context, wf storage.Workflow
 		return fmt.Errorf("recording version %d: %w", n, err)
 	}
 	return nil
+}
+
+// versionConfig is what a version keeps beside its graph: the workflow's
+// settings, without the graph and without its run state.
+func versionConfig(wf storage.Workflow) string {
+	cfg := withoutRunState(wf)
+	cfg.Nodes = nil
+	cfg.Edges = nil
+	b, _ := json.Marshal(cfg)
+	return string(b)
+}
+
+// withoutRunState is wf without what describes its run rather than its
+// configuration: status, the lease and the counters. Which worker it is
+// placed on is configuration and stays.
+func withoutRunState(wf storage.Workflow) storage.Workflow {
+	wf.Status = ""
+	wf.OwnerID = ""
+	wf.LeaseUntil = nil
+	wf.TotalProcessed, wf.TotalErrors, wf.TotalLag = 0, 0, 0
+	return wf
 }
 
 // Validate returns the first error-level problem with wf, or nil.
@@ -127,6 +142,12 @@ func (h *WorkflowHandler) RollbackWorkflowTo(ctx context.Context, id string, ver
 		return 0, fmt.Errorf("parsing version %d: %w", version, err)
 	}
 	wf.ID = id
+	// Run state is today's, not the version's: older versions still carry
+	// theirs, and restoring it set a running workflow's status back in time.
+	if current, err := h.Storage.GetWorkflow(ctx, id); err == nil {
+		wf.Status, wf.OwnerID, wf.LeaseUntil = current.Status, current.OwnerID, current.LeaseUntil
+		wf.TotalProcessed, wf.TotalErrors, wf.TotalLag = current.TotalProcessed, current.TotalErrors, current.TotalLag
+	}
 	wf.Nodes = v.Nodes
 	wf.Edges = v.Edges
 	wf.TraceRetention = v.TraceRetention
@@ -143,7 +164,7 @@ func (h *WorkflowHandler) RollbackWorkflowTo(ctx context.Context, id string, ver
 		Edges:          wf.Edges,
 		TraceRetention: wf.TraceRetention,
 		AuditRetention: wf.AuditRetention,
-		Config:         v.Config,
+		Config:         versionConfig(wf),
 		CreatedAt:      time.Now(),
 		CreatedBy:      username,
 		Message:        fmt.Sprintf("Rolled back to version %d", version),

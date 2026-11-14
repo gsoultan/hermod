@@ -7,6 +7,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useWorkflowStore, type SimulationGraph } from '../store/useWorkflowStore';
 import type { Source, Sink } from '@/types';
 import { resolveSampleSource, sampleTableFor, simulationInputs } from '../sampleCapture';
+import { savedNodeConfig } from '../store/savedNode';
 import { persistedSnapshot } from '../store/persistedSnapshot';
 
 const API_BASE = '/api';
@@ -240,7 +241,7 @@ export function useWorkflowMutations(
           id: n.id,
           type: n.type,
           ref_id: n.data.ref_id,
-          config: n.data,
+          config: savedNodeConfig(n),
           x: n.position.x,
           y: n.position.y
         })),
@@ -276,6 +277,10 @@ export function useWorkflowMutations(
         setWorkflowStatus('Restarting');
       }
       queryClient.invalidateQueries({ queryKey: ['workflows'] });
+      // The server keeps a credential typed into a step as a vhost secret and
+      // answers with {{secret.NAME}} in its place; reload so the canvas holds
+      // the reference, not the plaintext.
+      if (!isNew) queryClient.invalidateQueries({ queryKey: ['workflow', id] });
       if (isNew && !vars?.leaving) navigate({ to: '/workflows' });
     }
   });
@@ -534,10 +539,13 @@ export function useWorkflowMutations(
       setSelectedNode(null);
       return;
     }
+    // The node names the connection; it does not carry a copy of it. Spreading
+    // the saved source or sink here put its config, password included, into
+    // every workflow that used it.
     updateNodeConfig(selectedNode.id, {
-       ...updatedData, 
        label: (updatedData as any).name || selectedNode.data.label,
-       ref_id: (updatedData as any).id 
+       ref_id: (updatedData as any).id,
+       ...((updatedData as any).type ? { type: (updatedData as any).type } : {}),
     });
     setSettingsOpened(false);
     setSelectedNode(null);

@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"slices"
 	"strconv"
@@ -26,6 +27,7 @@ import (
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/internal/storage/configsecrets"
+	"github.com/gsoultan/hermod/internal/storage/nodeclean"
 	_ "modernc.org/sqlite"
 )
 
@@ -321,6 +323,15 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		"UPDATE plugins SET created_at = ? WHERE created_at IS NULL",
 	} {
 		_, _ = s.db.ExecContext(ctx, s.prepareQuery(q), backfilledAt)
+	}
+
+	// Workflows saved before nodeclean held copies of their connections,
+	// passwords included, and credentials typed into steps. Best-effort: a
+	// row it cannot clean is still cleaned on every read.
+	if n, err := s.CleanStoredWorkflows(ctx); err != nil {
+		slog.Warn("storage: cleaning saved workflows", "error", err, "rewritten", n)
+	} else if n > 0 {
+		slog.Info("storage: removed connection copies, captured samples and typed credentials from saved workflows", "rows", n)
 	}
 
 	// 3. Initialize indexes and other tables
@@ -1806,6 +1817,7 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 		}
 		if nodesJSON.Valid && nodesJSON.String != "" {
 			json.Unmarshal([]byte(nodesJSON.String), &wf.Nodes)
+			wf.Nodes, _ = nodeclean.Nodes(wf.Nodes)
 		}
 		if edgesJSON.Valid && edgesJSON.String != "" {
 			json.Unmarshal([]byte(edgesJSON.String), &wf.Edges)
@@ -1819,12 +1831,16 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 }
 
 func (s *sqlStorage) CreateWorkflow(ctx context.Context, wf storage.Workflow) error {
-	nodesJSON, _ := json.Marshal(wf.Nodes)
-	edgesJSON, _ := json.Marshal(wf.Edges)
-	tagsJSON, _ := json.Marshal(wf.Tags)
 	if wf.ID == "" {
 		wf.ID = uuid.New().String()
 	}
+	nodes, err := nodeclean.ForWrite(ctx, s, wf.VHost, wf.ID, wf.Nodes)
+	if err != nil {
+		return err
+	}
+	nodesJSON, _ := json.Marshal(nodes)
+	edgesJSON, _ := json.Marshal(wf.Edges)
+	tagsJSON, _ := json.Marshal(wf.Tags)
 	// The list sorts on this, so every row needs one. Stamping it here rather
 	// than at the four handlers that create workflows means a fifth cannot
 	// forget; a caller that supplies one — a backup being restored — keeps it.
@@ -1843,7 +1859,11 @@ func (s *sqlStorage) CreateWorkflow(ctx context.Context, wf storage.Workflow) er
 
 // UpdateWorkflow updates an existing workflow's metadata and topology (nodes/edges) by ID.
 func (s *sqlStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow) error {
-	nodesJSON, _ := json.Marshal(wf.Nodes)
+	nodes, err := nodeclean.ForWrite(ctx, s, wf.VHost, wf.ID, wf.Nodes)
+	if err != nil {
+		return err
+	}
+	nodesJSON, _ := json.Marshal(nodes)
 	edgesJSON, _ := json.Marshal(wf.Edges)
 	tagsJSON, _ := json.Marshal(wf.Tags)
 	exec := func() error {
@@ -1985,6 +2005,7 @@ func (s *sqlStorage) GetWorkflow(ctx context.Context, id string) (storage.Workfl
 	}
 	if nodesJSON.Valid && nodesJSON.String != "" {
 		json.Unmarshal([]byte(nodesJSON.String), &wf.Nodes)
+		wf.Nodes, _ = nodeclean.Nodes(wf.Nodes)
 	}
 	if edgesJSON.Valid && edgesJSON.String != "" {
 		json.Unmarshal([]byte(edgesJSON.String), &wf.Edges)
@@ -3244,7 +3265,11 @@ func parseTimeString(s string) time.Time {
 }
 
 func (s *sqlStorage) CreateWorkflowVersion(ctx context.Context, v storage.WorkflowVersion) error {
-	nodesJSON, err := json.Marshal(v.Nodes)
+	nodes, err := nodeclean.ForWrite(ctx, s, s.workflowVHost(ctx, v.WorkflowID), v.WorkflowID, v.Nodes)
+	if err != nil {
+		return err
+	}
+	nodesJSON, err := json.Marshal(nodes)
 	if err != nil {
 		return err
 	}
@@ -3295,6 +3320,7 @@ func (s *sqlStorage) GetWorkflowVersion(ctx context.Context, workflowID string, 
 	v.Message = message.String
 	if nodesStr.Valid && nodesStr.String != "" {
 		_ = json.Unmarshal([]byte(nodesStr.String), &v.Nodes)
+		v.Nodes, _ = nodeclean.Nodes(v.Nodes)
 	}
 	if edgesStr.Valid && edgesStr.String != "" {
 		_ = json.Unmarshal([]byte(edgesStr.String), &v.Edges)

@@ -1,0 +1,4 @@
+# Two branches that each add an entry at the same place merge by keeping both,
+# instead of stopping on a conflict. Both files are only ever added to.
+CHANGELOG.md merge=union
+.serena/memories/core.md merge=union

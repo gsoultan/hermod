@@ -1,3 +1,5 @@
+import { savedNodeConfig } from './savedNode';
+
 /**
  * What Save writes, reduced to one comparable string, so the editor can tell
  * a canvas with unsaved edits from one that still matches the server.
@@ -36,7 +38,8 @@ export function persistedSnapshot(state: any): string {
   return stableJson({
     settings,
     nodes: (state.nodes || []).map((n: any) => ({
-      id: n.id, type: n.type, x: n.position?.x ?? 0, y: n.position?.y ?? 0, data: n.data,
+      id: n.id, type: n.type, ref_id: n.data?.ref_id ?? null,
+      x: n.position?.x ?? 0, y: n.position?.y ?? 0, data: savedNodeConfig(n),
     })),
     edges: (state.edges || []).map((e: any) => ({
       id: e.id, source: e.source, target: e.target,

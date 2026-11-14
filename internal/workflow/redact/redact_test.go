@@ -57,3 +57,16 @@ func TestAIKeysReplacesPlaintextKeysOnAINodesOnly(t *testing.T) {
 		t.Errorf("the stored nodes were modified: %v / %v", nodes[0].Config, nodes[1].Config)
 	}
 }
+
+func TestStepCredentialsReplacesTypedValuesOnly(t *testing.T) {
+	nodes := []storage.WorkflowNode{{ID: "l", Type: "transformation", Config: map[string]any{
+		"transType": "api_lookup", "password": "pw", "token": "{{secret.T}}", "url": "https://x",
+	}}}
+	out := redact.StepCredentials(nodes)
+	if out[0].Config["password"] != redact.Placeholder || out[0].Config["token"] != "{{secret.T}}" || out[0].Config["url"] != "https://x" {
+		t.Fatalf("config = %v", out[0].Config)
+	}
+	if nodes[0].Config["password"] != "pw" {
+		t.Fatal("input modified")
+	}
+}

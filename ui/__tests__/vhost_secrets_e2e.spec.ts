@@ -64,6 +64,9 @@ test('a secret saved for a vhost is read by that vhost’s workflow', async ({ p
   const source = await post('/api/sources', {
     name: `vhost-secret-src-${stamp}`, type: 'webhook', vhost: 'default', active: false,
     config: { path: `/vhost-secret-${stamp}` },
+    // The preview's input. It is the source's own sample: a workflow does not
+    // keep sampled rows in its nodes (internal/storage/nodeclean).
+    sample: JSON.stringify({ id: 1 }),
   });
   created.sources.push(source.id);
   const workflow = await post('/api/workflows', {
@@ -72,10 +75,10 @@ test('a secret saved for a vhost is read by that vhost’s workflow', async ({ p
       { id: 'n-src', type: 'source', ref_id: source.id, x: 100, y: 100 },
       {
         id: 'n-set', type: 'transformation', x: 400, y: 100,
-        config: { transType: 'set', lastSample: { id: 1 }, 'column.key': `secret.${name}` },
+        config: { transType: 'set', 'column.key': `secret.${name}` },
       },
     ],
-    edges: [],
+    edges: [{ id: 'e-src-set', source_id: 'n-src', target_id: 'n-set' }],
   });
   created.workflows.push(workflow.id);
 
