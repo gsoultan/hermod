@@ -78,7 +78,11 @@ Hermod ships with env-gated integration tests.
 
 ### UI Testing
 
-Hermod uses Vitest for unit/component testing and Cypress for End-to-End (E2E) testing.
+Hermod uses Vitest for unit/component testing and Playwright for end-to-end (E2E) testing. The
+Playwright coverage suite in `ui/__tests__/coverage/` tests every page, palette step, source and
+sink form, expression function, secret path and workflow feature against a running stack; its
+scenarios, and what it does not cover live, are listed in
+[testing/e2e-scenarios.md](testing/e2e-scenarios.md).
 
 #### Unit & Component Tests
 ```bash
@@ -86,7 +90,14 @@ cd ui
 bun run test
 ```
 
-#### End-to-End Tests (Cypress)
+#### End-to-End Tests (Playwright)
+```bash
+./scripts/dev.sh --sqlite --reset --detach
+bunx playwright test ui/__tests__/coverage/   # the coverage suite
+./scripts/dev.sh --stop
+```
+
+#### Legacy End-to-End Tests (Cypress)
 1. Ensure the development server is running (default: `http://localhost:5173`).
 2. Run Cypress:
 ```bash

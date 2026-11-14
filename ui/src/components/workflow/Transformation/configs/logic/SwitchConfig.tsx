@@ -17,6 +17,7 @@ import { useContext, useMemo } from 'react';
 import { IconArrowRight, IconGitBranch, IconPlus, IconTrash } from '@tabler/icons-react';
 import { SecretNamesContext } from '@/components/shared/TemplateField';
 import { ValueBuilder } from '@/components/shared/ValueBuilder';
+import { expressionWarning } from '@/lib/functionCatalog';
 
 interface SwitchConfigProps {
   config: any;
@@ -213,6 +214,7 @@ const CASE_TOKENS = { field: (path: string) => `{{${path}}}` }
 // a field, a secret, or a function of any of them, nested as deep as needed.
 function OperandInput({ label, description, value, mode, onChange, fieldPaths, required = false }: OperandInputProps) {
   const secretNames = useContext(SecretNamesContext)
+  const warning = useMemo(() => expressionWarning(typeof value === 'string' ? value : '', fieldPaths), [value, fieldPaths])
   return (
     <Stack gap={6}>
       <Box>
@@ -232,6 +234,9 @@ function OperandInput({ label, description, value, mode, onChange, fieldPaths, r
         secretNames={secretNames}
         emptyKind={mode === 'field' ? 'field' : 'text'}
       />
+      {warning && (
+        <Text size="xs" c="orange" data-testid="expression-warning">{warning}</Text>
+      )}
     </Stack>
   )
 }

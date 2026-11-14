@@ -1,4 +1,5 @@
 import { lazy } from 'react';
+import { connectionVHostChoices } from '@/lib/vhostChoices';
 import { Stack, Alert, Text, Group, ActionIcon, Tooltip, List } from '@mantine/core';
 import { useVHost } from '@/context/VHostContext';
 import { SecretNamesContext } from '@/components/shared/TemplateField';
@@ -238,9 +239,7 @@ export function SinkForm({
   // The vhost whose secrets this sink's settings can reference.
   const secretNames = useVHostSecretNames(sink.vhost || vhost);
 
-  const availableVHostsList = role === 'Administrator' 
-    ? (availableVHosts || []).map((v: any) => typeof v === 'string' ? v : v.name)
-    : (availableVHosts || []);
+  const availableVHostsList = connectionVHostChoices(role, (availableVHosts || []) as any[], (availableVHosts || []) as string[]);
 
   // The same ['workers'] key SourceForm uses, so the two forms share one cache
   // entry and one request.

@@ -203,7 +203,7 @@ describe('the metis sink, whose requirements follow its action', () => {
 // action, or it disables Next for every configuration that is actually valid.
 describe('the fcm sink', () => {
   it('asks for a service account when one is not being borrowed from the host', () => {
-    expect(missingConnectionFields('sink', 'fcm', {})).toEqual(['Service account JSON']);
+    expect(missingConnectionFields('sink', 'fcm', {})).toEqual(['Service account key']);
     expect(
       missingConnectionFields('sink', 'fcm', { credentials_json: '{"project_id":"p"}' }),
     ).toEqual([]);
@@ -293,5 +293,15 @@ describe('a templated panmail gateway', () => {
         allowed_hosts: '*.mail.example.com',
       }),
     ).toEqual([]);
+  });
+});
+
+// The ClickHouse sink's form writes one `addr` (DatabaseSinkConfig.tsx), which
+// the factory hands the driver (factory.go, case "clickhouse"). Gated on host
+// and port instead, Next stayed disabled for every ClickHouse sink.
+describe('the ClickHouse sink', () => {
+  it('is satisfied by the address its form writes', () => {
+    expect(missingConnectionFields('sink', 'clickhouse', {})).toEqual(['Address']);
+    expect(missingConnectionFields('sink', 'clickhouse', { addr: 'ch.example.com:9000' })).toEqual([]);
   });
 });
