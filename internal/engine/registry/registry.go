@@ -2359,7 +2359,12 @@ func (r *Registry) ValidateWorkflow(ctx context.Context, wf storage.Workflow) er
 	}
 
 	// 8. DLQ Prioritization requirements
-	return r.checkDLQPrioritization(ctx, wf)
+	if err := r.checkDLQPrioritization(ctx, wf); err != nil {
+		return err
+	}
+
+	// 9. A step that reads a secret the vhost does not have.
+	return r.checkStepSecrets(ctx, wf)
 }
 
 // checkNodeRefs requires every source and sink node to name a record that
