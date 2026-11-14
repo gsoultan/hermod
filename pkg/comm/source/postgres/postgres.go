@@ -136,14 +136,24 @@ type PostgresSource struct {
 	// therefore how long silence must last to mean something. Zero means the
 	// server sends no keepalives, so silence proves nothing.
 	walSenderTimeout atomic.Int64
-	msgChan          chan hermod.Message
-	errChan          chan error
-	cancel           context.CancelFunc
-	initMu           sync.Mutex
-	wg               sync.WaitGroup
-	query            string
-	pollInterval     time.Duration
-	lastWatermark    any
+	// afterEmit, when set, runs on the stream goroutine once a change has been
+	// handed to consumers. Tests use it to hold the stream between a row and
+	// the record that commits it; it is nil in production.
+	afterEmit func(ctx context.Context)
+	// inTxn is true between a transaction's Begin and its Commit on the
+	// stream, and txnRowDropped once a row of that transaction was received
+	// but not handed over. Both belong to the stream goroutine alone. See
+	// receiveOpenCommit.
+	inTxn         bool
+	txnRowDropped bool
+	msgChan       chan hermod.Message
+	errChan       chan error
+	cancel        context.CancelFunc
+	initMu        sync.Mutex
+	wg            sync.WaitGroup
+	query         string
+	pollInterval  time.Duration
+	lastWatermark any
 	// logMu guards logger only. It is intentionally separate from mu: log() is
 	// called from many code paths that already hold mu (init, Close and every
 	// *Locked helper). Since mu is a non-reentrant sync.Mutex, having log()
@@ -706,6 +716,7 @@ func (p *PostgresSource) streamLoop(ctx context.Context) {
 		// socket, advancing sent_lsn and making the source look alive. The only
 		// cure was restarting the workflow, which built a new source.
 		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+			p.receiveOpenCommit(conn)
 			p.confirmFinalPosition(conn)
 			return
 		}
@@ -755,6 +766,82 @@ func (p *PostgresSource) confirmFinalPosition(conn *pgx.Conn) {
 		p.log("WARN", "Could not confirm the final replication position on stop; "+
 			"the next start may replay changes already delivered", "slot", p.slotName, "error", err)
 	}
+}
+
+// finalCommitWait bounds how long a stopping stream waits for the Commit of the
+// transaction it is part-way through. The server sends a transaction whole, so
+// the Commit is normally already in the socket and this is not waited out.
+const finalCommitWait = time.Second
+
+// receiveOpenCommit reads on, as the stream stops, to the Commit of the
+// transaction it stopped inside.
+//
+// The server replays, on the next start, every transaction that commits beyond
+// the confirmed position. A row is handed over the moment it arrives, so it can
+// be acknowledged, and the source stopped, while the Commit that follows it is
+// still unread. The position confirmed was then the row's own, which lies
+// before the commit, and the next source on the slot was handed the whole
+// transaction again although every row of it had been acknowledged.
+//
+// Reading the Commit moves the received position past the transaction, which
+// flushPosition confirms only when nothing delivered is still unacknowledged.
+// It stops short, leaving the transaction to be replayed, in the two cases
+// where confirming past it would lose data: a row was received and not handed
+// over, or another row arrives now, when there is no one left to hand it to.
+func (p *PostgresSource) receiveOpenCommit(conn *pgx.Conn) {
+	if conn == nil || !p.mayFinishOpenTxn() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), finalCommitWait)
+	defer cancel()
+	for p.inTxn {
+		msg, err := conn.PgConn().ReceiveMessage(ctx)
+		if err != nil {
+			return
+		}
+		cd, ok := msg.(*pgproto3.CopyData)
+		if !ok {
+			if _, failed := msg.(*pgproto3.ErrorResponse); failed {
+				return
+			}
+			continue
+		}
+		if len(cd.Data) == 0 || cd.Data[0] != pglogrepl.XLogDataByteID {
+			continue // a keepalive
+		}
+		xld, err := pglogrepl.ParseXLogData(cd.Data[1:])
+		if err != nil {
+			return
+		}
+		logicalMsg, err := pglogrepl.Parse(xld.WALData)
+		if err != nil {
+			return
+		}
+		switch logicalMsg.(type) {
+		case *pglogrepl.CommitMessage:
+			p.noteReceived(xld.WALStart + pglogrepl.LSN(len(xld.WALData)))
+			p.inTxn = false
+		case *pglogrepl.RelationMessage, *pglogrepl.TypeMessage, *pglogrepl.OriginMessage:
+			// Describes rows; carries none.
+		default:
+			return
+		}
+	}
+}
+
+// mayFinishOpenTxn reports whether the stream stopped inside a transaction
+// whose every row so far was handed over.
+func (p *PostgresSource) mayFinishOpenTxn() bool {
+	return p.inTxn && !p.txnRowDropped
+}
+
+// noteReceived advances the received position to lsn.
+func (p *PostgresSource) noteReceived(lsn pglogrepl.LSN) {
+	p.mu.Lock()
+	if lsn > p.lastReceivedLSN {
+		p.lastReceivedLSN = lsn
+	}
+	p.mu.Unlock()
 }
 
 // teardownStream marks the source uninitialized and closes the replication
@@ -953,6 +1040,8 @@ func (p *PostgresSource) refreshWalSenderTimeout(ctx context.Context) {
 func (p *PostgresSource) consumeStream(ctx context.Context, conn *pgx.Conn) error {
 	nextStandby := time.Now().Add(standbyMessageTimeout)
 	nextHeartbeatLog := time.Now().Add(idleHeartbeatLogInterval)
+	// A stream always starts at a transaction boundary.
+	p.inTxn, p.txnRowDropped = false, false
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -1150,27 +1239,41 @@ func (p *PostgresSource) handleXLogData(ctx context.Context, data []byte) error 
 
 	currentLSN := xld.WALStart + pglogrepl.LSN(len(xld.WALData))
 
-	p.mu.Lock()
-	if currentLSN > p.lastReceivedLSN {
-		p.lastReceivedLSN = currentLSN
-	}
-	p.mu.Unlock()
+	p.noteReceived(currentLSN)
 
 	switch lm := logicalMsg.(type) {
+	case *pglogrepl.BeginMessage:
+		p.inTxn, p.txnRowDropped = true, false
+		return nil
+	case *pglogrepl.CommitMessage:
+		p.inTxn = false
+		return nil
 	case *pglogrepl.RelationMessage:
 		p.mu.Lock()
 		p.relations[lm.RelationID] = lm
 		p.mu.Unlock()
 		return nil
 	case *pglogrepl.InsertMessage:
-		return p.dispatch(ctx, currentLSN, p.handleInsert(currentLSN, lm))
+		return p.emit(ctx, currentLSN, p.handleInsert(currentLSN, lm))
 	case *pglogrepl.UpdateMessage:
-		return p.dispatch(ctx, currentLSN, p.handleUpdate(currentLSN, lm))
+		return p.emit(ctx, currentLSN, p.handleUpdate(currentLSN, lm))
 	case *pglogrepl.DeleteMessage:
-		return p.dispatch(ctx, currentLSN, p.handleDelete(currentLSN, lm))
+		return p.emit(ctx, currentLSN, p.handleDelete(currentLSN, lm))
 	default:
 		return nil
 	}
+}
+
+// emit dispatches a row change and then runs the afterEmit hook, if any.
+func (p *PostgresSource) emit(ctx context.Context, lsn pglogrepl.LSN, msg hermod.Message) error {
+	if err := p.dispatch(ctx, lsn, msg); err != nil {
+		p.txnRowDropped = true
+		return err
+	}
+	if p.afterEmit != nil {
+		p.afterEmit(ctx)
+	}
+	return nil
 }
 
 // dispatchBlockedWarnAfter is how long a handover to the consumer may stall

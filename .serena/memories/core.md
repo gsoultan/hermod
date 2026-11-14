@@ -87,6 +87,8 @@ find a claim that outruns the code, fix the claim.
   reachable from JavaScript; streams authenticate by cookie; logout is real.
 - [Postgres sink and polling](postgres_sink_and_polling_updates.md) — singleflight
   connection dedup, non-CDC polling, PgBouncer compatibility.
+- [Postgres source: stop inside a transaction](postgres_source_stop_inside_transaction.md) —
+  why a clean stop reads on to the Commit, and the two cases where it must not.
 - [Field encryption transformations](field_encryption_transformations.md) —
   `encrypt`/`decrypt`, the `enc:v1:` tag that makes re-runs idempotent, why
   validation cannot live in `Prepare`, and the inline-key risk.
