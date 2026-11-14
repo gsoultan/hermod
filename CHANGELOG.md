@@ -225,6 +225,15 @@ default) messages can ever occupy. A completely stuck sink read 12.7% full, or 2
 batching, so the backpressure warning at 80% could not appear. Fill is now measured against what
 can actually queue.
 
+### Fixed — a username or vhost name already in use answered with a server error
+
+Creating a user with a username another user already has, renaming a user to
+one, or creating a vhost with a name already taken answered 500 and quoted the
+database's own constraint error. Each now answers 409 with "Another user is
+already named ..." or "Another vhost is already named ...", the same answer
+renaming a vhost already gave. Two requests for the same name at the same
+instant can still see one of them refused by the store.
+
 ### Fixed — Stateful Join and Circuit Breaker were drawn as blank boxes
 
 Both steps are in the editor's palette and run on the engine, but neither canvas had a renderer for
