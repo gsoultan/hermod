@@ -88,9 +88,9 @@ func (s *sqlStorage) readNodeRows(ctx context.Context, versions bool) ([]storedN
 	var rows *sql.Rows
 	var err error
 	if versions {
-		rows, err = s.db.QueryContext(ctx, s.prepareQuery("SELECT id, workflow_id, '', nodes FROM workflow_versions"))
+		rows, err = s.db.QueryContext(ctx, s.prepareQuery("SELECT id, workflow_id, '', nodes FROM workflow_versions")) //nolint:gosec // a literal statement; no input reaches it.
 	} else {
-		rows, err = s.db.QueryContext(ctx, s.prepareQuery("SELECT id, id, vhost, nodes FROM workflows"))
+		rows, err = s.db.QueryContext(ctx, s.prepareQuery("SELECT id, id, vhost, nodes FROM workflows")) //nolint:gosec // a literal statement; no input reaches it.
 	}
 	if err != nil {
 		return nil, err
@@ -113,9 +113,9 @@ func (s *sqlStorage) readNodeRows(ctx context.Context, versions bool) ([]storedN
 func (s *sqlStorage) writeNodes(ctx context.Context, versions bool, id, nodes string) error {
 	var err error
 	if versions {
-		_, err = s.db.ExecContext(ctx, s.prepareQuery("UPDATE workflow_versions SET nodes = ? WHERE id = ?"), nodes, id)
+		_, err = s.db.ExecContext(ctx, s.prepareQuery("UPDATE workflow_versions SET nodes = ? WHERE id = ?"), nodes, id) //nolint:gosec // a literal statement; nodes and id are bound.
 	} else {
-		_, err = s.db.ExecContext(ctx, s.prepareQuery("UPDATE workflows SET nodes = ? WHERE id = ?"), nodes, id)
+		_, err = s.db.ExecContext(ctx, s.prepareQuery("UPDATE workflows SET nodes = ? WHERE id = ?"), nodes, id) //nolint:gosec // a literal statement; nodes and id are bound.
 	}
 	return err
 }
