@@ -101,6 +101,17 @@ write of one random workflow fail with `simulated engine failure` for 10 seconds
 dead letters and alerts that follow. It is gone, along with `Engine.SimulateFailure`, which nothing
 else called.
 
+### Fixed — on the Pebble log store, cleanup deleted the new rows and kept the old ones
+
+With `HERMOD_LOG_STORE` on Pebble, the retention sweep for activity logs and for the audit log
+removed every row **newer** than the cutoff and kept every older one, and both lists came back
+oldest first. The key was meant to sort newest first but was a negative number, which sorts the
+other way. Rows are now keyed newest first, a cleanup removes only rows older than the cutoff (as
+one range delete, without reading them), and the lists match the SQL stores. Rows written by
+earlier releases are moved to the new key once, at startup; on a large log store that first start
+takes longer. Rows the old cleanup already removed cannot be brought back. SQL and MongoDB log
+stores were not affected.
+
 ### Performance — a third fewer allocations per message on a running workflow
 
 Four per-message costs that did no work are gone. Measured with `BenchmarkWorkflowThroughput`
