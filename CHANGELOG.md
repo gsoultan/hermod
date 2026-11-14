@@ -156,6 +156,18 @@ page now draw them like every other step.
 - **The FTP sink checks the FTPS server's certificate.** It used to accept any certificate, so
   anyone in the path could read the login.
 
+### Fixed — Run Preview on a Pipeline step said "unknown transformation type"
+
+A Pipeline step runs its list of transformations in order when the workflow runs, but Run Preview
+sent it to the transformer registry, where `pipeline` is not a transformer. The editor showed
+`unknown transformation type "pipeline": no transformer is registered under that name` for a step
+that works. Preview now runs the pipeline's steps in order, each on the result of the one before,
+and shows the message that comes out of the last one; a step that filters the message out shows as
+filtered.
+
+Previewing a Merge, a Note or a subflow marker gave the same error. They change nothing in a
+message, and the answer now says so.
+
 ### Fixed — a random workflow failed for 10 seconds about every eight hours
 
 The optimizer ran a "chaos monkey": with probability 0.001 per 30-second cycle it made every sink

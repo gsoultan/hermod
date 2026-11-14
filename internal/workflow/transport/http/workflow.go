@@ -1375,6 +1375,62 @@ func (h *WorkflowHandler) TestWorkflowByID(w http.ResponseWriter, r *http.Reques
 	_ = json.NewEncoder(w).Encode(steps)
 }
 
+// structuralNodeTypes are the node types the engine resolves while walking
+// the graph. None of them changes a message.
+var structuralNodeTypes = map[string]bool{
+	"merge":          true,
+	"note":           true,
+	"subflow_input":  true,
+	"subflow_return": true,
+}
+
+// previewPipeline answers Run Preview for a Pipeline step: each of its steps
+// applied to the result of the one before, as the running node does, and the
+// message that comes out of the last one.
+func (h *WorkflowHandler) previewPipeline(w http.ResponseWriter, r *http.Request, config map[string]any, msg hermod.Message) {
+	var steps []map[string]any
+	if raw, _ := config["steps"].(string); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &steps); err != nil {
+			h.JsonError(w, "Failed to test transformation: the pipeline's steps are not valid JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
+	if len(steps) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(msg.ToMap())
+		return
+	}
+
+	transformations := make([]storage.Transformation, len(steps))
+	for i, step := range steps {
+		st, _ := step["transType"].(string)
+		transformations[i] = storage.Transformation{Type: st, Config: step}
+	}
+	res, err := h.Registry.TestTransformationPipeline(r.Context(), transformations, msg)
+	if err != nil {
+		h.JsonError(w, "Failed to test transformation: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer func() {
+		for _, m := range res {
+			if dm, ok := m.(*message.DefaultMessage); ok {
+				message.ReleaseMessage(dm)
+			}
+		}
+	}()
+
+	// A step that filters the message out ends the pipeline; the steps after
+	// it have no result.
+	w.Header().Set("Content-Type", "application/json")
+	last := res[len(res)-1]
+	if last == nil {
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": "Filtered", "filtered": true})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(last.ToMap())
+}
+
 func (h *WorkflowHandler) TestTransformation(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Transformation storage.Transformation `json:"transformation"`
@@ -1437,6 +1493,23 @@ func (h *WorkflowHandler) TestTransformation(w http.ResponseWriter, r *http.Requ
 				"workflow runs; there is nothing to preview here because previewing it "+
 				"would have effects beyond this panel.", transType),
 			http.StatusBadRequest)
+		return
+	}
+
+	// Merge, Note and the subflow markers are drawn as steps but the engine
+	// handles them while it walks the graph, so they are neither transformers
+	// nor node executors and the check above does not know them.
+	if structuralNodeTypes[transType] {
+		h.JsonError(w,
+			fmt.Sprintf("%q does not change the message, so there is nothing to preview.", transType),
+			http.StatusBadRequest)
+		return
+	}
+
+	// A Pipeline step is a list of transformations the node runs in order. It
+	// is not a transformer itself, so it is previewed as what it is.
+	if transType == "pipeline" {
+		h.previewPipeline(w, r, req.Transformation.Config, msg)
 		return
 	}
 
