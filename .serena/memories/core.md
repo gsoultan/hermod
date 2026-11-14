@@ -25,6 +25,9 @@ find a claim that outruns the code, fix the claim.
 
 ### Memories
 
+- [What a saved workflow node may hold](workflow_node_hygiene.md) — `nodeclean`
+  drops connection copies and editor state, moves typed step credentials to
+  `WF_…` vhost secrets, and sweeps old rows at start-up; the UI mirror.
 - [Per-vhost history retention](vhost_history_retention.md) — a vhost limits its audit log,
   workflow versions and decided approvals; how audit rows get a vhost; the Pebble key trap.
 - [Self-update](self_update.md) — Settings → Updates: GitHub release check,

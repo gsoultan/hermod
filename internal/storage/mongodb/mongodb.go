@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"regexp"
 	"slices"
@@ -23,6 +24,7 @@ import (
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/internal/storage/configsecrets"
+	"github.com/gsoultan/hermod/internal/storage/nodeclean"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -355,6 +357,13 @@ func (s *mongoStorage) Init(ctx context.Context) error {
 		}
 	}
 
+	// Workflows saved before nodeclean held copies of their connections,
+	// passwords included. Best-effort: reads are cleaned regardless.
+	if n, err := s.CleanStoredWorkflows(ctx); err != nil {
+		slog.Warn("storage: cleaning saved workflows", "error", err, "rewritten", n)
+	} else if n > 0 {
+		slog.Info("storage: removed connection copies, captured samples and typed credentials from saved workflows", "documents", n)
+	}
 	return nil
 }
 
@@ -1019,6 +1028,7 @@ func (s *mongoStorage) ListWorkflows(ctx context.Context, filter storage.CommonF
 		}
 		wf.Workflow.ID = wf.ID
 		wf.DeadLetters = wf.DeadLetters || wf.LegacyDeadLetterSinkID != ""
+		wf.Nodes, _ = nodeclean.Nodes(wf.Nodes)
 		wfs = append(wfs, wf.Workflow)
 	}
 
@@ -1120,8 +1130,13 @@ func (s *mongoStorage) CreateWorkflow(ctx context.Context, wf storage.Workflow) 
 	if wf.CreatedAt.IsZero() {
 		wf.CreatedAt = time.Now()
 	}
+	nodes, err := nodeclean.ForWrite(ctx, s, wf.VHost, wf.ID, wf.Nodes)
+	if err != nil {
+		return err
+	}
+	wf.Nodes = nodes
 	coll := s.db.Collection("workflows")
-	_, err := coll.InsertOne(ctx, bson.M{
+	_, err = coll.InsertOne(ctx, bson.M{
 		"_id":                    wf.ID,
 		"created_at":             wf.CreatedAt,
 		"name":                   wf.Name,
@@ -1159,8 +1174,13 @@ func (s *mongoStorage) CreateWorkflow(ctx context.Context, wf storage.Workflow) 
 }
 
 func (s *mongoStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow) error {
+	nodes, err := nodeclean.ForWrite(ctx, s, wf.VHost, wf.ID, wf.Nodes)
+	if err != nil {
+		return err
+	}
+	wf.Nodes = nodes
 	coll := s.db.Collection("workflows")
-	_, err := coll.UpdateOne(ctx, bson.M{"_id": wf.ID}, bson.M{"$set": bson.M{
+	_, err = coll.UpdateOne(ctx, bson.M{"_id": wf.ID}, bson.M{"$set": bson.M{
 		"name":                   wf.Name,
 		"vhost":                  wf.VHost,
 		"active":                 wf.Active,
@@ -1235,6 +1255,7 @@ func (s *mongoStorage) GetWorkflow(ctx context.Context, id string) (storage.Work
 	}
 	wf.Workflow.ID = wf.ID
 	wf.DeadLetters = wf.DeadLetters || wf.LegacyDeadLetterSinkID != ""
+	wf.Nodes, _ = nodeclean.Nodes(wf.Nodes)
 	return wf.Workflow, nil
 }
 
@@ -2081,8 +2102,17 @@ func (s *mongoStorage) ListMessageTraces(ctx context.Context, workflowID string,
 }
 
 func (s *mongoStorage) CreateWorkflowVersion(ctx context.Context, v storage.WorkflowVersion) error {
+	vhost := "default"
+	if wf, err := s.GetWorkflow(ctx, v.WorkflowID); err == nil && wf.VHost != "" {
+		vhost = wf.VHost
+	}
+	nodes, err := nodeclean.ForWrite(ctx, s, vhost, v.WorkflowID, v.Nodes)
+	if err != nil {
+		return err
+	}
+	v.Nodes = nodes
 	coll := s.db.Collection("workflow_versions")
-	_, err := coll.InsertOne(ctx, v)
+	_, err = coll.InsertOne(ctx, v)
 	return err
 }
 
@@ -2119,6 +2149,7 @@ func (s *mongoStorage) GetWorkflowVersion(ctx context.Context, workflowID string
 		}
 		return v, err
 	}
+	v.Nodes, _ = nodeclean.Nodes(v.Nodes)
 	return v, nil
 }
 

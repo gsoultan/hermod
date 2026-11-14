@@ -13,13 +13,14 @@ import { login, apiRequest } from './support/auth';
  *   - the run was refused for a workflow with no sink yet — every workflow
  *     while it is being built — so nothing downstream moved;
  *   - the walk each node falls back to read the source node's `lastSample`, a
- *     copy Test Connection writes and saving the workflow keeps, before the
- *     sample the refresh had just stored;
+ *     copy Test Connection wrote and saving the workflow kept, before the
+ *     sample the refresh had just stored (a saved node no longer keeps it:
+ *     internal/storage/nodeclean);
  *   - the run fed one sample to every source, so on a workflow with two
  *     sources a refresh on one branch put its columns on the other.
  *
- * Seeded the way the stored workflows that showed it look: a saved source node
- * carrying a `lastSample`, and a source record with no sample of its own.
+ * Seeded with an old sample on the source record, which the refresh has to
+ * replace on every node after it.
  */
 
 const createdSources: string[] = [];
@@ -135,12 +136,17 @@ test.describe('Refreshing Available Fields', () => {
     test.setTimeout(180000);
     const stamp = Date.now();
     const batch = await batchSource(page, stamp, 'chain', probeQuery('name AS refresh_probe_name', 'type AS refresh_probe_type'));
+    const seeded = await apiRequest(page, `/api/sources/${batch}/sample`, {
+      method: 'PUT',
+      body: { sample: JSON.stringify(STALE_SAMPLE) },
+    });
+    expect(seeded.status, `seeding the old sample: ${seeded.body}`).toBeLessThan(300);
 
     // No sink yet: the state a workflow is in while its nodes are configured.
     const workflow = await post(page, '/api/workflows', {
       name: `refresh-chain-${stamp}`, vhost: 'default', active: false,
       nodes: [
-        { id: 'n-src', type: 'source', ref_id: batch, config: { lastSample: STALE_SAMPLE }, x: 100, y: 100 },
+        { id: 'n-src', type: 'source', ref_id: batch, x: 100, y: 100 },
         setNode('n-a', 340, 'a_tag', 'from-A'),
         setNode('n-b', 580, 'b_tag', 'from-B'),
         { id: 'n-c', type: 'transformation', config: { transType: 'mapping' }, x: 820, y: 100 },
@@ -157,7 +163,7 @@ test.describe('Refreshing Available Fields', () => {
     await page.waitForLoadState('networkidle');
     await expect(page.locator('.react-flow__node')).toHaveCount(4, { timeout: 30000 });
 
-    // Node A starts on the stale copy: that is the state being reported.
+    // Node A starts on the old sample.
     const a = await open(page, 1);
     await expectFields(a.fields, ['after.retired_col'], []);
 

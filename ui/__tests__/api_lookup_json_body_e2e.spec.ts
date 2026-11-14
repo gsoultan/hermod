@@ -106,11 +106,11 @@ test('api_lookup sends its JSON body as JSON, jsonb included', async ({ page }) 
       return JSON.parse(res.body);
     };
 
-    // A workflow has to hold a source; the lookup node previews from its own
-    // lastSample, as a node with nothing wired into it does.
+    // The lookup node previews the source's own sample, wired into it: a
+    // workflow does not keep sampled rows in its nodes (internal/storage/nodeclean).
     const source = await post('/api/sources', {
       name: `apl-json-src-${stamp}`, type: 'webhook', vhost: 'default', active: false,
-      config: { path: `/apl-json-${stamp}` },
+      config: { path: `/apl-json-${stamp}` }, sample: JSON.stringify(ROW),
     });
     created.sources.push(source.id);
     const workflow = await post('/api/workflows', {
@@ -121,11 +121,11 @@ test('api_lookup sends its JSON body as JSON, jsonb included', async ({ page }) 
           id: 'n-api', type: 'transformation', x: 400, y: 100,
           config: {
             transType: 'api_lookup', method: 'POST', url: endpoint.url, body: BODY,
-            targetField: 'session', ttl: '0', lastSample: ROW,
+            targetField: 'session', ttl: '0',
           },
         },
       ],
-      edges: [],
+      edges: [{ id: 'e-src-api', source_id: 'n-src', target_id: 'n-api' }],
     });
     created.workflows.push(workflow.id);
 

@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/internal/storage/nodeclean"
 )
 
 // Placeholder replaces a plaintext API key in an exported workflow. It is
@@ -57,6 +58,13 @@ func AIKeys(nodes []storage.WorkflowNode) []storage.WorkflowNode {
 		}
 	}
 	return out
+}
+
+// StepCredentials returns nodes with every credential typed into a step
+// (nodeclean.TypedCredentials) replaced by Placeholder. The nodes passed in
+// are not modified.
+func StepCredentials(nodes []storage.WorkflowNode) []storage.WorkflowNode {
+	return nodeclean.Rewrite(nodes, func(nodeclean.Credential) string { return Placeholder })
 }
 
 // isAINode reports a node that calls a language model. The editor stores a

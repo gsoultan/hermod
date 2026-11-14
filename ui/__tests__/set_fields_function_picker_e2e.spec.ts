@@ -45,6 +45,9 @@ test('a function picked into a Set Fields value is what the preview runs', async
   const source = await post('/api/sources', {
     name: `fn-picker-src-${stamp}`, type: 'webhook', vhost: 'default', active: false,
     config: { path: `/fn-picker-${stamp}` },
+    // The set node previews the source's own sample, wired into it: a workflow
+    // does not keep sampled rows in its nodes (internal/storage/nodeclean).
+    sample: JSON.stringify(ROW),
   });
   created.sources.push(source.id);
   const workflow = await post('/api/workflows', {
@@ -54,14 +57,14 @@ test('a function picked into a Set Fields value is what the preview runs', async
       {
         id: 'n-set', type: 'transformation', x: 400, y: 100,
         config: {
-          transType: 'set', lastSample: ROW,
+          transType: 'set',
           // The row "+" beside a field makes, and one nobody has filled in.
           'column.after.email': 'source.after.email',
           'column.after.note': '',
         },
       },
     ],
-    edges: [],
+    edges: [{ id: 'e-src-set', source_id: 'n-src', target_id: 'n-set' }],
   });
   created.workflows.push(workflow.id);
 

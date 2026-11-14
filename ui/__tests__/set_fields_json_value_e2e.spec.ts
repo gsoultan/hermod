@@ -49,11 +49,11 @@ test('a JSON object value resolves its source paths, and is edited as JSON', asy
     return JSON.parse(res.body);
   };
 
-  // A workflow has to hold a source; the set node previews from its own
-  // lastSample, as a node with nothing wired into it does.
+  // The set node previews the source's own sample, wired into it: a workflow
+  // does not keep sampled rows in its nodes (internal/storage/nodeclean).
   const source = await post('/api/sources', {
     name: `set-json-src-${stamp}`, type: 'webhook', vhost: 'default', active: false,
-    config: { path: `/set-json-${stamp}` },
+    config: { path: `/set-json-${stamp}` }, sample: JSON.stringify(ROW),
   });
   created.sources.push(source.id);
   const workflow = await post('/api/workflows', {
@@ -63,12 +63,12 @@ test('a JSON object value resolves its source paths, and is edited as JSON', asy
       {
         id: 'n-set', type: 'transformation', x: 400, y: 100,
         config: {
-          transType: 'set', lastSample: ROW,
+          transType: 'set',
           'column.after.QueryParams': { session: 'source.after.session.sessions.0.access_token' },
         },
       },
     ],
-    edges: [],
+    edges: [{ id: 'e-src-set', source_id: 'n-src', target_id: 'n-set' }],
   });
   created.workflows.push(workflow.id);
 

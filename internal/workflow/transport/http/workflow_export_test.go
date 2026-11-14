@@ -215,3 +215,46 @@ func TestExportRedactsPlaintextAIKeys(t *testing.T) {
 		t.Error("exporting changed the stored workflow")
 	}
 }
+
+// A store that keeps whatever it was given (this mock, or a row written
+// before storage cleaned nodes) must still not let a connection copy or a
+// typed step credential into a bundle -- which is also what a promotion sends.
+func TestExportCarriesNoConnectionCopyOrStepCredential(t *testing.T) {
+	stored := storage.Workflow{
+		ID: "wf-dirty", Name: "dirty",
+		Nodes: []storage.WorkflowNode{
+			{ID: "s", Type: "source", RefID: "src-1", Config: map[string]any{
+				"label": "pg", "config": map[string]any{"password": "S3cretPW-src", "user": "svc_reader"},
+				"state": map[string]any{"lsn": "0/16B3748"}, "sample": `{"email":"a@b.c"}`,
+			}},
+			{ID: "l", Type: "transformation", Config: map[string]any{
+				"label": "lookup", "transType": "api_lookup", "authType": "basic",
+				"username": "apiuser", "password": "S3cretPW-step",
+				"headers": `{"Authorization":"Bearer S3cretPW-header"}`,
+			}},
+		},
+	}
+	mockStorage := &MockWorkflowStorage{
+		workflows: map[string]storage.Workflow{stored.ID: stored},
+		sources:   map[string]storage.Source{},
+		sinks:     map[string]storage.Sink{},
+	}
+	h := &WorkflowHandler{Handler: &handlers.Handler{Storage: mockStorage, LogStorage: mockStorage}}
+	mux := http.NewServeMux()
+	h.RegisterWorkflowRoutes(mux)
+
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/workflows/wf-dirty/export", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("export: %d %s", rr.Code, rr.Body.String())
+	}
+	for _, leak := range []string{"S3cretPW", "svc_reader", "apiuser", "0/16B3748", "a@b.c"} {
+		if bytes.Contains(rr.Body.Bytes(), []byte(leak)) {
+			t.Errorf("the export carries %q: %s", leak, rr.Body.String())
+		}
+	}
+	portable := h.Portable(stored)
+	if _, has := portable.Nodes[0].Config["config"]; has {
+		t.Error("Portable, which a promotion sends, kept the connection copy")
+	}
+}

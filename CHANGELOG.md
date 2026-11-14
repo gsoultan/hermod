@@ -74,6 +74,25 @@ Rows written before this change are not rewritten. Rotate any credential saved t
 before upgrading if the activity log was readable by someone who should not hold it, or delete the
 old rows.
 
+### Security — saved workflows held copies of connection passwords and typed step credentials
+
+Saving a workflow from the editor wrote each source and sink node with a full copy of its
+connection, including the database password or API key that is encrypted in the source or sink's
+own table. A password, token, auth header or API key typed into an API lookup, Redis lookup or AI
+step was stored as plain text. Both were kept in `workflows.nodes` and every workflow version, came
+back from `GET /api/workflows/{id}`, and were carried by a workflow export and a promotion. The
+editor's last captured sample and test result were stored with each step as well.
+
+A saved source or sink node now holds only its label and type; the engine reads the connection
+from its own table. A credential typed into a step is stored as an encrypted vhost secret named
+`WF_<workflow>_<step>_<FIELD>`, and the step keeps `{{secret.WF_…}}`, which resolves per message as
+any secret reference does. A value that already is a `{{ }}` reference is left as it is. Workflow
+versions are stored the same way and no longer carry run state, so a rollback keeps today's status
+and counters. Exports and promotions also replace any remaining step credential with `[REDACTED]`.
+
+The export bundle's `sources` and `sinks` still carry their connection settings, so an import can
+recreate them; treat an export file as a credential.
+
 ### Added — an optional AI explanation of a workflow's recommendations
 
 Editors can press "Explain in plain words" above a workflow's recommendations to have a language
@@ -265,6 +284,11 @@ The CI allocation budgets (`TestWorkflowAllocationBudget`) are lowered to the ne
 
 ### Upgrading
 
+- On first start, every stored workflow and workflow version is rewritten as described under
+  *saved workflows held copies of connection passwords*: connection copies are dropped and typed
+  step credentials move into the workflow's vhost secrets. Take a backup first if you want the old
+  rows. A promotion to another instance now asks for those `WF_…` secrets there like any other
+  secret reference.
 - An FTP sink with TLS on, pointed at a server with a self-signed or otherwise untrusted
   certificate, now fails to connect. Install a trusted certificate on the server, or tick **Skip
   certificate verification** in the sink (`insecure_skip_verify: "true"`) if the network is trusted.
