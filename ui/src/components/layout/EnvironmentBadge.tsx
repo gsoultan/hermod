@@ -19,7 +19,7 @@ export function EnvironmentBadge() {
   return (
     <Tooltip label={`This is the ${roleLabel[role].toLowerCase()} instance`}>
       {getSessionRole() === 'Administrator'
-        ? <Link to="/settings" search={{ tab: 'environments' } as any} style={{ textDecoration: 'none' }}>{badge}</Link>
+        ? <Link to="/environments" search={{ tab: 'setup' } as any} style={{ textDecoration: 'none' }}>{badge}</Link>
         : badge}
     </Tooltip>
   )

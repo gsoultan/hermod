@@ -5,12 +5,23 @@ import { IconAlertCircle, IconArrowRight, IconDatabaseImport, IconExternalLink }
 import { notifications } from '@mantine/notifications'
 import { FilterBar, RowList, StatePill, type Tone } from '@/components/rows'
 import { environmentKeys, getMatching, putMapping, type Link, type MatchRow, type MatchStatus } from '@/lib/environments'
+import { PlainCredentials } from './ReleaseConnections'
 
-const STATE: Record<MatchStatus, { tone: Tone; label: string; order: number }> = {
-  missing: { tone: 'err', label: 'Missing', order: 0 },
-  suggested: { tone: 'warn', label: 'Check this', order: 1 },
-  matched: { tone: 'ok', label: 'Matched', order: 2 },
+/** How a row reads: its match status, or that it travels, or that a plain credential holds it back. */
+type Shown = MatchStatus | 'travels' | 'plain'
+
+const STATE: Record<Shown, { tone: Tone; label: string; order: number }> = {
+  plain: { tone: 'warn', label: 'Needs a secret first', order: 0 },
+  missing: { tone: 'err', label: 'Missing', order: 1 },
+  suggested: { tone: 'warn', label: 'Check this', order: 2 },
+  travels: { tone: 'info', label: 'Comes with the first release', order: 3 },
+  matched: { tone: 'ok', label: 'Matched', order: 4 },
 }
+
+/** What a row is, once what the server knows about travelling is taken in. */
+const shown = (r: MatchRow): Shown =>
+  r.status === 'missing' && !r.target_id ? ((r.plain_keys ?? []).length > 0 ? 'plain' : r.travels ? 'travels' : 'missing') : r.status
+const ready = (s: Shown) => s === 'matched' || s === 'travels'
 
 type Show = 'all' | 'check' | 'matched'
 
@@ -45,18 +56,20 @@ export function ConnectionMatching({ link, onDone }: ConnectionMatchingProps) {
   const [show, setShow] = useState<Show>('all')
 
   const rows = useMemo(
-    () => [...(data ?? [])].sort((a, b) => STATE[a.status].order - STATE[b.status].order || a.name.localeCompare(b.name)),
+    () => [...(data ?? [])].sort((a, b) => STATE[shown(a)].order - STATE[shown(b)].order || a.name.localeCompare(b.name)),
     [data],
   )
+  // A pick makes it matched; clearing it puts back what it was.
   const effective = (r: MatchRow): MatchRow =>
-    r.id in edits ? { ...r, target_id: edits[r.id], status: edits[r.id] ? 'matched' : 'missing' } : r
-  const matched = rows.filter((r) => effective(r).status === 'matched').length
-  const savedMatched = rows.filter((r) => r.status === 'matched').length
-  const toCheck = rows.length - savedMatched
+    r.id in edits ? { ...r, target_id: edits[r.id], status: edits[r.id] ? 'matched' : (r.target_id ? 'missing' : r.status) } : r
+  const readyNow = rows.filter((r) => ready(shown(effective(r)))).length
+  const savedReady = rows.filter((r) => ready(shown(r))).length
+  const travelling = rows.filter((r) => shown(effective(r)) === 'travels').length
+  const toCheck = rows.length - savedReady
 
   const needle = search.trim().toLowerCase()
   const visible = rows.filter((r) =>
-    (show === 'all' || (show === 'matched') === (r.status === 'matched')) && (!needle || haystack(r).includes(needle)))
+    (show === 'all' || (show === 'matched') === ready(shown(r))) && (!needle || haystack(r).includes(needle)))
 
   const save = useMutation({
     mutationFn: () => putMapping(link.id, edits),
@@ -81,15 +94,18 @@ export function ConnectionMatching({ link, onDone }: ConnectionMatchingProps) {
   }
 
   const dirty = Object.keys(edits).length > 0
-  const all = matched === rows.length
+  const all = readyNow === rows.length
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ['environments', 'matching', link.id] })
   return (
     <Stack gap="sm">
       <Stack gap={6}>
         <Text size="sm">
-          <b>{matched} of {rows.length}</b> connections are matched.{' '}
-          {all ? 'Every workflow here can be promoted.' : 'A workflow can only be promoted when all of the connections it uses are.'}
+          {all && <><b>You can promote now.</b>{' '}</>}
+          <b>{readyNow} of {rows.length}</b> connections are ready.
+          {travelling > 0 && ` ${link.name} has no copy of ${travelling} of them yet, so ${travelling} of them travel with the first release and are created there when it is approved.`}
+          {!all && ' A flow can be promoted once every connection it uses is ready.'}
         </Text>
-        <Progress value={(matched / rows.length) * 100} color={all ? 'green' : 'orange'} size="sm" aria-hidden />
+        <Progress value={(readyNow / rows.length) * 100} color={all ? 'green' : 'orange'} size="sm" aria-hidden />
       </Stack>
 
       <FilterBar
@@ -100,17 +116,17 @@ export function ConnectionMatching({ link, onDone }: ConnectionMatchingProps) {
           options: [
             { value: 'all', label: `All (${rows.length})` },
             { value: 'check', label: `To check (${toCheck})` },
-            { value: 'matched', label: `Matched (${savedMatched})` },
+            { value: 'matched', label: `Ready (${savedReady})` },
           ],
         }}
       />
 
       <RowList aria-label={`Connections matched in ${link.name}`}>
-        {visible.map((r) => <MatchItem key={key(r)} row={effective(r)} link={link} onPick={(v) => setEdits((e) => ({ ...e, [r.id]: v }))} />)}
+        {visible.map((r) => <MatchItem key={key(r)} row={effective(r)} link={link} onPick={(v) => setEdits((e) => ({ ...e, [r.id]: v }))} onMoved={refresh} />)}
       </RowList>
       {visible.length === 0 && (
         <Text size="sm" c="dimmed" ta="center" py="md">
-          {needle ? `No connection matches “${search.trim()}”.` : show === 'check' ? 'Nothing to check: every connection is matched.' : 'No connection is matched yet.'}
+          {needle ? `No connection matches “${search.trim()}”.` : show === 'check' ? 'Nothing to check: every connection is ready.' : 'No connection is ready yet.'}
         </Text>
       )}
 
@@ -134,17 +150,18 @@ export function ConnectionMatching({ link, onDone }: ConnectionMatchingProps) {
   )
 }
 
-function MatchItem({ row: r, link, onPick }: { row: MatchRow; link: Link; onPick: (targetId: string) => void }) {
+function MatchItem({ row: r, link, onPick, onMoved }: { row: MatchRow; link: Link; onPick: (targetId: string) => void; onMoved: () => void }) {
   const options = (r.candidates ?? []).map((c) => ({ value: c.id, label: `${c.name} (${c.type}${c.vhost && c.vhost !== 'default' ? `, ${c.vhost}` : ''})` }))
   if (r.target_id && !options.some((o) => o.value === r.target_id)) {
     options.unshift({ value: r.target_id, label: r.target_name || r.target_id })
   }
-  const state = STATE[r.status]
+  const s = shown(r)
+  const state = STATE[s]
   const Icon = r.kind === 'source' ? IconDatabaseImport : IconExternalLink
   return (
     <Box component="li" data-name={r.name} className="hermod-match-row">
       <Group gap="sm" wrap="nowrap" className="hermod-match-here" style={{ minWidth: 0 }}>
-        <ThemeIcon variant="light" color={r.status === 'missing' ? 'red' : 'gray'} radius="md" size={32} aria-hidden className="hermod-row-icon" style={{ flex: 'none' }}>
+        <ThemeIcon variant="light" color={s === 'missing' ? 'red' : 'gray'} radius="md" size={32} aria-hidden className="hermod-row-icon" style={{ flex: 'none' }}>
           <Icon size="1rem" stroke={1.6} />
         </ThemeIcon>
         <Box style={{ minWidth: 0 }}>
@@ -154,18 +171,22 @@ function MatchItem({ row: r, link, onPick }: { row: MatchRow; link: Link; onPick
       </Group>
       <IconArrowRight size="0.9rem" aria-hidden className="hermod-match-arrow" style={{ color: 'var(--mantine-color-dimmed)' }} />
       <Box className="hermod-match-there" style={{ minWidth: 0 }}>
-        {options.length > 0 ? (
+        {s === 'plain' ? (
+          <PlainCredentials c={{ kind: r.kind, id: r.id, name: r.name, type: r.type, status: 'blocked', plain_keys: r.plain_keys }} onMoved={onMoved} />
+        ) : options.length > 0 ? (
           <Select
             aria-label={`Match for ${r.name}`}
             size="sm"
             data={options}
             value={r.target_id || null}
-            placeholder={`Pick one in ${link.name}`}
+            placeholder={s === 'travels' ? `Or use one in ${link.name}` : `Pick one in ${link.name}`}
             clearable
             searchable
             nothingFoundMessage="No connection by that name"
             onChange={(v) => onPick(v ?? '')}
           />
+        ) : s === 'travels' ? (
+          <Text size="xs" c="dimmed">Created in {link.name} when the first release with it is approved</Text>
         ) : (
           <Anchor href={`${link.url}/${r.kind === 'source' ? 'sources' : 'sinks'}/new`} target="_blank" rel="noopener noreferrer" size="sm">
             <Group gap={4} wrap="nowrap">

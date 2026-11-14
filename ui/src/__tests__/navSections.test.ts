@@ -128,10 +128,10 @@ describe('hub tabs follow the role', () => {
 
   it('offers each settings row to the roles that may use it', () => {
     const viewer = settingsRows('Viewer').map((r) => r.label)
-    expect(viewer).toEqual(['Releases', 'Developer', 'My account', 'About Hermod'])
-    expect(settingsRows('Editor').map((r) => r.label)).toEqual(['Releases', 'Developer', 'My account', 'About Hermod'])
+    expect(viewer).toEqual(['Environments', 'Developer', 'My account', 'About Hermod'])
+    expect(settingsRows('Editor').map((r) => r.label)).toEqual(['Environments', 'Developer', 'My account', 'About Hermod'])
     expect(settingsRows('Administrator').map((r) => r.label)).toEqual([
-      'Workspace', 'People', 'Notifications', 'Security', 'Updates', 'Releases', 'Developer', 'Audit log', 'My account', 'About Hermod',
+      'Workspace', 'People', 'Notifications', 'Security', 'Updates', 'Environments', 'Developer', 'Audit log', 'My account', 'About Hermod',
     ])
     expect(settingsRows('Administrator').find((r) => r.label === 'Updates')?.to).toBe('/updates')
     expect(settingsRows('Viewer').at(-1)?.to).toBe('/about')

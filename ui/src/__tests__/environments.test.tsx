@@ -208,7 +208,7 @@ describe('Settings › Environments', () => {
     wrap(<EnvironmentsTab />)
 
     expect(await screen.findByText('Receives from')).toBeInTheDocument()
-    expect(screen.queryByText('Promotes to')).not.toBeInTheDocument()
+    expect(screen.queryByText('Sends to')).not.toBeInTheDocument()
     expect(await screen.findByText('https://stg.example.com', { exact: false })).toBeInTheDocument()
     expect(screen.getByText('into hr')).toBeInTheDocument()
 
@@ -290,7 +290,7 @@ describe('matching connections with a server', () => {
     const list = await screen.findByRole('list', { name: 'Connections matched in Production' })
     await user.click(screen.getByRole('radio', { name: 'To check (2)' }))
     expect(names(list)).toEqual(['lake', 'crm-stg'])
-    await user.click(screen.getByRole('radio', { name: 'Matched (2)' }))
+    await user.click(screen.getByRole('radio', { name: 'Ready (2)' }))
     expect(names(list)).toEqual(['audit-kafka', 'orders-db'])
 
     await user.click(screen.getByRole('radio', { name: 'To check (2)' }))
@@ -593,12 +593,13 @@ describe('the Environments page on production', () => {
   })
 })
 
-describe('the Releases page', () => {
-  it('is titled as its Settings row, with the way back, and says where the role is set', async () => {
+describe('the Environments page', () => {
+  it('is titled as its Settings row, with the way back, and tells an editor who sets it up', async () => {
+    signInAs('Editor', 'ada')
     server.use(http.get('/api/environments/self', () => HttpResponse.json({ role: '', name: '' })))
     wrap(<EnvironmentsPage />)
-    expect(screen.getByRole('heading', { level: 1, name: 'Releases' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Environments' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /back to settings/i })).toHaveAttribute('href', '/settings')
-    expect(await screen.findByText(/Settings › Workspace › Environments/)).toBeInTheDocument()
+    expect(await screen.findByText(/Settings › Environments › Setup/)).toBeInTheDocument()
   })
 })

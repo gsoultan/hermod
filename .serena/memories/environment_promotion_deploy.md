@@ -140,3 +140,17 @@ session cookie is host-only and the two would overwrite each other. Open UI
 proposals (P1-P9: single-admin dead end, matching step contradicts carrying,
 three places for one feature, etc.) are in the "Deploy flow audit" Claude Doc.
 
+
+
+Simplified deploy (feat/simplify-deploy, after PR #399): P1-P5 of the audit.
+Environments is one page, /environments with ?tab=releases|setup (admins see
+Setup; default is setup while role is ""); Settings ?tab=environments redirects
+there (router.tsx settingsRoute beforeLoad). Roles auto-set on connect: Pair
+sets the receiver to production if "", LinkWith sends staging if self.Role ==
+"" and persists it after the link saves (setup_test.go). AcceptLinkPage asks
+the approver (default any_admin via putRules(withApproval) before the pairing
+code). Matching: rows missing there on a carry-capable peer get Travels (no
+plain keys) or PlainKeys (connectionConfig + plainKeys); ConnectionMatching
+counts travels as ready. ReleaseDialog: SingleSummary one-line "Ready. ...",
+checks only when not passing, ReleaseConnections folds non-blocked rows under
+"Change settings for X" (each row has data-connection=name for the e2e).

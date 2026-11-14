@@ -404,7 +404,7 @@ func (s *Service) matchRefs(ctx context.Context, l Link, wf storage.Workflow, ta
 func connectionsCheck(l Link, total, carried int, unmatched, blocked []string) Check {
 	var why []string
 	if len(unmatched) > 0 {
-		why = append(why, "Match these in Settings › Workspace › Environments: "+strings.Join(unmatched, ", "))
+		why = append(why, "Match these under Settings › Environments › Setup: "+strings.Join(unmatched, ", "))
 	}
 	if len(blocked) > 0 {
 		why = append(why, "Move these credentials to a secret so the connection can be created there: "+strings.Join(blocked, "; "))

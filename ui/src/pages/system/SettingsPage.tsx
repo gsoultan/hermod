@@ -1,5 +1,5 @@
 import { Box, Button, Group, Modal, NumberInput, SimpleGrid, Stack, Tabs, Text, TextInput, Textarea, Title } from '@mantine/core';
-import { IconActivity, IconCode, IconHierarchy, IconHistory, IconRocket, IconServer, IconServerBolt, IconShieldLock, IconWorld } from '@tabler/icons-react';
+import { IconActivity, IconCode, IconHierarchy, IconHistory, IconServer, IconServerBolt, IconShieldLock, IconWorld } from '@tabler/icons-react';
 import { lazy, Suspense, useState } from 'react';
 import { Center, Loader } from '@mantine/core';
 import { useSettingsController } from './settings/useSettingsController';
@@ -9,16 +9,15 @@ import { SecurityTab } from './settings/SecurityTab';
 import { ObservabilityTab } from './settings/ObservabilityTab';
 import { GovernanceTab } from './settings/GovernanceTab';
 import { DeveloperTab } from './settings/DeveloperTab';
-import { EnvironmentsTab } from '../environments/EnvironmentsTab';
 
-const tabs = ['vhosts', 'workers', 'platform', 'connectivity', 'security', 'observability', 'governance', 'environments', 'developer'];
+const tabs = ['vhosts', 'workers', 'platform', 'connectivity', 'security', 'observability', 'governance', 'developer'];
 
 // Virtual hosts and workers were sidebar pages of their own; they are tabs of
 // the workspace now, loaded on demand like the rest.
 const VHostsPage = lazy(async () => ({ default: (await import('../admin/VHostsPage')).VHostsPage }));
 const WorkersPage = lazy(async () => ({ default: (await import('../admin/WorkersPage')).WorkersPage }));
 
-/** ?tab=environments opens that tab, so other pages can link straight to it. */
+/** ?tab=security opens that tab, so other pages can link straight to it. */
 function initialTab(): string {
   const t = new URLSearchParams(window.location.search).get('tab');
   return t && tabs.includes(t) ? t : 'platform';
@@ -56,7 +55,6 @@ export function SettingsPage() {
           <Tabs.Tab value="security" leftSection={<IconShieldLock size="1.1rem" />}>Security</Tabs.Tab>
           <Tabs.Tab value="observability" leftSection={<IconActivity size="1.1rem" />}>Observability</Tabs.Tab>
           <Tabs.Tab value="governance" leftSection={<IconHistory size="1.1rem" />}>Governance</Tabs.Tab>
-          <Tabs.Tab value="environments" leftSection={<IconRocket size="1.1rem" />}>Environments</Tabs.Tab>
           <Tabs.Tab value="developer" leftSection={<IconCode size="1.1rem" />}>Developer</Tabs.Tab>
         </Tabs.List>
 
@@ -80,9 +78,6 @@ export function SettingsPage() {
         </Tabs.Panel>
         <Tabs.Panel value="governance">
           <GovernanceTab ctx={ctx} />
-        </Tabs.Panel>
-        <Tabs.Panel value="environments">
-          <EnvironmentsTab />
         </Tabs.Panel>
         <Tabs.Panel value="developer">
           <DeveloperTab ctx={ctx} />
