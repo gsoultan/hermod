@@ -102,6 +102,13 @@ written to the audit log. The answer is text; it cannot change a workflow or cre
   shows step time per message, failures and throughput before and since, and says whether the
   workflow runs better, worse or the same.
 
+### Fixed — a list request could ask for the whole table
+
+`?limit=` on the list endpoints went into the query as it came, so one request with a very large
+value read an entire table — workflows, logs, audit log, traces — into memory. A page is now at
+most 1,000 rows, which is the largest the UI asks for. A client that sent a larger `limit` gets
+1,000 rows and pages for the rest.
+
 ### Changed — the optimizer no longer changes a sink's batch size by itself
 
 The optimizer raised and lowered a running sink's batch size every 30 seconds. The change never

@@ -1540,7 +1540,7 @@ func (h *WorkflowHandler) ListMessageTraces(w http.ResponseWriter, r *http.Reque
 	limit := 100
 	if l := r.URL.Query().Get("limit"); l != "" {
 		if val, err := strconv.Atoi(l); err == nil && val > 0 {
-			limit = val
+			limit = min(val, handlers.MaxListPageSize)
 		}
 	}
 

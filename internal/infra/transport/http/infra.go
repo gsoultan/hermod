@@ -1848,8 +1848,8 @@ func (h *InfraHandler) ListAuditLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if limitStr := query.Get("limit"); limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil {
-			filter.Limit = l
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			filter.Limit = min(l, handlers.MaxListPageSize)
 		}
 	}
 	if pageStr := query.Get("page"); pageStr != "" {
