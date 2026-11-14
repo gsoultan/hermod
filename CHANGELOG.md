@@ -7,12 +7,16 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
-### Fixed — Stateful Join and Circuit Breaker were drawn as blank boxes
+### Security — the history of received webhooks needed no login
 
-Both steps are in the editor's palette and run on the engine, but neither canvas had a renderer for
-them. React Flow drew its default node instead: a bare box with no name, no icon and no "+" to
-connect the next step, and a console warning on every render. The editor and the workflow detail
-page now draw them like every other step.
+`GET /api/webhooks/requests` answered anyone who could reach the API port with the headers and
+body of the last requests every webhook had received. Everything under `/api/webhooks/` is public
+so that a sender with no session can deliver, and the history is served from under the same
+prefix. It now needs a session, as does `POST /api/webhooks/requests/{id}/replay`. A caller who is
+not an administrator sees and replays only the requests of webhooks in the vhosts they may see;
+the history of a path whose source was deleted is an administrator's. Delivering to a webhook is
+unchanged. **If your API port was reachable by people who should not read webhook payloads, treat
+what those webhooks received as disclosed.**
 
 ### Added — the Transactional SQL sink: dependent writes to several tables in one transaction
 
@@ -69,6 +73,13 @@ A sink's buffer fill was measured against a 1000-slot channel that at most `MaxI
 default) messages can ever occupy. A completely stuck sink read 12.7% full, or 2.8% while
 batching, so the backpressure warning at 80% could not appear. Fill is now measured against what
 can actually queue.
+
+### Fixed — Stateful Join and Circuit Breaker were drawn as blank boxes
+
+Both steps are in the editor's palette and run on the engine, but neither canvas had a renderer for
+them. React Flow drew its default node instead: a bare box with no name, no icon and no "+" to
+connect the next step, and a console warning on every render. The editor and the workflow detail
+page now draw them like every other step.
 
 ### Security — the public webhook endpoint, request body limits and FTPS certificates
 
