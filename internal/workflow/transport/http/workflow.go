@@ -1360,7 +1360,7 @@ func (h *WorkflowHandler) TestWorkflow(w http.ResponseWriter, r *http.Request) {
 
 	steps, err := h.Registry.SimulateWorkflow(r.Context(), req.Workflow, in)
 	if err != nil {
-		h.JsonError(w, "Failed to test workflow: "+err.Error(), http.StatusInternalServerError)
+		h.JsonError(w, "Failed to test workflow: "+err.Error(), previewFailureStatus(err))
 		return
 	}
 
@@ -1393,7 +1393,7 @@ func (h *WorkflowHandler) TestWorkflowByID(w http.ResponseWriter, r *http.Reques
 
 	steps, err := h.Registry.TestWorkflow(r.Context(), wf, msg)
 	if err != nil {
-		h.JsonError(w, "Failed to test workflow: "+err.Error(), http.StatusInternalServerError)
+		h.JsonError(w, "Failed to test workflow: "+err.Error(), previewFailureStatus(err))
 		return
 	}
 
@@ -1435,7 +1435,7 @@ func (h *WorkflowHandler) previewPipeline(w http.ResponseWriter, r *http.Request
 	}
 	res, err := h.Registry.TestTransformationPipeline(r.Context(), transformations, msg)
 	if err != nil {
-		h.JsonError(w, "Failed to test transformation: "+err.Error(), http.StatusInternalServerError)
+		h.JsonError(w, "Failed to test transformation: "+err.Error(), previewFailureStatus(err))
 		return
 	}
 	defer func() {
@@ -1496,7 +1496,7 @@ func (h *WorkflowHandler) TestTransformation(w http.ResponseWriter, r *http.Requ
 	if h.Registry.IsBranchPreviewable(transType) {
 		out, branch, err := h.Registry.PreviewBranch(r.Context(), transType, req.Transformation.Config, msg)
 		if err != nil {
-			h.JsonError(w, "Failed to test transformation: "+err.Error(), http.StatusInternalServerError)
+			h.JsonError(w, "Failed to test transformation: "+err.Error(), previewFailureStatus(err))
 			return
 		}
 		result := map[string]any{}
@@ -1544,7 +1544,7 @@ func (h *WorkflowHandler) TestTransformation(w http.ResponseWriter, r *http.Requ
 		Config: req.Transformation.Config,
 	}}, msg)
 	if err != nil {
-		h.JsonError(w, "Failed to test transformation: "+err.Error(), http.StatusInternalServerError)
+		h.JsonError(w, "Failed to test transformation: "+err.Error(), previewFailureStatus(err))
 		return
 	}
 
@@ -2153,4 +2153,22 @@ func (h *WorkflowHandler) DetectDecryptionSettings(w http.ResponseWriter, r *htt
 	// response in a proxy or a browser is a copy nobody asked for.
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(result)
+}
+
+// previewFailureStatus is the status for a preview or test run that returned
+// err.
+//
+// The step, or the workflow, could not run with the settings the caller sent:
+// a script that does not parse, a type nothing is registered for, a graph
+// with no sink. That is the result of the test, and the request that asked
+// for it was well formed, so it is 422. It used to be 500, which reads as a
+// fault in the server and invites a retry of the same request.
+//
+// A run that was cut short, by its deadline or by the caller leaving, did not
+// fail because of its settings and keeps 500.
+func previewFailureStatus(err error) int {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return http.StatusInternalServerError
+	}
+	return http.StatusUnprocessableEntity
 }
