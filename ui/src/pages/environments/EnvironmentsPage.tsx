@@ -99,7 +99,7 @@ function Lanes() {
       {!isLoading && (lanes ?? []).length === 0 && (
         <Paper withBorder radius="lg" p="xl">
           <Text size="sm" c="dimmed" ta="center">
-            No vhost is connected to another environment yet. An administrator connects one in Settings › Environments.
+            No vhost is connected to another environment yet. An administrator connects one in Settings › Workspace › Environments.
           </Text>
         </Paper>
       )}
@@ -259,7 +259,7 @@ export function ReleaseCard({ ps }: { ps: Promotion[] }) {
               <Group justify="space-between" wrap="nowrap">
                 <Text size="sm" fw={600}>{p.workflow_name}</Text>
                 <Text size="xs" c="dimmed">
-                  {(p.changes ?? []).length > 0 ? `${(p.changes ?? []).length} changes` : `v${p.from_version}`}
+                  {(p.changes ?? []).length > 0 ? `${(p.changes ?? []).length} change${(p.changes ?? []).length === 1 ? '' : 's'}` : `v${p.from_version}`}
                 </Text>
               </Group>
               {(p.changes ?? []).map((c, j) => <Text key={j} size="xs" c="dimmed">{c.what}</Text>)}

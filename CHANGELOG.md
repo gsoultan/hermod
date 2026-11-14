@@ -133,6 +133,21 @@ field name and read back under another, so the list was empty and a rollback fou
   shows step time per message, failures and throughput before and since, and says whether the
   workflow runs better, worse or the same.
 
+### Fixed — the first administrator could not promote a flow
+
+- **Promoting needed an administrator with every vhost listed.** The administrator that first-run
+  setup creates has no vhosts listed, because an Administrator has them all, and the promote dialog
+  answered "Forbidden: you do not have access to vhost hr" for any flow outside the default vhost.
+  Sending a release and moving a credential to a secret failed the same way.
+- **The sender was offered an approval production would refuse.** On the sending side, a release
+  production wants another administrator to approve showed Approve to the person who sent it and
+  counted in their Approvals badge. The sent log now keeps production's rule, and the sender is told
+  another administrator approves it.
+- **"Up to date" while it waited.** The line under a flow's header said Up to date as soon as a
+  version was sent. It now says the version waits for approval there, or was undone there.
+- The secrets check no longer says only names are sent while the dialog asks for the values, and
+  the texts that pointed at "Settings › Environments" name Settings › Workspace › Environments.
+
 ### Fixed — a list request could ask for the whole table
 
 `?limit=` on the list endpoints went into the query as it came, so one request with a very large

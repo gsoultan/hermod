@@ -23,7 +23,7 @@ import { LinkWizard } from './LinkWizard'
 import { PeerDecideSwitch } from './PeerDecideSwitch'
 
 /**
- * Settings › Environments: what this install is, where each of its vhosts
+ * Settings › Workspace › Environments: what this install is, where each of its vhosts
  * promotes workflows to, and who may promote workflows into it.
  */
 export function EnvironmentsTab() {
@@ -350,7 +350,7 @@ function PeersCard() {
               </CopyButton>
             </Group>
             <Text size="sm">
-              Enter it in the other instance under Settings › Environments › Connect an environment. Its workflows land
+              Enter it in the other instance under Settings › Workspace › Environments › Connect a server. Its workflows land
               in {code.vhost}. It works once, until {formatDateTime(code.expires_at)}.
             </Text>
           </Alert>

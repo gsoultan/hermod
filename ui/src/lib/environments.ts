@@ -210,6 +210,8 @@ export interface Promotion {
   auto_rollback: boolean
   changes?: Change[] | null
   status: PromotionStatus
+  /** In the sent log: the rule the receiving instance gave when it was sent. */
+  approval?: ApprovalRule
   created_at: string
   decided_by?: string
   decided_at?: string
@@ -632,4 +634,13 @@ export function groupPeers(peers: Peer[]): { group: string; name: string; url: s
     else out.push({ group, name: p.name, url: p.url, addVHosts: !!p.add_vhosts, peers: [p] })
   }
   return out
+}
+
+/**
+ * Whether username sent p and the instance it went to wants an administrator
+ * other than the sender, so they may not approve it from here. Compared
+ * case-insensitively, like the server.
+ */
+export function sentByMeForAnother(p: Pick<Promotion, 'sender' | 'approval'>, username: string | null | undefined): boolean {
+  return p.approval === 'admin_except_sender' && p.sender.toLowerCase() === (username ?? '').toLowerCase()
 }

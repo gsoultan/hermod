@@ -120,3 +120,23 @@ also matches same ID+type. `MoveToSecret` (POST
 (ErrConflict if it exists) and rewrites the key to `{{secret.NAME}}`.
 UI: ReleaseConnections.tsx (rows, CreatedSettings, PlainCredentials) in
 ReleaseDialog; ReleaseCard says "Approving creates sink X and source Y in vhost".
+
+**Audit 2026-11-14 (deploy audit thread).** Walked end to end on two live
+instances with the *setup-created* admin (`vhosts: null`) and a flow in vhost
+`hr`. Fixed: `mayPromote` and `MoveToSecret` (transport/http/handler.go) used
+`HasVHostAccess` with no Administrator exemption, so that admin got 403 on
+preview/send/move-to-secret outside `default`; now `MayUseVHost`. Tests had
+hidden it: the handler tests' admin has `VHosts: ["*"]` and flows sat in
+`default`, which `HasVHostAccess` always allows. `owner` in handler_test.go's
+`users` is the setup-style admin; admin_vhosts_test.go covers it.
+`Promotion.Approval` (sender side only) keeps the receiver's approval rule from
+the preview (`Preview.Rules.Approval`, already `Rules.For(peer vhost)`), set in
+`Promote` and `sendGroup`; ui `sentByMeForAnother` uses it so the sender is not
+offered Approve (WaitingRow) nor counted in `waitingApprovals`.
+`usePromoteTarget` also reads the sent log: PromoteStrip says "vN waits for
+approval there" / "vN was undone there" instead of Up to date. Browser testing
+of two instances needs different hostnames (localhost vs 127.0.0.1): the
+session cookie is host-only and the two would overwrite each other. Open UI
+proposals (P1-P9: single-admin dead end, matching step contradicts carrying,
+three places for one feature, etc.) are in the "Deploy flow audit" Claude Doc.
+
