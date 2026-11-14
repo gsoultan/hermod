@@ -102,6 +102,16 @@ describe('deciding from the sending side', () => {
     await waitFor(() => expect(bodies).toEqual([JSON.stringify({ start_anyway: true })]))
   })
 
+  it('does not offer Approve to the sender when production wants another administrator', async () => {
+    signInAs('Administrator', 'Ada')
+    staging(true, [sent({ sender: 'ada', approval: 'admin_except_sender' })])
+    wrap(<EnvironmentsPage />)
+
+    expect(await screen.findByText('You sent this, so another administrator approves it.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Approve orders' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Reject orders' })).toBeEnabled()
+  })
+
   it('rejects with a reason', async () => {
     signInAs('Administrator', 'rina')
     let body: unknown = null

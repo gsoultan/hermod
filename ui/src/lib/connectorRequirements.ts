@@ -100,7 +100,7 @@ const SOURCE_REQUIREMENTS: Record<string, RequiredField[]> = {
   kafka: [{ key: 'brokers', label: 'Brokers', example: 'broker1:9092, broker2:9092' }],
   metis: metisConnection,
   metis_task: metisTaskConnection,
-  nats: [{ key: 'url', label: 'Server URL', example: 'nats://nats.example.com:4222' }],
+  nats: [{ key: 'url', label: 'NATS URL', example: 'nats://nats.example.com:4222' }],
   rabbitmq: [
     { key: 'host', aliases: URL_KEYS, label: 'Host', example: 'rabbit.example.com' },
     { key: 'stream_name', label: 'Stream name', example: 'orders' },
@@ -109,21 +109,21 @@ const SOURCE_REQUIREMENTS: Record<string, RequiredField[]> = {
     { key: 'host', aliases: URL_KEYS, label: 'Host', example: 'rabbit.example.com' },
     { key: 'queue_name', label: 'Queue name', example: 'orders' },
   ],
-  redis: [{ key: 'addr', label: 'Address', example: 'redis.example.com:6379' }],
+  redis: [{ key: 'addr', label: 'Redis Addr', example: 'redis.example.com:6379' }],
   mqtt: [
     { key: 'broker_url', aliases: ['url'], label: 'Broker URL', example: 'tcp://mqtt.example.com:1883' },
     { key: 'topics', aliases: ['topic'], label: 'Topics', example: 'sensors/+/temp, devices/+/status' },
   ],
   websocket: [{ key: 'url', label: 'WebSocket URL', example: 'wss://feed.example.com/stream' }],
-  http: [{ key: 'url', label: 'URL to poll', example: 'https://api.example.com/changes' }],
-  graphql: [{ key: 'url', label: 'GraphQL endpoint', example: 'https://api.example.com/graphql' }],
+  http: [{ key: 'url', label: 'URL', example: 'https://api.example.com/changes' }],
+  graphql: [{ key: 'url', label: 'Endpoint URL', example: 'https://api.example.com/graphql' }],
   webhook: [{ key: 'path', label: 'Webhook path', example: '/api/webhooks/my-source' }],
   form: [{ key: 'path', label: 'Form path', example: '/api/forms/my-form' }],
   grpc: [{ key: 'path', label: 'gRPC path', example: '/grpc/my-source' }],
   cron: [{ key: 'schedule', label: 'Cron schedule', example: '*/5 * * * *' }],
-  excel: [{ key: 'pattern', label: 'File pattern', example: 'reports/*.xlsx' }],
+  excel: [{ key: 'pattern', label: 'Filename Pattern', example: 'reports/*.xlsx' }],
   batch_sql: [
-    { key: 'cron', label: 'Schedule', example: '0 * * * *' },
+    { key: 'cron', label: 'Cron Schedule', example: '0 * * * *' },
     { key: 'queries', label: 'SQL query', example: "SELECT * FROM t WHERE id > '{{.last_value}}'" },
   ],
 };
@@ -134,12 +134,15 @@ const SINK_REQUIREMENTS: Record<string, RequiredField[]> = {
   mariadb: hostPort('3306'),
   mssql: hostPort('1433'),
   oracle: hostPort('1521'),
-  clickhouse: hostPort('9000'),
+  // The ClickHouse sink's form writes one `addr`, which is what the factory
+  // hands the driver. Gating it on host and port, keys the form never sets,
+  // left Next disabled for every ClickHouse sink.
+  clickhouse: [{ key: 'addr', label: 'Address', example: 'clickhouse.example.com:9000' }],
   yugabyte: hostPort('5433'),
   cassandra: [{ key: 'hosts', label: 'Hosts', example: 'node1:9042, node2:9042' }],
   mongodb: [
     { key: 'database', label: 'Database', example: 'app' },
-    { key: 'collection', label: 'Collection', example: 'orders' },
+    { key: 'collection', label: 'Target Collection', example: 'orders' },
   ],
   kafka: [
     { key: 'brokers', label: 'Brokers', example: 'broker1:9092' },
@@ -164,7 +167,7 @@ const SINK_REQUIREMENTS: Record<string, RequiredField[]> = {
   // the factory splits on. It used to demand `url`, a key neither side has, so
   // Next could never enable for an elasticsearch sink.
   elasticsearch: [
-    { key: 'addresses', label: 'Server addresses', example: 'https://es.example.com:9200' },
+    { key: 'addresses', label: 'Addresses', example: 'https://es.example.com:9200' },
   ],
   http: [{ key: 'url', label: 'Destination URL', example: 'https://api.example.com/ingest' }],
   websocket: [{ key: 'url', label: 'WebSocket URL', example: 'wss://receiver.example.com/in' }],
@@ -193,12 +196,13 @@ const SINK_REQUIREMENTS: Record<string, RequiredField[]> = {
     {
       key: 'schema',
       label: 'Parquet schema',
-      example: '{"Tag":"name=parquet_go_root, repetitiontype=REQUIRED","Fields":[…]}',
+      example:
+        '{"Tag":"name=parquet_go_root, repetitiontype=REQUIRED","Fields":[{"Tag":"name=id, type=BYTE_ARRAY, convertedtype=UTF8, repetitiontype=REQUIRED"}]}',
     },
   ],
   smtp: [
-    { key: 'host', label: 'SMTP host', example: 'smtp.example.com' },
-    { key: 'to', label: 'Recipient', example: 'ops@example.com' },
+    { key: 'host', label: 'Host', example: 'smtp.example.com' },
+    { key: 'to', label: 'To', example: 'ops@example.com' },
   ],
   // Every one of these is refused by panmail.New rather than defaulted: the
   // gateway will not guess a provider, and a key or a from address it did not
@@ -207,8 +211,8 @@ const SINK_REQUIREMENTS: Record<string, RequiredField[]> = {
     { key: 'base_url', label: 'Gateway URL', example: 'https://mail.example.com' },
     { key: 'api_key', label: 'API key', example: 'pk_live_…' },
     { key: 'provider_id', label: 'Provider ID', example: '0f8b1c2d-…' },
-    { key: 'from', label: 'From address', example: 'noreply@example.com' },
-    { key: 'to', label: 'Recipient', example: '{{.email}}' },
+    { key: 'from', label: 'From', example: 'noreply@example.com' },
+    { key: 'to', label: 'To', example: '{{.email}}' },
     // panmail.New refuses to start without this once either of the two is
     // templated, because between them they decide where a tenant-wide api key
     // is sent and a row would be deciding it. Asking here means the wizard says
@@ -253,7 +257,7 @@ const SINK_REQUIREMENTS: Record<string, RequiredField[]> = {
   fcm: [
     {
       key: 'credentials_json',
-      label: 'Service account JSON',
+      label: 'Service account key',
       example: '{"type":"service_account","project_id":"…"}',
       when: (c) => c.use_default_credentials !== 'true',
     },
@@ -322,4 +326,13 @@ export function typesWithRequirements(kind: 'source' | 'sink'): string[] {
 export function exampleFor(kind: 'source' | 'sink', type: string, key: string): string | undefined {
   const reqs = (kind === 'source' ? SOURCE_REQUIREMENTS : SINK_REQUIREMENTS)[type] ?? [];
   return reqs.find((f) => f.key === key)?.example;
+}
+
+/**
+ * Every connection-step requirement for a connector, whatever the rest of the
+ * config says. Exported for the end-to-end suite, which fills each one with
+ * its example through the real form.
+ */
+export function requirementsFor(kind: 'source' | 'sink', type: string): readonly RequiredField[] {
+  return (kind === 'source' ? SOURCE_REQUIREMENTS : SINK_REQUIREMENTS)[type] ?? [];
 }

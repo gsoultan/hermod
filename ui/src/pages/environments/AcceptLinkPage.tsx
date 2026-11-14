@@ -55,7 +55,7 @@ export function AcceptLinkPage() {
           <Group gap="xs"><IconLink size="1.4rem" aria-hidden /><Title order={3}>Connect an environment</Title></Group>
           {!valid ? (
             <Alert color="red" icon={<IconAlertTriangle size="1rem" />} title="This link is broken">
-              Start again from Settings › Environments in the instance you want to connect.
+              Start again from Settings › Workspace › Environments in the instance you want to connect.
             </Alert>
           ) : !isAdmin ? (
             <Alert color="yellow" title="An administrator has to approve this">
@@ -100,7 +100,7 @@ export function AcceptLinkPage() {
               </Radio.Group>
               <Text size="sm" c="dimmed">
                 Each release it sends waits here until an administrator approves it, unless the rules in Settings ›
-                Environments say otherwise. You can cut it off at any time.
+                Workspace › Environments say otherwise. You can cut it off at any time.
               </Text>
               <Checkbox
                 label="Its administrators may approve, reject and undo what it sends, from there"

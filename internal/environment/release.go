@@ -266,7 +266,7 @@ func (s *Service) sendGroup(ctx context.Context, g *plannedGroup, sender string,
 		got[i].PeerID, got[i].FromEnv = g.link.ID, g.link.Name
 		got[i].ReleaseID = rs.ReleaseID
 		if j := slices.IndexFunc(g.Previews, func(p Preview) bool { return p.WorkflowID == got[i].WorkflowID }); j >= 0 {
-			got[i].VHost = g.Previews[j].VHost
+			got[i].VHost, got[i].Approval = g.Previews[j].VHost, g.Previews[j].Rules.Approval
 		}
 	}
 	if err := s.recordSent(ctx, got...); err != nil {

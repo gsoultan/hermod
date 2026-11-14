@@ -417,7 +417,7 @@ func (s *Service) Unlink(ctx context.Context, id string) (note string, err error
 	}
 	if token != "" {
 		if err := s.remote.Unpair(ctx, l.URL, token); err != nil {
-			note = fmt.Sprintf("%s could not be told (%v); revoke the link there under Settings › Environments.", l.Name, err)
+			note = fmt.Sprintf("%s could not be told (%v); revoke the link there under Settings › Workspace › Environments.", l.Name, err)
 		}
 	}
 	s.mu.Lock()

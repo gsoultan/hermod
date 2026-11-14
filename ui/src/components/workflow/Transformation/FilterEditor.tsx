@@ -17,6 +17,7 @@ import { useMemo } from 'react';
 import { TemplateField } from '../../shared/TemplateField';
 import { FunctionPicker } from '../../shared/FunctionPicker';
 import { applyFunction } from '@/lib/expressionInsert';
+import { expressionWarning } from '@/lib/functionCatalog';
 
 export interface Condition {
   field: string;
@@ -30,6 +31,16 @@ interface FilterEditorProps {
   onChange: (next: Condition[]) => void;
   /** What an empty list means for the node using the editor. */
   emptyText?: string;
+}
+
+function ExpressionWarning({ value, fieldPaths }: { value: string; fieldPaths: string[] }) {
+  const warning = useMemo(() => expressionWarning(value, fieldPaths), [value, fieldPaths]);
+  if (!warning) return null;
+  return (
+    <Text size="xs" c="orange" mt={2} data-testid="expression-warning">
+      {warning}
+    </Text>
+  );
 }
 
 export function FilterEditor({
@@ -102,6 +113,7 @@ export function FilterEditor({
                     </Tooltip>
                   </Group>
                   <Autocomplete
+                    aria-label={`Condition ${index + 1} field`}
                     placeholder="e.g. status, lower(source.name)"
                     data={fieldPaths}
                     size="xs"
@@ -120,12 +132,16 @@ export function FilterEditor({
                     }
                     rightSectionPointerEvents="all"
                   />
+                  {/* A call the engine reads as nothing makes this condition
+                      false for every record, silently. */}
+                  <ExpressionWarning value={cond.field || ''} fieldPaths={fieldPaths} />
                 </Box>
                 <Box style={{ flex: '1 1 8rem', minWidth: 0 }}>
                   <Text size="xs" fw={700} c="dimmed" mb={2} tt="uppercase" ml={2}>
                     Operator
                   </Text>
                   <Select
+                    aria-label={`Condition ${index + 1} operator`}
                     data={[
                       { label: '=', value: '=' },
                       { label: '!=', value: '!=' },
@@ -148,6 +164,7 @@ export function FilterEditor({
                     Value
                   </Text>
                   <TemplateField
+                    aria-label={`Condition ${index + 1} value`}
                     placeholder="Value..."
                     value={cond.value || ''}
                     onChange={(val) => updateCondition(index, 'value', val)}

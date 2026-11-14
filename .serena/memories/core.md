@@ -28,6 +28,8 @@ find a claim that outruns the code, fix the claim.
 - [What a saved workflow node may hold](workflow_node_hygiene.md) — `nodeclean`
   drops connection copies and editor state, moves typed step credentials to
   `WF_…` vhost secrets, and sweeps old rows at start-up; the UI mirror.
+- [Per-vhost history retention](vhost_history_retention.md) — a vhost limits its audit log,
+  workflow versions and decided approvals; how audit rows get a vhost; the Pebble key trap.
 - [Self-update](self_update.md) — Settings → Updates: GitHub release check,
   automatic/manual/off, checksum + `--version` smoke test, atomic swap, exit 75
   restart, and the boot guard that rolls back after three failed starts.
@@ -275,6 +277,9 @@ find a claim that outruns the code, fix the claim.
   `filtered`. Which edges a branch takes is one function,
   `traversal.TakesEdge`, shared by the engine and the simulation; the copy the
   simulation used to keep is how a simulated router came to take every route.
+- [Pebble time keys](pebble_time_keys.md) — log and audit rows are
+  `<prefix>:<MaxInt64 - nanos>:<id>`, newest first; purge is one `DeleteRange`;
+  the first scheme went negative and is rekeyed on open.
 - [A failed request's error quotes its URL](connector_errors_quote_their_url.md) —
   net/http strips only a userinfo password, so a token in the path or query, or a
   webhook URL, rode every network error into the workflow status and the alert

@@ -177,7 +177,7 @@ function ReleaseForm({ items, versions, onClose }: { items: ReleaseItem[]; versi
           <Group justify="space-between" wrap="nowrap">
             <Text size="sm">
               Nothing is connected for {u.vhost}, so <b>{u.workflow_name}</b> has nowhere to go. An administrator
-              connects it in Settings › Environments.
+              connects it in Settings › Workspace › Environments.
             </Text>
             <Button size="xs" variant="default" aria-label={`Leave out ${u.workflow_name}`} onClick={() => leaveOut(u.workflow_id)}>
               Leave out
@@ -438,7 +438,7 @@ function FixConnection({ n, p, row, onFixed }: { n: number; p: Preview; row: Mat
           {save.error && <Text size="xs" c="red">{(save.error as Error).message}</Text>}
         </>
       ) : (
-        <Text size="xs" c="dimmed">An administrator matches it here, or in Settings › Environments.</Text>
+        <Text size="xs" c="dimmed">An administrator matches it here, or in Settings › Workspace › Environments.</Text>
       )}
     </Stack>
   )

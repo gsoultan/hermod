@@ -506,9 +506,10 @@ type promoteRequest struct {
 	environment.PromoteOptions
 }
 
-// mayPromote checks the caller may see each workflow's vhost.
+// mayPromote checks the caller may see each workflow's vhost. An
+// Administrator may see all of them, even with none listed, which is how
+// first-run setup creates one.
 func (h *Handler) mayPromote(w http.ResponseWriter, r *http.Request, workflowIDs ...string) bool {
-	_, vhosts := h.GetRoleAndVHosts(r)
 	for _, id := range workflowIDs {
 		wf, err := h.Storage.GetWorkflow(r.Context(), id)
 		if err != nil {
@@ -519,7 +520,7 @@ func (h *Handler) mayPromote(w http.ResponseWriter, r *http.Request, workflowIDs
 		if vhost == "" {
 			vhost = "default"
 		}
-		if !h.HasVHostAccess(vhost, vhosts) {
+		if !h.MayUseVHost(r, vhost) {
 			h.JsonError(w, "Forbidden: you do not have access to vhost "+vhost, http.StatusForbidden)
 			return false
 		}
@@ -679,7 +680,7 @@ func (h *Handler) MoveToSecret(w http.ResponseWriter, r *http.Request) {
 	if vhost == "" {
 		vhost = "default"
 	}
-	if _, vhosts := h.GetRoleAndVHosts(r); !h.HasVHostAccess(vhost, vhosts) {
+	if !h.MayUseVHost(r, vhost) {
 		h.JsonError(w, "Forbidden: you do not have access to vhost "+vhost, http.StatusForbidden)
 		return
 	}

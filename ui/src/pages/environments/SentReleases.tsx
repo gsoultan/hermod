@@ -4,10 +4,10 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { notifications } from '@mantine/notifications'
 import { IconArrowBackUp, IconCheck } from '@tabler/icons-react'
 import { useConfirm } from '@/components/common/ConfirmProvider'
-import { getSessionRole } from '@/auth/session'
+import { getSessionRole, getSessionUser } from '@/auth/session'
 import { formatDateTime } from '@/utils/dateUtils'
 import {
-  approveSent, environmentKeys, groupByRelease, rejectSent, releaseStatus, rollbackSent, statusColor, statusLabel,
+  approveSent, environmentKeys, groupByRelease, rejectSent, releaseStatus, rollbackSent, sentByMeForAnother, statusColor, statusLabel,
   useLinks, workflowNames, type Promotion,
 } from '@/lib/environments'
 import { StartChoice, startLine } from './SecretValues'
@@ -77,6 +77,8 @@ export function WaitingRow({ ps, style }: { ps: Promotion[]; style?: React.CSSPr
   const [reason, setReason] = useState('')
   const head = ps[0]
   const names = workflowNames(ps)
+  // Production would refuse it: say so instead of offering a button that fails.
+  const ownSend = sentByMeForAnother(head, getSessionUser()?.username)
   const onError = async (err: Error) => {
     await refresh()
     notifications.show({ color: 'red', title: 'Not done', message: err.message })
@@ -107,7 +109,8 @@ export function WaitingRow({ ps, style }: { ps: Promotion[]; style?: React.CSSPr
         <Text size="sm" fw={600}>{title(ps)} to {head.from_env}</Text>
         {ps.length > 1 && <Text size="xs" c="dimmed">{names}</Text>}
         <Text size="xs" c="dimmed">Sent by {head.sender} · {formatDateTime(head.created_at)}</Text>
-        <StartChoice empty={empty} startAnyway={startAnyway} onChange={setStartAnyway} />
+        {!ownSend && <StartChoice empty={empty} startAnyway={startAnyway} onChange={setStartAnyway} />}
+        {ownSend && <Text size="xs" c="dimmed">You sent this, so another administrator approves it.</Text>}
       </Stack>
       <Group gap="xs" wrap="nowrap">
         <Button size="xs" variant="default" aria-label={`Reject ${title(ps)}`} onClick={() => setRejecting(true)}>Reject</Button>
@@ -116,6 +119,7 @@ export function WaitingRow({ ps, style }: { ps: Promotion[]; style?: React.CSSPr
           color="green"
           leftSection={<IconCheck size="0.9rem" />}
           aria-label={`Approve ${title(ps)}`}
+          disabled={ownSend}
           loading={approve.isPending}
           onClick={async () => {
             if (await confirm({

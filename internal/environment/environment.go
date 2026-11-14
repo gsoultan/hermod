@@ -307,6 +307,11 @@ type Promotion struct {
 	// start, because SecretsMissing were left without a value and the
 	// approver did not choose to start it anyway.
 	KeptStopped bool `json:"kept_stopped,omitempty"`
+	// Approval is, on the sending side, the rule the receiving instance gave
+	// for it when it was checked (one of the Approve* policies), so the
+	// sender is not offered an approval production would refuse. Empty on
+	// the receiving side, and on what was sent before it was kept.
+	Approval string `json:"approval,omitempty"`
 }
 
 // Change is one difference between the version being promoted and the one

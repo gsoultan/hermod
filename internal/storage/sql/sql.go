@@ -274,6 +274,8 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		return err
 	}
 
+	s.prepareVHostRetention(ctx)
+
 	// Best-effort, and deliberately after autoMigrate: the columns it drops are
 	// no longer in the DDL, so autoMigrate will not put them back.
 	s.narrowTraceSteps(ctx)
@@ -2510,7 +2512,7 @@ func (s *sqlStorage) CreateAuditLog(ctx context.Context, log storage.AuditLog) e
 	}
 	exec := func() error {
 		_, err := s.exec(ctx, s.queries.get(QueryCreateAuditLog),
-			log.ID, log.Timestamp, log.UserID, log.Username, log.Action, log.EntityType, log.EntityID, log.Payload, log.IP)
+			log.ID, log.Timestamp, log.UserID, log.Username, log.Action, log.EntityType, log.EntityID, log.Payload, log.IP, log.VHost)
 		return err
 	}
 	return s.execWithRetry(ctx, exec)
@@ -2835,7 +2837,7 @@ func (s *sqlStorage) DeleteFormSubmissions(ctx context.Context, filter storage.F
 }
 
 func (s *sqlStorage) ListAuditLogs(ctx context.Context, filter storage.AuditFilter) ([]storage.AuditLog, int, error) {
-	baseQuery := "SELECT id, timestamp, user_id, username, action, entity_type, entity_id, payload, ip FROM audit_logs"
+	baseQuery := "SELECT id, timestamp, user_id, username, action, entity_type, entity_id, payload, ip, vhost FROM audit_logs"
 	countQuery := "SELECT COUNT(*) FROM audit_logs"
 	var args []any
 	var where []string
@@ -2844,6 +2846,10 @@ func (s *sqlStorage) ListAuditLogs(ctx context.Context, filter storage.AuditFilt
 		clause, searchArgs := caseInsensitiveSearch(filter.Search, storage.AuditLogSearchFields...)
 		where = append(where, clause)
 		args = append(args, searchArgs...)
+	}
+	if filter.VHost != "" {
+		where = append(where, "vhost = ?")
+		args = append(args, filter.VHost)
 	}
 	if filter.UserID != "" {
 		where = append(where, "user_id = ?")
@@ -2900,10 +2906,11 @@ func (s *sqlStorage) ListAuditLogs(ctx context.Context, filter storage.AuditFilt
 	logs := []storage.AuditLog{}
 	for rows.Next() {
 		var log storage.AuditLog
-		var payload, ip sql.NullString
-		if err := rows.Scan(&log.ID, &log.Timestamp, &log.UserID, &log.Username, &log.Action, &log.EntityType, &log.EntityID, &payload, &ip); err != nil {
+		var payload, ip, vhost sql.NullString
+		if err := rows.Scan(&log.ID, &log.Timestamp, &log.UserID, &log.Username, &log.Action, &log.EntityType, &log.EntityID, &payload, &ip, &vhost); err != nil {
 			return nil, 0, err
 		}
+		log.VHost = vhost.String
 		if payload.Valid {
 			log.Payload = payload.String
 		}

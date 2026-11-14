@@ -17,13 +17,13 @@ writes to production's database, and production never sees staging's credentials
 
 ## Set it up
 
-Everything is in the UI, under **Settings › Environments**. You need an administrator account on
+Everything is in the UI, under **Settings › Workspace › Environments**. You need an administrator account on
 both installs.
 
 1. **On production**, pick **Production** as what this instance is, and give it a name if you want
    one other than "Production". Its badge is now in the header of every page.
 2. **On staging**, pick **Staging**.
-3. **On staging**, click **Connect an environment**. Enter production's address, the one you open
+3. **On staging**, click **Connect a server**. Enter production's address, the one you open
    it at in the browser, such as `https://hermod.example.com`; pick the vhost whose workflows go
    there under **Workflows from**; and under **Land in**, the vhost on production they land in.
    It defaults to the same name.
@@ -32,7 +32,7 @@ both installs.
      and click **Allow**, or **Create hr and allow** when production has no vhost of that name
      yet. The window closes and staging finishes the connection on its own; or
    - ask a production administrator to name the vhost under **Into vhost** and click **Create
-     pairing code** under Settings › Environments there, and type the code in. A code works once,
+     pairing code** under Settings › Workspace › Environments there, and type the code in. A code works once,
      for 10 minutes, and its workflows land in the vhost it was made for, which production creates
      when the code is used if it does not have it.
 5. **Match connections.** Staging lists each of the vhost's sources and sinks with the production
@@ -66,7 +66,7 @@ keeps working for every vhost that has no connection of its own. Connect a vhost
 
 ## Promote
 
-**Releases** in the side menu shows one lane per connected vhost, such as
+**Settings › Releases** shows one lane per connected vhost, such as
 `hr → Production · hr`, listing the workflows that changed since they last went through it:
 **New** for one that never went, or `v4 → v5`. Every one starts ticked; untick what should wait.
 **Promote all ready** (or **Promote 2 of 3** once something is unticked) sends what is ticked in
@@ -239,7 +239,7 @@ it can be rolled back from **History** like any edit.
 
 ## Rules
 
-Production's rules are under Settings › Environments › **Receives from**:
+Production's rules are under Settings › Workspace › Environments › **Receives from**:
 
 - **Who approves**: an administrator of production other than the sender (the default), any
   administrator, or nobody, which deploys a release as soon as it arrives.
