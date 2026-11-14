@@ -244,6 +244,39 @@ func (h *Handler) AllowConnectorVHost(w http.ResponseWriter, r *http.Request, vh
 	return false
 }
 
+// MayUseVHost reports whether the caller may work in vhost: an Administrator
+// may in all of them, anyone else in the ones they were given. A request with
+// no user is one the server made itself.
+func (h *Handler) MayUseVHost(r *http.Request, vhost string) bool {
+	role, vhosts := h.GetRoleAndVHosts(r)
+	return role == "" || role == storage.RoleAdministrator || h.HasVHostAccess(vhost, vhosts)
+}
+
+// IsWorkerPrincipal reports whether u is a worker process that authenticated
+// with its worker token, not a person with a session.
+func IsWorkerPrincipal(u *storage.User) bool {
+	return u != nil && strings.HasPrefix(u.ID, "worker:")
+}
+
+// AgentOnly guards a route that worker processes report to. It answers a
+// worker and, so the same thing can be done by hand in an emergency, an
+// Administrator. A worker is given the Editor role so that it can read what it
+// runs; without this guard that made every such route open to every session.
+func (h *Handler) AgentOnly(next http.HandlerFunc) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, ok := r.Context().Value(UserContextKey).(*storage.User)
+		if !ok {
+			h.JsonError(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if user.Role != storage.RoleAdministrator && !IsWorkerPrincipal(user) {
+			h.JsonError(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+		next(w, r)
+	})
+}
+
 func (h *Handler) HasVHostAccess(vhost string, allowedVHosts []string) bool {
 	if vhost == "" || vhost == "all" || vhost == "default" {
 		return true

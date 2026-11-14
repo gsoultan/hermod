@@ -53,43 +53,78 @@ func (h *WorkflowHandler) validateWorkflow(ctx context.Context, wf storage.Workf
 	return nil
 }
 
+// inVHost holds a route that names a workflow in its path to the vhosts the
+// caller may work in, and answers 403 otherwise.
+//
+// It is attached to the route rather than written into each handler because
+// that is how it was missed: reading a workflow checked the vhost, and the
+// handlers that change, start, stop, drain, rebuild, roll back and delete one
+// were each written without the check. A workflow that does not exist is left
+// to the handler, which is the one that knows how to say so.
+func (h *WorkflowHandler) inVHost(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if id == "" {
+			id = r.PathValue("export_id")
+		}
+		if wf, err := h.Storage.GetWorkflow(r.Context(), id); err == nil && !h.MayUseVHost(r, wf.VHost) {
+			h.JsonError(w, "Forbidden: you do not have access to this workflow's vhost", http.StatusForbidden)
+			return
+		}
+		next(w, r)
+	}
+}
+
+// refuseForeignWorkflows answers 403 and reports true when any of ids is a
+// workflow in a vhost the caller may not work in. A batch is refused whole: a
+// partly applied one would tell the caller which of the ids exist elsewhere.
+func (h *WorkflowHandler) refuseForeignWorkflows(w http.ResponseWriter, r *http.Request, ids []string) bool {
+	for _, id := range ids {
+		if wf, err := h.Storage.GetWorkflow(r.Context(), id); err == nil && !h.MayUseVHost(r, wf.VHost) {
+			h.JsonError(w, "Forbidden: you do not have access to the vhost of every workflow named", http.StatusForbidden)
+			return true
+		}
+	}
+	return false
+}
+
 func (h *WorkflowHandler) RegisterWorkflowRoutes(mux *http.ServeMux) {
 	// Register more specific routes first to avoid potential shadowing.
-	mux.Handle("GET /api/workflows/{export_id}/export", h.EditorOnly(http.HandlerFunc(h.ExportWorkflow)))
+	mux.Handle("GET /api/workflows/{export_id}/export", h.EditorOnly(h.inVHost(h.ExportWorkflow)))
 	mux.Handle("POST /api/workflows/import", h.EditorOnly(http.HandlerFunc(h.ImportWorkflow)))
 
 	mux.HandleFunc("GET /api/workflows", h.ListWorkflows)
-	mux.HandleFunc("GET /api/workflows/{id}", h.GetWorkflow)
-	mux.HandleFunc("PATCH /api/workflows/{id}/status", h.UpdateWorkflowStatus)
-	mux.HandleFunc("PATCH /api/workflows/{id}/stats", h.UpdateWorkflowStats)
-	mux.HandleFunc("GET /api/workflows/{id}/report", h.GetWorkflowComplianceReport)
-	mux.HandleFunc("GET /api/workflows/{id}/health", h.GetWorkflowHealth)
-	mux.HandleFunc("GET /api/workflows/{id}/transactions", h.GetWorkflowTransactions)
+	mux.HandleFunc("GET /api/workflows/{id}", h.inVHost(h.GetWorkflow))
+	mux.Handle("PATCH /api/workflows/{id}/status", h.AgentOnly(h.UpdateWorkflowStatus))
+	mux.Handle("PATCH /api/workflows/{id}/stats", h.AgentOnly(h.UpdateWorkflowStats))
+	mux.HandleFunc("GET /api/workflows/{id}/report", h.inVHost(h.GetWorkflowComplianceReport))
+	mux.HandleFunc("GET /api/workflows/{id}/health", h.inVHost(h.GetWorkflowHealth))
+	mux.HandleFunc("GET /api/workflows/{id}/transactions", h.inVHost(h.GetWorkflowTransactions))
 	mux.Handle("POST /api/workflows", h.EditorOnly(http.HandlerFunc(h.CreateWorkflow)))
-	mux.Handle("PUT /api/workflows/{id}", h.EditorOnly(http.HandlerFunc(h.UpdateWorkflow)))
-	mux.Handle("DELETE /api/workflows/{id}", h.EditorOnly(http.HandlerFunc(h.DeleteWorkflow)))
-	mux.Handle("POST /api/workflows/{id}/toggle", h.EditorOnly(http.HandlerFunc(h.ToggleWorkflow)))
-	mux.Handle("POST /api/workflows/{id}/drain", h.EditorOnly(http.HandlerFunc(h.DrainWorkflowDLQ)))
-	mux.Handle("POST /api/workflows/{id}/rebuild", h.EditorOnly(http.HandlerFunc(h.RebuildWorkflow)))
-	mux.Handle("POST /api/workflows/{id}/test", h.EditorOnly(http.HandlerFunc(h.TestWorkflowByID)))
+	mux.Handle("PUT /api/workflows/{id}", h.EditorOnly(h.inVHost(h.UpdateWorkflow)))
+	mux.Handle("DELETE /api/workflows/{id}", h.EditorOnly(h.inVHost(h.DeleteWorkflow)))
+	mux.Handle("POST /api/workflows/{id}/toggle", h.EditorOnly(h.inVHost(h.ToggleWorkflow)))
+	mux.Handle("POST /api/workflows/{id}/drain", h.EditorOnly(h.inVHost(h.DrainWorkflowDLQ)))
+	mux.Handle("POST /api/workflows/{id}/rebuild", h.EditorOnly(h.inVHost(h.RebuildWorkflow)))
+	mux.Handle("POST /api/workflows/{id}/test", h.EditorOnly(h.inVHost(h.TestWorkflowByID)))
 	mux.Handle("POST /api/workflows/test", h.EditorOnly(http.HandlerFunc(h.TestWorkflow)))
 	mux.Handle("POST /api/transformations/test", h.EditorOnly(http.HandlerFunc(h.TestTransformation)))
 	mux.Handle("POST /api/transformations/detect-decryption", h.EditorOnly(http.HandlerFunc(h.DetectDecryptionSettings)))
-	mux.HandleFunc("GET /api/workflows/{id}/traces/", h.GetMessageTrace)
-	mux.HandleFunc("GET /api/workflows/{id}/traces", h.ListMessageTraces)
-	mux.HandleFunc("GET /api/workflows/{id}/versions", h.ListWorkflowVersions)
-	mux.HandleFunc("GET /api/workflows/{id}/versions/{version}", h.GetWorkflowVersion)
-	mux.HandleFunc("GET /api/workflows/{id}/validate", h.HandleValidateWorkflow)
-	mux.HandleFunc("GET /api/workflows/{id}/callers", h.ListSubflowCallers)
-	mux.Handle("POST /api/workflows/{id}/rollback/{version}", h.EditorOnly(http.HandlerFunc(h.RollbackWorkflow)))
+	mux.HandleFunc("GET /api/workflows/{id}/traces/", h.inVHost(h.GetMessageTrace))
+	mux.HandleFunc("GET /api/workflows/{id}/traces", h.inVHost(h.ListMessageTraces))
+	mux.HandleFunc("GET /api/workflows/{id}/versions", h.inVHost(h.ListWorkflowVersions))
+	mux.HandleFunc("GET /api/workflows/{id}/versions/{version}", h.inVHost(h.GetWorkflowVersion))
+	mux.HandleFunc("GET /api/workflows/{id}/validate", h.inVHost(h.HandleValidateWorkflow))
+	mux.HandleFunc("GET /api/workflows/{id}/callers", h.inVHost(h.ListSubflowCallers))
+	mux.Handle("POST /api/workflows/{id}/rollback/{version}", h.EditorOnly(h.inVHost(h.RollbackWorkflow)))
 	mux.HandleFunc("GET /api/workflows/pii-stats", h.GetPIIStats)
 	mux.Handle("POST /api/ai/analyze-error", h.EditorOnly(http.HandlerFunc(h.HandleAIAnalyzeError)))
-	mux.Handle("POST /api/ai/analyze-workflow/{id}", h.EditorOnly(http.HandlerFunc(h.HandleAIAnalyzeWorkflow)))
+	mux.Handle("POST /api/ai/analyze-workflow/{id}", h.EditorOnly(h.inVHost(h.HandleAIAnalyzeWorkflow)))
 	mux.Handle("POST /api/ai/analyze-schema", h.EditorOnly(http.HandlerFunc(h.HandleAIAnalyzeSchema)))
 	mux.Handle("POST /api/ai/generate-workflow", h.EditorOnly(http.HandlerFunc(h.HandleAIGenerateWorkflow)))
 	mux.Handle("POST /api/ai/copilot", h.EditorOnly(http.HandlerFunc(h.HandleAICopilot)))
 	mux.Handle("POST /api/ai/suggest-mapping", h.EditorOnly(http.HandlerFunc(h.HandleAISuggestMapping)))
-	mux.HandleFunc("POST /api/workflows/{id}/nodes/{node_id}/test", h.RunNodeUnitTests)
+	mux.HandleFunc("POST /api/workflows/{id}/nodes/{node_id}/test", h.inVHost(h.RunNodeUnitTests))
 
 	// Workspaces
 	mux.HandleFunc("GET /api/workspaces", h.ListWorkspaces)
@@ -110,6 +145,10 @@ func (h *WorkflowHandler) BatchToggleWorkflows(w http.ResponseWriter, r *http.Re
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.JsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if h.refuseForeignWorkflows(w, r, req.IDs) {
 		return
 	}
 
@@ -171,6 +210,10 @@ func (h *WorkflowHandler) BatchDeleteWorkflows(w http.ResponseWriter, r *http.Re
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.JsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if h.refuseForeignWorkflows(w, r, req.IDs) {
 		return
 	}
 
@@ -429,6 +472,10 @@ func (h *WorkflowHandler) BatchAssignWorkspace(w http.ResponseWriter, r *http.Re
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.JsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if h.refuseForeignWorkflows(w, r, req.IDs) {
 		return
 	}
 
@@ -986,6 +1033,10 @@ func (h *WorkflowHandler) CreateWorkflow(w http.ResponseWriter, r *http.Request)
 		h.JsonError(w, "Workflow name is mandatory", http.StatusBadRequest)
 		return
 	}
+	if !h.MayUseVHost(r, wf.VHost) {
+		h.JsonError(w, "Forbidden: you do not have access to vhost "+wf.VHost, http.StatusForbidden)
+		return
+	}
 
 	// A brand-new workflow has no previous workspace, so every non-empty
 	// target is an admission.
@@ -1034,6 +1085,12 @@ func (h *WorkflowHandler) UpdateWorkflow(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	wf.ID = id
+	// The route has checked the vhost the workflow is in; this is the one it
+	// is being saved into, which the body is free to change.
+	if !h.MayUseVHost(r, wf.VHost) {
+		h.JsonError(w, "Forbidden: you do not have access to vhost "+wf.VHost, http.StatusForbidden)
+		return
+	}
 
 	// The stored row is the only source of truth for which workspace this
 	// workflow is leaving, and admission is charged on the change rather than

@@ -132,6 +132,13 @@ func (h *WorkerHandler) UpdateWorker(w http.ResponseWriter, r *http.Request) {
 
 func (h *WorkerHandler) UpdateWorkerHeartbeat(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	// A worker reports for itself. An Administrator may too, which is what the
+	// master key authenticates as.
+	user, _ := r.Context().Value(handlers.UserContextKey).(*storage.User)
+	if user == nil || (user.ID != "worker:"+id && user.Role != storage.RoleAdministrator) {
+		h.JsonError(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	// storage.WorkerResources is decoded whole rather than a field list
 	// repeated here. A worker on an older release sends only cpu_usage and
 	// memory_usage; the rest stay zero, which reads as "did not say" and keeps

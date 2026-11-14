@@ -283,6 +283,9 @@ find a claim that outruns the code, fix the claim.
   used to return the JWT key to any editor. Expression lookups are cached
   (60 s, 256 keys, 2 s timeout); `HERMOD_SECRETS_ALLOW_UNPREFIXED` is the
   one-release escape hatch.
+- [Vhost enforcement on actions](vhost_enforcement_on_actions.md) — `inVHost`,
+  `VHostScope`, `AgentOnly`: toggle, delete, logs and streams are held to the
+  caller's vhosts, and a route guard test keeps new `{id}` routes wrapped.
 - [A vhost's own secrets](vhost_secrets.md) — saved from the Secrets page,
   encrypted, read by that vhost's workflows first and the global manager after.
   The engine marks each message with its workflow's vhost (not data, not

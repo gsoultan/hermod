@@ -19,8 +19,9 @@ import (
 
 func (h *LogHandler) RegisterLogRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/logs", h.ListLogs)
-	mux.HandleFunc("POST /api/logs", h.CreateLog)
-	mux.HandleFunc("POST /api/logs/batch", h.CreateLogs)
+	// Workers ship their logs here; a person reads the log and does not write it.
+	mux.Handle("POST /api/logs", h.AgentOnly(h.CreateLog))
+	mux.Handle("POST /api/logs/batch", h.AgentOnly(h.CreateLogs))
 	// Wiping the log store destroys the audit trail; administrators only.
 	mux.Handle("DELETE /api/logs", h.AdminOnly(h.DeleteLogs))
 }
@@ -71,10 +72,27 @@ func (h *LogHandler) ListLogs(w http.ResponseWriter, r *http.Request) {
 		Action:       query.Get("action"),
 	}
 
+	// An Administrator reads the whole log. Anyone else reads the entries of
+	// the workflows, sources and sinks in the vhosts they were given.
+	scope := h.ScopeOf(r)
+	if !scope.LogFilter(filter) {
+		h.JsonError(w, "Forbidden: you do not have access to this vhost", http.StatusForbidden)
+		return
+	}
+
 	logs, total, err := h.LogStorage.ListLogs(r.Context(), filter)
 	if err != nil {
 		h.JsonError(w, "Failed to list logs: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if scope != nil {
+		visible := make([]storage.Log, 0, len(logs))
+		for _, l := range logs {
+			if scope.Log(l) {
+				visible = append(visible, l)
+			}
+		}
+		logs = visible
 	}
 
 	w.Header().Set("Content-Type", "application/json")
