@@ -7,17 +7,16 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
-### Fixed — Run Preview on a Pipeline step said "unknown transformation type"
+### Security — the history of received webhooks needed no login
 
-A Pipeline step runs its list of transformations in order when the workflow runs, but Run Preview
-sent it to the transformer registry, where `pipeline` is not a transformer. The editor showed
-`unknown transformation type "pipeline": no transformer is registered under that name` for a step
-that works. Preview now runs the pipeline's steps in order, each on the result of the one before,
-and shows the message that comes out of the last one; a step that filters the message out shows as
-filtered.
-
-Previewing a Merge, a Note or a subflow marker gave the same error. They change nothing in a
-message, and the answer now says so.
+`GET /api/webhooks/requests` answered anyone who could reach the API port with the headers and
+body of the last requests every webhook had received. Everything under `/api/webhooks/` is public
+so that a sender with no session can deliver, and the history is served from under the same
+prefix. It now needs a session, as does `POST /api/webhooks/requests/{id}/replay`. A caller who is
+not an administrator sees and replays only the requests of webhooks in the vhosts they may see;
+the history of a path whose source was deleted is an administrator's. Delivering to a webhook is
+unchanged. **If your API port was reachable by people who should not read webhook payloads, treat
+what those webhooks received as disclosed.**
 
 ### Added — the Transactional SQL sink: dependent writes to several tables in one transaction
 
@@ -94,6 +93,18 @@ can actually queue.
   dataset file upload keeps its 200 MiB. Set `HERMOD_MAX_REQUEST_BODY_BYTES` to change it.
 - **The FTP sink checks the FTPS server's certificate.** It used to accept any certificate, so
   anyone in the path could read the login.
+
+### Fixed — Run Preview on a Pipeline step said "unknown transformation type"
+
+A Pipeline step runs its list of transformations in order when the workflow runs, but Run Preview
+sent it to the transformer registry, where `pipeline` is not a transformer. The editor showed
+`unknown transformation type "pipeline": no transformer is registered under that name` for a step
+that works. Preview now runs the pipeline's steps in order, each on the result of the one before,
+and shows the message that comes out of the last one; a step that filters the message out shows as
+filtered.
+
+Previewing a Merge, a Note or a subflow marker gave the same error. They change nothing in a
+message, and the answer now says so.
 
 ### Fixed — a random workflow failed for 10 seconds about every eight hours
 
