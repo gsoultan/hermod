@@ -2088,7 +2088,7 @@ func (s *mongoStorage) CreateWorkflowVersion(ctx context.Context, v storage.Work
 
 func (s *mongoStorage) ListWorkflowVersions(ctx context.Context, workflowID string) ([]storage.WorkflowVersion, error) {
 	coll := s.db.Collection("workflow_versions")
-	filter := bson.M{"workflow_id": workflowID}
+	filter := ofWorkflow(workflowID)
 	// Exclude heavy payload fields (nodes/edges/config) from the listing to keep
 	// the response small and fast. Full payloads are available via GetWorkflowVersion.
 	opts := options.Find().
@@ -2109,7 +2109,8 @@ func (s *mongoStorage) ListWorkflowVersions(ctx context.Context, workflowID stri
 
 func (s *mongoStorage) GetWorkflowVersion(ctx context.Context, workflowID string, version int) (storage.WorkflowVersion, error) {
 	coll := s.db.Collection("workflow_versions")
-	filter := bson.M{"workflow_id": workflowID, "version": version}
+	filter := ofWorkflow(workflowID)
+	filter["version"] = version
 	var v storage.WorkflowVersion
 	err := coll.FindOne(ctx, filter).Decode(&v)
 	if err != nil {

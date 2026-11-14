@@ -70,6 +70,9 @@ When the log is kept in a separate database from the configuration, older entrie
 a virtual host, and entries written under a virtual host's old name are not carried by a rename;
 both are kept rather than purged.
 
+On MongoDB this also fixes the version history itself: a workflow's versions were saved under one
+field name and read back under another, so the list was empty and a rollback found nothing.
+
 ### Added — performance recommendations for a running workflow
 
 - **The Tuning tab says what to change.** A running workflow's Tuning tab has a Recommendations

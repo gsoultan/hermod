@@ -79,6 +79,9 @@ func TestMongoVHostRetentionPurges(t *testing.T) {
 			t.Errorf("%s has %d versions (err %v), want %d", wf, n, err, want)
 		}
 	}
+	if listed, err := s.ListWorkflowVersions(ctx, "wf-a"); err != nil || len(listed) != 2 {
+		t.Errorf("wf-a lists %d versions (err %v), want 2", len(listed), err)
+	}
 	for _, v := range []int{4, 5} {
 		if _, err := s.GetWorkflowVersion(ctx, "wf-a", v); err != nil {
 			t.Errorf("wf-a version %d is gone, and the newest two must stay: %v", v, err)
