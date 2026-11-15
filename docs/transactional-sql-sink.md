@@ -23,6 +23,10 @@ It differs from its neighbours like this:
 | Pass a returned value on | yes (`resultField`) | yes (`{{name.column}}`) | no |
 | Atomic | no: each statement commits on its own outside a preview | yes, per batch | yes, across members |
 
+A Transactional SQL sink on PostgreSQL, YugabyteDB, MySQL or MariaDB can also be a
+member of a transactional group, or a sink node that commits together with others;
+see [Committing together with other databases](#committing-together-with-other-databases).
+
 ## Configuring it
 
 Connection settings are the ones the chosen database uses everywhere else in
@@ -80,8 +84,30 @@ and on MySQL `CALL` or `LOCK`, which can commit on their own).
 | PostgreSQL, YugabyteDB, SQLite 3.35+, MariaDB 10.5+ | `INSERT ... RETURNING id` | the returned row |
 | SQL Server | `INSERT ... OUTPUT inserted.id VALUES (...)`, or `MERGE ... OUTPUT inserted.id;` | the returned row |
 | MySQL | a plain `INSERT` | the last-insert id, as `{{name.id}}` |
+| Oracle | `INSERT ... RETURNING id` | the columns, through OUT binds the sink adds |
 
-Oracle is not supported yet.
+### Oracle
+
+Oracle's writes have no `RETURNING` result set: they hand columns back through OUT
+bind variables named in an `INTO` clause. Write `RETURNING id` as on PostgreSQL and
+the sink adds the `INTO` clause and the binds; writing your own `INTO` is refused.
+What else is different:
+
+- A statement that gives columns back must change exactly one row (`expect` stays
+  `one`), because a scalar OUT bind holds one row. `RETURNING` lists plain or quoted
+  column names only.
+- Values come back as text. Oracle converts a `NUMBER` or `DATE` to text for the
+  bind and back when a later statement binds it, under the session's NLS settings.
+- Column names come back lower-cased: `{{order.id}}` reads `ID`.
+- `MERGE` hands nothing back, so an upsert that later statements need the id of is a
+  `MERGE` followed by `SELECT id FROM orders WHERE external_id = {{id}}`. Guided mode
+  writes exactly that pair.
+- Isolation is read committed (the default) or serializable. Oracle has no
+  repeatable read or read uncommitted, and they are refused.
+- `CALL`, `EXEC`, a PL/SQL block (`BEGIN`/`DECLARE`) and DDL are refused: each can
+  commit on its own. A trailing `;` is dropped.
+- The connection is `host`, `port` (1521), `user`, `password`, and the service name
+  in `dbname`, or an `oracle://user:pass@host:1521/SERVICE` connection string.
 
 ## Guided mode: no SQL to write
 
@@ -166,10 +192,34 @@ Do not use `ON CONFLICT DO NOTHING RETURNING id`: on a conflict it returns no ro
 so the child would get no parent id. The default `expect` of `one` refuses that
 message instead of writing children with a NULL parent.
 
+## Committing together with other databases
+
+On PostgreSQL, YugabyteDB, MySQL and MariaDB the sink implements two-phase commit,
+so it can be a member of a [transactional sink group](transactional-sink-groups.md),
+or a sink node that names a transaction it commits in together with other sink
+nodes. A batch's statements then run inside the group's transaction, and nothing is
+committed until every member has prepared.
+
+- On PostgreSQL and YugabyteDB, prepare is `PREPARE TRANSACTION`. It needs
+  `max_prepared_transactions` above 0 and a direct connection, not a transaction
+  pooler; the group refuses to start otherwise.
+- On MySQL and MariaDB the transaction is an XA transaction on one dedicated
+  connection. The isolation level is set before `XA START`, which takes none. MySQL
+  5.7.7+ and MariaDB 10.5.2+ are required, and the account needs `XA_RECOVER_ADMIN`
+  on MySQL 8.0+.
+- On SQL Server, SQLite and Oracle the sink cannot hold a transaction in doubt. A
+  sink node on one of them that names a transaction is refused when the workflow is
+  saved, naming the node and the databases that can; as a member of a Transaction
+  Group node it is refused when the group starts.
+
+Read the operational hazard notes in
+[transactional-sink-groups.md](transactional-sink-groups.md) first: a prepared
+transaction holds its locks until it is resolved.
+
 ## Limits
 
-- One database per sink. To keep tables in two databases consistent, use a
-  [transactional sink group](transactional-sink-groups.md).
+- One database per sink. To keep tables in two databases consistent, put the sinks
+  in one transaction; see above.
 - A batch holds its locks until it commits. Keep the statement list short and the
   `statement_timeout` modest.
 - Sequences and identity columns advance even when a batch rolls back, so ids can

@@ -12,6 +12,7 @@ package factory
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/gsoultan/hermod"
@@ -36,6 +37,16 @@ import (
 // minimalConfig is enough to construct a sink. None of these dial anything at
 // construction; the suite in pkg/comm/conformance covers that separately.
 func minimalConfig(sinkType string) SinkConfig {
+	if sinkType == "txsql" {
+		return SinkConfig{ID: "t", Type: sinkType, Config: hermod.StringMap{
+			"driver":     "postgres",
+			"host":       "127.0.0.1",
+			"port":       "1",
+			"user":       "u",
+			"dbname":     "d",
+			"statements": `[{"sql":"UPDATE t SET a = {{a}}"}]`,
+		}}
+	}
 	return SinkConfig{
 		ID:   "t",
 		Type: sinkType,
@@ -125,5 +136,28 @@ func TestTheListIsACopy(t *testing.T) {
 
 	if slices.Contains(TwoPhaseCapableSinkTypes(), "mutated") {
 		t.Error("a caller's mutation changed the list for everyone")
+	}
+}
+
+// A Transactional SQL sink can prepare only on the databases that can hold a
+// transaction in doubt, so its driver decides, not its type alone.
+func TestTxSQLMembershipDependsOnTheDriver(t *testing.T) {
+	for driver, want := range map[string]bool{
+		"postgres": true, "yugabyte": true, "mysql": true, "mariadb": true,
+		"mssql": false, "sqlite": false, "oracle": false, "": false,
+	} {
+		err := CheckTwoPhaseMember("txsql", map[string]string{"driver": driver})
+		if (err == nil) != want {
+			t.Errorf("txsql on %q: CheckTwoPhaseMember = %v, want allowed=%v", driver, err, want)
+		}
+		if err != nil && !strings.Contains(err.Error(), "postgres, yugabyte, mysql, mariadb") {
+			t.Errorf("txsql on %q: the refusal %q does not say which databases can", driver, err)
+		}
+	}
+	if err := CheckTwoPhaseMember("postgres", nil); err != nil {
+		t.Errorf("postgres refused: %v", err)
+	}
+	if err := CheckTwoPhaseMember("kafka", nil); err == nil || !strings.Contains(err.Error(), "kafka") {
+		t.Errorf("kafka = %v, want a refusal naming it", err)
 	}
 }

@@ -64,3 +64,30 @@ Decisions that are easy to undo by accident:
   sink type (`discoveryType`). SQLite connection key is `path`.
 - Known unrelated bug found while building this: the SQLite *sink* form
   (DatabaseSinkConfig) writes `db_path`, but `BuildConnectionString` reads `path`.
+
+## PR 3: Oracle and two-phase commit (branch feat/txsql-oracle-2pc, stacked on PR 2)
+
+- Oracle (`driver: oracle`, go-ora): `RETURNING a, b` is rewritten at run time to
+  `... INTO :n+1, :n+2` with `go_ora.Out{Dest: *sql.NullString, Size: 4000}` (oracle.go:
+  prepareOracle, returningColumns, withInto, execOut). Statement.outCols set at parse; rows=false.
+  Only plain/quoted names; own INTO refused; expect must be one. Values come back as text.
+  Oracle query row keys are lower-cased (lowerKeys) so {{order.id}} works.
+- go-ora BeginTx refuses any isolation but default: Config.txOptions() sends default for oracle and
+  beginTx runs `SET TRANSACTION ISOLATION LEVEL SERIALIZABLE`; repeatable_read/read_uncommitted refused.
+- Guided Oracle: oq folds an all-lower-case name to upper case and quotes; MERGE ... FROM dual; an
+  upsert with returning compiles to `<name>_merge` MERGE + SELECT under the step name
+  (sqlDialect.readBack). compileStep now returns []Statement.
+- classify.go: network.OracleError codes 1, 904, 942, 1400, 1407, 1438, 1722, 18xx date, 2290-2292,
+  12899 permanent.
+- Two-phase (twophase.go): Sink implements TwoPhaseCommit, NamedBegin, Preflight. pgx: PREPARE
+  TRANSACTION '<uuid>' on the sql.Tx then Rollback to release; pooled refused. mysql: XA on a
+  dedicated sql.Conn; SET TRANSACTION ISOLATION LEVEL before XA START; DiscardConn after prepare.
+  Uses exported helpers added to pkg/comm/sink/mysql/xa.go (XIDLiteral, IsXAUnknownXID, DiscardConn,
+  PreflightXA; the MySQL sink's preflight now calls PreflightXA). mssql/sqlite/oracle: Begin/Commit
+  work, Prepare/CommitPrepared refuse, RollbackPrepared nil, preflight refuses.
+- factory: "txsql" in twoPhaseCapableSinkTypes; CheckTwoPhaseMember(type, config) checks the txsql
+  driver; called in registry.resolveAndCreateTxGroupMember and checkCommitTogetherMember.
+- Live tests: ORACLE_DSN=oracle://hermod:pw@127.0.0.1:1521/FREEPDB1 (gvenzl/oracle-free:23-slim-faststart,
+  APP_USER hermod). PostgreSQL must run with -c max_prepared_transactions=20 for the 2PC tests.
+- UI: DRIVERS has oracle; isolationLevels(driver); port 1521 and "Service name"; referenceHints
+  lower-cases on oracle.
