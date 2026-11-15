@@ -135,7 +135,7 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) (err error
 		if msg == nil {
 			continue
 		}
-		if err := s.runMessage(ctx, tx, msg); err != nil {
+		if err := s.runMessage(ctx, tx, msg, nil); err != nil {
 			return fmt.Errorf("txsql: message %s: %w", msg.ID(), err)
 		}
 	}
@@ -150,8 +150,9 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) (err error
 
 // runMessage runs the statement list for one message. results holds what
 // each statement returned, by name, for the statements after it; it is per
-// message, so one message never sees another's ids.
-func (s *Sink) runMessage(ctx context.Context, tx *sql.Tx, msg hermod.Message) error {
+// message, so one message never sees another's ids. rec, when not nil, is
+// told about every statement run; only a simulation passes one.
+func (s *Sink) runMessage(ctx context.Context, q sqlutil.Querier, msg hermod.Message, rec *recorder) error {
 	results := make(map[string]any, len(s.cfg.Statements))
 	fromMsg := evaluator.MessageResolver(msg)
 
@@ -160,7 +161,7 @@ func (s *Sink) runMessage(ctx context.Context, tx *sql.Tx, msg hermod.Message) e
 		sc := scope{results: results, fromMsg: fromMsg}
 
 		if st.ForEach == "" {
-			res, err := s.runOnce(ctx, tx, st, sc)
+			res, err := s.runOnce(ctx, q, st, sc, rec.at(st.Name, 0))
 			if err != nil {
 				return fmt.Errorf("statement %q: %w", st.Name, err)
 			}
@@ -170,12 +171,13 @@ func (s *Sink) runMessage(ctx context.Context, tx *sql.Tx, msg hermod.Message) e
 
 		items, err := s.items(st, fromMsg)
 		if err != nil {
+			rec.failed(st.Name, err)
 			return fmt.Errorf("statement %q: %w", st.Name, err)
 		}
 		outs := make([]any, 0, len(items))
 		for k, item := range items {
 			sc.alias, sc.item = st.As, item
-			res, err := s.runOnce(ctx, tx, st, sc)
+			res, err := s.runOnce(ctx, q, st, sc, rec.at(st.Name, k+1))
 			if err != nil {
 				return fmt.Errorf("statement %q, item %d: %w", st.Name, k+1, err)
 			}
@@ -234,8 +236,10 @@ func asList(v any) ([]any, bool) {
 // runOnce binds and runs one statement and checks its expectation. It returns
 // what later statements can read under its name: the first returned row, or,
 // for a statement that returns none, the MySQL insert id when there is one.
-func (s *Sink) runOnce(ctx context.Context, tx *sql.Tx, st *Statement, sc scope) (map[string]any, error) {
+func (s *Sink) runOnce(ctx context.Context, q sqlutil.Querier, st *Statement, sc scope, step *stepRecord) (out map[string]any, err error) {
 	b := sqlutil.ParameterizeTemplateWith(s.driver, st.SQL, sc.resolve)
+	step.bound(b)
+	defer func() { step.done(err) }()
 	if b.Err != nil {
 		return nil, permanent(b.Err)
 	}
@@ -247,14 +251,14 @@ func (s *Sink) runOnce(ctx context.Context, tx *sql.Tx, st *Statement, sc scope)
 	sctx, cancel := context.WithTimeout(ctx, s.cfg.StatementTimeout)
 	defer cancel()
 	if st.rows {
-		return query(sctx, tx, st, b)
+		return query(sctx, q, st, b, step)
 	}
-	return s.exec(sctx, tx, st, b)
+	return s.exec(sctx, q, st, b, step)
 }
 
 // query runs a statement that hands rows back and returns the first.
-func query(ctx context.Context, tx *sql.Tx, st *Statement, b sqlutil.TemplateBinding) (map[string]any, error) {
-	rows, err := tx.QueryContext(ctx, b.SQL, b.Args...)
+func query(ctx context.Context, q sqlutil.Querier, st *Statement, b sqlutil.TemplateBinding, step *stepRecord) (map[string]any, error) {
+	rows, err := q.QueryContext(ctx, b.SQL, b.Args...)
 	if err != nil {
 		return nil, classify(err)
 	}
@@ -268,6 +272,7 @@ func query(ctx context.Context, tx *sql.Tx, st *Statement, b sqlutil.TemplateBin
 	if err != nil {
 		return nil, classify(err)
 	}
+	step.returned(kept, total)
 	if err := check(st.Expect, total, "returned"); err != nil {
 		return nil, err
 	}
@@ -279,12 +284,13 @@ func query(ctx context.Context, tx *sql.Tx, st *Statement, b sqlutil.TemplateBin
 
 // exec runs a statement that hands no rows back. What it returns for later
 // statements is the MySQL insert id, when there is one.
-func (s *Sink) exec(ctx context.Context, tx *sql.Tx, st *Statement, b sqlutil.TemplateBinding) (map[string]any, error) {
-	res, err := tx.ExecContext(ctx, b.SQL, b.Args...)
+func (s *Sink) exec(ctx context.Context, q sqlutil.Querier, st *Statement, b sqlutil.TemplateBinding, step *stepRecord) (map[string]any, error) {
+	res, err := q.ExecContext(ctx, b.SQL, b.Args...)
 	if err != nil {
 		return nil, classify(err)
 	}
 	n, err := res.RowsAffected()
+	step.changed(n, err)
 	if err != nil && st.Expect != ExpectAny {
 		return nil, fmt.Errorf("the driver cannot count changed rows, so expect %q cannot be checked: %w", st.Expect, err)
 	}
@@ -294,7 +300,7 @@ func (s *Sink) exec(ctx context.Context, tx *sql.Tx, st *Statement, b sqlutil.Te
 	out := map[string]any{}
 	if s.wantsInsertID(st) {
 		if id, err := res.LastInsertId(); err == nil && id > 0 {
-			out["id"] = id
+			out[st.idKey()] = id
 		}
 	}
 	return out, nil

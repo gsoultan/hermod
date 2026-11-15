@@ -44,6 +44,26 @@ every vhost to every session.
 Administrators and single-vhost installations see no change. `default` remains open to every
 user, as before. The dashboard's totals are still counted across vhosts.
 
+### Added — an editor for the Transactional SQL sink, with a Guided mode that needs no SQL
+
+The Transactional SQL sink now has a form. **Guided** mode, the default for a new sink, takes a
+table, an action and which field fills each column, and writes the SQL for the sink's database:
+an upsert by default, so a redelivered message updates rows instead of duplicating them. **SQL**
+mode edits the statements directly, flags a reference to a statement that runs later, and warns
+about `DO NOTHING ... RETURNING` and about plain inserts that a redelivery repeats. **Show SQL**
+and **Convert to SQL mode** show and hand over what the steps compile to.
+
+**Test** runs the statements against the database with a sample message, in a transaction that is
+always rolled back, and shows what each one bound, returned and changed. A workflow dry run that
+reaches the sink now logs what its statements would do, without committing anything; the stored
+log line leaves out the bound values and returned rows. Sinks saved before this open in SQL mode
+unchanged, and live workflows run exactly as before.
+
+The sink now also refuses, on save and at start, a statement that would end or escape its
+transaction: `COMMIT`, `ROLLBACK`, `BEGIN`, `SAVEPOINT`, a change to autocommit, and on MySQL a
+`CALL` or `LOCK`, which can commit on their own. Any of them halfway down the list would keep the
+parent row when the child then failed.
+
 ### Added — the Transactional SQL sink: dependent writes to several tables in one transaction
 
 A new sink, `txsql`, runs an ordered list of `INSERT`, `UPDATE`, `DELETE`, `MERGE` or `SELECT`
@@ -56,7 +76,7 @@ the rest of the batch commits; a deadlock or lost connection is retried. A varia
 to nothing refuses the message by default (`on_unresolved: null` binds NULL instead), and
 `expect: one` refuses an empty `RETURNING`, so a child is never written with a NULL parent. Runs on
 PostgreSQL, YugabyteDB, MySQL, MariaDB, SQL Server and SQLite, with live tests against the first
-three. It has no editor form yet. See [Transactional SQL sink](docs/transactional-sql-sink.md).
+three. See [Transactional SQL sink](docs/transactional-sql-sink.md).
 
 ### Security — a Viewer was given every connector's stored credentials
 

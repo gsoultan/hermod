@@ -305,6 +305,7 @@ export const NODE_CATEGORIES = [
     items: [
       { type: 'sink', refId: 'new', label: 'Failover Group', subType: 'failover', icon: IconArrowsSplit, color: 'orange', description: 'Primary/Secondary failover logic' },
       { type: 'sink', refId: 'new', label: 'Transactional Group (2PC)', subType: 'txgroup', icon: IconLock, color: 'orange', description: 'Write to several sinks in one transaction — all apply or none' },
+      { type: 'sink', refId: 'new', label: 'Transactional SQL', subType: 'txsql', icon: IconLock, color: 'orange', description: 'Write to several tables of one database in one transaction, passing ids along' },
     ]
   },
   {

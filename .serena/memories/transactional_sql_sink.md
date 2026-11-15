@@ -37,3 +37,30 @@ Decisions that are easy to undo by accident:
   `returnId`).
 - Live tests: `txsql_integration_test.go` (`-tags=integration`, `POSTGRES_DSN`,
   `MYSQL_DSN`, `MSSQL_DSN`). SQL Server upsert uses `MERGE ... OUTPUT inserted.id;`.
+
+## PR 2: editor form, Guided mode, simulation
+
+- **Modes**: `mode` = `sql` (default when `statements` is set and no mode: every
+  sink saved before PR 2) or `guided`. Guided `steps` JSON is compiled server-side
+  by `CompileGuided` (`guided.go`) into the same `[]Statement`, then the same
+  `validateStatements` checks run. Identifiers must match `^[A-Za-z_][A-Za-z0-9_$]*$`
+  (one optional `schema.` prefix) and are quoted per driver; every value must be a
+  single `{{token}}`. Upsert is the default action; `DO NOTHING` is never emitted.
+  MySQL: at most one `returning` column, read back via `LastInsertId` under
+  `Statement.ReturnIDAs` (json `returnIdAs`), with `col = LAST_INSERT_ID(col)` on
+  the duplicate path; give-back on MySQL update/delete is refused.
+- **`hermod.SimulatingSink`** (`simulating_sink.go`): `Simulate(ctx, msg)` runs and
+  rolls back. txsql runs it through `sqlutil.Use`, so inside a preview sandbox it
+  nests under the run's transaction. `hermod.SimulatorOf` looks through decorators
+  that expose `Unwrap() hermod.Sink` (TracingSink and RetrySink do).
+- **Dry run**: `traversal.simulateSink` calls it on sink nodes only when
+  `Eng.IsDryRun()`, under `sqlutil.EnterNode`, recovering panics. The log line's
+  data drops `Args` and `Rows` (logs are stored); the Test endpoint keeps them.
+- **Endpoints**: `POST /api/sinks/txsql/test` (EditorOnly + `AllowConnectorVHost`,
+  own sandbox, 60s) and `POST /api/sinks/txsql/compile` (EditorOnly, pure).
+- **UI**: `ui/src/components/workflow/Sink/TxSqlSinkConfig.tsx`, logic in
+  `ui/src/utils/txsql.ts` (client checks mirror the server's). Guided table and
+  column discovery calls the ordinary discovery endpoints with the driver's own
+  sink type (`discoveryType`). SQLite connection key is `path`.
+- Known unrelated bug found while building this: the SQLite *sink* form
+  (DatabaseSinkConfig) writes `db_path`, but `BuildConnectionString` reads `path`.

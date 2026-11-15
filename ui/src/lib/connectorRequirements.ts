@@ -129,6 +129,8 @@ const SOURCE_REQUIREMENTS: Record<string, RequiredField[]> = {
 };
 
 const SINK_REQUIREMENTS: Record<string, RequiredField[]> = {
+  // The statements are checked by the server on save, in Guided or SQL mode.
+  txsql: [{ key: 'driver', label: 'Database', example: 'postgres' }],
   postgres: hostPort('5432'),
   mysql: hostPort('3306'),
   mariadb: hostPort('3306'),

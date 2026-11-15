@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
 )
 
 // The Transactional SQL sink against real servers: the parent's generated id
@@ -254,6 +255,107 @@ func TestIntegrationUniqueViolationIsPermanent(t *testing.T) {
 			err := f.snk.Write(context.Background(), orderMsg(t, "m2", "O-1"))
 			if err == nil || !errors.Is(err, hermod.ErrPermanent) {
 				t.Fatalf("duplicate Write = %v, want a permanent refusal", err)
+			}
+		})
+	}
+}
+
+// guidedSteps is the order and its items as Guided steps, for tables named by
+// the fixture: the compiler writes each database's own upsert.
+func guidedSteps(orders, items string) string {
+	return fmt.Sprintf(`[
+		{"name":"order","table":%q,"action":"upsert","match":["external_id"],
+		 "columns":[{"column":"external_id","value":"{{id}}"},{"column":"customer_id","value":"{{customer}}"}],"returning":["id"]},
+		{"name":"items","table":%q,"action":"upsert","match":["order_id","sku"],"forEach":"items","as":"item",
+		 "columns":[{"column":"order_id","value":"{{order.id}}"},{"column":"sku","value":"{{item.sku}}"},{"column":"qty","value":"{{item.qty}}"}]}
+	]`, orders, items)
+}
+
+// useGuided swaps the fixture's statements for the Guided steps' compiled ones.
+func (f fixture) useGuided(t *testing.T, driver string) {
+	t.Helper()
+	cfg, err := ParseConfig(map[string]string{"driver": driver, "mode": ModeGuided, "steps": guidedSteps(f.orders, f.items)})
+	if err != nil {
+		t.Fatalf("ParseConfig(guided): %v", err)
+	}
+	f.snk.cfg = cfg
+}
+
+func TestIntegrationGuidedUpsertsLinkChildrenAndSurviveRedelivery(t *testing.T) {
+	for _, d := range dialects {
+		t.Run(d.driver, func(t *testing.T) {
+			f := setup(t, d, d.parent, d.child)
+			f.useGuided(t, d.driver)
+			for i := range 2 {
+				msg := orderMsg(t, "m1", "O-1", map[string]any{"sku": "A", "qty": 2 + i}, map[string]any{"sku": "B", "qty": 1})
+				if err := f.snk.Write(context.Background(), msg); err != nil {
+					t.Fatalf("Write #%d: %v", i+1, err)
+				}
+			}
+			if n := f.count(t, f.orders); n != 1 {
+				t.Errorf("orders = %d after a redelivery, want 1", n)
+			}
+			var linked, qty int
+			q := fmt.Sprintf(`SELECT COUNT(*), MAX(i.qty) FROM %s i JOIN %s o ON o.id = i.order_id WHERE o.external_id = 'O-1'`, f.items, f.orders)
+			if err := f.db.QueryRowContext(t.Context(), q).Scan(&linked, &qty); err != nil {
+				t.Fatal(err)
+			}
+			if linked != 2 || qty != 3 {
+				t.Errorf("linked items = %d with max qty %d, want 2 and 3 (the redelivery updates, not duplicates)", linked, qty)
+			}
+		})
+	}
+}
+
+func TestIntegrationSimulateReportsAndKeepsNothing(t *testing.T) {
+	for _, d := range dialects {
+		t.Run(d.driver, func(t *testing.T) {
+			f := setup(t, d, d.parent, d.child)
+			msg := orderMsg(t, "m1", "O-1", map[string]any{"sku": "A", "qty": 2})
+			rep, err := f.snk.Simulate(context.Background(), msg)
+			if err != nil || rep.Error != "" {
+				t.Fatalf("Simulate: %v / %s", err, rep.Error)
+			}
+			if len(rep.Steps) != 2 || !rep.RolledBack {
+				t.Fatalf("report = %+v", rep)
+			}
+			if n := f.count(t, f.orders); n != 0 {
+				t.Errorf("orders = %d after a simulation, want 0", n)
+			}
+			if n := f.count(t, f.items); n != 0 {
+				t.Errorf("items = %d after a simulation, want 0", n)
+			}
+		})
+	}
+}
+
+// The Test button and a workflow preview run the simulation inside a preview
+// sandbox, which nests it under a savepoint on the sandbox's own transaction.
+func TestIntegrationSimulateInsideASandboxReportsAFailureAndKeepsNothing(t *testing.T) {
+	for _, d := range dialects {
+		t.Run(d.driver, func(t *testing.T) {
+			f := setup(t, d, d.parent, d.child)
+			f.snk.cfg.OnUnresolved = OnUnresolvedNull
+			sb := sqlutil.NewSandbox(context.Background())
+			ctx := sqlutil.WithSandbox(context.Background(), sb)
+
+			good, err := f.snk.Simulate(ctx, orderMsg(t, "m1", "O-1", map[string]any{"sku": "A", "qty": 2}))
+			if err != nil || good.Error != "" {
+				t.Fatalf("Simulate: %v / %s", err, good.Error)
+			}
+			// qty is NOT NULL: the child fails, and the report says which.
+			bad, err := f.snk.Simulate(ctx, orderMsg(t, "m2", "O-2", map[string]any{"sku": "A", "qty": nil}))
+			if err != nil {
+				t.Fatalf("Simulate: %v", err)
+			}
+			if bad.Error == "" || bad.Steps[len(bad.Steps)-1].Name != "items" {
+				t.Fatalf("report = %+v, want the items step to fail", bad)
+			}
+			if err := sb.Rollback(); err != nil {
+				t.Fatalf("sandbox rollback: %v", err)
+			}
+			if n := f.count(t, f.orders); n != 0 {
+				t.Errorf("orders = %d after a sandboxed simulation, want 0", n)
 			}
 		})
 	}
