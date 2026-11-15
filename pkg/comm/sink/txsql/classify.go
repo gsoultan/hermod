@@ -19,6 +19,7 @@ import (
 	"github.com/gsoultan/hermod"
 	"github.com/jackc/pgx/v5/pgconn"
 	mssql "github.com/microsoft/go-mssqldb"
+	"github.com/sijms/go-ora/v2/network"
 	"modernc.org/sqlite"
 )
 
@@ -99,6 +100,32 @@ func isPermanentDBError(err error) bool {
 			8114, // error converting data type
 			8115, // arithmetic overflow
 			8152: // string or binary data would be truncated
+			return true
+		}
+		return false
+	}
+
+	var ora *network.OracleError
+	if errors.As(err, &ora) {
+		switch ora.ErrCode {
+		case 1, // unique constraint violated
+			904,   // invalid identifier
+			942,   // table or view does not exist
+			1400,  // cannot insert NULL
+			1407,  // cannot update to NULL
+			1438,  // value larger than the column's precision
+			1722,  // invalid number
+			1830,  // date format picture ends before converting the whole string
+			1840,  // input value not long enough for date format
+			1841,  // year out of range
+			1843,  // not a valid month
+			1847,  // day of month out of range
+			1858,  // a non-numeric character where a numeric was expected
+			1861,  // literal does not match format string
+			2290,  // check constraint violated
+			2291,  // integrity constraint violated: parent key not found
+			2292,  // integrity constraint violated: child record found
+			12899: // value too large for column
 			return true
 		}
 		return false

@@ -21,6 +21,7 @@ import (
 	"github.com/gsoultan/hermod"
 	"github.com/jackc/pgx/v5/pgconn"
 	mssql "github.com/microsoft/go-mssqldb"
+	"github.com/sijms/go-ora/v2/network"
 )
 
 func TestIsPermanentDBError(t *testing.T) {
@@ -50,6 +51,16 @@ func TestIsPermanentDBError(t *testing.T) {
 		{"mssql foreign key", mssql.Error{Number: 547}, true},
 		{"mssql not null", mssql.Error{Number: 515}, true},
 		{"mssql deadlock", mssql.Error{Number: 1205}, false},
+		{"oracle unique", &network.OracleError{ErrCode: 1}, true},
+		{"oracle not null", &network.OracleError{ErrCode: 1400}, true},
+		{"oracle parent key missing", &network.OracleError{ErrCode: 2291}, true},
+		{"oracle child exists", &network.OracleError{ErrCode: 2292}, true},
+		{"oracle no table", &network.OracleError{ErrCode: 942}, true},
+		{"oracle invalid number", &network.OracleError{ErrCode: 1722}, true},
+		{"oracle value too large", &network.OracleError{ErrCode: 12899}, true},
+		{"oracle deadlock", &network.OracleError{ErrCode: 60}, false},
+		{"oracle resource busy", &network.OracleError{ErrCode: 54}, false},
+		{"oracle serialization", &network.OracleError{ErrCode: 8177}, false},
 		{"bad connection", driver.ErrBadConn, false},
 		{"deadline", context.DeadlineExceeded, false},
 		{"canceled", context.Canceled, false},

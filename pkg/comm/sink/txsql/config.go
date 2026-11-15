@@ -73,14 +73,17 @@ const (
 )
 
 // drivers are the database types this sink runs on, by the name a sink
-// config uses. Oracle waits for RETURNING ... INTO support; ClickHouse and
-// Snowflake have no transaction this could use.
+// config uses. ClickHouse and Snowflake have no transaction this could use.
 var drivers = map[string]bool{
 	"postgres": true, "yugabyte": true,
 	"mysql": true, "mariadb": true,
 	"mssql": true, "sqlserver": true,
 	"sqlite": true,
+	"oracle": true,
 }
+
+// driverList is how a refusal names the drivers above.
+const driverList = "postgres, yugabyte, mysql, mariadb, mssql, sqlite or oracle"
 
 var isolationLevels = map[string]sql.IsolationLevel{
 	"":                 sql.LevelDefault,
@@ -120,6 +123,9 @@ type Statement struct {
 	// rows is whether the statement hands rows back, decided once from the
 	// text.
 	rows bool
+	// outCols are, on Oracle, the columns a RETURNING clause hands back
+	// through OUT binds, lower-cased as later statements read them.
+	outCols []string
 }
 
 func (s *Statement) idKey() string {
@@ -152,10 +158,10 @@ func ParseConfig(m map[string]string) (Config, error) {
 		StatementTimeout: DefaultStatementTimeout,
 	}
 	if cfg.Driver == "" {
-		return Config{}, errors.New("txsql: a driver is required (postgres, yugabyte, mysql, mariadb, mssql or sqlite)")
+		return Config{}, errors.New("txsql: a driver is required (" + driverList + ")")
 	}
 	if !drivers[cfg.Driver] {
-		return Config{}, fmt.Errorf("txsql: %q is not supported; use postgres, yugabyte, mysql, mariadb, mssql or sqlite", cfg.Driver)
+		return Config{}, fmt.Errorf("txsql: %q is not supported; use %s", cfg.Driver, driverList)
 	}
 
 	switch cfg.OnUnresolved {
@@ -170,6 +176,12 @@ func ParseConfig(m map[string]string) (Config, error) {
 	level, ok := isolationLevels[iso]
 	if !ok {
 		return Config{}, fmt.Errorf("txsql: isolation %q is not one of read_committed, repeatable_read, serializable", iso)
+	}
+	if cfg.Driver == "oracle" {
+		var err error
+		if level, err = oracleIsolation(iso, level); err != nil {
+			return Config{}, err
+		}
 	}
 	cfg.Isolation = level
 
@@ -231,6 +243,11 @@ func validateStatements(driver string, stmts []Statement) error {
 		}
 		if err := checkTransactionControl(driver, &stmts[i], i); err != nil {
 			return err
+		}
+		if driver == "oracle" {
+			if err := prepareOracle(&stmts[i], i); err != nil {
+				return err
+			}
 		}
 		index[stmts[i].Name] = i
 	}
@@ -475,6 +492,16 @@ func skipQuoted(s string, i int) int {
 		return j + 1
 	}
 	return -1
+}
+
+// txOptions are the options the sink's transactions open with.
+func (c Config) txOptions() *sql.TxOptions {
+	if c.Driver == "oracle" {
+		// go-ora refuses any level but the default; serializable is set by
+		// statement instead (see beginTx).
+		return &sql.TxOptions{}
+	}
+	return &sql.TxOptions{Isolation: c.Isolation}
 }
 
 // canonicalDriver is the database/sql driver name for cfg.Driver.

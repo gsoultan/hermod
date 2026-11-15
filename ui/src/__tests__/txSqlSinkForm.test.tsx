@@ -167,3 +167,19 @@ describe('the Test button', () => {
     expect(await screen.findByText(/no connection details/)).toBeInTheDocument()
   })
 })
+
+describe('the form on Oracle', () => {
+  it('offers Oracle, with its port and a service name', () => {
+    ui({ driver: 'oracle', mode: 'sql' })
+    expect(screen.getByRole('textbox', { name: 'Port' })).toHaveAttribute('placeholder', '1521')
+    expect(screen.getByRole('textbox', { name: 'Service name' })).toBeInTheDocument()
+  })
+
+  it('offers only the isolation levels Oracle has', async () => {
+    ui({ driver: 'oracle', mode: 'sql' })
+    fireEvent.click(screen.getByRole('button', { name: /advanced/i }))
+    fireEvent.click((await screen.findAllByLabelText('Isolation'))[0])
+    expect(await screen.findByRole('option', { name: 'Serializable', hidden: true })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'Repeatable read', hidden: true })).not.toBeInTheDocument()
+  })
+})

@@ -70,7 +70,7 @@ func TestParseConfigRefuses(t *testing.T) {
 	}{
 		{"no driver", map[string]string{"statements": `[{"sql":"UPDATE t SET a=1"}]`}, "driver"},
 		{"unsupported driver", map[string]string{"driver": "clickhouse", "statements": `[{"sql":"UPDATE t SET a=1"}]`}, "clickhouse"},
-		{"oracle not yet", map[string]string{"driver": "oracle", "statements": `[{"sql":"UPDATE t SET a=1"}]`}, "oracle"},
+		{"snowflake", map[string]string{"driver": "snowflake", "statements": `[{"sql":"UPDATE t SET a=1"}]`}, "oracle"},
 		{"no statements", cfgMap(``), "at least one statement"},
 		{"empty list", cfgMap(`[]`), "at least one statement"},
 		{"not json", cfgMap(`INSERT INTO t VALUES (1)`), "statements"},

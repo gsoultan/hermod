@@ -1516,6 +1516,9 @@ func (r *Registry) resolveAndCreateTxGroupMember(ctx context.Context, id string)
 			"a transactional group accepts only: %s",
 			id, dbSnk.Type, strings.Join(factory.TwoPhaseCapableSinkTypes(), ", "))
 	}
+	if err := factory.CheckTwoPhaseMember(dbSnk.Type, dbSnk.Config); err != nil {
+		return nil, fmt.Errorf("sink %q: %w", id, err)
+	}
 	// The secret and env references every other sink has expanded in
 	// createSinkInternal; skipping that path must not skip this.
 	resolved, err := r.resolveSecrets(ctx, dbSnk.VHost, dbSnk.Config)
