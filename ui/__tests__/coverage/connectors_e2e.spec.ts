@@ -67,6 +67,8 @@ function requiredLabels(kind: Kind, type: string) {
 const BUILT_ELSEWHERE: Record<string, string> = {
   'source:batch_sql':
     'its queries are written in the SQL Query Builder over another database source, so this stops after C2; batch_sql_available_fields_e2e runs a saved batch_sql source',
+  'sink:txsql':
+    'its statements are written as Guided steps or SQL statements, not typed into a labelled field, so this stops after C2; txSqlSinkForm.test.tsx covers the form and the txsql integration tests run a saved sink against real databases',
 };
 
 /** A form field by its accessible name, whatever kind of input it is. */
