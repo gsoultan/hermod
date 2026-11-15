@@ -39,21 +39,46 @@ var callInText = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*\(`)
 // (secret.A.b) are not references.
 func References(value string) []Ref {
 	var out []Ref
-	add := func(kind, name string) {
-		r := Ref{Kind: strings.ToLower(kind), Name: name}
-		for _, have := range out {
-			if have == r {
-				return
-			}
+	scanReferences(value, func(kind, name string, _ bool) {
+		out = appendRef(out, kind, name)
+	})
+	return out
+}
+
+// RequiredReferences lists the references in value that are read, at least
+// once, with no fallback: secret("NAME") and secret.NAME, but not
+// secret("NAME", "default"). When the secret does not exist the first two
+// answer nothing at all, so they are the ones a value cannot do without.
+func RequiredReferences(value string) []Ref {
+	var out []Ref
+	scanReferences(value, func(kind, name string, hasFallback bool) {
+		if !hasFallback {
+			out = appendRef(out, kind, name)
 		}
-		out = append(out, r)
+	})
+	return out
+}
+
+// appendRef adds a reference to out unless it is already there.
+func appendRef(out []Ref, kind, name string) []Ref {
+	r := Ref{Kind: strings.ToLower(kind), Name: name}
+	for _, have := range out {
+		if have == r {
+			return out
+		}
 	}
+	return append(out, r)
+}
+
+// scanReferences calls add for every reference value reads, in order, saying
+// whether that read carries a fallback.
+func scanReferences(value string, add func(kind, name string, hasFallback bool)) {
 	trimmed := strings.TrimSpace(value)
 	if hasPrefixFold(trimmed, "secret:") {
 		if ref, ok := parseReference(trimmed); ok {
-			add(ref.kind, ref.name)
+			add(ref.kind, ref.name, ref.hasFallback)
 		}
-		return out
+		return
 	}
 	var text strings.Builder
 	rest := value
@@ -71,7 +96,7 @@ func References(value string) []Ref {
 		text.WriteByte(' ')
 		inner := rest[start+2 : end]
 		if ref, ok := parseReference(inner); ok {
-			add(ref.kind, ref.name)
+			add(ref.kind, ref.name, ref.hasFallback)
 		} else {
 			scanExpression(inner, add)
 		}
@@ -81,11 +106,10 @@ func References(value string) []Ref {
 	if bare := text.String(); callInText.MatchString(bare) {
 		scanExpression(bare, add)
 	}
-	return out
 }
 
 // scanExpression adds every reference expr reads.
-func scanExpression(expr string, add func(kind, name string)) {
+func scanExpression(expr string, add func(kind, name string, hasFallback bool)) {
 	for _, m := range exprReference.FindAllStringSubmatchIndex(expr, -1) {
 		if m[0] > 0 {
 			if c := expr[m[0]-1]; c == '.' || c == '$' || isWordByte(c) {
@@ -97,10 +121,13 @@ func scanExpression(expr string, add func(kind, name string)) {
 			if m[1] < len(expr) && (expr[m[1]] == '.' || expr[m[1]] == '(') {
 				continue
 			}
-			add(kind, expr[m[4]:m[5]])
+			add(kind, expr[m[4]:m[5]], false)
 			continue
 		}
-		add(kind, expr[m[6]:m[7]])
+		// A call: the match ends after the name's closing quote, and a comma
+		// next means a second argument, the fallback.
+		after := strings.TrimLeft(expr[m[1]:], " \t\r\n")
+		add(kind, expr[m[6]:m[7]], strings.HasPrefix(after, ","))
 	}
 }
 

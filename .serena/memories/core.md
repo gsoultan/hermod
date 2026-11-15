@@ -90,6 +90,8 @@ find a claim that outruns the code, fix the claim.
   `[REDACTED]` from the source and sink read endpoints; Editors get the stored value.
 - [Session auth is cookie-only](session_auth_cookie_only.md) — the JWT is not
   reachable from JavaScript; streams authenticate by cookie; logout is real.
+- [Missing secrets in a step](step_missing_secrets.md) — `checkStepSecrets` refuses to start a
+  workflow whose step reads a secret with no value and no fallback; `secrets.RequiredReferences`.
 - [Postgres sink and polling](postgres_sink_and_polling_updates.md) — singleflight
   connection dedup, non-CDC polling, PgBouncer compatibility.
 - [Postgres source: stop inside a transaction](postgres_source_stop_inside_transaction.md) —

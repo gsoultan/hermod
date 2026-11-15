@@ -227,6 +227,22 @@ A live log line that carries a trace shows a "Trace" badge after its message. Th
 rendered inside the message's paragraph, which is invalid HTML, so the browser console collected a
 React error for every such line while the log was streaming. The message is now a block container.
 
+### Changed — a workflow whose step reads a missing secret no longer starts
+
+`secret("API_KEY")` for a secret that does not exist evaluated to an empty string, and so did
+`env("NAME")`. A header went out as `Authorization: Bearer ` for every message, nothing was logged
+and the workflow reported itself healthy. A connector that names a missing secret already failed
+when built; a step now fails the same way, before the workflow starts, with the step, the name and
+the vhost in the message. Testing the workflow in the editor reports it too.
+
+- A reference with a fallback, `secret("API_KEY", "anonymous")`, starts as before and answers the
+  fallback.
+- **Upgrading:** a workflow that has been running with a missing secret, sending the empty value,
+  will refuse to start after this version. Add the secret to the vhost, or give the reference a
+  fallback.
+- A secret manager that cannot be reached does not stop a start: that failure says nothing about
+  whether the secret exists.
+
 ### Fixed — a stuck sink reported its buffer as almost empty
 
 A sink's buffer fill was measured against a 1000-slot channel that at most `MaxInflight` (128 by
