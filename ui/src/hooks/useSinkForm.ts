@@ -104,7 +104,7 @@ export function useSinkForm({ initialData, isEditing = false, embedded = false, 
       dbname: sink.config?.dbname,
       connection_string: sink.config?.connection_string,
       uri: sink.config?.uri,
-      db_path: sink.config?.db_path,
+      path: sink.config?.path || sink.config?.db_path,
       schema: sink.config?.schema,
     });
 
@@ -143,7 +143,7 @@ export function useSinkForm({ initialData, isEditing = false, embedded = false, 
   useEffect(() => {
     const dbTypes = ['postgres', 'mysql', 'mariadb', 'mssql', 'oracle', 'yugabyte', 'cassandra', 'sqlite', 'clickhouse', 'mongodb'];
     const needsDb = ['postgres', 'yugabyte', 'mysql', 'mariadb', 'mssql', 'oracle'].includes(sink.type);
-    const hasConn = Boolean(sink.config?.host || sink.config?.connection_string || sink.config?.uri || sink.config?.db_path);
+    const hasConn = Boolean(sink.config?.host || sink.config?.connection_string || sink.config?.uri || sink.config?.path || sink.config?.db_path);
     if (dbTypes.includes(sink.type) && hasConn && (!needsDb || sink.config?.dbname)) {
       const timer = setTimeout(() => {
         discoverTables();
@@ -153,7 +153,7 @@ export function useSinkForm({ initialData, isEditing = false, embedded = false, 
         if (tablesAbortRef.current) tablesAbortRef.current.abort();
       };
     }
-  }, [sink.type, sink.config?.host, sink.config?.connection_string, sink.config?.uri, sink.config?.db_path, sink.config?.dbname, discoverTables]);
+  }, [sink.type, sink.config?.host, sink.config?.connection_string, sink.config?.uri, sink.config?.path, sink.config?.db_path, sink.config?.dbname, discoverTables]);
 
   const testMutation = useMutation({
     mutationFn: async (s: any) => {

@@ -138,12 +138,12 @@ export const DatabaseSinkConfig: FC<DatabaseSinkConfigProps> = ({
   const renderConnectionFields = () => {
     if (type === 'sqlite') {
       return (
-        <TextInput 
-          label="Database Path" 
-          placeholder="hermod.db" 
-          value={config.db_path || config.connection_string || ''} 
-          onChange={(e) => updateConfig('db_path', e.target.value)} 
-          required 
+        <TextInput
+          label="Database file path"
+          placeholder="hermod.db"
+          value={config.path || config.db_path || config.connection_string || ''}
+          onChange={(e) => updateConfig('path', e.target.value)}
+          required
         />
       );
     }
