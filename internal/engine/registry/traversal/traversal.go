@@ -390,6 +390,10 @@ func (t *WorkflowTraversal) processNode(ctx context.Context, currID string) {
 		}
 	}
 
+	if currNode.Type == "sink" && !nodeWritesInline(currNode) && err == nil && t.Eng != nil && t.Eng.IsDryRun() {
+		t.simulateSink(ctx, currID, msgs)
+	}
+
 	if currNode.Type == "sink" && !nodeWritesInline(currNode) {
 		t.RoutedMu.Lock()
 		if sinkIdx, ok := t.SinkNodeToIndex[currID]; ok {

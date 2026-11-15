@@ -56,7 +56,9 @@ field of the same name.
 The sink refuses, when it is saved and when its workflow starts: a duplicate name; a
 reference to a later statement, to itself, or to a `forEach` statement (which has no
 single result); schema changes (`CREATE`, `ALTER`, `DROP`, `TRUNCATE`, ...); and
-more than one statement in one entry.
+more than one statement in one entry; and a statement that would end or escape the
+sink's transaction (`COMMIT`, `ROLLBACK`, `BEGIN`, `SAVEPOINT`, a change to autocommit,
+and on MySQL `CALL` or `LOCK`, which can commit on their own).
 
 ### Example: an order and its lines on PostgreSQL
 
@@ -80,6 +82,54 @@ more than one statement in one entry.
 | MySQL | a plain `INSERT` | the last-insert id, as `{{name.id}}` |
 
 Oracle is not supported yet.
+
+## Guided mode: no SQL to write
+
+The editor opens a new sink in **Guided** mode. Each step names a table, an action
+and which field fills each column; Hermod writes the SQL for the sink's database.
+Stored as `mode: "guided"` and a JSON `steps` list (a sink with `statements` and no
+`mode` is SQL mode, as every sink saved before Guided mode existed is):
+
+```json
+{"driver": "postgres", "mode": "guided", "steps": "[{\"name\":\"order\",\"table\":\"orders\",\"action\":\"upsert\",\"match\":[\"external_id\"],\"columns\":[{\"column\":\"external_id\",\"value\":\"{{id}}\"},{\"column\":\"total\",\"value\":\"{{total}}\"}],\"returning\":[\"id\"]},{\"name\":\"items\",\"table\":\"order_items\",\"action\":\"upsert\",\"match\":[\"order_id\",\"sku\"],\"forEach\":\"items\",\"as\":\"item\",\"columns\":[{\"column\":\"order_id\",\"value\":\"{{order.id}}\"},{\"column\":\"sku\",\"value\":\"{{item.sku}}\"}]}]"}
+```
+
+| Step key | Meaning | Default |
+| :--- | :--- | :--- |
+| `table` | The table, or `schema.table`. | required |
+| `action` | `upsert`, `insert`, `update` or `delete`. | `upsert` |
+| `match` | The key columns an upsert, update or delete finds its row by. Each must also be under `columns`. | required except for `insert` |
+| `columns` | `[{"column", "value"}]`. Each value is one `{{field}}`: a message field, `{{item.x}}`, or an earlier step's `{{name.column}}`. | required except for `delete` |
+| `forEach`, `as` | As in SQL mode. | none, `item` |
+| `returning` | The columns later steps may read. On MySQL, one column: the generated id. | none |
+
+- **Upsert by default.** Each database's own form is used: `ON CONFLICT ... DO UPDATE`
+  (PostgreSQL, YugabyteDB, SQLite), `ON DUPLICATE KEY UPDATE` with
+  `LAST_INSERT_ID` (MySQL, MariaDB), `MERGE ... WITH (HOLDLOCK) ... OUTPUT`
+  (SQL Server). `DO NOTHING` is never generated, so a redelivered parent still hands
+  its id on.
+- **Names cannot carry SQL.** A table or column name must be a plain identifier
+  (letters, digits, `_`, `$`) and is quoted for the database; a value is always a
+  bound parameter.
+- An update or delete without a match column is refused, and an update must set at
+  least one column besides the ones it matches on. An update must change a row.
+- **Show SQL** displays what the steps compile to, and **Convert to SQL mode** turns
+  them into SQL statements to edit by hand. Converting is one-way.
+
+## Testing it before it runs
+
+- **The Test button** on the form runs every statement once against the database
+  with a sample message, inside a transaction that is always rolled back, and shows
+  each statement's SQL, bound values, returned rows (the first 20) and changed rows.
+  It is `POST /api/sinks/txsql/test` (Editors, for the sink's vhost). Lock waits are
+  capped at 5 seconds, so a test against a busy table fails fast rather than queueing.
+- **A workflow dry run** writes to no sink, but a dry run that reaches a
+  Transactional SQL sink now runs its statements in the run's preview transaction and
+  logs what they would do, or why the message would fail. The log line keeps the SQL,
+  counts and errors; the bound values and returned rows are left out of it, because
+  logs are stored. Nothing it does is committed, and a live workflow never runs it.
+- In both, sequences and identity columns may still advance, so the next real ids
+  can skip the ones a test used.
 
 ## How a batch runs
 
@@ -124,4 +174,3 @@ message instead of writing children with a NULL parent.
   `statement_timeout` modest.
 - Sequences and identity columns advance even when a batch rolls back, so ids can
   have gaps.
-- There is no form in the editor yet; create the sink through the API.

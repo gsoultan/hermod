@@ -113,10 +113,20 @@ type Statement struct {
 	// ReturnID binds MySQL's last-insert id as {{name.id}} after an INSERT
 	// that returns no rows. Defaults to true; MySQL has no RETURNING.
 	ReturnID *bool `json:"returnId,omitempty"`
+	// ReturnIDAs is the name MySQL's last-insert id is read back under:
+	// {{name.<ReturnIDAs>}}. Defaults to "id".
+	ReturnIDAs string `json:"returnIdAs,omitempty"`
 
 	// rows is whether the statement hands rows back, decided once from the
 	// text.
 	rows bool
+}
+
+func (s *Statement) idKey() string {
+	if s.ReturnIDAs != "" {
+		return s.ReturnIDAs
+	}
+	return "id"
 }
 
 // Config is a parsed, validated sink configuration.
@@ -171,15 +181,28 @@ func ParseConfig(m map[string]string) (Config, error) {
 		cfg.StatementTimeout = d
 	}
 
-	stmts, err := parseStatements(m["statements"])
+	stmts, err := statementsFor(cfg.Driver, m)
 	if err != nil {
 		return Config{}, err
 	}
-	if err := validateStatements(stmts); err != nil {
+	if err := validateStatements(cfg.Driver, stmts); err != nil {
 		return Config{}, err
 	}
 	cfg.Statements = stmts
 	return cfg, nil
+}
+
+// statementsFor reads the statement list in the config's mode: written out
+// in SQL mode, compiled from steps in Guided mode.
+func statementsFor(driver string, m map[string]string) ([]Statement, error) {
+	switch mode := strings.ToLower(strings.TrimSpace(m["mode"])); mode {
+	case "", ModeSQL:
+		return parseStatements(m["statements"])
+	case ModeGuided:
+		return CompileGuided(driver, m["steps"])
+	default:
+		return nil, fmt.Errorf("txsql: mode must be %q or %q, not %q", ModeSQL, ModeGuided, mode)
+	}
 }
 
 func parseStatements(text string) ([]Statement, error) {
@@ -200,10 +223,13 @@ func parseStatements(text string) ([]Statement, error) {
 }
 
 // validateStatements fills defaults and refuses a list that cannot run.
-func validateStatements(stmts []Statement) error {
+func validateStatements(driver string, stmts []Statement) error {
 	index := make(map[string]int, len(stmts))
 	for i := range stmts {
 		if err := normalize(&stmts[i], i, index); err != nil {
+			return err
+		}
+		if err := checkTransactionControl(driver, &stmts[i], i); err != nil {
 			return err
 		}
 		index[stmts[i].Name] = i
@@ -214,6 +240,29 @@ func validateStatements(stmts []Statement) error {
 		if err := checkReferences(stmts, i, index); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// previewWords turns the preview guard's reasons into this sink's terms.
+var previewWords = strings.NewReplacer(
+	"preview: ", "",
+	"the transaction the preview runs in", "the sink's transaction",
+	", so it is not run here", "",
+	", so a preview does not run it", "",
+	" is not run in a preview; the preview manages its own savepoints", " is managed by the sink",
+	" is not run in a preview", " is not allowed",
+	"split this into separate nodes", "give each its own entry",
+)
+
+// checkTransactionControl refuses a statement that would end, replace or
+// escape the sink's transaction: COMMIT halfway down the list keeps the parent
+// when the child then fails. It is the guard a preview runs every statement
+// through, so a live write and a Test refuse the same statements.
+func checkTransactionControl(driver string, s *Statement, i int) error {
+	if err := sqlutil.CheckSandboxStatement(driver, stripLiterals(s.SQL)); err != nil {
+		return fmt.Errorf("txsql: %s cannot be part of the sink's transaction: %s; the sink commits or rolls back "+
+			"the whole list itself", label(s, i), previewWords.Replace(err.Error()))
 	}
 	return nil
 }
