@@ -57,7 +57,7 @@ func (s *Sink) Simulate(ctx context.Context, msg hermod.Message) (rep hermod.Sin
 	if err != nil {
 		return rep, fmt.Errorf("txsql: simulate: %w", err)
 	}
-	tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: s.cfg.Isolation})
+	tx, err := db.BeginTx(ctx, s.cfg.txOptions())
 	if err != nil {
 		return rep, fmt.Errorf("txsql: simulate: begin transaction: %w", err)
 	}

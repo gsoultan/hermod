@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/infra/evaluator"
@@ -33,6 +35,14 @@ type Sink struct {
 	cfg Config
 	// driver is the database/sql driver name, which decides placeholder style.
 	driver string
+	// pooled is whether a PostgreSQL connection goes through a transaction
+	// pooler, where PREPARE TRANSACTION cannot be used.
+	pooled bool
+
+	// open is the transaction Begin opened, which writes join until it ends;
+	// see twophase.go.
+	mu   sync.Mutex
+	open *openTx
 }
 
 var (
@@ -43,11 +53,13 @@ var (
 // Open builds a sink over a new connection pool to connString. The sink owns
 // the pool and closes it in Close.
 func Open(cfg Config, connString string) (*Sink, error) {
-	db, err := openDB(cfg, connString)
+	db, pooled, err := openDB(cfg, connString)
 	if err != nil {
 		return nil, err
 	}
-	return New(db, cfg), nil
+	s := New(db, cfg)
+	s.pooled = pooled
+	return s, nil
 }
 
 // New builds a sink over db, which it then owns.
@@ -55,17 +67,17 @@ func New(db *sql.DB, cfg Config) *Sink {
 	return &Sink{db: db, cfg: cfg, driver: cfg.canonicalDriver()}
 }
 
-func openDB(cfg Config, connString string) (*sql.DB, error) {
+func openDB(cfg Config, connString string) (*sql.DB, bool, error) {
 	if strings.TrimSpace(connString) == "" {
-		return nil, errors.New("txsql: no connection details: set a connection string, or host, port, user and database")
+		return nil, false, errors.New("txsql: no connection details: set a connection string, or host, port, user and database")
 	}
 	switch driver := cfg.canonicalDriver(); driver {
 	case "pgx":
-		pc, _, err := pgxutil.ParseConfig(connString)
+		pc, pooled, err := pgxutil.ParseConfig(connString)
 		if err != nil {
-			return nil, fmt.Errorf("txsql: parse postgres connection: %w", err)
+			return nil, false, fmt.Errorf("txsql: parse postgres connection: %w", err)
 		}
-		return stdlib.OpenDB(*pc), nil
+		return stdlib.OpenDB(*pc), pooled, nil
 	case "sqlite":
 		dsn := connString
 		if !strings.Contains(dsn, "?") {
@@ -76,18 +88,18 @@ func openDB(cfg Config, connString string) (*sql.DB, error) {
 		}
 		db, err := sql.Open("sqlite", dsn)
 		if err != nil {
-			return nil, fmt.Errorf("txsql: open sqlite: %w", err)
+			return nil, false, fmt.Errorf("txsql: open sqlite: %w", err)
 		}
 		// One writer: SQLite serialises writes anyway, and a second
 		// connection would wait on the first's transaction.
 		db.SetMaxOpenConns(1)
-		return db, nil
+		return db, false, nil
 	default:
 		db, err := sql.Open(driver, connString)
 		if err != nil {
-			return nil, fmt.Errorf("txsql: open %s: %w", cfg.Driver, err)
+			return nil, false, fmt.Errorf("txsql: open %s: %w", cfg.Driver, err)
 		}
-		return db, nil
+		return db, false, nil
 	}
 }
 
@@ -96,8 +108,14 @@ func (s *Sink) Ping(ctx context.Context) error {
 	return s.db.PingContext(ctx)
 }
 
-// Close closes the connection pool.
+// Close ends a transaction Begin left open, without committing it, and
+// closes the connection pool.
 func (s *Sink) Close() error {
+	if o := s.take(); o != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = s.abandon(ctx, o)
+	}
 	return s.db.Close()
 }
 
@@ -117,13 +135,20 @@ func (s *Sink) Write(ctx context.Context, msg hermod.Message) error {
 // own, so only the message that cannot be written reaches the dead-letter
 // sink. Finding that message here instead, with a savepoint per message,
 // would save little and add a second partial-failure path to get right.
+//
+// Between Begin and the end of that transaction the messages run inside it
+// instead, and nothing is committed here: a transactional group decides for
+// every member together.
 func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) (err error) {
 	if len(msgs) == 0 {
 		return nil
 	}
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: s.cfg.Isolation})
+	if q := s.openQuerier(); q != nil {
+		return s.runAll(ctx, q, msgs)
+	}
+	tx, err := s.beginTx(ctx)
 	if err != nil {
-		return fmt.Errorf("txsql: begin transaction: %w", classify(err))
+		return err
 	}
 	defer func() {
 		if err != nil {
@@ -131,13 +156,8 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) (err error
 		}
 	}()
 
-	for _, msg := range msgs {
-		if msg == nil {
-			continue
-		}
-		if err := s.runMessage(ctx, tx, msg, nil); err != nil {
-			return fmt.Errorf("txsql: message %s: %w", msg.ID(), err)
-		}
+	if err := s.runAll(ctx, tx, msgs); err != nil {
+		return err
 	}
 	if err := tx.Commit(); err != nil {
 		// A deferred constraint is checked here, which makes it a data error
@@ -146,6 +166,35 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) (err error
 		return fmt.Errorf("txsql: commit: %w", classify(err))
 	}
 	return nil
+}
+
+func (s *Sink) runAll(ctx context.Context, q sqlutil.Querier, msgs []hermod.Message) error {
+	for _, msg := range msgs {
+		if msg == nil {
+			continue
+		}
+		if err := s.runMessage(ctx, q, msg, nil); err != nil {
+			return fmt.Errorf("txsql: message %s: %w", msg.ID(), err)
+		}
+	}
+	return nil
+}
+
+// beginTx opens a transaction at the configured isolation.
+func (s *Sink) beginTx(ctx context.Context) (*sql.Tx, error) {
+	tx, err := s.db.BeginTx(ctx, s.cfg.txOptions())
+	if err != nil {
+		return nil, fmt.Errorf("txsql: begin transaction: %w", classify(err))
+	}
+	if s.driver == "oracle" && s.cfg.Isolation == sql.LevelSerializable {
+		// go-ora opens only at the default level; this has to be the
+		// transaction's first statement.
+		if _, err := tx.ExecContext(ctx, "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"); err != nil {
+			_ = tx.Rollback()
+			return nil, fmt.Errorf("txsql: set serializable isolation: %w", classify(err))
+		}
+	}
+	return tx, nil
 }
 
 // runMessage runs the statement list for one message. results holds what
@@ -250,14 +299,17 @@ func (s *Sink) runOnce(ctx context.Context, q sqlutil.Querier, st *Statement, sc
 
 	sctx, cancel := context.WithTimeout(ctx, s.cfg.StatementTimeout)
 	defer cancel()
-	if st.rows {
-		return query(sctx, q, st, b, step)
+	switch {
+	case st.rows:
+		return s.query(sctx, q, st, b, step)
+	case len(st.outCols) > 0:
+		return execOut(sctx, q, st, b, step)
 	}
 	return s.exec(sctx, q, st, b, step)
 }
 
 // query runs a statement that hands rows back and returns the first.
-func query(ctx context.Context, q sqlutil.Querier, st *Statement, b sqlutil.TemplateBinding, step *stepRecord) (map[string]any, error) {
+func (s *Sink) query(ctx context.Context, q sqlutil.Querier, st *Statement, b sqlutil.TemplateBinding, step *stepRecord) (map[string]any, error) {
 	rows, err := q.QueryContext(ctx, b.SQL, b.Args...)
 	if err != nil {
 		return nil, classify(err)
@@ -271,6 +323,11 @@ func query(ctx context.Context, q sqlutil.Querier, st *Statement, b sqlutil.Temp
 	}
 	if err != nil {
 		return nil, classify(err)
+	}
+	if s.driver == "oracle" {
+		for i := range kept {
+			kept[i] = lowerKeys(kept[i])
+		}
 	}
 	step.returned(kept, total)
 	if err := check(st.Expect, total, "returned"); err != nil {

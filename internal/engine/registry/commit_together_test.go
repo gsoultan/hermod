@@ -195,3 +195,33 @@ func TestSavingAWorkflowWhoseMemberCannotCommitTogetherIsRefused(t *testing.T) {
 		}
 	}
 }
+
+// A Transactional SQL sink commits together only on a database that can hold
+// a transaction in doubt, so its driver decides, and the refusal names it.
+func TestATxSQLSinkOnADatabaseWithoutTwoPhaseCommitIsRefusedByNode(t *testing.T) {
+	r := registryWithSinks(map[string]storage.Sink{
+		"pg": postgresSink("pg"),
+		"tx": {ID: "tx", Type: "txsql", Config: map[string]string{
+			"driver": "sqlite", "path": "/tmp/x.db", "statements": `[{"sql":"UPDATE t SET a = 1"}]`,
+		}},
+	})
+	wf := storage.Workflow{
+		ID: "wf",
+		Nodes: []storage.WorkflowNode{
+			{ID: "S", Type: "source", RefID: "src"},
+			sinkNode("A", "pg", "t1"),
+			sinkNode("T", "tx", "t1"),
+		},
+		Edges: edges("S", "A", "S", "T"),
+	}
+
+	_, _, _, err := r.discoverWorkflowSinks(context.Background(), wf, &multiSource{})
+	if err == nil {
+		t.Fatal("a Transactional SQL sink on SQLite was accepted as a member of a transaction")
+	}
+	for _, want := range []string{"DB T (T)", "sqlite", "postgres, yugabyte, mysql, mariadb"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error should name %s, got: %v", want, err)
+		}
+	}
+}

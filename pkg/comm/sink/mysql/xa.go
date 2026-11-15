@@ -402,11 +402,7 @@ func (s *MySQLSink) RollbackPrepared(ctx context.Context, txID string) error {
 
 // preparedXIDs lists Hermod's XA transactions currently prepared on the server,
 // from XA RECOVER — MySQL's counterpart of pg_prepared_xacts.
-func (s *MySQLSink) preparedXIDs(ctx context.Context) ([]string, error) {
-	db, err := s.getDB(ctx)
-	if err != nil {
-		return nil, err
-	}
+func preparedXIDs(ctx context.Context, db *sql.DB) ([]string, error) {
 	rows, err := db.QueryContext(ctx, "XA RECOVER")
 	if err != nil {
 		return nil, err
@@ -440,9 +436,30 @@ func (s *MySQLSink) PreflightTwoPhaseCommit(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	return PreflightXA(ctx, db)
+}
+
+// The XA rules above, for another sink that runs XA transactions on MySQL or
+// MariaDB itself (the Transactional SQL sink). They are the same rules, so
+// they live in one place.
+
+// XIDLiteral renders txID as an XA statement's XID clause, refusing anything
+// but a canonical lower-case UUID; see xidLiteral.
+func XIDLiteral(txID string) (string, error) { return xidLiteral(txID) }
+
+// IsXAUnknownXID reports whether err is MySQL saying the XID does not exist.
+func IsXAUnknownXID(err error) bool { return isXAUnknown(err) }
+
+// DiscardConn closes conn's physical connection instead of returning it to
+// the pool, which detaches a prepared XA transaction on every server version.
+func DiscardConn(conn *sql.Conn) { discardConn(conn) }
+
+// PreflightXA refuses a server on which a prepared XA transaction would not
+// be honoured; see (*MySQLSink).PreflightTwoPhaseCommit.
+func PreflightXA(ctx context.Context, db *sql.DB) error {
 	var version string
 	if err := db.QueryRowContext(ctx, "SELECT VERSION()").Scan(&version); err != nil {
-		return fmt.Errorf("mysql sink: cannot read the server version: %w", err)
+		return fmt.Errorf("mysql: cannot read the server version: %w", err)
 	}
 	checkSupportVar, err := checkXAServerVersion(version)
 	if err != nil {
@@ -451,15 +468,15 @@ func (s *MySQLSink) PreflightTwoPhaseCommit(ctx context.Context) error {
 	if checkSupportVar {
 		var on int
 		if err := db.QueryRowContext(ctx, "SELECT @@innodb_support_xa").Scan(&on); err != nil {
-			return fmt.Errorf("mysql sink: cannot read innodb_support_xa: %w", err)
+			return fmt.Errorf("mysql: cannot read innodb_support_xa: %w", err)
 		}
 		if on == 0 {
-			return errors.New("mysql sink: innodb_support_xa is OFF, so XA PREPARE is not crash-safe. " +
+			return errors.New("mysql: innodb_support_xa is OFF, so XA PREPARE is not crash-safe. " +
 				"Turn it on, or take this sink out of the transactional group")
 		}
 	}
-	if _, err := s.preparedXIDs(ctx); err != nil {
-		return fmt.Errorf("mysql sink: XA RECOVER failed, so a transaction left in doubt could not be "+
+	if _, err := preparedXIDs(ctx, db); err != nil {
+		return fmt.Errorf("mysql: XA RECOVER failed, so a transaction left in doubt could not be "+
 			"found (MySQL 8.0+ needs the XA_RECOVER_ADMIN privilege): %w", err)
 	}
 	return nil

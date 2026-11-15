@@ -213,6 +213,10 @@ func (r *Registry) checkCommitTogetherMember(ctx context.Context, transaction st
 			"other databases; only these can: %s",
 			transaction, r.getNodeName(node), dbSnk.Type, strings.Join(factory.TwoPhaseCapableSinkTypes(), ", "))
 	}
+	// The type can, but a Transactional SQL sink's driver may not.
+	if err := factory.CheckTwoPhaseMember(dbSnk.Type, dbSnk.Config); err != nil {
+		return fmt.Errorf("transaction %q: sink node %s: %w", transaction, r.getNodeName(node), err)
+	}
 	return nil
 }
 
