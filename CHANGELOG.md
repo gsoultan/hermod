@@ -289,6 +289,14 @@ filtered.
 Previewing a Merge, a Note or a subflow marker gave the same error. They change nothing in a
 message, and the answer now says so.
 
+### Fixed — a step that cannot run answered a preview with "server error"
+
+Run Preview and Test answered HTTP 500 when the step could not run with its settings: a Lua script
+that does not parse, a type nothing is registered for, a workflow with no sink. That is the result
+of the test, and the settings are the caller's, but 500 is the status for a fault in the server, so
+it read as an outage in the logs and on a dashboard. These now answer 422 with the same message.
+A preview cut short by its deadline still answers 500.
+
 ### Fixed — a random workflow failed for 10 seconds about every eight hours
 
 The optimizer ran a "chaos monkey": with probability 0.001 per 30-second cycle it made every sink
