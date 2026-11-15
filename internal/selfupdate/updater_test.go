@@ -69,6 +69,7 @@ type recorder struct {
 	err      error
 	restarts int
 	backups  int
+	backup   string
 }
 
 func (r *recorder) install(_ context.Context, p install.Plan, _ string, progress func(install.Phase)) error {
@@ -90,12 +91,13 @@ func newService(t *testing.T, current string, src *staticSource, rec *recorder) 
 		Install: rec.install,
 		Store:   func() SettingsStore { return store },
 		Restart: func() { rec.mu.Lock(); rec.restarts++; rec.mu.Unlock() },
-		BeforeInstall: func(context.Context) error {
+		BeforeInstall: func(context.Context) (string, error) {
 			rec.mu.Lock()
 			rec.backups++
 			rec.mu.Unlock()
-			return nil
+			return rec.backup, nil
 		},
+		BackupPlan: func() string { return "A copy of the database is saved first." },
 	})
 	return svc
 }
@@ -326,5 +328,58 @@ func TestGitHubSourceReportsRateLimit(t *testing.T) {
 	gh := &GitHub{Client: srv.Client(), BaseURL: srv.URL, Repo: "gsoultan/hermod"}
 	if _, err := gh.Releases(context.Background()); err == nil || !strings.Contains(err.Error(), "rate limit") {
 		t.Fatalf("Releases = %v, want a rate limit error", err)
+	}
+}
+
+func TestCheckSkipsAReleaseWithoutThisInstallsFile(t *testing.T) {
+	// v1.26.0's release build died before uploading anything: offering it
+	// would only fail at the download.
+	empty := Release{Tag: "v1.26.0"}
+	src := &staticSource{releases: []Release{empty, release("v1.25.0", false)}}
+	svc := newService(t, "v1.24.9 (Enterprise Edition)", src, &recorder{})
+	st, err := svc.Check(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Latest == nil || st.Latest.Tag != "v1.25.0" {
+		t.Fatalf("latest = %+v, want v1.25.0, the newest release with a file to install", st.Latest)
+	}
+
+	// An installation that cannot install still hears about it: it is
+	// upgraded some other way (an image, a package) that may not need the file.
+	svc.cfg.Capability = install.Capability{Reason: "container"}
+	if st, _ = svc.Check(context.Background()); st.Latest == nil || st.Latest.Tag != "v1.26.0" {
+		t.Fatalf("latest = %+v, want v1.26.0", st.Latest)
+	}
+}
+
+func TestDebInstallPlansTheDeb(t *testing.T) {
+	rel := release("v1.25.0", false)
+	deb := install.PackageName("v1.25.0", "linux", "amd64", "deb")
+	rel.Assets = append(rel.Assets, Asset{Name: deb, URL: "https://github.com/gsoultan/hermod/releases/download/v1.25.0/" + deb})
+	rec := &recorder{}
+	svc := newService(t, "v1.24.9", &staticSource{releases: []Release{rel}}, rec)
+	svc.cfg.Capability.Method = install.MethodDeb
+	if err := svc.Install(context.Background(), "v1.25.0"); err != nil {
+		t.Fatal(err)
+	}
+	svc.Wait()
+	if len(rec.plans) != 1 || rec.plans[0].ArchiveName != deb || !strings.HasSuffix(rec.plans[0].ArchiveURL, "/"+deb) {
+		t.Fatalf("plans = %+v, want the .deb", rec.plans)
+	}
+}
+
+func TestInstallCarriesTheBackupIntoThePlanAndSaysWhatItWillBe(t *testing.T) {
+	rec := &recorder{backup: "/var/lib/hermod/backups/hermod-before-update-v1.24.9-x.db"}
+	svc := newService(t, "v1.24.9", &staticSource{releases: []Release{release("v1.25.0", false)}}, rec)
+	if st := svc.Status(context.Background()); st.BackupPlan != "A copy of the database is saved first." {
+		t.Fatalf("BackupPlan = %q", st.BackupPlan)
+	}
+	if err := svc.Install(context.Background(), "v1.25.0"); err != nil {
+		t.Fatal(err)
+	}
+	svc.Wait()
+	if len(rec.plans) != 1 || rec.plans[0].Backup != rec.backup {
+		t.Fatalf("plans = %+v, want the backup %s recorded", rec.plans, rec.backup)
 	}
 }

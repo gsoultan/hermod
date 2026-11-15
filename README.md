@@ -99,6 +99,14 @@ Hermod works by reading data from a `Source`, buffering it in a high-performance
 
 ## Install
 
+On a Linux server, as a service that starts on boot:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/gsoultan/hermod/main/deploy/package/install.sh | sudo sh
+```
+
+Or as a container:
+
 ```bash
 docker pull ghcr.io/gsoultan/hermod:1.23.0
 ```
@@ -124,8 +132,8 @@ ports, and managing the database container are in
 
 The README is the overview. Each topic has its own page under [`docs/`](docs/):
 
-- [Installing Hermod](docs/install.md): The container image, the Helm chart, packages, building from source, and `go get`.
-- [Updating Hermod](docs/updating.md): Checking for releases, automatic or manual updates, and how an install is verified and rolled back.
+- [Installing Hermod](docs/install.md): A Linux server in one command, the container image, the Helm chart, packages, building from source, and `go get`.
+- [Updating Hermod](docs/updating.md): Checking for releases, automatic or manual updates (also for `.deb` installs), and how an install is verified and rolled back.
 - [Connectors](docs/connectors.md): Which connectors are production-ready, the evidence behind each tier, and every connector `type` the factory can build.
 - [Using Hermod](docs/usage.md): The command-line client, embedding Hermod as a Go library, running the API and workers, supported platforms, and the admin settings endpoints.
 - [Workflows](docs/workflows.md): Control flow, fan-out, versioning and rollback, workflows as MCP tools, blueprints, and the advanced transformation nodes.

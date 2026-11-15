@@ -53,7 +53,7 @@ func TestPickNewest(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := Pick(rels, c.current, c.pre)
+			got := Pick(rels, c.current, c.pre, nil)
 			gotTag := ""
 			if got != nil {
 				gotTag = got.Tag
@@ -68,7 +68,7 @@ func TestPickNewest(t *testing.T) {
 func TestPickWithUnknownCurrentOffersNothing(t *testing.T) {
 	// A development build has no version to compare against; offering a
 	// release would replace a binary somebody built on purpose.
-	if got := Pick([]Release{{Tag: "v9.9.9"}}, "dev (Enterprise Edition)", true); got != nil {
+	if got := Pick([]Release{{Tag: "v9.9.9"}}, "dev (Enterprise Edition)", true, nil); got != nil {
 		t.Fatalf("Pick on a dev build = %q, want nothing", got.Tag)
 	}
 }

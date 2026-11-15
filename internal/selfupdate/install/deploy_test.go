@@ -32,7 +32,11 @@ func TestDetect(t *testing.T) {
 		{"development build", func(e *Env) { e.Version = "dev (Enterprise Edition)" }, false, "development build"},
 		{"container", func(e *Env) { e.InContainer = true }, false, "container"},
 		{"no published build for the platform", func(e *Env) { e.GOOS = "darwin" }, false, "darwin/amd64"},
-		{"package-managed", func(e *Env) { e.Exe = "/usr/bin/hermod" }, false, "package"},
+		{"rpm or apk package", func(e *Env) { e.Exe = "/usr/bin/hermod" }, false, "package manager"},
+		{"deb package run as root", func(e *Env) { e.Exe, e.Package, e.Root = "/usr/bin/hermod", owner("hermod"), true }, true, ""},
+		{"deb package run as another user", func(e *Env) { e.Exe, e.Package, e.User = "/usr/bin/hermod", owner("hermod"), "hermod" }, false, "root"},
+		{"deb owned by another package", func(e *Env) { e.Exe, e.Package, e.Root = "/usr/bin/hermod", owner("something-else"), true }, false, "package manager"},
+		{"dpkg cannot say who owns it", func(e *Env) { e.Exe, e.Package, e.Root = "/usr/bin/hermod", noOwner, true }, false, "package manager"},
 		{"folder not writable", func(e *Env) { e.Writable = readOnly }, false, "cannot write"},
 	}
 	for _, c := range cases {
@@ -46,10 +50,50 @@ func TestDetect(t *testing.T) {
 			if c.reason != "" && !strings.Contains(got.Reason, c.reason) {
 				t.Fatalf("Reason = %q, want it to mention %q", got.Reason, c.reason)
 			}
+			wantMethod := MethodBinary
+			if c.can && env.Package != nil {
+				wantMethod = MethodDeb
+			}
+			if c.can && got.Method != wantMethod {
+				t.Fatalf("Method = %q, want %q", got.Method, wantMethod)
+			}
 			if got.Platform != env.GOOS+"/"+env.GOARCH {
 				t.Fatalf("Platform = %q", got.Platform)
 			}
 		})
+	}
+}
+
+func owner(pkg string) func(string) (string, error) {
+	return func(string) (string, error) { return pkg, nil }
+}
+
+func noOwner(string) (string, error) {
+	return "", errors.New("dpkg-query: no path found matching pattern")
+}
+
+func TestAssetName(t *testing.T) {
+	binary := Capability{Method: MethodBinary, GOOS: "linux", GOARCH: "arm64"}
+	if got := binary.AssetName("v1.26.0"); got != "hermod_1.26.0_linux_arm64.tar.gz" {
+		t.Fatalf("binary AssetName = %q", got)
+	}
+	deb := Capability{Method: MethodDeb, GOOS: "linux", GOARCH: "amd64"}
+	if got := deb.AssetName("v1.27.0-rc.1"); got != "hermod_1.27.0-rc.1_linux_amd64.deb" {
+		t.Fatalf("deb AssetName = %q", got)
+	}
+}
+
+func TestParseDpkgOwner(t *testing.T) {
+	cases := map[string]string{
+		"hermod: /usr/bin/hermod\n":              "hermod",
+		"diversion by x from: /usr/bin/hermod\n": "",
+		"hermod, hermod-extra: /usr/bin/hermod":  "",
+		"":                                       "",
+	}
+	for out, want := range cases {
+		if got := parseDpkgOwner(out); got != want {
+			t.Errorf("parseDpkgOwner(%q) = %q, want %q", out, got, want)
+		}
 	}
 }
 

@@ -29,7 +29,7 @@ func installed(t *testing.T) string {
 	if err := os.WriteFile(PreviousPath(exe), []byte("old"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeMarker(exe, &Marker{From: "v1.24.9", To: "v1.25.0", At: time.Now()}); err != nil {
+	if err := writeMarker(exe, &Marker{From: "v1.24.9", To: "v1.25.0", At: time.Now(), Backup: "/backups/before.db"}); err != nil {
 		t.Fatal(err)
 	}
 	return exe
@@ -96,6 +96,11 @@ func TestGuardBootRollsBackAfterRepeatedFailedStarts(t *testing.T) {
 	o := LastOutcome(exe)
 	if o == nil || o.Result != ResultRolledBack || o.From != "v1.24.9" || o.To != "v1.25.0" {
 		t.Fatalf("outcome = %+v, want a rollback from v1.25.0 to v1.24.9 recorded", o)
+	}
+	// The new version may have upgraded the database schema, which the old
+	// one refuses to run on; the outcome says where the copy from before is.
+	if o.Backup != "/backups/before.db" {
+		t.Fatalf("outcome backup = %q, want the pre-update copy named", o.Backup)
 	}
 }
 
