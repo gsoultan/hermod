@@ -26,7 +26,13 @@ written, best-effort with a log line). Pebble stores no workflows.
   where the step resolves it with `ResolveTemplateMsg`/`ResolveTemplateScoped`.
 - **Export / promotion** (`stripWorkflowRuntime`) run `Nodes` and then
   `redact.StepCredentials` + `redact.AIKeys`. The bundle's own `sources` /
-  `sinks` still carry connection configs for import — by design, not fixed.
+  `sinks` go through `withoutCredentials` (workflow_export_credentials.go):
+  credentials become `[REDACTED]`. Import runs `restoreWithheldCredentials`
+  first — fills each from the same-id connection here, else 422
+  `missing_credentials` and nothing is written. The wizard blanks them on
+  parse (`withheld` on the resource) and `forImport` puts `[REDACTED]` back on
+  any left empty. Promotion has its own rule (`plainKeys` in
+  internal/environment/carry.go refuses plain credentials).
 - **Versions carry no run state** (`withoutRunState`); a rollback copies the
   current row's status, owner, lease and counters.
 - **UI mirror:** `ui/src/pages/workflows/WorkflowEditor/store/savedNode.ts`

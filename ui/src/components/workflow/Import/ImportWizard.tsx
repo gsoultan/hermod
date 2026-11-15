@@ -11,7 +11,7 @@ import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '@/api'
 import {
   parseImportBundle, collectReviewNodes, detectConflicts, applyConflictDecisions,
-  buildImportPlan, nameCollisions, takenNames, suggestFreeName,
+  buildImportPlan, nameCollisions, takenNames, suggestFreeName, forImport, importErrorMessage,
   type ImportBundle, type ImportResource, type ConflictDecision, type Conflict,
 } from '@/utils/importBundle'
 import { configComponents } from '@/components/forms/SinkForm'
@@ -258,22 +258,18 @@ export function ImportWizard({ defaultVHost, availableVHosts, onCancel, onImport
     setSubmitting(true)
     setSubmitError(null)
     try {
-      // missing_refs is the export's report about the instance that produced
-      // the file. Sending it back would be noise; the server ignores unknown
-      // fields, but leaving it out keeps the request honest.
-      const { missing_refs: _ignored, ...payload } = finalBundle
       const res = await apiFetch(`${API_BASE}/workflows/import`, {
         method: 'POST',
-        body: JSON.stringify(payload),
+        body: JSON.stringify(forImport(finalBundle)),
         silent: true,
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        throw new Error(data.error || `Import failed (HTTP ${res.status}).`)
+        throw Object.assign(new Error(data.error || `Import failed (HTTP ${res.status}).`), { data })
       }
       onImported(finalBundle.workflow.name)
     } catch (err: any) {
-      setSubmitError(err?.message || 'Import failed.')
+      setSubmitError(importErrorMessage(err?.message || 'Import failed.', err?.data))
     } finally {
       setSubmitting(false)
     }

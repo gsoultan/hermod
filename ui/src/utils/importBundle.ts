@@ -36,7 +36,59 @@ export interface ImportResource {
   type: string
   vhost?: string
   config: Record<string, any>
+  /** Config keys the export left out (credentials), shown empty here. */
+  withheld?: string[]
   [key: string]: any
+}
+
+/**
+ * What an export writes in place of a connection credential. The server
+ * reads it on import as "keep this instance's own value", and refuses the
+ * import, naming the field, when this instance has none.
+ */
+export const WITHHELD = '[REDACTED]'
+
+// Blanks each left-out value so the form shows an empty field to type into,
+// and records which ones they were.
+function blankWithheld(r: ImportResource): ImportResource {
+  const withheld = Object.keys(r.config ?? {}).filter((k) => r.config[k] === WITHHELD).sort()
+  if (!withheld.length) return r
+  const config = { ...r.config }
+  for (const k of withheld) config[k] = ''
+  return { ...r, config, withheld }
+}
+
+// Puts WITHHELD back on each left-out value nobody typed, and drops the
+// wizard's own bookkeeping.
+function restoreWithheld({ withheld, ...r }: ImportResource): ImportResource {
+  if (!withheld?.length) return r
+  const config = { ...r.config }
+  for (const k of withheld) {
+    if (config[k] === '' || config[k] == null) config[k] = WITHHELD
+  }
+  return { ...r, config }
+}
+
+/**
+ * The message for a refused import. When the file left out credentials this
+ * instance has none of, the server names each one, and so does the message,
+ * so the person knows which field to fill.
+ */
+export function importErrorMessage(message: string, data?: { missing_credentials?: unknown }): string {
+  const missing = Array.isArray(data?.missing_credentials) ? data.missing_credentials : []
+  const named = missing
+    .map((m: any) => `${m?.kind} ${m?.name || m?.id}: ${m?.field}`)
+    .join('; ')
+  return named ? `${message} Missing: ${named}.` : message
+}
+
+/**
+ * The request body for POST /workflows/import. missing_refs is the export's
+ * report about the instance that produced the file, so it is not sent back.
+ */
+export function forImport(bundle: ImportBundle): Omit<ImportBundle, 'missing_refs'> {
+  const { missing_refs: _ignored, ...rest } = bundle
+  return { ...rest, sources: rest.sources.map(restoreWithheld), sinks: rest.sinks.map(restoreWithheld) }
 }
 
 export interface MissingRef {
@@ -199,8 +251,8 @@ export function parseImportBundle(json: string): { bundle: ImportBundle } | { er
   return {
     bundle: {
       workflow: { ...workflow, nodes: workflow.nodes ?? [], edges: workflow.edges ?? [] },
-      sources: Array.isArray(data.sources) ? data.sources : [],
-      sinks: Array.isArray(data.sinks) ? data.sinks : [],
+      sources: Array.isArray(data.sources) ? data.sources.map(blankWithheld) : [],
+      sinks: Array.isArray(data.sinks) ? data.sinks.map(blankWithheld) : [],
       missing_refs: Array.isArray(data.missing_refs) ? data.missing_refs : undefined,
     },
   }
