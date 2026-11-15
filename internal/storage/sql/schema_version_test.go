@@ -11,6 +11,9 @@
 package sql
 
 import (
+	"database/sql"
+	"errors"
+	"path/filepath"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -140,5 +143,40 @@ func TestAFailedMigrationLeavesTheFingerprintAlone(t *testing.T) {
 	if after == SchemaFingerprint() {
 		t.Error("the recorded fingerprint matches the expected one after a failed migration, " +
 			"so a half-applied schema is indistinguishable from a complete one")
+	}
+}
+
+// A copy taken before an upgrade is a whole, openable database holding what
+// the live one held, so an upgrade that has to be undone has a restore point.
+func TestSnapshotToCopiesTheSQLiteDatabase(t *testing.T) {
+	ctx := t.Context()
+	db := newMigrationDB(t)
+	s := NewSQLStorage(db, "sqlite").(*sqlStorage)
+	if err := s.Init(ctx); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	if err := s.saveSetting(ctx, "before.upgrade", "kept"); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(t.TempDir(), "copy.db")
+	if err := s.SnapshotTo(ctx, path); err != nil {
+		t.Fatalf("SnapshotTo: %v", err)
+	}
+	copyDB, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = copyDB.Close() }()
+	got, err := NewSQLStorage(copyDB, "sqlite").GetSetting(ctx, "before.upgrade")
+	if err != nil || got != "kept" {
+		t.Fatalf("copy holds %q, %v; want the live database's rows", got, err)
+	}
+}
+
+func TestSnapshotToIsOnlyForSQLite(t *testing.T) {
+	s := NewSQLStorage(nil, "pgx").(*sqlStorage)
+	if err := s.SnapshotTo(t.Context(), filepath.Join(t.TempDir(), "x.db")); !errors.Is(err, ErrSnapshotUnsupported) {
+		t.Fatalf("SnapshotTo on PostgreSQL = %v, want ErrSnapshotUnsupported", err)
 	}
 }

@@ -279,3 +279,175 @@ func TestInstallRunsTheDownloadedBinaryForItsVersion(t *testing.T) {
 	}
 	assertUntouched(t, exe)
 }
+
+const (
+	debName = "hermod_1.25.0_linux_amd64.deb"
+	debURL  = "https://github.com/gsoultan/hermod/releases/download/v1.25.0/" + debName
+)
+
+var debPlan = Plan{Tag: "v1.25.0", ArchiveName: debName, ArchiveURL: debURL, ChecksumsURL: checksumsURL}
+
+// fakeDpkg stands in for dpkg-deb and dpkg. The fake package's bytes are the
+// binary it carries.
+type fakeDpkg struct {
+	t       *testing.T
+	exe     string
+	pkgName string
+	failAt  string // "extract" or "install": fail that step
+	partial bool   // on an install failure, replace the binary first
+	calls   []string
+}
+
+func (f *fakeDpkg) run(_ context.Context, name string, args ...string) ([]byte, error) {
+	action := args[0]
+	if name == "dpkg" {
+		action = args[len(args)-2] // options first, as dpkg(1) documents
+	}
+	f.calls = append(f.calls, name+" "+action)
+	pkg := args[len(args)-1]
+	switch {
+	case name == "dpkg-deb" && args[0] == "--field":
+		return []byte(f.pkgName + "\n"), nil
+	case name == "dpkg-deb" && args[0] == "--extract":
+		if f.failAt == "extract" {
+			return []byte("dpkg-deb: error: not a Debian format archive"), errors.New("exit status 2")
+		}
+		pkg = args[1]
+		body, err := os.ReadFile(pkg)
+		if err != nil {
+			return nil, err
+		}
+		dst := filepath.Join(args[2], f.exe)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return nil, err
+		}
+		return nil, os.WriteFile(dst, body, 0o755)
+	case name == "dpkg" && action == "--install":
+		if f.failAt == "install" && !f.partial {
+			return []byte("dpkg: error: dpkg frontend lock was locked by another process"), errors.New("exit status 2")
+		}
+		body, err := os.ReadFile(pkg)
+		if err != nil {
+			return nil, err
+		}
+		tmp := f.exe + ".dpkg-new"
+		if err := os.WriteFile(tmp, body, 0o755); err != nil {
+			return nil, err
+		}
+		if err := os.Rename(tmp, f.exe); err != nil {
+			return nil, err
+		}
+		if f.failAt == "install" {
+			return []byte("dpkg: error processing package hermod (--install): installed post-installation script subprocess returned error exit status 1"), errors.New("exit status 1")
+		}
+		return []byte("Unpacking hermod (1.25.0) over (1.24.9) ...\nSetting up hermod (1.25.0) ..."), nil
+	}
+	f.t.Fatalf("unexpected command %s %v", name, args)
+	return nil, nil
+}
+
+func newDebFixture(t *testing.T, binary string) (*Installer, *fakeRelease, *fakeDpkg, string) {
+	t.Helper()
+	in, rel, exe := newFixture(t, binary)
+	pkg := []byte(binary)
+	rel.files[debURL] = pkg
+	rel.files[checksumsURL] = []byte(sum(pkg) + "  " + debName + "\n")
+	d := &fakeDpkg{t: t, exe: exe, pkgName: DebPackage}
+	in.Method = MethodDeb
+	in.Command = d.run
+	in.TempDir = t.TempDir()
+	return in, rel, d, exe
+}
+
+func TestInstallDebRunsDpkgKeepsPreviousAndArmsGuard(t *testing.T) {
+	in, _, d, exe := newDebFixture(t, "v1.25.0 (Enterprise Edition)")
+	var phases []Phase
+	if err := in.Install(context.Background(), debPlan, "v1.24.9", func(p Phase) { phases = append(phases, p) }); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if b, _ := os.ReadFile(exe); string(b) != "v1.25.0 (Enterprise Edition)" {
+		t.Fatalf("binary after install = %q", b)
+	}
+	if b, _ := os.ReadFile(PreviousPath(exe)); string(b) != "old binary" {
+		t.Fatalf("previous binary = %q, want the old one kept for rollback", b)
+	}
+	m, err := readMarker(exe)
+	if err != nil || m == nil || m.From != "v1.24.9" || m.To != "v1.25.0" {
+		t.Fatalf("pending marker = %+v, %v", m, err)
+	}
+	if want := "[dpkg-deb --field dpkg-deb --extract dpkg --install]"; fmt.Sprint(d.calls) != want {
+		t.Fatalf("commands = %v, want %s", d.calls, want)
+	}
+	if want := []Phase{PhaseDownloading, PhaseVerifying, PhaseInstalling}; fmt.Sprint(phases) != fmt.Sprint(want) {
+		t.Fatalf("phases = %v, want %v", phases, want)
+	}
+	if entries, _ := os.ReadDir(in.TempDir); len(entries) != 0 {
+		t.Fatalf("left behind in the download folder: %v", entries)
+	}
+	assertNoTempFiles(t, filepath.Dir(exe))
+}
+
+func TestInstallDebRefusesBeforeTouchingAnything(t *testing.T) {
+	cases := map[string]func(in *Installer, rel *fakeRelease, d *fakeDpkg) error{
+		ErrChecksum.Error(): func(_ *Installer, rel *fakeRelease, _ *fakeDpkg) error {
+			rel.files[debURL] = append(rel.files[debURL], 0)
+			return ErrChecksum
+		},
+		"not the hermod package": func(_ *Installer, _ *fakeRelease, d *fakeDpkg) error {
+			d.pkgName = "evil"
+			return ErrNotHermodPackage
+		},
+		"cannot unpack": func(_ *Installer, _ *fakeRelease, d *fakeDpkg) error {
+			d.failAt = "extract"
+			return nil
+		},
+		"wrong version inside": func(_ *Installer, rel *fakeRelease, _ *fakeDpkg) error {
+			pkg := []byte("v1.24.0")
+			rel.files[debURL] = pkg
+			rel.files[checksumsURL] = []byte(sum(pkg) + "  " + debName + "\n")
+			return ErrSmokeTest
+		},
+		"dpkg fails before unpacking": func(_ *Installer, _ *fakeRelease, d *fakeDpkg) error {
+			d.failAt = "install"
+			return nil
+		},
+	}
+	for name, breakIt := range cases {
+		t.Run(name, func(t *testing.T) {
+			in, rel, d, exe := newDebFixture(t, "v1.25.0")
+			want := breakIt(in, rel, d)
+			err := in.Install(context.Background(), debPlan, "v1.24.9", nil)
+			if err == nil {
+				t.Fatal("Install succeeded, want an error")
+			}
+			if want != nil && !errors.Is(err, want) {
+				t.Fatalf("Install = %v, want %v", err, want)
+			}
+			if b, _ := os.ReadFile(exe); string(b) != "old binary" {
+				t.Fatalf("binary = %q, want it untouched", b)
+			}
+			if m, _ := readMarker(exe); m != nil {
+				t.Fatalf("pending marker %+v left armed with nothing installed", m)
+			}
+			if entries, _ := os.ReadDir(in.TempDir); len(entries) != 0 {
+				t.Fatalf("left behind in the download folder: %v", entries)
+			}
+		})
+	}
+}
+
+func TestInstallDebFailingAfterUnpackKeepsGuardArmed(t *testing.T) {
+	in, _, d, exe := newDebFixture(t, "v1.25.0")
+	d.failAt, d.partial = "install", true
+	err := in.Install(context.Background(), debPlan, "v1.24.9", nil)
+	if err == nil || !strings.Contains(err.Error(), "post-installation script") {
+		t.Fatalf("Install = %v, want dpkg's own words", err)
+	}
+	if b, _ := os.ReadFile(exe); string(b) != "v1.25.0" {
+		t.Fatalf("binary = %q; dpkg replaced it, the fake should show that", b)
+	}
+	// The new binary is on disk, so the next start must still be watched.
+	if m, _ := readMarker(exe); m == nil || m.To != "v1.25.0" {
+		t.Fatalf("pending marker = %+v, want it armed for v1.25.0", m)
+	}
+}

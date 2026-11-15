@@ -15,11 +15,13 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"runtime"
 	"time"
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/api"
+	"github.com/gsoultan/hermod/internal/config"
 	"github.com/gsoultan/hermod/internal/selfupdate"
 	"github.com/gsoultan/hermod/internal/selfupdate/install"
 	"github.com/gsoultan/hermod/internal/service"
@@ -35,13 +37,16 @@ func updateEnv() install.Env {
 }
 
 // newUpdater builds the self-updater for this process. store is nil for the
-// command-line update, which has no database and uses the default settings.
-func newUpdater(store func() selfupdate.SettingsStore, server *api.Server, logger hermod.Logger) *selfupdate.Service {
+// command-line update, which uses the default settings. backup says what to
+// back up before an install; it is called each time, because first-run setup
+// and a database switch replace the storage it backs up.
+func newUpdater(store func() selfupdate.SettingsStore, backup func() selfupdate.PreUpdateBackup, logger hermod.Logger) *selfupdate.Service {
 	env := updateEnv()
-	inst := &install.Installer{Exe: env.Exe, Fetch: install.Fetcher(install.NewHTTPClient())}
+	capability := install.Detect(env)
+	inst := &install.Installer{Exe: env.Exe, Fetch: install.Fetcher(install.NewHTTPClient()), Method: capability.Method}
 	cfg := selfupdate.Config{
 		Current:    version.Version,
-		Capability: install.Detect(env),
+		Capability: capability,
 		GOOS:       runtime.GOOS,
 		GOARCH:     runtime.GOARCH,
 		Source:     selfupdate.NewGitHub(),
@@ -51,8 +56,11 @@ func newUpdater(store func() selfupdate.SettingsStore, server *api.Server, logge
 		Outcome:    func() *install.Outcome { return install.LastOutcome(env.Exe) },
 		Logger:     logger,
 	}
-	if server != nil {
-		cfg.BeforeInstall = server.BackupBeforeUpdate
+	if backup != nil {
+		cfg.BeforeInstall = func(ctx context.Context) (string, error) {
+			return backup().Take(ctx, selfupdate.Canonical(version.Version), time.Now())
+		}
+		cfg.BackupPlan = func() string { return backup().Plan() }
 	}
 	return selfupdate.New(cfg)
 }
@@ -124,6 +132,27 @@ func restartIntoBinary(exe string) {
 	os.Exit(0)
 }
 
+// commandLineBackup opens the configured metadata database so `--update`
+// copies it first, like the Updates page does. Only a SQLite database can be
+// copied; for any other, or before setup, there is nothing to open.
+func commandLineBackup(o *Options) (func() selfupdate.PreUpdateBackup, func()) {
+	b := selfupdate.PreUpdateBackup{Dir: filepath.Join(config.GetConfigDir(), "backups")}
+	none := func() selfupdate.PreUpdateBackup { return b }
+	if !config.IsDBConfigured() {
+		return none, func() {}
+	}
+	dbType, dbConn, _, _ := getStorageConfig(o)
+	if dbType != "sqlite" {
+		return none, func() {}
+	}
+	store, err := initSQLStorage(dbType, dbConn)
+	if err != nil {
+		return none, func() {}
+	}
+	b.DB = store
+	return func() selfupdate.PreUpdateBackup { return b }, func() { closeStorage(store) }
+}
+
 // runUpdateCommand handles --check-update, --update and --rollback, for
 // machines without the UI: remote workers, or a platform that will not start.
 // It returns the process exit code.
@@ -143,7 +172,9 @@ func runUpdateCommand(o *Options) int {
 
 	// Restart only closes a channel nobody listens to here: the command exits
 	// and the operator restarts the service.
-	svc := newUpdater(nil, nil, nil)
+	backup, closeDB := commandLineBackup(o)
+	defer closeDB()
+	svc := newUpdater(nil, backup, nil)
 	st, err := svc.Check(ctx)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

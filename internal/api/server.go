@@ -108,19 +108,24 @@ type Server struct {
 // SetUpdater attaches the self-updater whose routes Routes mounts.
 func (s *Server) SetUpdater(u *selfupdate.Service) { s.updater = u }
 
-// BackupBeforeUpdate writes a backup when scheduled backups are configured,
-// so an update starts from a restorable point. With no backup directory there
-// is nothing to write to and it does nothing.
-func (s *Server) BackupBeforeUpdate(ctx context.Context) error {
-	cfg := s.Handler.Config
-	if cfg == nil || strings.TrimSpace(cfg.Backup.Directory) == "" {
-		return nil
+// PreUpdateBackup is what is backed up before an update: a copy of a SQLite
+// database in the config folder, and the scheduled configuration backup
+// when backup.directory is set.
+func (s *Server) PreUpdateBackup() selfupdate.PreUpdateBackup {
+	b := selfupdate.PreUpdateBackup{Dir: filepath.Join(config.GetConfigDir(), "backups")}
+	if s.Handler.Storage != nil {
+		b.DB = s.Handler.Storage
 	}
-	_, err := infrahttp.NewInfraHandler(s.Handler).WriteBackup(ctx, infrahttp.BackupSchedule{
-		Directory: cfg.Backup.Directory,
-		Retention: cfg.Backup.Retention,
-	})
-	return err
+	if cfg := s.Handler.Config; cfg != nil && strings.TrimSpace(cfg.Backup.Directory) != "" {
+		b.AppBackupDir = cfg.Backup.Directory
+		b.AppBackup = func(ctx context.Context) (string, error) {
+			return infrahttp.NewInfraHandler(s.Handler).WriteBackup(ctx, infrahttp.BackupSchedule{
+				Directory: cfg.Backup.Directory,
+				Retention: cfg.Backup.Retention,
+			})
+		}
+	}
+	return b
 }
 
 // NewServer constructs a new Server with the provided engine registry and storage backend.

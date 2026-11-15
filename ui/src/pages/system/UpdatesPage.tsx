@@ -1,4 +1,4 @@
-import { Alert, Anchor, Badge, Button, Group, Loader, Modal, Paper, Radio, Select, SimpleGrid, Spoiler, Stack, Switch, Text, Title } from '@mantine/core';
+import { Alert, Anchor, Badge, Button, Code, Group, Loader, Modal, Paper, Radio, Select, SimpleGrid, Spoiler, Stack, Switch, Text, Title } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconAlertTriangle, IconArrowBackUp, IconCircleCheck, IconDownload, IconExternalLink, IconRefresh } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -23,13 +23,17 @@ export interface UpdateStatus {
   checked_at?: string;
   check_error?: string;
   can_install: boolean;
+  /** How an install is put in place: the binary swapped, or the .deb installed with dpkg. */
+  method?: 'binary' | 'deb';
   install_blocked?: string;
+  /** What is backed up before an install, in words. */
+  backup_plan?: string;
   auto_install_held?: string;
   platform: string;
   phase: 'idle' | 'downloading' | 'verifying' | 'installing' | 'restarting' | 'failed';
   phase_error?: string;
   installing?: string;
-  last_outcome?: { result: 'updated' | 'rolled_back'; from: string; to: string; detail?: string; at: string };
+  last_outcome?: { result: 'updated' | 'rolled_back'; from: string; to: string; detail?: string; at: string; backup?: string };
   settings: UpdateSettings;
 }
 
@@ -224,9 +228,12 @@ export function UpdatesPage() {
       <Modal opened={confirming} onClose={() => setConfirming(false)} title={`Install Hermod ${status?.latest?.tag ?? ''}?`}>
         <Stack>
           <Text size="sm">
-            Hermod downloads the release, checks it against its published checksum, and restarts into it. It is
-            unavailable for the few seconds the restart takes; flows stop gracefully and start again with it.
+            {status?.method === 'deb'
+              ? 'Hermod downloads the release’s .deb package, checks it against its published checksum, installs it with dpkg, and restarts into it.'
+              : 'Hermod downloads the release, checks it against its published checksum, and restarts into it.'}{' '}
+            It is unavailable for the few seconds the restart takes; flows stop gracefully and start again with it.
           </Text>
+          {status?.backup_plan && <Text size="sm">{status.backup_plan}</Text>}
           <Text size="sm">
             If the new version cannot stay up, the previous one is put back by itself after three failed starts.
           </Text>
@@ -248,6 +255,12 @@ function Outcome({ status }: { status: UpdateStatus }) {
     return (
       <Alert color="orange" icon={<IconArrowBackUp size="1rem" />} title={`${o.to} was rolled back to ${o.from || 'the previous version'}`}>
         {o.detail} {when(o.at) && `(${when(o.at)})`}
+        {o.backup && (
+          <Text size="sm" mt="xs">
+            If the previous version will not start because the new one upgraded the database, restore the backup
+            taken before the update: <Code>{o.backup}</Code>
+          </Text>
+        )}
       </Alert>
     );
   }

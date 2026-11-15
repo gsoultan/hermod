@@ -7,6 +7,34 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — `.deb` installs update themselves, and a server installs in one command
+
+The Updates page, automatic updates and `hermod --update` now work where Hermod was installed
+from the `.deb`. They said "This installation cannot update itself" before. Hermod downloads
+the release's `.deb`, checks it against `checksums.txt`, makes sure it is the `hermod` package
+and that its binary reports the release's version, installs it with `dpkg`, and restarts into
+it. It needs to run as root to do this, as the packaged service and `hermod --service install`
+do. The boot guard and rollback work as for a tarball install. A release whose build failed
+before uploading its files is no longer offered to an installation that could install it.
+
+Every update now copies a SQLite metadata database first, from the Updates page and from
+`hermod --update`, into `backups/` in the config folder (private, newest three kept). If an update
+is rolled back, the notice names that copy, because an older version will not start on a schema
+the newer one upgraded. For PostgreSQL, MySQL and MongoDB, the install dialog asks you to back the
+database up first.
+
+The packages now set Hermod up as a service on a first install: a systemd unit, the data folder
+`/var/lib/hermod`, and `/etc/hermod/hermod.env` with a master key generated for that machine.
+Hermod is enabled and started on port 4000. An upgrade does not restart Hermod or change its
+settings. A unit written earlier by `hermod --service install` takes precedence and is left
+alone. `deploy/package/install.sh` installs the newest release's package in one command:
+`curl -fsSL https://raw.githubusercontent.com/gsoultan/hermod/main/deploy/package/install.sh | sudo sh`.
+
+### Fixed — v1.25.1 and v1.26.0 were published without binaries or packages
+
+The release build was stopped while compiling, because it built `hermod` and `hermod-edge` for
+both architectures at once and ran out of memory. It now builds one at a time.
+
 ### Security — the history of received webhooks needed no login
 
 `GET /api/webhooks/requests` answered anyone who could reach the API port with the headers and

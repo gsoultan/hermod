@@ -56,6 +56,9 @@ type Plan struct {
 	ArchiveName  string
 	ArchiveURL   string
 	ChecksumsURL string
+	// Backup is where the backup taken before this install is, recorded with
+	// the pending update so a rollback can point to it.
+	Backup string
 }
 
 // Installer replaces the binary at Exe with a release.
@@ -71,12 +74,27 @@ type Installer struct {
 	MaxArchive int64
 	MaxBinary  int64
 	Now        func() time.Time
+
+	// Method is how the release is put in place; empty means MethodBinary.
+	Method Method
+	// Command runs dpkg and dpkg-deb for MethodDeb and returns what they
+	// printed. Nil runs them for real.
+	Command func(ctx context.Context, name string, args ...string) ([]byte, error)
+	// TempDir is where a .deb is downloaded and unpacked; empty means the
+	// system's temporary folder.
+	TempDir string
 }
 
 // ArchiveName is the file goreleaser publishes for a tag and platform
 // (name_template "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}").
 func ArchiveName(tag, goos, goarch string) string {
-	return fmt.Sprintf("hermod_%s_%s_%s.tar.gz", strings.TrimPrefix(tag, "v"), goos, goarch)
+	return PackageName(tag, goos, goarch, "tar.gz")
+}
+
+// PackageName is a release file of the given extension; the archive and the
+// nfpms packages share one name template.
+func PackageName(tag, goos, goarch, ext string) string {
+	return fmt.Sprintf("hermod_%s_%s_%s.%s", strings.TrimPrefix(tag, "v"), goos, goarch, ext)
 }
 
 // PreviousPath is where the binary that was replaced is kept for rollback.
@@ -91,6 +109,9 @@ func (in *Installer) Install(ctx context.Context, plan Plan, from string, progre
 	}
 	if in.Fetch == nil {
 		return errors.New("installer has no downloader")
+	}
+	if in.Method == MethodDeb {
+		return in.installDeb(ctx, plan, from, progress)
 	}
 	dir := filepath.Dir(in.Exe)
 
@@ -116,7 +137,7 @@ func (in *Installer) Install(ctx context.Context, plan Plan, from string, progre
 	}
 
 	progress(PhaseInstalling)
-	if err := in.swap(staged, plan.Tag, from); err != nil {
+	if err := in.swap(staged, plan, from); err != nil {
 		return err
 	}
 	swapped = true
@@ -140,7 +161,7 @@ func (in *Installer) download(ctx context.Context, plan Plan, dir string, verify
 		return "", fmt.Errorf("%w: checksums.txt has no entry for %s", ErrChecksum, plan.ArchiveName)
 	}
 
-	archive, err := os.CreateTemp(dir, tempPrefix+"*.tar.gz")
+	archive, err := os.CreateTemp(dir, tempPrefix+"*-"+plan.ArchiveName)
 	if err != nil {
 		return "", fmt.Errorf("cannot write next to the binary: %w", err)
 	}
@@ -169,7 +190,21 @@ func (in *Installer) download(ctx context.Context, plan Plan, dir string, verify
 
 // swap keeps the running binary for rollback, arms the boot guard and renames
 // staged over the binary.
-func (in *Installer) swap(staged, tag, from string) error {
+func (in *Installer) swap(staged string, plan Plan, from string) error {
+	if err := in.arm(plan, from); err != nil {
+		return err
+	}
+	if err := os.Rename(staged, in.Exe); err != nil {
+		_ = removeMarker(in.Exe)
+		return fmt.Errorf("cannot replace %s: %w", in.Exe, err)
+	}
+	return nil
+}
+
+// arm keeps the running binary for rollback and records the pending update,
+// so the boot guard watches the new binary from the moment it is in place. A
+// caller whose replacement then fails disarms it with removeMarker.
+func (in *Installer) arm(plan Plan, from string) error {
 	if err := keepPrevious(in.Exe); err != nil {
 		return fmt.Errorf("cannot keep the current binary for rollback: %w", err)
 	}
@@ -177,14 +212,8 @@ func (in *Installer) swap(staged, tag, from string) error {
 	if in.Now != nil {
 		now = in.Now
 	}
-	// Armed before the swap: the moment the new binary is in place it must be
-	// watched, and a marker with no swap behind it is disarmed below.
-	if err := writeMarker(in.Exe, &Marker{From: from, To: tag, At: now().UTC()}); err != nil {
+	if err := writeMarker(in.Exe, &Marker{From: from, To: plan.Tag, At: now().UTC(), Backup: plan.Backup}); err != nil {
 		return fmt.Errorf("cannot record the pending update: %w", err)
-	}
-	if err := os.Rename(staged, in.Exe); err != nil {
-		_ = removeMarker(in.Exe)
-		return fmt.Errorf("cannot replace %s: %w", in.Exe, err)
 	}
 	return nil
 }

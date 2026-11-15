@@ -81,6 +81,26 @@ const currentSchemaVersion = 2
 
 // ErrSchemaFromTheFuture is returned when the database was migrated by a
 // release newer than this binary.
+// ErrSnapshotUnsupported is SnapshotTo on a database that is not SQLite: a
+// server database is backed up by its own tools.
+var ErrSnapshotUnsupported = errors.New("only a SQLite database can be copied by Hermod")
+
+// SnapshotTo writes a consistent copy of a SQLite database to path, which
+// must not exist yet. It is the restore point taken before an upgrade: there
+// are no down migrations, so a release that cannot be kept is undone by going
+// back to this copy. VACUUM INTO reads one transaction's view, so writers can
+// carry on while it runs.
+func (s *sqlStorage) SnapshotTo(ctx context.Context, path string) error {
+	if s.driver != "sqlite" {
+		return ErrSnapshotUnsupported
+	}
+	_, err := s.exec(ctx, "VACUUM INTO ?", path)
+	return err
+}
+
+// CanSnapshot reports whether SnapshotTo can copy this database.
+func (s *sqlStorage) CanSnapshot() bool { return s.driver == "sqlite" }
+
 var ErrSchemaFromTheFuture = errors.New("metadata schema is newer than this binary understands")
 
 // checkSchemaVersion refuses to continue when the database is ahead of this

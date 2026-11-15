@@ -72,6 +72,18 @@ nfpms:
       - rpm
       - apk
     bindir: /usr/bin
+    # Installing the package is all a server needs: the unit, a data folder
+    # and a settings file with a master key of its own, and on a first install
+    # Hermod is enabled and started (deploy/package/postinstall.sh). An upgrade
+    # leaves the service running and the settings as they are.
+    contents:
+      - src: deploy/package/hermod.service
+        dst: /usr/lib/systemd/system/hermod.service
+        file_info:
+          mode: 0644
+    scripts:
+      postinstall: deploy/package/postinstall.sh
+      preremove: deploy/package/preremove.sh
 
 checksum:
   name_template: 'checksums.txt'

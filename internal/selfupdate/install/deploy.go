@@ -11,11 +11,15 @@
 package install
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/mod/semver"
 )
@@ -32,7 +36,28 @@ type Env struct {
 	InContainer  bool
 	// Writable reports whether a file can be created in dir.
 	Writable func(dir string) error
+	// Package names the .deb package that owns path, or fails when dpkg
+	// does not know it (an .rpm or .apk install, or no dpkg at all).
+	Package func(path string) (string, error)
+	// Root is whether the process runs as root, which installing a package
+	// needs. User names who it runs as otherwise.
+	Root bool
+	User string
 }
+
+// Method is how an update is put in place.
+type Method string
+
+const (
+	// MethodBinary renames the release archive's binary over the running one.
+	MethodBinary Method = "binary"
+	// MethodDeb installs the release's .deb with dpkg, so the package
+	// database keeps describing what is installed.
+	MethodDeb Method = "deb"
+)
+
+// DebPackage is the package name goreleaser's nfpms section publishes.
+const DebPackage = "hermod"
 
 // Capability is whether this process can install an update itself, and in
 // plain words why not when it cannot.
@@ -40,13 +65,24 @@ type Capability struct {
 	CanInstall bool   `json:"can_install"`
 	Reason     string `json:"reason,omitempty"`
 	Platform   string `json:"platform"`
+	Method     Method `json:"method,omitempty"`
 	Exe        string `json:"-"`
+	GOOS       string `json:"-"`
+	GOARCH     string `json:"-"`
+}
+
+// AssetName is the release file this installation updates from.
+func (c Capability) AssetName(tag string) string {
+	if c.Method == MethodDeb {
+		return PackageName(tag, c.GOOS, c.GOARCH, "deb")
+	}
+	return ArchiveName(tag, c.GOOS, c.GOARCH)
 }
 
 // Detect decides whether an in-place update is possible here. Checking for a
 // newer release is always possible; this only governs installing one.
 func Detect(env Env) Capability {
-	c := Capability{Platform: env.GOOS + "/" + env.GOARCH, Exe: env.Exe}
+	c := Capability{Platform: env.GOOS + "/" + env.GOARCH, Exe: env.Exe, GOOS: env.GOOS, GOARCH: env.GOARCH, Method: MethodBinary}
 	no := func(format string, a ...any) Capability {
 		c.Reason = fmt.Sprintf(format, a...)
 		return c
@@ -66,7 +102,7 @@ func Detect(env Env) Capability {
 	}
 	dir := filepath.Dir(env.Exe)
 	if dir == "/usr/bin" || dir == "/usr/sbin" {
-		return no("Hermod was installed from a package (.deb, .rpm or .apk) into %s. Upgrade it with your package manager, using the package from the release page.", dir)
+		return packaged(c, env)
 	}
 	if env.Writable != nil {
 		if err := env.Writable(dir); err != nil {
@@ -77,6 +113,54 @@ func Detect(env Env) Capability {
 	return c
 }
 
+// packaged decides for a binary a package manager put in place. Only the
+// .deb is installed by Hermod itself: dpkg can be driven without prompts and
+// keeps its own record of the upgrade, and it is the package asked for.
+func packaged(c Capability, env Env) Capability {
+	dir := filepath.Dir(env.Exe)
+	owner := ""
+	if env.Package != nil {
+		owner, _ = env.Package(env.Exe)
+	}
+	if owner != DebPackage {
+		c.Reason = fmt.Sprintf("Hermod was installed into %s by a package manager other than dpkg (.rpm or .apk). Upgrade it with that package manager, using the package from the release page.", dir)
+		return c
+	}
+	if !env.Root {
+		who := env.User
+		if who == "" {
+			who = "a user other than root"
+		}
+		c.Reason = fmt.Sprintf("Hermod was installed from the hermod .deb, and installing the newer .deb needs root, but Hermod runs as %s. Run the service as root, or upgrade by hand with sudo apt install ./%s from the release page.", who, PackageName("vX.Y.Z", env.GOOS, env.GOARCH, "deb"))
+		return c
+	}
+	c.CanInstall, c.Method = true, MethodDeb
+	return c
+}
+
+// dpkgOwner asks dpkg which package installed path.
+func dpkgOwner(path string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, systemTool("dpkg-query"), "--search", path).Output() //nolint:gosec // G204: path is this process's own executable.
+	if err != nil {
+		return "", err
+	}
+	return parseDpkgOwner(string(out)), nil
+}
+
+// parseDpkgOwner reads `dpkg-query --search` output ("pkg: /usr/bin/hermod").
+// A file claimed by several packages, or diverted, has no single owner.
+func parseDpkgOwner(out string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(out), "\n")
+	pkg, _, ok := strings.Cut(line, ": ")
+	if !ok || strings.ContainsAny(pkg, ", ") {
+		return ""
+	}
+	pkg, _, _ = strings.Cut(pkg, ":") // hermod:amd64
+	return pkg
+}
+
 // CurrentEnv describes the running process.
 func CurrentEnv(version, goos, goarch string) Env {
 	exe, err := os.Executable()
@@ -85,11 +169,17 @@ func CurrentEnv(version, goos, goarch string) Env {
 			exe = resolved
 		}
 	}
-	return Env{
+	env := Env{
 		GOOS: goos, GOARCH: goarch, Exe: exe, Version: version,
 		InContainer: inContainer(),
 		Writable:    canWrite,
+		Package:     dpkgOwner,
+		Root:        os.Geteuid() == 0,
 	}
+	if u, err := user.Current(); err == nil {
+		env.User = u.Username
+	}
+	return env
 }
 
 func inContainer() bool {

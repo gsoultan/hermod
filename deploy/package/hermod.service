@@ -1,0 +1,35 @@
+# Installed by the hermod package. Settings live in /etc/hermod/hermod.env;
+# change them there and run: systemctl restart hermod
+#
+# A unit of the same name in /etc/systemd/system (what `hermod --service
+# install` writes) takes precedence over this one.
+[Unit]
+Description=Hermod data integration platform
+Documentation=https://github.com/gsoultan/hermod
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/hermod/hermod.env
+WorkingDirectory=/var/lib/hermod
+ExecStart=/usr/bin/hermod --mode=standalone
+# Restart=always also brings Hermod back after it installs an update: it
+# exits once the new version is in place and systemd starts the new binary.
+# It runs as root because installing that update's .deb needs root.
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+# Hardening that still lets dpkg install an update: /usr stays writable, and
+# a private /tmp holds the downloaded package only for this service.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target
