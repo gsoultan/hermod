@@ -79,6 +79,10 @@ func (h *SourceHandler) ListSources(w http.ResponseWriter, r *http.Request) {
 		sources = filtered
 	}
 
+	for i := range sources {
+		sources[i].Config = h.ConfigForCaller(r, sources[i].Config)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"data":  sources,
@@ -105,6 +109,8 @@ func (h *SourceHandler) GetSource(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	src.Config = h.ConfigForCaller(r, src.Config)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(src)
