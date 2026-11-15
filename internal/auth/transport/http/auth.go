@@ -516,6 +516,11 @@ func (h *AuthHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.usernameTaken(r.Context(), user.Username, "") {
+		h.JsonError(w, "Another user is already named "+user.Username, http.StatusConflict)
+		return
+	}
+
 	if user.Password != "" {
 		hashed, _ := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
 		user.Password = string(hashed)
@@ -607,6 +612,10 @@ func (h *AuthHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	// Merge changes
 	if req.Username != "" {
+		if req.Username != user.Username && h.usernameTaken(r.Context(), req.Username, user.ID) {
+			h.JsonError(w, "Another user is already named "+req.Username, http.StatusConflict)
+			return
+		}
 		user.Username = req.Username
 	}
 	if req.FullName != "" {
@@ -1221,6 +1230,11 @@ func (h *AuthHandler) CreateVHost(w http.ResponseWriter, r *http.Request) {
 		vh.ID = uuid.New().String()
 	}
 
+	if h.vhostNameTaken(r.Context(), vh.Name) {
+		h.JsonError(w, "Another vhost is already named "+vh.Name, http.StatusConflict)
+		return
+	}
+
 	if err := h.Storage.CreateVHost(r.Context(), vh); err != nil {
 		h.JsonError(w, "Failed to create vhost: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -1284,6 +1298,43 @@ func (h *AuthHandler) UpdateVHost(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(vh)
+}
+
+// usernameTaken reports whether a user other than the one with id exceptID
+// already has the username.
+//
+// The stores hold usernames unique and refuse a second one with their own
+// constraint error, which reached the caller as a 500 quoting it. Asking
+// first turns the common case into an answer a person can act on. Two
+// requests for one name at the same moment can still both pass this and one
+// of them be refused by the store.
+func (h *AuthHandler) usernameTaken(ctx context.Context, username, exceptID string) bool {
+	if username == "" {
+		return false
+	}
+	existing, err := h.Storage.GetUserByUsername(ctx, username)
+	return err == nil && existing.ID != exceptID
+}
+
+// vhostNameTaken reports whether a vhost already has the name. See
+// usernameTaken.
+func (h *AuthHandler) vhostNameTaken(ctx context.Context, name string) bool {
+	filter := storage.CommonFilter{Page: 1, Limit: handlers.MaxListPageSize}
+	for {
+		vhosts, total, err := h.Storage.ListVHosts(ctx, filter)
+		if err != nil {
+			return false
+		}
+		for _, vh := range vhosts {
+			if vh.Name == name {
+				return true
+			}
+		}
+		if len(vhosts) == 0 || filter.Page*filter.Limit >= total {
+			return false
+		}
+		filter.Page++
+	}
 }
 
 // validVHostName reports what is wrong with a name a vhost is given. "all"
