@@ -151,23 +151,30 @@ function ReleaseForm({ items, versions, onClose }: { items: ReleaseItem[]; versi
 
   return (
     <Stack gap="md">
-      {rules && <Text size="sm" c="dimmed">{approvalLine[rules.approval](where)}.</Text>}
       <Route here={here} kept={kept.length} previews={all} groups={groups} />
 
       {preview.isLoading && <Group gap="xs"><Loader size="xs" /><Text size="sm">Checking with each environment…</Text></Group>}
       {preview.error && <Alert color="red" title="Could not run the checks">{(preview.error as Error).message}</Alert>}
 
       {preview.data && (single ? (
-        <SingleSummary p={single} showChecks={showChecks} onToggleChecks={() => setShowChecks((s) => !s)} onFixed={recheck} />
+        <SingleSummary
+          p={single}
+          secrets={needed.length}
+          approval={rules ? `${approvalLine[rules.approval](where)}.` : ''}
+          showChecks={showChecks}
+          onToggleChecks={() => setShowChecks((s) => !s)}
+          onFixed={recheck}
+        />
       ) : (
         <Stack gap="sm">
-          <Group justify="space-between" wrap="nowrap">
+          <Stack gap={0}>
             <Text size="sm" fw={600} c={blocked.length ? 'orange.8' : 'green.8'}>
               {blocked.length || unlinked.length
                 ? `${all.length - blocked.length} of ${all.length + unlinked.length} flows are ready`
                 : `All ${plural(all.length, 'flow')} are ready`}
             </Text>
-          </Group>
+            {rules && <Text size="sm" c="dimmed">{approvalLine[rules.approval](where)}.</Text>}
+          </Stack>
           {groups.map((g) => <GroupCard key={g.link_id} group={g} onLeaveOut={leaveOut} onFixed={recheck} />)}
         </Stack>
       ))}
@@ -177,7 +184,7 @@ function ReleaseForm({ items, versions, onClose }: { items: ReleaseItem[]; versi
           <Group justify="space-between" wrap="nowrap">
             <Text size="sm">
               Nothing is connected for {u.vhost}, so <b>{u.workflow_name}</b> has nowhere to go. An administrator
-              connects it in Settings › Workspace › Environments.
+              connects it under Settings › Environments › Setup.
             </Text>
             <Button size="xs" variant="default" aria-label={`Leave out ${u.workflow_name}`} onClick={() => leaveOut(u.workflow_id)}>
               Leave out
@@ -309,23 +316,38 @@ function Route({ here, kept, previews, groups }: { here: string; kept: number; p
   )
 }
 
-function SingleSummary({ p, showChecks, onToggleChecks, onFixed }: {
-  p: Preview; showChecks: boolean; onToggleChecks: () => void; onFixed: () => void
+/** The secrets check, which the box asking for the values already says. */
+const isSecretsCheck = (name: string) => name.startsWith('Secrets exist in ')
+
+/** "1 connection is created, 2 secrets to fill", or '' when neither. */
+export function readyLine(created: number, secrets: number): string {
+  const parts: string[] = []
+  if (created) parts.push(`${plural(created, 'connection')} ${created === 1 ? 'is' : 'are'} created`)
+  if (secrets) parts.push(`${plural(secrets, 'secret')} to fill`)
+  return parts.join(', ')
+}
+
+function SingleSummary({ p, secrets, approval, showChecks, onToggleChecks, onFixed }: {
+  p: Preview; secrets: number; approval: string; showChecks: boolean; onToggleChecks: () => void; onFixed: () => void
 }) {
-  const passed = p.checks.filter((c) => c.ok)
   const warnings = p.checks.filter((c) => !c.ok && !c.blocking)
   const changes = p.changes ?? []
+  const created = (p.connections ?? []).filter((c) => c.status === 'create').length
+  const line = readyLine(created, secrets)
   return (
     <Stack gap="sm">
       {p.ready ? (
-        <Alert color="green" icon={<IconCheck size="1rem" />} title={`Ready to send. ${passed.length === p.checks.length ? `All ${passed.length} checks passed.` : `${passed.length} of ${p.checks.length} checks passed.`}`}>
+        <Alert color="green" icon={<IconCheck size="1rem" />} title={line ? `Ready. ${line}.` : 'Ready to send.'}>
+          <Text size="sm" span>
+            All required checks passed{warnings.length ? `, ${plural(warnings.length, 'warning')}` : ''}.{approval ? ` ${approval}` : ''}
+          </Text>{' '}
           <Anchor component="button" type="button" size="sm" onClick={onToggleChecks}>{showChecks ? 'Hide checks' : 'Show checks'}</Anchor>
-          <Collapse expanded={showChecks}><Checks p={p} /></Collapse>
+          <Collapse expanded={showChecks}>{showChecks && <Checks p={p} />}</Collapse>
         </Alert>
       ) : (
         <Fixes p={p} onFixed={onFixed} />
       )}
-      {warnings.map((c) => (
+      {warnings.filter((c) => !(secrets > 0 && isSecretsCheck(c.name))).map((c) => (
         <Alert key={c.name} color="yellow" variant="light" icon={<IconAlertTriangle size="1rem" />}>
           <Text size="sm">{c.detail || c.name}</Text>
         </Alert>
@@ -438,7 +460,7 @@ function FixConnection({ n, p, row, onFixed }: { n: number; p: Preview; row: Mat
           {save.error && <Text size="xs" c="red">{(save.error as Error).message}</Text>}
         </>
       ) : (
-        <Text size="xs" c="dimmed">An administrator matches it here, or in Settings › Workspace › Environments.</Text>
+        <Text size="xs" c="dimmed">An administrator matches it here, or under Settings › Environments › Setup.</Text>
       )}
     </Stack>
   )

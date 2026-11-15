@@ -197,7 +197,7 @@ export function settingsRows(role: Role): SettingsRow[] {
       { key: 'updates', label: 'Updates', detail: 'New releases, and whether they install by themselves', to: '/updates' },
     )
   }
-  rows.push({ key: 'releases', label: 'Releases', detail: 'Environments and promotion between them', to: '/environments' })
+  rows.push({ key: 'environments', label: 'Environments', detail: 'Connect servers, promote flows and approve what arrives', to: '/environments' })
   rows.push({ key: 'developer', label: 'Developer', detail: 'Schema registry, secrets, API and MCP', to: '/developer' })
   if (isAdmin(role)) {
     rows.push({ key: 'audit', label: 'Audit log', detail: 'Who changed what, and when', to: '/activity', search: { tab: 'audit' } })

@@ -114,6 +114,10 @@ export interface MatchRow {
   status: MatchStatus
   manual: boolean
   candidates: Connection[] | null
+  /** Nothing there matches it, so the next release brings it and creates it there on approval. */
+  travels?: boolean
+  /** Credentials typed in plain text that keep it from travelling until they are moved to a secret. */
+  plain_keys?: string[]
 }
 
 export interface Check {
@@ -417,6 +421,35 @@ export const rollbackPromotion = (pid: string) => requestJson<Promotion>(`${api}
 
 export function useInstance() {
   return useQuery({ queryKey: environmentKeys.self, queryFn: ({ signal }) => getInstance(signal), staleTime: 60_000 })
+}
+
+/** Who approves promotions into vhost here: its own rule, else the instance's. */
+export const approvalFor = (rules: Rules | undefined, vhost: string): ApprovalRule | undefined =>
+  rules?.by_vhost?.[vhost]?.approval ?? rules?.approval
+
+/** rules with vhost's approver changed: its own rule when it has one, else the instance's. */
+export function withApproval(rules: Rules, vhost: string, approval: ApprovalRule): Rules {
+  const own = rules.by_vhost?.[vhost]
+  if (own) return { ...rules, by_vhost: { ...rules.by_vhost, [vhost]: { ...own, approval } } }
+  return { ...rules, approval }
+}
+
+/**
+ * Whether the person signed in is this instance's only administrator. Only
+ * an administrator can list people; anything else, or more people than one
+ * page holds, reads as not alone.
+ */
+export function useOnlyAdministrator(enabled = true) {
+  return useQuery({
+    queryKey: ['users', 'administrators'],
+    enabled,
+    staleTime: 60_000,
+    queryFn: async ({ signal }) => {
+      const res = await requestJson<{ data: { role: string }[] | null; total: number }>('/api/users?page=1&limit=100', { signal })
+      const people = res.data ?? []
+      return people.length === res.total && people.filter((u) => u.role === 'Administrator').length === 1
+    },
+  })
 }
 
 export function useRules(enabled = true) {

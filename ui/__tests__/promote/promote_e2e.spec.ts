@@ -44,13 +44,14 @@ const field = (within: Page | ReturnType<Page['getByRole']>, name: string) =>
   within.getByRole('textbox', { name, exact: true }).or(within.getByRole('combobox', { name, exact: true })).first();
 
 async function settingsEnvironments(i: Instance) {
-  await i.page.goto(i.url('/settings?tab=environments'));
+  await i.page.goto(i.url('/environments?tab=setup'));
   await expect(i.page.getByRole('heading', { name: 'Environments', exact: true })).toBeVisible({ timeout: 20000 });
 }
 
 async function setRole(i: Instance, role: 'Staging' | 'Production') {
   await settingsEnvironments(i);
   const page = i.page;
+  await page.getByRole('button', { name: 'Pick it yourself' }).click();
   await page.getByRole('radiogroup', { name: 'What this instance is' }).getByText(role, { exact: true }).click();
   await page.getByRole('textbox', { name: 'Name' }).fill(role);
   await page.getByRole('button', { name: 'Save', exact: true }).click();
@@ -61,15 +62,17 @@ test('D1: a fresh instance has no role; setting Staging and Production shows the
   for (const [i, role] of [[staging, 'Staging'], [prod, 'Production']] as const) {
     const self = await i.api('GET', '/api/environments/self');
     expect(self.role, `${i.name} is not a fresh instance: start it with --reset`).toBe('');
+    // An administrator lands on Setup while nothing is set up.
     await i.page.goto(i.url('/environments'));
-    await expect(i.page.getByText('This instance has no environment role yet.')).toBeVisible();
+    await expect(i.page.getByRole('tab', { name: 'Setup', selected: true })).toBeVisible({ timeout: 20000 });
+    await expect(i.page.getByText('This instance has no role yet')).toBeVisible();
     await expect(badge(i.page, role)).toHaveCount(0);
 
     await setRole(i, role);
     // The badge, always in view from then on, and it leads back here.
     await i.page.goto(i.url('/'));
     await expect(badge(i.page, role)).toBeVisible();
-    await expect(badge(i.page, role)).toHaveAttribute('href', '/settings?tab=environments');
+    await expect(badge(i.page, role)).toHaveAttribute('href', '/environments?tab=setup');
   }
 });
 
@@ -78,7 +81,7 @@ async function connectStep1(from: string) {
   const page = staging.page;
   await settingsEnvironments(staging);
   await page.getByRole('button', { name: 'Connect a server' }).click();
-  const wizard = page.getByRole('dialog', { name: 'Connect an environment' });
+  const wizard = page.getByRole('dialog', { name: 'Connect a server' });
   await wizard.getByRole('textbox', { name: 'Address' }).fill(PROD_URL);
   await field(wizard, 'Workflows from').click();
   await page.getByRole('option', { name: from, exact: true }).click();
@@ -101,6 +104,11 @@ test('D2: Connect a server, by signing in to production in a popup and by a pair
   const popup = await popupOpened;
   await expect(popup).toHaveURL(new RegExp(`^${PROD_URL}/environments/accept/`));
   await expect(popup.getByText(`${new URL(STAGING_URL).origin}`, { exact: false }).first()).toBeVisible();
+  // Production's setup admin is its only administrator, so the page asks who
+  // approves, with any administrator picked. Keep the default rule: D6 and D7
+  // need "an administrator other than the sender".
+  await expect(popup.getByRole('radio', { name: /Any administrator, including me/ })).toBeChecked();
+  await popup.getByRole('radio', { name: /An administrator other than the sender/ }).check();
   // hr is not on production yet: allowing creates it.
   await popup.getByRole('button', { name: `Create ${VHOST} and allow` }).click();
   await expect(wizard.getByText('Connected to Production')).toBeVisible({ timeout: 20000 });
@@ -185,22 +193,25 @@ async function editFlow(change: (wf: any) => void) {
   await staging.api('PUT', `/api/workflows/${flow.id}`, wf);
 }
 
-test('D3: Match connections: same name matches, the rest are Missing; search and filters', async () => {
+test('D3: Connections: same name matches, the rest come with the first release; search and filters', async () => {
   await buildFlow();
   await settingsEnvironments(staging);
   const page = staging.page;
   const card = page.getByRole('region', { name: 'Production' });
   await card.getByRole('button', { name: 'Match connections' }).first().click();
   const dialog = page.getByRole('dialog', { name: 'Connections in Production' });
-  await expect(dialog.getByText('1 of 3', { exact: true })).toBeVisible({ timeout: 20000 });
+  await expect(dialog.getByText('3 of 3', { exact: true })).toBeVisible({ timeout: 20000 });
+  await expect(dialog.getByText('You can promote now.')).toBeVisible();
   const rows = dialog.getByRole('list', { name: 'Connections matched in Production' }).locator('li');
   const row = (name: string) => dialog.locator(`li[data-name="${name}"]`);
   await expect(rows).toHaveCount(3);
   await expect(row('audit-log')).toContainText('Matched');
   await expect(row('audit-log').getByRole('combobox', { name: 'Match for audit-log' })).toHaveValue(/audit-log/);
-  for (const missing of ['signups', 'crm']) {
-    await expect(row(missing)).toContainText('Missing');
-    await expect(row(missing).getByRole('link', { name: /Create it in Production/ })).toHaveAttribute('href', new RegExp(`^${PROD_URL}/(sources|sinks)/new$`));
+  // Production has neither, and their credentials are secret references, so
+  // both travel with the first release: nothing to do, nothing to create by hand.
+  for (const travels of ['signups', 'crm']) {
+    await expect(row(travels)).toContainText('Comes with the first release');
+    await expect(row(travels).getByRole('link', { name: /Create it in Production/ })).toHaveCount(0);
   }
 
   // Search narrows the list, by name or type.
@@ -213,11 +224,10 @@ test('D3: Match connections: same name matches, the rest are Missing; search and
   await search.fill('');
 
   // The filters count and split them.
-  await dialog.getByText('To check (2)').click();
-  await expect(rows).toHaveCount(2);
-  await dialog.getByText('Matched (1)').click();
-  await expect(rows).toHaveCount(1);
-  await expect(row('audit-log')).toBeVisible();
+  await dialog.getByText('To check (0)').click();
+  await expect(rows).toHaveCount(0);
+  await dialog.getByText('Ready (3)').click();
+  await expect(rows).toHaveCount(3);
   await dialog.getByText('All (3)').click();
   await expect(rows).toHaveCount(3);
   await dialog.getByRole('button', { name: 'Done' }).click();
@@ -238,7 +248,7 @@ async function openPromote() {
   await page.getByRole('button', { name: 'Promote to Production' }).click();
   const dialog = page.getByRole('dialog', { name: `Promote ${flow.name}` });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByText(/^Ready to send\./)).toBeVisible({ timeout: 20000 });
+  await expect(dialog.getByText(/^Ready( to send)?\./)).toBeVisible({ timeout: 20000 });
   return dialog;
 }
 
@@ -261,15 +271,17 @@ test('D4+D5: the strip says "not there yet"; the setup admin promotes from hr, c
   // this was a 403, "you do not have access to vhost hr".
   const res = await checked;
   expect(res.status(), await res.text()).toBe(200);
-  await expect(dialog.getByText('An administrator other than you approves it for Production.')).toBeVisible();
+  await expect(dialog.getByText('Ready. 2 connections are created, 2 secrets to fill.')).toBeVisible();
+  await expect(dialog.getByText(/An administrator other than you approves it for Production\./)).toBeVisible();
   await expect(dialog.getByText('new there')).toBeVisible();
   // Version 1, the one saved when the flow was created. Before the fix a flow
   // promoted before its first edit went out as "v0".
   await expect(dialog.getByText('v1', { exact: true })).toBeVisible();
 
   // signups and crm are not in production: they go with the release. audit-log is matched.
-  // Each connection's card starts with its name, then "Source · type" or "Sink · type".
-  const conn = (name: string) => dialog.locator('.mantine-Paper-root').filter({ hasText: new RegExp(`^${name}(Source|Sink) · `) });
+  // They fold under "Change settings for Production".
+  await dialog.getByRole('button', { name: /Change settings for Production/ }).click();
+  const conn = (name: string) => dialog.locator(`[data-connection="${name}"]`);
   await expect(conn('signups')).toContainText('Created in Production');
   await expect(conn('crm')).toContainText('Created in Production');
   await expect(conn('audit-log')).toContainText("Uses Production's audit-log");
@@ -377,7 +389,7 @@ test('D6b: with any_admin and decisions allowed from staging, the sender approve
   await editFlow((wf) => { wf.nodes[0].config = { ...(wf.nodes[0].config ?? {}), label: 'New signups' }; });
   await expect(await strip()).toContainText('last sent v1 · 1 version to promote');
   const dialog = await openPromote();
-  await expect(dialog.getByText('An administrator approves it for Production.')).toBeVisible();
+  await expect(dialog.getByText(/An administrator approves it for Production\./)).toBeVisible();
   await expect(dialog.getByText('now runs v1')).toBeVisible();
   await send(dialog);
 

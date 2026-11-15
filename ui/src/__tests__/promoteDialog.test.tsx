@@ -91,9 +91,12 @@ describe('the promote dialog', () => {
     const user = userEvent.setup()
     wrap(<ReleaseDialog opened onClose={() => {}} items={[{ workflow_id: 'wf-1', version: 0 }]} />)
 
+    // What needs a step stays in view; the rest folds away.
+    expect(await screen.findByText(/token is typed in plain text/)).toBeInTheDocument()
+    expect(screen.queryByText("Uses Production's orders-db")).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Change settings for Production/ }))
     expect(await screen.findByText("Uses Production's orders-db")).toBeInTheDocument()
     expect(screen.getAllByText('Created in Production')).toHaveLength(1)
-    expect(screen.getByText(/token is typed in plain text/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Send for approval' })).toBeDisabled()
 
     await user.click(screen.getByRole('button', { name: 'Move token to a secret' }))
@@ -102,7 +105,7 @@ describe('the promote dialog', () => {
     await waitFor(() => expect(moved).toEqual([{ kind: 'sink', id: 'k-slack', key: 'token', name: 'SLACK_ALERTS_TOKEN' }]))
     await waitFor(() => expect(screen.getAllByText('Created in Production')).toHaveLength(2))
 
-    const account = screen.getByLabelText('account')
+    const account = screen.getByLabelText('Account')
     await user.clear(account)
     await user.type(account, 'acme-prod')
     const button = screen.getByRole('button', { name: 'Send for approval' })
@@ -168,8 +171,8 @@ describe('the promote dialog', () => {
     const user = userEvent.setup()
     wrap(<ReleaseDialog opened onClose={() => {}} items={[{ workflow_id: 'wf-1', version: 0 }]} />)
 
-    expect(await screen.findByText('Ready to send. All 2 checks passed.')).toBeInTheDocument()
-    expect(screen.getByText('An administrator other than you approves it for Production.')).toBeInTheDocument()
+    expect(await screen.findByText('Ready to send.')).toBeInTheDocument()
+    expect(screen.getByText('All required checks passed. An administrator other than you approves it for Production.')).toBeInTheDocument()
     expect(screen.getByText('v14')).toBeInTheDocument()
     expect(screen.getByText('now runs v12')).toBeInTheDocument()
     expect(screen.getByText('What changes in Production')).toBeInTheDocument()
@@ -223,7 +226,7 @@ describe('the promote dialog', () => {
     await user.click(pick)
     await user.click(await screen.findByRole('option', { name: 'orders-prod · postgres', hidden: true }))
     await waitFor(() => expect(mapping).toEqual({ mapping: { 's-2': 'p-9' } }))
-    expect(await screen.findByText('Ready to send. All 2 checks passed.')).toBeInTheDocument()
+    expect(await screen.findByText('Ready to send.')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByRole('button', { name: 'Send for approval' })).toBeEnabled())
   })
 
@@ -249,7 +252,7 @@ describe('the promote dialog', () => {
     wrap(<ReleaseDialog opened onClose={() => {}} items={[{ workflow_id: 'wf-1', version: 0 }]} />)
 
     expect(await screen.findByText('3 things to fix before sending')).toBeInTheDocument()
-    expect(screen.getByText('An administrator matches it here, or in Settings › Workspace › Environments.')).toBeInTheDocument()
+    expect(screen.getByText('An administrator matches it here, or under Settings › Environments › Setup.')).toBeInTheDocument()
     expect(screen.getByText('2. REGION is not set on the Production server')).toBeInTheDocument()
     expect(screen.getByText('HERMOD_ENV_REGION')).toBeInTheDocument()
     expect(screen.getByText(/Production wants 60/)).toBeInTheDocument()
@@ -283,7 +286,7 @@ describe('the promote dialog', () => {
     const user = userEvent.setup()
     wrap(<ReleaseDialog opened onClose={() => {}} items={[{ workflow_id: 'wf-1', version: 0 }]} />)
 
-    await screen.findByText('Ready to send. All 2 checks passed.')
+    await screen.findByText('Ready to send.')
     await user.click(screen.getByRole('combobox', { name: 'Add another flow' }))
     await user.click(await screen.findByRole('option', { name: 'leave-requests', hidden: true }))
     await waitFor(() => expect(previews.at(-1)).toEqual([{ workflow_id: 'wf-1', version: 0 }, { workflow_id: 'wf-2', version: 0 }]))
@@ -309,7 +312,7 @@ describe('the promote dialog', () => {
     const user = userEvent.setup()
     wrap(<ReleaseDialog opened onClose={() => {}} items={[{ workflow_id: 'wf-1', version: 0 }]} />)
 
-    expect(await screen.findByText('Goes live in Production without approval.')).toBeInTheDocument()
+    expect(await screen.findByText(/Goes live in Production without approval\./)).toBeInTheDocument()
     expect(screen.getByText('Newest version · start after deploy · no automatic undo')).toBeInTheDocument()
     const send = screen.getByRole('button', { name: 'Send and go live' })
     await waitFor(() => expect(send).toBeEnabled())

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Alert, Badge, Button, Center, Checkbox, Group, Loader, Paper, Radio, Stack, Text, Title } from '@mantine/core'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useParams } from '@tanstack/react-router'
 import { IconAlertTriangle, IconArrowRight, IconCheck, IconLink } from '@tabler/icons-react'
 import { getSessionRole } from '@/auth/session'
 import {
-  decodeOrigin, newPairingCode, PAIRING_MESSAGE, useVHostNames, vhostNameProblem, type PairingMessage,
+  approvalFor, decodeOrigin, environmentKeys, newPairingCode, PAIRING_MESSAGE, putRules, useInstance, useOnlyAdministrator,
+  useRules, useVHostNames, vhostNameProblem, withApproval, type PairingMessage,
 } from '@/lib/environments'
 
 /**
@@ -28,9 +29,22 @@ export function AcceptLinkPage() {
   // One authorization covers the vhosts it adds later, unless asked each time.
   const [later, setLater] = useState<'own' | 'ask'>('own')
   const [decide, setDecide] = useState(true)
+  const queryClient = useQueryClient()
+  const { data: self } = useInstance()
+  const { data: rules } = useRules(valid && isAdmin)
+  const { data: alone } = useOnlyAdministrator(valid && isAdmin)
+  // An only administrator under "another administrator approves" could
+  // never approve anything this link sends; they choose here instead.
+  const askApprover = !!alone && approvalFor(rules, vhost) === 'admin_except_sender'
+  const [approver, setApprover] = useState<'any_admin' | 'admin_except_sender'>('any_admin')
 
   const allow = useMutation({
-    mutationFn: () => newPairingCode(origin ?? '', vhost, { addVHosts: later === 'own', decide }),
+    mutationFn: async () => {
+      if (askApprover && approver === 'any_admin' && rules) {
+        queryClient.setQueryData(environmentKeys.rules, await putRules(withApproval(rules, vhost, 'any_admin')))
+      }
+      return newPairingCode(origin ?? '', vhost, { addVHosts: later === 'own', decide })
+    },
     onSuccess: ({ code }) => {
       if (window.opener && origin) {
         const msg: PairingMessage = { type: PAIRING_MESSAGE, code }
@@ -52,10 +66,10 @@ export function AcceptLinkPage() {
     <Center mih="70vh" p="md">
       <Paper withBorder p="xl" radius="lg" maw={520} w="100%" shadow="sm">
         <Stack gap="lg">
-          <Group gap="xs"><IconLink size="1.4rem" aria-hidden /><Title order={3}>Connect an environment</Title></Group>
+          <Group gap="xs"><IconLink size="1.4rem" aria-hidden /><Title order={3}>Connect a server</Title></Group>
           {!valid ? (
             <Alert color="red" icon={<IconAlertTriangle size="1rem" />} title="This link is broken">
-              Start again from Settings › Workspace › Environments in the instance you want to connect.
+              Start again from Settings › Environments › Setup in the instance you want to connect.
             </Alert>
           ) : !isAdmin ? (
             <Alert color="yellow" title="An administrator has to approve this">
@@ -87,6 +101,22 @@ export function AcceptLinkPage() {
                   {vhost} is not here yet. Allowing creates it, empty, for the workflows this link sends.
                 </Alert>
               )}
+              {self && !self.role && (
+                <Alert color="blue" variant="light">This instance has no role yet. Allowing makes it Production.</Alert>
+              )}
+              {askApprover && (
+                <Radio.Group
+                  label="Who approves what it sends"
+                  description="You are the only administrator here, so “another administrator” would leave every release waiting."
+                  value={approver}
+                  onChange={(v) => setApprover(v as typeof approver)}
+                >
+                  <Stack gap={6} mt={6}>
+                    <Radio value="any_admin" label="Any administrator, including me" description="You can approve releases you sent yourself." />
+                    <Radio value="admin_except_sender" label="An administrator other than the sender" description="Add a second administrator before the first release." />
+                  </Stack>
+                </Radio.Group>
+              )}
               <Radio.Group
                 label="Later vhosts"
                 description="When it wants to promote another vhost here as well."
@@ -100,7 +130,7 @@ export function AcceptLinkPage() {
               </Radio.Group>
               <Text size="sm" c="dimmed">
                 Each release it sends waits here until an administrator approves it, unless the rules in Settings ›
-                Workspace › Environments say otherwise. You can cut it off at any time.
+                Environments › Setup say otherwise. You can cut it off at any time.
               </Text>
               <Checkbox
                 label="Its administrators may approve, reject and undo what it sends, from there"

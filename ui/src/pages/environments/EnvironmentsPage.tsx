@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, type MouseEvent } from 'react'
 import {
-  Alert, Anchor, Badge, Box, Button, Checkbox, Grid, Group, Loader, Modal, Paper, Stack, Text, Textarea, Title,
+  Alert, Anchor, Badge, Box, Button, Checkbox, Grid, Group, Loader, Modal, Paper, Stack, Tabs, Text, Textarea, Title,
 } from '@mantine/core'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link as RouterLink } from '@tanstack/react-router'
@@ -12,49 +12,93 @@ import { formatDateTime } from '@/utils/dateUtils'
 import {
   approvePromotion, environmentKeys, groupByRelease, groupPeers, rejectPromotion, releaseStatus, roleColor, roleLabel,
   rollbackPromotion, statusColor, statusLabel, useInstance, usePeers, usePromotions, useReady, useRules, useSent,
-  workflowNames, type ApprovalRule, type Promotion, type ReadyLane, type ReleaseItem, type Rules,
+  approvalFor, workflowNames, type ApprovalRule, type EnvironmentRole, type Promotion, type ReadyLane, type ReleaseItem,
 } from '@/lib/environments'
+import { EnvironmentsTab } from './EnvironmentsTab'
 import { ReleaseDialog } from './ReleaseDialog'
 import { andList, filledValues, neededSecrets, SecretValues, StartChoice, startLine } from './SecretValues'
 import { SentReleases } from './SentReleases'
 import { PageHeader } from '@/components/rows'
 
+type PageTab = 'releases' | 'setup'
+
+/** The tab ?tab= names, so another page can link straight to it. */
+function tabInAddress(): PageTab | null {
+  const t = new URLSearchParams(window.location.search).get('tab')
+  return t === 'releases' || t === 'setup' ? t : null
+}
+
 /**
- * Environments: on a sending install, one lane per connected vhost with what
- * changed since it was last promoted, and one button that promotes all of it;
- * on a receiving install, the releases waiting for an administrator.
+ * Settings › Environments, everything about releases on one page. Releases:
+ * on a sending install, one lane per connected vhost with what changed since
+ * it was last promoted, and one button that promotes all of it; on a
+ * receiving install, the releases waiting for an administrator. Setup, for
+ * administrators: what this install is, where it sends and what it receives.
  */
 export function EnvironmentsPage() {
   const { data: instance, isLoading } = useInstance()
   const role = instance?.role ?? ''
-  const sends = role === 'development' || role === 'staging'
-  const receives = role === 'staging' || role === 'production'
+  const admin = getSessionRole() === 'Administrator'
+  const [picked, setPicked] = useState<PageTab | null>(tabInAddress)
+  // Nothing is set up yet: that is where an administrator starts.
+  const tab: PageTab = admin ? (picked ?? (role === '' ? 'setup' : 'releases')) : 'releases'
+  const pick = (t: PageTab) => {
+    setPicked(t)
+    const u = new URL(window.location.href)
+    u.searchParams.set('tab', t)
+    window.history.replaceState(window.history.state, '', `${u.pathname}${u.search}${u.hash}`)
+  }
 
   return (
     <Stack gap="md" maw={1120}>
       <PageHeader
-        title="Releases"
-        lede="Move flows between development, staging and production, and approve what arrives."
+        title="Environments"
+        lede="Send tested flows from one Hermod to the next, and approve what arrives."
         back={{ to: '/settings', label: 'Back to settings' }}
         meta={role && <Badge color={roleColor[role]} variant="light" size="lg">{instance?.name || roleLabel[role]}</Badge>}
       />
-      {isLoading && <Loader size="sm" aria-label="Loading" />}
-      {!isLoading && role === '' && (
-        <Alert color="blue">This instance has no environment role yet. An administrator sets it in Settings › Workspace › Environments.</Alert>
-      )}
-      {receives ? (
-        <Grid gap="xl">
-          <Grid.Col span={{ base: 12, md: 8 }}>
-            <Stack gap="xl">
-              <Inbox />
-              {sends && <Lanes />}
-            </Stack>
-          </Grid.Col>
-          <Grid.Col span={{ base: 12, md: 4 }}><SidePanel /></Grid.Col>
-        </Grid>
-      ) : sends && <Lanes />}
+      {isLoading ? <Loader size="sm" aria-label="Loading" /> : admin ? (
+        <Tabs value={tab} onChange={(v) => v && pick(v as PageTab)} keepMounted={false}>
+          <Tabs.List mb="lg">
+            <Tabs.Tab value="releases">Releases</Tabs.Tab>
+            <Tabs.Tab value="setup">Setup</Tabs.Tab>
+          </Tabs.List>
+          <Tabs.Panel value="releases"><Releases role={role} onSetup={() => pick('setup')} /></Tabs.Panel>
+          <Tabs.Panel value="setup"><EnvironmentsTab /></Tabs.Panel>
+        </Tabs>
+      ) : <Releases role={role} />}
     </Stack>
   )
+}
+
+function Releases({ role, onSetup }: { role: EnvironmentRole | ''; onSetup?: () => void }) {
+  const sends = role === 'development' || role === 'staging'
+  const receives = role === 'staging' || role === 'production'
+  if (role === '') {
+    return (
+      <Alert color="blue">
+        <Group justify="space-between" wrap="wrap" gap="sm">
+          <Text size="sm">
+            {onSetup
+              ? 'Nothing is set up yet. Connect this instance to the server it sends flows to, or allow one that sends here.'
+              : 'Nothing is set up yet. An administrator sets it up under Settings › Environments › Setup.'}
+          </Text>
+          {onSetup && <Button size="xs" onClick={onSetup}>Set it up</Button>}
+        </Group>
+      </Alert>
+    )
+  }
+  return receives ? (
+    <Grid gap="xl">
+      <Grid.Col span={{ base: 12, md: 8 }}>
+        <Stack gap="xl">
+          <Inbox onChangeRule={onSetup} />
+          {sends && <Lanes />}
+        </Stack>
+      </Grid.Col>
+      <Grid.Col span={{ base: 12, md: 4 }}><SidePanel onManage={onSetup} /></Grid.Col>
+    </Grid>
+  ) : <Lanes />
 }
 
 const canPromote = () => ['Administrator', 'Editor'].includes(getSessionRole() ?? '')
@@ -99,7 +143,7 @@ function Lanes() {
       {!isLoading && (lanes ?? []).length === 0 && (
         <Paper withBorder radius="lg" p="xl">
           <Text size="sm" c="dimmed" ta="center">
-            No vhost is connected to another environment yet. An administrator connects one in Settings › Workspace › Environments.
+            No vhost is connected to another environment yet. An administrator connects one under Settings › Environments › Setup.
           </Text>
         </Paper>
       )}
@@ -160,7 +204,7 @@ function Lane({ lane, onPromote, isTicked, onTick }: {
   )
 }
 
-function Inbox() {
+function Inbox({ onChangeRule }: { onChangeRule?: () => void }) {
   const { data: received, isLoading } = usePromotions()
   const releases = groupByRelease(received ?? [])
   const waiting = releases.filter((ps) => ps.some((p) => p.status === 'pending' || p.status === 'deploying'))
@@ -183,7 +227,7 @@ function Inbox() {
         <Title order={3}>Waiting for you</Title>
         {waiting.length === 0
           ? <Text size="sm" c="dimmed">Nothing is waiting. Releases sent here show up for approval.</Text>
-          : waiting.map((ps) => <ReleaseCard key={ps[0].id} ps={ps} />)}
+          : waiting.map((ps) => <ReleaseCard key={ps[0].id} ps={ps} onChangeRule={onChangeRule} />)}
       </Stack>
       {decided.length > 0 && (
         <Stack gap="xs">
@@ -197,11 +241,8 @@ function Inbox() {
   )
 }
 
-const approverFor = (rules: Rules | undefined, vhost: string): ApprovalRule | undefined =>
-  rules?.by_vhost?.[vhost]?.approval ?? rules?.approval
-
 /** One release sent here, with what approving it needs; also shown on the Approvals page. */
-export function ReleaseCard({ ps }: { ps: Promotion[] }) {
+export function ReleaseCard({ ps, onChangeRule }: { ps: Promotion[]; onChangeRule?: () => void }) {
   const queryClient = useQueryClient()
   const confirm = useConfirm()
   const { data: rules } = useRules()
@@ -210,7 +251,7 @@ export function ReleaseCard({ ps }: { ps: Promotion[] }) {
   const head = ps[0]
   const names = workflowNames(ps)
   const isAdmin = getSessionRole() === 'Administrator'
-  const ownSend = approverFor(rules, head.vhost) === 'admin_except_sender' && getSessionUser()?.username === head.sender
+  const ownSend = approvalFor(rules, head.vhost) === 'admin_except_sender' && getSessionUser()?.username === head.sender
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: environmentKeys.promotions })
   const onError = async (err: Error) => {
@@ -281,7 +322,20 @@ export function ReleaseCard({ ps }: { ps: Promotion[] }) {
         )}
         {isAdmin && head.status === 'pending' && (
           <Group justify="flex-end" gap="sm">
-            {ownSend && <Text size="xs" c="dimmed">You sent this, so another administrator approves it.</Text>}
+            {ownSend && (
+              <Text size="xs" c="dimmed">
+                You sent this, so another administrator approves it.{' '}
+                <Anchor
+                  component={RouterLink}
+                  to="/environments"
+                  search={{ tab: 'setup' } as never}
+                  size="xs"
+                  onClick={(e: MouseEvent) => { if (onChangeRule) { e.preventDefault(); onChangeRule() } }}
+                >
+                  Change who approves
+                </Anchor>
+              </Text>
+            )}
             <Button variant="default" onClick={() => setRejecting(true)}>Reject</Button>
             <Button
               color="green"
@@ -389,7 +443,7 @@ function minutes(m: number): string {
   return `${m} min`
 }
 
-function SidePanel() {
+function SidePanel({ onManage }: { onManage?: () => void }) {
   const isAdmin = getSessionRole() === 'Administrator'
   const { data: peers } = usePeers(isAdmin)
   const { data: rules } = useRules()
@@ -409,9 +463,7 @@ function SidePanel() {
                 </Text>
               </Stack>
             ))}
-            <Anchor component={RouterLink} to="/settings" search={{ tab: 'environments' } as any} size="sm" fw={600}>
-              Manage in Settings
-            </Anchor>
+            {onManage && <Anchor component="button" type="button" size="sm" fw={600} onClick={onManage}>Manage in Setup</Anchor>}
           </Stack>
         </Paper>
       )}

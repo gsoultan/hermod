@@ -166,6 +166,28 @@ field name and read back under another, so the list was empty and a rollback fou
   shows step time per message, failures and throughput before and since, and says whether the
   workflow runs better, worse or the same.
 
+### Changed — deploying a flow takes fewer steps
+
+- **One place for environments.** Settings › Environments is a page with two tabs: Releases, for
+  what is sent and waiting, and Setup, for this instance's role, the servers it sends to and the
+  rules for what arrives. The Environments tab of Settings › Workspace is gone; old links to it
+  open Setup.
+- **Roles are set when two servers connect.** An instance nobody has described becomes Staging
+  when it connects to another, and the one that allows it becomes Production. A role someone chose
+  is kept, and "Pick it yourself" still sets one by hand.
+- **A lone administrator is no longer stuck.** Allowing a connection asks who approves what
+  arrives. The default is any administrator, including the one allowing it; the old rule, an
+  administrator other than the sender, is still one click away. Setup warns when that rule leaves
+  nobody who can approve, with a button to let any administrator approve.
+- **Connections that travel are not asked to be matched.** A source or sink production does not
+  have yet says "Comes with the first release" and counts as ready, so a new server can promote
+  right away. One with a credential typed in plain text says "Needs a secret first" and offers to
+  move it to a secret there.
+- **A shorter Promote dialog.** It opens with one line, such as "Ready. 2 connections are created,
+  2 secrets to fill.", and says who approves. Checks show only when one needs attention, and the
+  settings of the connections created there fold under "Change settings for Production", with
+  readable names such as "Base URL".
+
 ### Fixed — the first administrator could not promote a flow
 
 - **Promoting needed an administrator with every vhost listed.** The administrator that first-run

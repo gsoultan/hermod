@@ -210,6 +210,14 @@ func (s *Service) Pair(ctx context.Context, req PairRequest) (PairResult, error)
 	if err != nil {
 		return PairResult{}, err
 	}
+	// Allowing an instance to send here makes one nobody described yet the
+	// one that receives.
+	if self.Role == "" {
+		self.Role = RoleProduction
+		if err := putJSON(ctx, s.store, keyInstance, self); err != nil {
+			return PairResult{}, err
+		}
+	}
 	return PairResult{PeerID: peer.ID, Token: token, Instance: self, Version: s.version, VHost: used.VHost, VHostCreated: created, Decide: peer.Decide}, nil
 }
 
@@ -372,6 +380,12 @@ func (s *Service) LinkWith(ctx context.Context, req LinkRequest, username string
 	if err != nil {
 		return Link{}, err
 	}
+	// Connecting to an instance to send to it makes one nobody described
+	// yet the one that sends, so it introduces itself as Staging.
+	described := self.Role != ""
+	if !described {
+		self.Role = RoleStaging
+	}
 	res, err := s.remote.Pair(ctx, u, PairRequest{Code: req.Code, Name: displayName(self), URL: req.SelfURL, VHost: req.VHost})
 	if err != nil {
 		return Link{}, err
@@ -404,7 +418,23 @@ func (s *Service) LinkWith(ctx context.Context, req LinkRequest, username string
 		return Link{}, err
 	}
 	links = append(links, l)
-	return l, putJSON(ctx, s.store, keyLinks, links)
+	if err := putJSON(ctx, s.store, keyLinks, links); err != nil {
+		return Link{}, err
+	}
+	if !described {
+		// Read again: someone may have picked a role while it paired.
+		now, err := loadInstance(ctx, s.store)
+		if err != nil {
+			return Link{}, err
+		}
+		if now.Role == "" {
+			now.Role = RoleStaging
+			if err := putJSON(ctx, s.store, keyInstance, now); err != nil {
+				return Link{}, err
+			}
+		}
+	}
+	return l, nil
 }
 
 // Unlink forgets a link. The other instance is asked to revoke its token;
@@ -417,7 +447,7 @@ func (s *Service) Unlink(ctx context.Context, id string) (note string, err error
 	}
 	if token != "" {
 		if err := s.remote.Unpair(ctx, l.URL, token); err != nil {
-			note = fmt.Sprintf("%s could not be told (%v); revoke the link there under Settings › Workspace › Environments.", l.Name, err)
+			note = fmt.Sprintf("%s could not be told (%v); revoke the link there under Settings › Environments › Setup.", l.Name, err)
 		}
 	}
 	s.mu.Lock()
@@ -495,6 +525,12 @@ type MatchRow struct {
 	Status     string       `json:"status"`
 	Manual     bool         `json:"manual"`
 	Candidates []Connection `json:"candidates"`
+	// Travels is set on one with no match there that the next release
+	// brings along and creates there on approval.
+	Travels bool `json:"travels,omitempty"`
+	// PlainKeys are the credentials typed in plain text that keep one with
+	// no match from travelling until they are moved to a secret.
+	PlainKeys []string `json:"plain_keys,omitempty"`
 }
 
 // envSuffixes are name endings that only say which environment a
@@ -585,6 +621,23 @@ func (s *Service) localConnections(ctx context.Context, vhost string) (Connectio
 	return Connections{Sources: sourceConnections(srcs), Sinks: sinkConnections(snks)}, nil
 }
 
+// connectionConfig is the settings of the source or sink id here, or none
+// when it cannot be read.
+func (s *Service) connectionConfig(ctx context.Context, kind, id string) map[string]string {
+	if kind == "source" {
+		x, err := s.store.GetSource(ctx, id)
+		if err != nil {
+			return nil
+		}
+		return x.Config
+	}
+	x, err := s.store.GetSink(ctx, id)
+	if err != nil {
+		return nil
+	}
+	return x.Config
+}
+
 // PeerConnections lists the connections peer may use: those in its vhost.
 func (s *Service) PeerConnections(ctx context.Context, peer Peer) (Connections, error) {
 	return s.localConnections(ctx, peer.VHost)
@@ -603,6 +656,11 @@ func (s *Service) Matching(ctx context.Context, linkID, vhost string) ([]MatchRo
 		}
 		vhost = l.VHost
 	}
+	info, err := s.remote.Info(ctx, l.URL, token)
+	if err != nil {
+		return nil, err
+	}
+	carry := slices.Contains(info.Features, FeatureCarry)
 	targets, err := s.remote.Connections(ctx, l.URL, token)
 	if err != nil {
 		return nil, err
@@ -619,6 +677,12 @@ func (s *Service) Matching(ctx context.Context, linkID, vhost string) ([]MatchRo
 				Status: status, Manual: manual, Candidates: []Connection{}}
 			if status != MatchMissing {
 				row.TargetID, row.TargetName = t.ID, t.Name
+			}
+			// As a release would: one with nothing there travels with it,
+			// unless a person cleared its match or a credential is plain.
+			if status == MatchMissing && !manual && carry {
+				row.PlainKeys = plainKeys(s.connectionConfig(ctx, kind, c.ID))
+				row.Travels = len(row.PlainKeys) == 0
 			}
 			for _, cand := range candidates {
 				if cand.Type == c.Type {

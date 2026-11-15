@@ -52,7 +52,11 @@ export function LinkWizard({ opened, onClose, links = [], onAddVHosts }: LinkWiz
     onSuccess: async (l) => {
       setLink(l)
       setStep(2)
-      await queryClient.invalidateQueries({ queryKey: environmentKeys.links })
+      // Connecting gives an instance with no role yet its role.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: environmentKeys.links }),
+        queryClient.invalidateQueries({ queryKey: environmentKeys.self }),
+      ])
     },
   })
 
@@ -91,7 +95,7 @@ export function LinkWizard({ opened, onClose, links = [], onAddVHosts }: LinkWiz
   }
 
   return (
-    <Modal opened={opened} onClose={close} title="Connect an environment" size="lg">
+    <Modal opened={opened} onClose={close} title="Connect a server" size="lg">
       <Stepper active={step} size="sm" allowNextStepsSelect={false}>
         <Stepper.Step label="Where" description="Address and virtual host">
           <Stack mt="md">
@@ -159,7 +163,7 @@ export function LinkWizard({ opened, onClose, links = [], onAddVHosts }: LinkWiz
             </Button>
             <Divider label="or use a pairing code" labelPosition="center" />
             <Text size="sm" c="dimmed">
-              Someone else can create a code in {host} under Settings › Workspace › Environments › Create pairing code, and read it
+              Someone else can create a code in {host} under Settings › Environments › Setup › Create pairing code, and read it
               to you. A code works once, for 10 minutes, and its workflows land in the vhost it was made for.
             </Text>
             <Group align="flex-end">
@@ -189,13 +193,12 @@ export function LinkWizard({ opened, onClose, links = [], onAddVHosts }: LinkWiz
           </Stack>
         </Stepper.Step>
 
-        <Stepper.Step label="Connections" description="Match them up">
+        <Stepper.Step label="Connections" description="What travels">
           {link && (
             <Stack mt="md">
               <Alert color="green" title={`Connected to ${link.name}`}>
                 Workflows in {link.vhost} can now be promoted to {link.name}, into {link.target_vhost || link.vhost}
-                {link.vhost_created ? `, which it created for them` : ''}. Last, check which connection there stands in
-                for each one here.
+                {link.vhost_created ? `, which it created for them` : ''}.
               </Alert>
               <ConnectionMatching link={link} onDone={close} />
             </Stack>

@@ -17,31 +17,49 @@ writes to production's database, and production never sees staging's credentials
 
 ## Set it up
 
-Everything is in the UI, under **Settings › Workspace › Environments**. You need an administrator account on
-both installs.
+Everything is in the UI, under **Settings › Environments**: the **Releases** tab holds what is
+ready to promote and what was sent or received, and the **Setup** tab (administrators only) holds
+the connections and rules. You need an administrator account on both installs. An administrator
+opening the page before anything is set up lands on Setup.
 
-1. **On production**, pick **Production** as what this instance is, and give it a name if you want
-   one other than "Production". Its badge is now in the header of every page.
-2. **On staging**, pick **Staging**.
-3. **On staging**, click **Connect a server**. Enter production's address, the one you open
+Nobody has to pick a role first. Connecting a server makes an install with no role **Staging**,
+and allowing a server to send makes an install with no role **Production**. A role someone chose
+is never changed this way; **Change** on the Setup tab picks one by hand, with a name if you want
+one other than the role. The badge in the header of every page links to Setup.
+
+1. **On staging**, click **Connect a server**. Enter production's address, the one you open
    it at in the browser, such as `https://hermod.example.com`; pick the vhost whose workflows go
    there under **Workflows from**; and under **Land in**, the vhost on production they land in.
    It defaults to the same name.
-4. Approve the connection on production. Either:
+2. Approve the connection on production. Either:
    - click **Sign in to … and approve**. Production opens in a small window; sign in there if asked
      and click **Allow**, or **Create hr and allow** when production has no vhost of that name
      yet. The window closes and staging finishes the connection on its own; or
-   - ask a production administrator to name the vhost under **Into vhost** and click **Create
-     pairing code** under Settings › Workspace › Environments there, and type the code in. A code works once,
-     for 10 minutes, and its workflows land in the vhost it was made for, which production creates
-     when the code is used if it does not have it.
-5. **Match connections.** Staging lists each of the vhost's sources and sinks with the production
-   connection that stands in for it. Hermod matches by name and type: `orders-db` matches
-   `orders-db`, and `orders-db-stg` is suggested for `orders-db`, marked **Check this**. Confirm
-   the suggestions, pick the rest, and follow **Create it in Production** for any that production
-   does not have yet. You can come back to this at any time with **Match connections** on the link.
+   - ask a production administrator to name the vhost under **Into virtual host** and click
+     **Create pairing code** under Settings › Environments › Setup there, and type the code in. A
+     code works once, for 10 minutes, and its workflows land in the vhost it was made for, which
+     production creates when the code is used if it does not have it.
 
-Each production is one card under **Promotes to**, however many vhosts are connected to it. To
+   When the person allowing it is production's only administrator and production's rule is "an
+   administrator other than the sender", the authorize page asks **Who approves what it sends**,
+   with **Any administrator, including me** picked, so a solo owner can approve their own
+   releases. Picking **An administrator other than the sender** keeps the rule; add a second
+   administrator before the first release.
+3. **Connections.** Staging lists each of the vhost's sources and sinks and what happens to it:
+   - **Matched**: production has one that stands in for it. Hermod matches by name and type:
+     `orders-db` matches `orders-db`, and `orders-db-stg` is suggested for `orders-db`, marked
+     **Check this** until confirmed.
+   - **Comes with the first release**: production has nothing to match, so the first release that
+     uses it brings it along and creates it there on approval. Nothing to do.
+   - **Needs a secret first**: a credential is typed in plain text, so it cannot travel. **Move …
+     to a secret** moves it here; each environment then keeps its own value.
+   - **Missing**: nothing matches and it cannot travel, because production predates carried
+     connections or someone cleared its match. Pick one, or follow **Create it in Production**.
+
+   For most vhosts the wizard ends at **Done**. You can come back to this at any time with
+   **Match connections** on the link.
+
+Each production is one card under **Sends to**, however many vhosts are connected to it. To
 promote another vhost into the same production, click **Add vhosts** on its card, tick the vhosts
 and name where each lands. No new pairing code and no sign-in to production are needed: staging
 asks over the connection it already has, and production issues a separate token for each vhost.
@@ -66,7 +84,7 @@ keeps working for every vhost that has no connection of its own. Connect a vhost
 
 ## Promote
 
-**Settings › Releases** shows one lane per connected vhost, such as
+The **Releases** tab of Settings › Environments shows one lane per connected vhost, such as
 `hr → Production · hr`, listing the workflows that changed since they last went through it:
 **New** for one that never went, or `v4 → v5`. Every one starts ticked; untick what should wait.
 **Promote all ready** (or **Promote 2 of 3** once something is unticked) sends what is ticked in
@@ -76,12 +94,19 @@ On a flow's page, **Promote to Production** sits next to **Edit flow**, and a li
 says how far behind production is: **Up to date**, **not there yet**, or
 `last sent v12 · 2 versions to promote`.
 
-The promote dialog is one screen: who approves it, where it goes (`v14 → now runs v12`, or **new
-there**), what changes, and the button. Each workflow goes to the environment its vhost is
+The promote dialog is one screen: where it goes (`v14 → now runs v12`, or **new there**), one
+summary line, what changes, and the button. Each workflow goes to the environment its vhost is
 connected to, and production checks them all first.
 
-- **Ready**: "Ready to send. All 6 checks passed." with **Show checks**, and the button reads
-  **Send for approval** (or **Send and go live** where production approves nothing).
+- **Ready**: one line sums it up, such as "Ready. 2 connections are created, 1 secret to fill.",
+  then "All required checks passed, 1 warning." and who approves it there, with **Show checks**.
+  The button reads **Send for approval** (or **Send and go live** where production approves
+  nothing). A secret production lacks is asked for in the secrets box only, not again as a warning.
+- **Connections**: one with a credential typed in plain text stays in view with **Move … to a
+  secret**. The rest fold under **Change settings for Production**: each one production already
+  has (**Uses Production's …**), and each one created there with its settings under readable
+  labels (`base_url` reads **Base URL**) to change for production. A secret reference shows as
+  it is and cannot be edited there.
 - **Something to fix**: the dialog lists each thing, numbered, with the fix under it. A connection
   with no match in production is matched right there by an administrator, from production's
   connections of the same type, and saved for next time; an editor is told an administrator does
@@ -239,10 +264,14 @@ it can be rolled back from **History** like any edit.
 
 ## Rules
 
-Production's rules are under Settings › Workspace › Environments › **Receives from**:
+Production's rules are under Settings › Environments › Setup › **Receives from** (folded on a
+staging install, which can receive from development too):
 
 - **Who approves**: an administrator of production other than the sender (the default), any
-  administrator, or nobody, which deploys a release as soon as it arrives.
+  administrator, or nobody, which deploys a release as soon as it arrives. When you are the only
+  administrator, the default would leave every release waiting, so the rules say so and offer
+  **Let any administrator approve**. A sender who may not approve their own release sees
+  **Change who approves** beside the disabled button.
 - **Roll back automatically**: within 10 minutes of a deploy, if any workflow in the release turns
   to an error, or logs at least 10 new errors making up more than 5% of what it processed, the
   whole release goes back to how it was. On by default; the sender can turn it off for one

@@ -1,19 +1,19 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import {
-  ActionIcon, Alert, Autocomplete, Badge, Button, CopyButton, Group, Loader, NumberInput, Paper,
-  SegmentedControl, Select, Stack, Switch, Text, TextInput, Title,
+  ActionIcon, Alert, Autocomplete, Badge, Box, Button, Collapse, CopyButton, Group, Loader, NumberInput, Paper,
+  SegmentedControl, Select, Stack, Switch, Text, TextInput, Title, UnstyledButton,
 } from '@mantine/core'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { notifications } from '@mantine/notifications'
 import {
-  IconCheck, IconCopy, IconInfoCircle, IconKey, IconPlus,
+  IconCheck, IconChevronDown, IconCopy, IconKey, IconPlus,
   IconTrash, IconX,
 } from '@tabler/icons-react'
 import { useConfirm } from '@/components/common/ConfirmProvider'
 import { formatDateTime } from '@/utils/dateUtils'
 import {
   allowVHostRequest, approvalLabel, declineVHostRequest, environmentKeys, groupLinksByServer, groupPeers, newPairingCode,
-  putInstance, putRules, revokePeer, revokePeerGroup, roleColor, roleLabel, useInstance, useLinks, usePeers, useRules,
+  putInstance, putRules, revokePeer, useOnlyAdministrator, revokePeerGroup, roleColor, roleLabel, useInstance, useLinks, usePeers, useRules,
   useVHostNames, useVHostRequests, vhostNameProblem, type ApprovalRule, type EnvironmentRole, type Link, type Peer,
   type Rules,
 } from '@/lib/environments'
@@ -23,38 +23,59 @@ import { LinkWizard } from './LinkWizard'
 import { PeerDecideSwitch } from './PeerDecideSwitch'
 
 /**
- * Settings › Workspace › Environments: what this install is, where each of its vhosts
- * promotes workflows to, and who may promote workflows into it.
+ * The Setup tab of Settings › Environments: what this install is, where each
+ * of its vhosts promotes workflows to, and who may promote workflows into it.
+ * Nobody has to pick a role first: connecting a server makes this install
+ * the one that sends, and allowing one makes it the one that receives.
  */
 export function EnvironmentsTab() {
   const { data: instance, isLoading } = useInstance()
   if (isLoading) return <Group justify="center" p="xl"><Loader size="sm" aria-label="Loading environment" /></Group>
   const role = instance?.role || ''
+  const sends = role !== 'production'
+  const receives = role !== 'development'
 
   return (
     <Stack gap="xl">
-      <Stack gap={4}>
-        <Title order={3}>Environments</Title>
-        <Text size="sm" c="dimmed">
-          Run one Hermod per environment, then promote a tested workflow from one to the next. Production gets the
-          workflow with its own connections, and an administrator there approves it.
-        </Text>
-      </Stack>
       {/* Keyed, so a saved change starts the draft over from it. */}
       <InstanceCard key={`${instance?.name}|${role}`} name={instance?.name ?? ''} role={role} />
-      {role === '' && (
-        <Alert color="blue" icon={<IconInfoCircle size="1rem" />}>
-          Pick what this instance is first. A staging instance sends workflows; a production instance receives them.
-        </Alert>
-      )}
-      {(role === 'development' || role === 'staging') && <SendingSection />}
-      {(role === 'staging' || role === 'production') && <ReceivingSection role={role} />}
+      {sends && <SendingSection />}
+      {receives && (role === 'production' ? <ReceivingSection role={role} /> : (
+        <Folded
+          title="Receives from"
+          detail={role === ''
+            ? 'Is this your production server? Allow it from the other server’s Connect a server, or open this for a pairing code.'
+            : 'Let a development server promote flows into this one.'}
+        >
+          <ReceivingSection role={role} titled={false} />
+        </Folded>
+      ))}
     </Stack>
+  )
+}
+
+/** A section shown by its title and one line, opened on request. */
+function Folded({ title, detail, children }: { title: string; detail: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <Paper withBorder radius="md">
+      <UnstyledButton w="100%" p="lg" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        <Group justify="space-between" wrap="nowrap">
+          <Stack gap={2}>
+            <Text fw={600}>{title}</Text>
+            <Text size="sm" c="dimmed">{detail}</Text>
+          </Stack>
+          <IconChevronDown size="1.1rem" aria-hidden style={{ flex: 'none', transform: open ? 'rotate(180deg)' : undefined }} />
+        </Group>
+      </UnstyledButton>
+      <Collapse expanded={open}>{open && <Box px="lg" pb="lg">{children}</Box>}</Collapse>
+    </Paper>
   )
 }
 
 function InstanceCard({ name, role }: { name: string; role: EnvironmentRole | '' }) {
   const queryClient = useQueryClient()
+  const [editing, setEditing] = useState(false)
   const [draftName, setDraftName] = useState(name)
   const [draftRole, setDraftRole] = useState<EnvironmentRole | ''>(role)
 
@@ -66,6 +87,29 @@ function InstanceCard({ name, role }: { name: string; role: EnvironmentRole | ''
     },
   })
   const dirty = draftName.trim() !== name || draftRole !== role
+
+  if (!editing) {
+    return (
+      <Paper withBorder p="lg" radius="md">
+        <Group justify="space-between" wrap="wrap" gap="sm">
+          <Stack gap={2}>
+            <Group gap="xs">
+              <Text fw={600}>{role ? `This instance is ${roleLabel[role]}` : 'This instance has no role yet'}</Text>
+              {role && name && name !== roleLabel[role] && <Badge color={roleColor[role]} variant="light" tt="none">{name}</Badge>}
+            </Group>
+            <Text size="sm" c="dimmed">
+              {role === ''
+                ? 'Connecting a server makes it Staging; allowing one from another server makes it Production.'
+                : role === 'production'
+                  ? 'It receives flows and an administrator here approves them.'
+                  : 'It sends flows on, and the server they go to approves them.'}
+            </Text>
+          </Stack>
+          <Button variant="default" size="sm" onClick={() => setEditing(true)}>{role ? 'Change' : 'Pick it yourself'}</Button>
+        </Group>
+      </Paper>
+    )
+  }
 
   return (
     <Paper withBorder p="lg" radius="md">
@@ -94,6 +138,7 @@ function InstanceCard({ name, role }: { name: string; role: EnvironmentRole | ''
           onChange={(e) => setDraftName(e.currentTarget.value)}
         />
         <Group justify="flex-end">
+          <Button variant="default" onClick={() => setEditing(false)}>Cancel</Button>
           <Button onClick={() => save.mutate()} disabled={!dirty || draftRole === ''} loading={save.isPending}>
             Save
           </Button>
@@ -114,9 +159,9 @@ function SendingSection() {
     <Stack gap="sm">
       <Group justify="space-between">
         <Stack gap={0}>
-          <Title order={4}>Promotes to</Title>
+          <Title order={4}>Sends to</Title>
           <Text size="sm" c="dimmed">
-            Each server is trusted once. Add the virtual hosts whose flows go there to it, without a new pairing code.
+            The servers flows from here are promoted to. Each is trusted once; add more vhosts to it without a new code.
           </Text>
         </Stack>
         <Button leftSection={<IconPlus size="1rem" />} onClick={() => setWizard(true)}>Connect a server</Button>
@@ -141,16 +186,18 @@ function SendingSection() {
   )
 }
 
-function ReceivingSection({ role }: { role: EnvironmentRole }) {
+function ReceivingSection({ role, titled = true }: { role: EnvironmentRole | ''; titled?: boolean }) {
   return (
     <Stack gap="sm">
-      <Stack gap={0}>
-        <Title order={4}>Receives from</Title>
-        <Text size="sm" c="dimmed">
-          The instances allowed to promote workflows into this {roleLabel[role].toLowerCase()} instance, and the rules
-          their workflows go through.
-        </Text>
-      </Stack>
+      {titled && (
+        <Stack gap={0}>
+          <Title order={4}>Receives from</Title>
+          <Text size="sm" c="dimmed">
+            The instances allowed to promote workflows into this {role ? roleLabel[role].toLowerCase() : ''} instance, and the
+            rules their workflows go through.
+          </Text>
+        </Stack>
+      )}
       <RulesCard />
       <PeersCard />
     </Stack>
@@ -165,6 +212,7 @@ function RulesCard() {
 function RulesForm({ rules }: { rules: Rules }) {
   const queryClient = useQueryClient()
   const [draft, setDraft] = useState<Rules>(rules)
+  const { data: alone } = useOnlyAdministrator()
 
   const save = useMutation({
     mutationFn: (r: Rules) => putRules(r),
@@ -188,6 +236,14 @@ function RulesForm({ rules }: { rules: Rules }) {
         />
         {draft.approval === 'none' && (
           <Alert color="yellow" variant="light">Every workflow a linked instance sends goes live here at once.</Alert>
+        )}
+        {alone && draft.approval === 'admin_except_sender' && (
+          <Alert color="yellow" variant="light">
+            <Group justify="space-between" wrap="wrap" gap="xs">
+              <Text size="sm">You are the only administrator here, so nobody could approve a release you send.</Text>
+              <Button size="xs" variant="light" onClick={() => setDraft({ ...draft, approval: 'any_admin' })}>Let any administrator approve</Button>
+            </Group>
+          </Alert>
         )}
         <Switch
           label="Roll back automatically when a deploy starts failing"
@@ -350,7 +406,7 @@ function PeersCard() {
               </CopyButton>
             </Group>
             <Text size="sm">
-              Enter it in the other instance under Settings › Workspace › Environments › Connect a server. Its workflows land
+              Enter it in the other instance under Settings › Environments › Setup › Connect a server. Its workflows land
               in {code.vhost}. It works once, until {formatDateTime(code.expires_at)}.
             </Text>
           </Alert>

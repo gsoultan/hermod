@@ -479,6 +479,10 @@ const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings',
   validateSearch: hubSearch,
+  // Environments was a tab of the workspace; it is a page of its own now.
+  beforeLoad: ({ search }) => {
+    if ((search as { tab?: string }).tab === 'environments') throw redirect({ to: '/environments', search: { tab: 'setup' } as never })
+  },
   component: SettingsRoutePage,
 })
 
@@ -667,6 +671,7 @@ const approvalsRoute = createRoute({
 const environmentsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/environments',
+  validateSearch: hubSearch,
   component: () => (
     <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
       <EnvironmentsPage />
