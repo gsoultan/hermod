@@ -233,13 +233,16 @@ func (h *WSHandler) HandleStatusWS(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *WSHandler) HandleDashboardWS(w http.ResponseWriter, r *http.Request) {
+	// Before the upgrade, while a refusal can still be an HTTP status.
+	vhost, ok := h.DashboardVHost(w, r)
+	if !ok {
+		return
+	}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
 	defer conn.Close()
-
-	vhost := r.URL.Query().Get("vhost")
 
 	// Actively read so we can observe pong/close frames and client disconnects.
 	done := startWSReadPump(conn)

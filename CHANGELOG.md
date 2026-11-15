@@ -257,6 +257,18 @@ them. React Flow drew its default node instead: a bare box with no name, no icon
 connect the next step, and a console warning on every render. The editor and the workflow detail
 page now draw them like every other step.
 
+### Security — the dashboard showed any signed-in user every tenant's totals
+
+`/api/dashboard/stats`, `/api/dashboard/history` and the live dashboard stream took the vhost from
+the query and did not check it. An Editor or Viewer of one vhost could ask for another, or for all
+of them, and read how much the other tenants process, how far behind they are and how often they
+fail. A caller who is not an Administrator is now held to their own vhosts:
+
+- naming a vhost that is not theirs answers 403;
+- "All virtual hosts" with one vhost shows that vhost, which is all they have;
+- "All virtual hosts" with several answers 403 and asks them to pick one, because the dashboard
+  totals one vhost or all of them and the total over all of them is not theirs to see.
+
 ### Security — the public webhook endpoint, request body limits and FTPS certificates
 
 - **Webhook bodies are bounded.** `/api/webhooks/...` read a body of any size and inflated any

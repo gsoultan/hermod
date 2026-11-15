@@ -65,10 +65,14 @@ func parseHistoryWindow(window, limit string) (time.Time, int) {
 
 // GetDashboardHistory serves the persisted metric series behind the chart.
 func (h *DashboardHandler) GetDashboardHistory(w http.ResponseWriter, r *http.Request) {
+	vhost, ok := h.DashboardVHost(w, r)
+	if !ok {
+		return
+	}
 	query := r.URL.Query()
 	since, limit := parseHistoryWindow(query.Get("window"), query.Get("limit"))
 
-	samples, err := h.Registry.GetDashboardHistory(r.Context(), query.Get("vhost"), since, limit)
+	samples, err := h.Registry.GetDashboardHistory(r.Context(), vhost, since, limit)
 	if err != nil {
 		h.JsonError(w, "Failed to get dashboard history: "+err.Error(), http.StatusInternalServerError)
 		return

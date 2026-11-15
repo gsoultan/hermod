@@ -21,7 +21,10 @@ func (h *DashboardHandler) RegisterDashboardRoutes(mux *http.ServeMux) {
 }
 
 func (h *DashboardHandler) GetDashboardStats(w http.ResponseWriter, r *http.Request) {
-	vhost := r.URL.Query().Get("vhost")
+	vhost, ok := h.DashboardVHost(w, r)
+	if !ok {
+		return
+	}
 	stats, err := h.Registry.GetDashboardStats(r.Context(), vhost)
 	if err != nil {
 		h.JsonError(w, "Failed to get dashboard stats: "+err.Error(), http.StatusInternalServerError)
