@@ -38,6 +38,7 @@ type mockRegistry struct {
 	// called in place of the pause at each edge breakpoint.
 	EdgePauseFn func(edgeID, targetNodeID string, msg hermod.Message)
 	Logs        []string
+	Data        []string
 
 	// Nodes on parallel branches log from their own goroutines — two that fail
 	// together both report it.
@@ -92,6 +93,7 @@ func (m *mockRegistry) BroadcastLog(workflowID, level, msg, details string) {
 	m.logsMu.Lock()
 	defer m.logsMu.Unlock()
 	m.Logs = append(m.Logs, msg)
+	m.Data = append(m.Data, details)
 }
 func (m *mockRegistry) Logger() hermod.Logger { return m.LogSvc }
 

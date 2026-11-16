@@ -66,7 +66,7 @@ func startAPI(ctx context.Context, o *Options, reg *registry.Registry, store, lo
 
 	// Checks for releases on the schedule the Updates page sets, and in
 	// automatic mode installs them.
-	updater := newUpdater(serverStore(server), server, logger)
+	updater := newUpdater(serverStore(server), server.PreUpdateBackup, logger)
 	server.SetUpdater(updater)
 	go updater.Run(ctx)
 

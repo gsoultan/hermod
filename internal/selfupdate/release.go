@@ -87,12 +87,13 @@ func SameMajor(a, b string) bool {
 }
 
 // Pick returns the newest release later than current, or nil when there is
-// none. Drafts are never offered, nor are pre-releases unless asked for.
-func Pick(releases []Release, current string, includePrereleases bool) *Release {
+// none. Drafts are never offered, nor are pre-releases unless asked for, nor
+// releases usable rejects (nil accepts all).
+func Pick(releases []Release, current string, includePrereleases bool, usable func(*Release) bool) *Release {
 	var best *Release
 	for i := range releases {
 		r := &releases[i]
-		if r.Draft || (r.Prerelease && !includePrereleases) {
+		if r.Draft || (r.Prerelease && !includePrereleases) || (usable != nil && !usable(r)) {
 			continue
 		}
 		tag := Canonical(r.Tag)

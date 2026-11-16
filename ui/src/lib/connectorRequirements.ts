@@ -132,6 +132,8 @@ const SINK_REQUIREMENTS: Record<string, RequiredField[]> = {
   // db_path is the key the form wrote before it was fixed; sinks saved then
   // still open their file (BuildConnectionString reads both).
   sqlite: [{ key: 'path', aliases: ['db_path', 'connection_string'], label: 'Database file path', example: 'hermod.db' }],
+  // The statements are checked by the server on save, in Guided or SQL mode.
+  txsql: [{ key: 'driver', label: 'Database', example: 'postgres' }],
   postgres: hostPort('5432'),
   mysql: hostPort('3306'),
   mariadb: hostPort('3306'),

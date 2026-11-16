@@ -59,7 +59,7 @@ Hermod is built for mission-critical enterprise data workloads, providing robust
 - **Automated PII Scanning**: Built-in `mask` transformation detects and redacts sensitive data (PII/PHI) using a sophisticated regex-based discovery engine.
 - **Field-Level Encryption**: `encrypt` and `decrypt` transformations seal named fields, so sensitive columns stay unreadable in the sink and are recovered only where a downstream pipeline is configured with the same key. Fourteen algorithms are selectable — AES-128/192/256 in GCM, CBC, CTR and CFB, plus ChaCha20-Poly1305 and XChaCha20-Poly1305 — with AES-256-GCM the default. Keys can be a hashed passphrase (the default), raw/hex/base64 bytes, or derived with PBKDF2 or scrypt, and the payload written as base64, base64url or hex. Each value gets a fresh random nonce, so an encrypted field cannot be used as a join key; in the default envelope format values are written as `enc:v1:…`/`enc:v2:…` and already-encrypted values are left alone, making a re-run idempotent. A `raw` format drops the envelope so a column encrypted by **another system** can be read and written — see [Decrypting data Hermod did not encrypt](docs/encryption.md#decrypting-data-hermod-did-not-encrypt). Decryption failures fail the message by default (`onError` can relax this to `skip` or `null`). The key is configured on the node, which means it is stored with the workflow definition.
 - **Audit Logging**: Complete history of administrative changes and system events for security and compliance audits.
-- **Dependent multi-table writes in one transaction**: The Transactional SQL sink runs an ordered list of `INSERT`, `UPDATE`, `DELETE` or `MERGE` statements against one database in a single transaction, and a later statement can use what an earlier one returned — an order's generated id in its lines, with `forEach` writing one line per list element. If any statement fails, nothing is written. It runs on PostgreSQL, YugabyteDB, MySQL, MariaDB, SQL Server and SQLite. See [Transactional SQL sink](docs/transactional-sql-sink.md).
+- **Dependent multi-table writes in one transaction**: The Transactional SQL sink runs an ordered list of `INSERT`, `UPDATE`, `DELETE` or `MERGE` statements against one database in a single transaction, and a later statement can use what an earlier one returned — an order's generated id in its lines, with `forEach` writing one line per list element. If any statement fails, nothing is written. It runs on PostgreSQL, YugabyteDB, MySQL, MariaDB, SQL Server and SQLite. Its form has a Guided mode that writes the SQL from tables and fields, and a Test button that runs everything against the database and rolls it back. See [Transactional SQL sink](docs/transactional-sql-sink.md).
 - **At-least-once delivery with exactly-once *effects* at the sink**: Messages are acknowledged only after successful delivery, using the **Transactional Outbox** pattern for SQL sources. Combined with sink-side idempotency keys (see [Idempotency and Exactly-Once Effects](docs/reliability.md#idempotency-and-exactly-once-effects-sink-side)), a duplicate delivery does not produce a duplicate row. This is *not* end-to-end exactly-once delivery: the transport is at-least-once and duplicates are suppressed where they land, which is the same guarantee most of this category actually ships.
 - **Sequential Control Flow**: Explicitly chain sinks and transformations sequentially. Supports "Sinks as Transformers" by returning data from a sink back into the workflow pipeline.
 - **Stateful Event Correlation (Join/Zip)**: Wait for and join messages from multiple sources based on a common key before downstream delivery.
@@ -99,6 +99,14 @@ Hermod works by reading data from a `Source`, buffering it in a high-performance
 
 ## Install
 
+On a Linux server, as a service that starts on boot:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/gsoultan/hermod/main/deploy/package/install.sh | sudo sh
+```
+
+Or as a container:
+
 ```bash
 docker pull ghcr.io/gsoultan/hermod:1.23.0
 ```
@@ -124,8 +132,8 @@ ports, and managing the database container are in
 
 The README is the overview. Each topic has its own page under [`docs/`](docs/):
 
-- [Installing Hermod](docs/install.md): The container image, the Helm chart, packages, building from source, and `go get`.
-- [Updating Hermod](docs/updating.md): Checking for releases, automatic or manual updates, and how an install is verified and rolled back.
+- [Installing Hermod](docs/install.md): A Linux server in one command, the container image, the Helm chart, packages, building from source, and `go get`.
+- [Updating Hermod](docs/updating.md): Checking for releases, automatic or manual updates (also for `.deb` installs), and how an install is verified and rolled back.
 - [Connectors](docs/connectors.md): Which connectors are production-ready, the evidence behind each tier, and every connector `type` the factory can build.
 - [Using Hermod](docs/usage.md): The command-line client, embedding Hermod as a Go library, running the API and workers, supported platforms, and the admin settings endpoints.
 - [Workflows](docs/workflows.md): Control flow, fan-out, versioning and rollback, workflows as MCP tools, blueprints, and the advanced transformation nodes.

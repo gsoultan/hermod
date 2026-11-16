@@ -74,8 +74,12 @@ type Config struct {
 	Store func() SettingsStore
 	// Restart asks the process to shut down gracefully and start the new binary.
 	Restart func()
-	// BeforeInstall runs before the download; an error stops the install.
-	BeforeInstall func(ctx context.Context) error
+	// BeforeInstall runs before the download and returns where it put the
+	// backup it took, if any; an error stops the install.
+	BeforeInstall func(ctx context.Context) (string, error)
+	// BackupPlan says what BeforeInstall will back up, for the page to show
+	// before anyone installs.
+	BackupPlan func() string
 	// Outcome is how the last update on this machine ended.
 	Outcome func() *install.Outcome
 	Logger  Logger
@@ -91,7 +95,9 @@ type Status struct {
 	CheckedAt       *time.Time       `json:"checked_at,omitempty"`
 	CheckError      string           `json:"check_error,omitempty"`
 	CanInstall      bool             `json:"can_install"`
+	Method          install.Method   `json:"method,omitempty"`
 	InstallBlocked  string           `json:"install_blocked,omitempty"`
+	BackupPlan      string           `json:"backup_plan,omitempty"`
 	AutoInstallHeld string           `json:"auto_install_held,omitempty"`
 	Platform        string           `json:"platform"`
 	Phase           string           `json:"phase"`
@@ -132,6 +138,9 @@ func New(cfg Config) *Service {
 	}
 	if cfg.Restart == nil {
 		cfg.Restart = func() {}
+	}
+	if cfg.Capability.GOOS == "" {
+		cfg.Capability.GOOS, cfg.Capability.GOARCH = cfg.GOOS, cfg.GOARCH
 	}
 	return &Service{cfg: cfg, phase: PhaseIdle}
 }
@@ -185,7 +194,12 @@ func (s *Service) Status(ctx context.Context) Status {
 		Settings:    settings,
 		CheckError:  s.checkErr,
 	}
-	if !st.CanInstall {
+	if st.CanInstall {
+		st.Method = s.cfg.Capability.Method
+		if s.cfg.BackupPlan != nil {
+			st.BackupPlan = s.cfg.BackupPlan()
+		}
+	} else {
 		st.InstallBlocked = s.cfg.Capability.Reason
 	}
 	if !s.checkedAt.IsZero() {
@@ -233,7 +247,7 @@ func (s *Service) Check(ctx context.Context) (Status, error) {
 	} else {
 		s.checkErr = ""
 		s.checkedAt = s.cfg.Now()
-		s.latest = Pick(releases, s.cfg.Current, include)
+		s.latest = Pick(releases, s.cfg.Current, include, s.installable)
 	}
 	s.mu.Unlock()
 	return s.Status(ctx), err
@@ -284,7 +298,7 @@ func (s *Service) plan(ctx context.Context, tag string) (install.Plan, error) {
 	if rel == nil {
 		return install.Plan{}, fmt.Errorf("%w: %s", ErrNotOffered, tag)
 	}
-	plan := install.Plan{Tag: tag, ArchiveName: install.ArchiveName(tag, s.cfg.GOOS, s.cfg.GOARCH)}
+	plan := install.Plan{Tag: tag, ArchiveName: s.cfg.Capability.AssetName(tag)}
 	for _, a := range rel.Assets {
 		switch a.Name {
 		case plan.ArchiveName:
@@ -297,6 +311,23 @@ func (s *Service) plan(ctx context.Context, tag string) (install.Plan, error) {
 		return install.Plan{}, fmt.Errorf("release %s has no %s and checksums.txt to install from", tag, plan.ArchiveName)
 	}
 	return plan, nil
+}
+
+// installable reports whether rel has what this installation installs from.
+// A release whose build failed before uploading has no files at all; offering
+// it would only fail at the download. Where this process cannot install, any
+// release is worth hearing about, because it is upgraded some other way.
+func (s *Service) installable(rel *Release) bool {
+	if !s.cfg.Capability.CanInstall {
+		return true
+	}
+	want := s.cfg.Capability.AssetName(rel.Tag)
+	var file, sums bool
+	for _, a := range rel.Assets {
+		file = file || a.Name == want
+		sums = sums || a.Name == "checksums.txt"
+	}
+	return file && sums
 }
 
 // findOffered returns the release tagged tag if it is one this instance would
@@ -328,8 +359,10 @@ func (s *Service) run(plan install.Plan) {
 
 	err := error(nil)
 	if s.cfg.BeforeInstall != nil {
-		if err = s.cfg.BeforeInstall(ctx); err != nil {
+		if plan.Backup, err = s.cfg.BeforeInstall(ctx); err != nil {
 			err = fmt.Errorf("the backup taken before updating failed, so nothing was changed: %w", err)
+		} else if plan.Backup != "" {
+			s.log("Backed up before updating", "backup", plan.Backup)
 		}
 	}
 	if err == nil {

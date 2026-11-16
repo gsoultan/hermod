@@ -51,6 +51,8 @@ type Marker struct {
 	To       string    `json:"to"`
 	At       time.Time `json:"at"`
 	Attempts int       `json:"attempts"`
+	// Backup is the backup taken before the update, if one was.
+	Backup string `json:"backup,omitempty"`
 }
 
 // Outcome is how the last update ended, kept so the UI can say so after the
@@ -61,6 +63,8 @@ type Outcome struct {
 	To     string    `json:"to"`
 	Detail string    `json:"detail,omitempty"`
 	At     time.Time `json:"at"`
+	// Backup is the backup taken before the update, if one was.
+	Backup string `json:"backup,omitempty"`
 }
 
 func markerPath(exe string) string  { return exe + ".update.json" }
@@ -142,7 +146,7 @@ func Confirm(exe, running string) error {
 	if err != nil || m == nil || !isVersion(running, m.To) {
 		return err
 	}
-	if err := writeJSON(outcomePath(exe), Outcome{Result: ResultUpdated, From: m.From, To: m.To, At: time.Now().UTC()}); err != nil {
+	if err := writeJSON(outcomePath(exe), Outcome{Result: ResultUpdated, From: m.From, To: m.To, At: time.Now().UTC(), Backup: m.Backup}); err != nil {
 		return err
 	}
 	return removeMarker(exe)
@@ -171,7 +175,7 @@ func restore(exe string, m *Marker, detail string) error {
 	if err := os.Rename(prev, exe); err != nil {
 		return fmt.Errorf("cannot restore %s: %w", prev, err)
 	}
-	if err := writeJSON(outcomePath(exe), Outcome{Result: ResultRolledBack, From: m.From, To: m.To, Detail: detail, At: time.Now().UTC()}); err != nil {
+	if err := writeJSON(outcomePath(exe), Outcome{Result: ResultRolledBack, From: m.From, To: m.To, Detail: detail, At: time.Now().UTC(), Backup: m.Backup}); err != nil {
 		return err
 	}
 	return removeMarker(exe)

@@ -235,6 +235,8 @@ POST /api/sinks/smtp/preview
 POST /api/sinks/smtp/validate
 POST /api/sinks/test
 POST /api/sinks/truncate
+POST /api/sinks/txsql/compile
+POST /api/sinks/txsql/test
 POST /api/sources
 POST /api/sources/discover/columns
 POST /api/sources/discover/databases

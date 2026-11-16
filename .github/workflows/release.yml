@@ -390,7 +390,16 @@ jobs:
         with:
           distribution: goreleaser
           version: v2
-          args: release --clean --skip=validate
+          # One build at a time. v1.25.1 and v1.26.0 published no binaries:
+          # the runner was shut down ~6 minutes into "building binaries",
+          # with goreleaser compiling hermod and hermod-edge for both
+          # architectures at once. Both pull in the same large packages
+          # (anthropic-sdk-go among them), and four cold compilers of those
+          # side by side outgrow the runner's memory -- reproduced on a
+          # 16 GB, 4-core machine, where the kernel killed the compiler.
+          # Built in turn, each binary reuses the packages the one before it
+          # compiled for that architecture, so it costs little time.
+          args: release --clean --skip=validate --parallelism 1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # v1.7.3 and v1.7.3-rc.1 sat on the same commit, so git describe

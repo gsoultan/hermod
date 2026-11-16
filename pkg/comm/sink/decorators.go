@@ -40,6 +40,10 @@ func NewTracingSink(s hermod.Sink, sinkID string) *TracingSink {
 	}
 }
 
+// Unwrap returns the sink this one decorates, so an optional interface the
+// decorator does not forward can still be found (hermod.SimulatorOf).
+func (s *TracingSink) Unwrap() hermod.Sink { return s.Sink }
+
 func (s *TracingSink) Write(ctx context.Context, msg hermod.Message) error {
 	// Continue the trace the source read started; this runs on a different
 	// goroutine, so the link comes off the message rather than out of ctx.
@@ -140,6 +144,9 @@ func NewRetrySink(s hermod.Sink, maxRetries int, retryInterval time.Duration, lo
 		logger:        logger,
 	}
 }
+
+// Unwrap returns the sink this one decorates.
+func (s *RetrySink) Unwrap() hermod.Sink { return s.Sink }
 
 func (s *RetrySink) Write(ctx context.Context, msg hermod.Message) error {
 	var lastErr error

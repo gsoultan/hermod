@@ -1,6 +1,7 @@
 # Installing Hermod
 
-The container image, the Helm chart, packages, building from source, and `go get`.
+A Linux server in one command, the container image, the Helm chart, packages, building from
+source, and `go get`.
 
 The current release is **`v1.23.0`**. See [CHANGELOG.md](../CHANGELOG.md) for what
 changed, what breaks, and the known gaps, and the
@@ -29,13 +30,47 @@ helm install hermod oci://ghcr.io/gsoultan/charts/hermod \
 The chart is versioned with the release. Production settings and the chart's values
 are in [Deploying and running Hermod](deployment.md).
 
+## On a Linux server, in one command
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/gsoultan/hermod/main/deploy/package/install.sh | sudo sh
+```
+
+It picks the newest release's package for the machine (`.deb`, `.rpm` or `.apk`, `amd64` or
+`arm64`), checks it against the release's `checksums.txt`, and installs it with the package
+manager. Then open `http://<server>:4000` to finish setting Hermod up.
+`HERMOD_VERSION=v1.25.0` before `sh` installs that release instead. Running it again upgrades.
+
 ## Packages
 
 `.deb`, `.rpm`, `.apk` and tarballs for Linux `amd64`/`arm64` are attached to each
-[release](https://github.com/gsoultan/hermod/releases).
+[release](https://github.com/gsoultan/hermod/releases). Installing a package is all a server
+needs; on a first install it:
 
-A binary installed from a tarball can update itself afterwards; see
-[Updating Hermod](updating.md). Packages are upgraded with your package manager.
+- installs `hermod`, `hermodctl` and `hermod-edge` into `/usr/bin`,
+- installs the `hermod` systemd unit (standalone mode, port 4000, restarted when it stops),
+- writes `/etc/hermod/hermod.env` (readable by root only) with `HERMOD_CONFIG_DIR=/var/lib/hermod`
+  and a `HERMOD_MASTER_KEY` generated for that machine. **Back the key up**: the credentials
+  Hermod stores cannot be read without it.
+- and enables and starts the service.
+
+```bash
+sudo apt install ./hermod_1.26.0_linux_amd64.deb   # or: sudo dnf install ./hermod_1.26.0_linux_amd64.rpm
+systemctl status hermod
+journalctl -u hermod -f
+```
+
+Change settings (mode, port, database) in `/etc/hermod/hermod.env` and the unit's
+`ExecStart`, via `systemctl edit hermod`, then `systemctl restart hermod`. An upgrade keeps
+`hermod.env` and does not restart Hermod; removing the package stops the service and keeps
+`/etc/hermod` and `/var/lib/hermod`.
+
+If `hermod --service install` wrote a unit in `/etc/systemd/system/hermod.service` before the
+package shipped its own, that unit keeps running Hermod and the package leaves it and its
+settings alone.
+
+A `.deb` install updates itself from the Updates page like a tarball install does; `.rpm` and
+`.apk` installs are upgraded with the package manager. See [Updating Hermod](updating.md).
 
 ## From source
 

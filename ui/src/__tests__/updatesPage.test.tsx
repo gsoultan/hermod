@@ -70,6 +70,20 @@ describe('Updates page', () => {
     expect(await screen.findByText(/Downloading v1.25.0/)).toBeInTheDocument()
   })
 
+  it('offers the install on a .deb install and says dpkg puts it in place', async () => {
+    server.use(http.get('*/api/system/updates', () => HttpResponse.json({ ...available, method: 'deb' })))
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: 'Install v1.25.0' }))
+    expect(await screen.findByText(/installs it with dpkg/)).toBeInTheDocument()
+  })
+
+  it('says what is backed up before installing', async () => {
+    server.use(http.get('*/api/system/updates', () => HttpResponse.json({ ...available, backup_plan: 'Before installing, Hermod copies its database to /var/lib/hermod/backups.' })))
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: 'Install v1.25.0' }))
+    expect(await screen.findByText(/copies its database to \/var\/lib\/hermod\/backups/)).toBeInTheDocument()
+  })
+
   it('rides out the restart and says when the new version is running', async () => {
     let phase = 'idle'
     server.use(
@@ -102,11 +116,12 @@ describe('Updates page', () => {
 
   it('reports a rollback', async () => {
     server.use(http.get('*/api/system/updates', () => HttpResponse.json({
-      ...base, last_outcome: { result: 'rolled_back', from: 'v1.24.9', to: 'v1.25.0', detail: 'v1.25.0 did not stay up through 3 starts', at: '2026-11-13T05:30:00Z' },
+      ...base, last_outcome: { result: 'rolled_back', from: 'v1.24.9', to: 'v1.25.0', detail: 'v1.25.0 did not stay up through 3 starts', at: '2026-11-13T05:30:00Z', backup: '/var/lib/hermod/backups/hermod-before-update-v1.24.9-20261113T052900Z.db' },
     })))
     renderPage()
     expect(await screen.findByText(/v1.25.0 was rolled back to v1.24.9/)).toBeInTheDocument()
     expect(screen.getByText(/did not stay up through 3 starts/)).toBeInTheDocument()
+    expect(screen.getByText(/hermod-before-update-v1.24.9-20261113T052900Z.db/)).toBeInTheDocument()
   })
 
   it('saves the choice between automatic and manual updates', async () => {
