@@ -78,6 +78,26 @@ every vhost to every session.
 Administrators and single-vhost installations see no change. `default` remains open to every
 user, as before. The dashboard's totals are still counted across vhosts.
 
+### Added — the Transactional SQL sink runs on Oracle and commits together with other databases
+
+The Transactional SQL sink now runs on **Oracle**. Write `RETURNING id` as on PostgreSQL: the sink
+adds the `INTO` clause and OUT binds Oracle hands columns back through, and later statements read
+`{{name.id}}` (column names come back lower-cased). Guided mode writes Oracle's `MERGE`, followed by
+a `SELECT` of the given-back columns, because `MERGE` returns none. A statement that gives columns
+back must change exactly one row. Isolation is read committed or serializable. `CALL`, PL/SQL
+blocks and DDL are refused, because each can commit on its own. Oracle errors caused by the data,
+such as ORA-00001 and ORA-02291, are permanent and go to the dead-letter sink; deadlocks and busy
+resources are retried.
+
+On **PostgreSQL, YugabyteDB, MySQL and MariaDB** the sink now implements two-phase commit, so it can
+be a member of a transactional group, or a sink node that commits together with other databases.
+It follows the PostgreSQL and MySQL sinks: `PREPARE TRANSACTION`, or XA on one dedicated connection,
+under the coordinator's identifier, with the same preflight checks. A Transactional SQL sink on
+SQL Server, SQLite or Oracle cannot prepare: a sink node that commits together is refused when the
+workflow is saved, and a Transaction Group member when the group starts.
+Nothing changes for a sink that is not in a group: it still commits each batch on its own. The
+MySQL sink's XA checks moved into exported helpers the two share, without changing what they check.
+
 ### Added — an editor for the Transactional SQL sink, with a Guided mode that needs no SQL
 
 The Transactional SQL sink now has a form. **Guided** mode, the default for a new sink, takes a

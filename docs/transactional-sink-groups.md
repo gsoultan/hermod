@@ -226,6 +226,14 @@ Roll back rather than commit unless you have positively established the transact
 should have committed. Presumed abort is the safe direction for the same reason the
 coordinator uses it.
 
+### Transactional SQL sink members
+
+A [Transactional SQL sink](transactional-sql-sink.md) on PostgreSQL, YugabyteDB,
+MySQL or MariaDB can be a member. It prepares the same way the PostgreSQL and MySQL
+sinks do, below, and the same requirements and hazards apply. One on SQL Server,
+SQLite or Oracle cannot prepare: as a sink node that commits together it is refused
+when the workflow is saved, and as a group member when the group starts.
+
 ### MySQL and MariaDB members (XA)
 
 The MySQL sink — which MariaDB shares — takes part through XA transactions: `XA

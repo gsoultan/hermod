@@ -24,6 +24,7 @@ import { FormRow } from '@/components/common/FormRow';
 import { apiFetch } from '@/api';
 import {
   DRIVERS,
+  isolationLevels,
   discoveryType,
   formatStatements,
   formatSteps,
@@ -148,12 +149,7 @@ export const TxSqlSinkConfig: FC<TxSqlSinkConfigProps> = ({ config, vhost, updat
               />
               <Select
                 label="Isolation"
-                data={[
-                  { value: '', label: "The database's default" },
-                  { value: 'read_committed', label: 'Read committed' },
-                  { value: 'repeatable_read', label: 'Repeatable read' },
-                  { value: 'serializable', label: 'Serializable' },
-                ]}
+                data={isolationLevels(config?.driver)}
                 value={config?.isolation || ''}
                 onChange={(v) => updateConfig('isolation', v || '')}
                 allowDeselect={false}
@@ -195,7 +191,9 @@ const ConnectionFields: FC<{ config: any; updateConfig: (k: string, v: any) => v
             <TextInput label="Host" placeholder="localhost" value={config?.host || ''} onChange={set('host')} />
             <TextInput
               label="Port"
-              placeholder={driver === 'mysql' || driver === 'mariadb' ? '3306' : driver === 'mssql' ? '1433' : '5432'}
+              placeholder={
+                driver === 'mysql' || driver === 'mariadb' ? '3306' : driver === 'mssql' ? '1433' : driver === 'oracle' ? '1521' : '5432'
+              }
               value={config?.port || ''}
               onChange={set('port')}
             />
@@ -204,7 +202,12 @@ const ConnectionFields: FC<{ config: any; updateConfig: (k: string, v: any) => v
             <TextInput label="User" value={config?.user || ''} onChange={set('user')} />
             <PasswordInput label="Password" value={config?.password || ''} onChange={set('password')} />
           </FormRow>
-          <TextInput label="Database name" value={config?.dbname || ''} onChange={set('dbname')} />
+          <TextInput
+            label={driver === 'oracle' ? 'Service name' : 'Database name'}
+            placeholder={driver === 'oracle' ? 'FREEPDB1' : undefined}
+            value={config?.dbname || ''}
+            onChange={set('dbname')}
+          />
           <TextInput
             label="Or a connection string"
             placeholder="Used instead of the fields above when set"

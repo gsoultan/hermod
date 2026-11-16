@@ -37,7 +37,19 @@ export const DRIVERS = [
   { value: 'mariadb', label: 'MariaDB' },
   { value: 'mssql', label: 'SQL Server' },
   { value: 'sqlite', label: 'SQLite' },
+  { value: 'oracle', label: 'Oracle' },
 ];
+
+/** The isolation levels a driver has; Oracle has two. */
+export function isolationLevels(driver: string | undefined): { value: string; label: string }[] {
+  const all = [
+    { value: '', label: "The database's default" },
+    { value: 'read_committed', label: 'Read committed' },
+    { value: 'repeatable_read', label: 'Repeatable read' },
+    { value: 'serializable', label: 'Serializable' },
+  ];
+  return driver === 'oracle' ? all.filter((l) => l.value !== 'repeatable_read') : all;
+}
 
 const NAME_RE = /^[a-z_][a-z0-9_]*$/;
 const DDL = new Set(['CREATE', 'ALTER', 'DROP', 'TRUNCATE', 'RENAME', 'COMMENT', 'GRANT', 'REVOKE']);
@@ -227,6 +239,8 @@ export function referenceHints(list: TxStatement[], at: number, driver: string):
     const name = s.name.trim() || `step${i + 1}`;
     let cols = returnedColumns(s.sql);
     if (cols.length === 0 && (driver === 'mysql' || driver === 'mariadb') && firstKeyword(s.sql) === 'INSERT') cols = ['id'];
+    // Oracle names columns in capitals; the sink lower-cases them.
+    if (driver === 'oracle') cols = cols.map((c) => c.toLowerCase());
     for (const c of cols) hints.push(`{{${name}.${c}}}`);
   });
   return hints;

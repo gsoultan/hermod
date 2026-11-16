@@ -97,6 +97,12 @@ describe('the columns a later statement can use', () => {
     expect(referenceHints(list, 2, 'postgres')).toEqual(['{{order.id}}'])
     expect(referenceHints([{ name: 'p', sql: 'INSERT INTO p (a) VALUES (1)' }, { name: 'c', sql: '' }], 1, 'mysql')).toEqual(['{{p.id}}'])
   })
+
+  // Oracle hands column names back in capitals; the sink lower-cases them.
+  it('offers Oracle columns lower-cased, as the sink reads them', () => {
+    const list = [{ name: 'p', sql: 'INSERT INTO p (a) VALUES (1) RETURNING ID, "Created_At"' }, { name: 'c', sql: '' }]
+    expect(referenceHints(list, 1, 'oracle')).toEqual(['{{p.id}}', '{{p.created_at}}'])
+  })
 })
 
 describe('the Guided step checks', () => {

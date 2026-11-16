@@ -89,13 +89,16 @@ func CompileGuided(driver, stepsJSON string) ([]Statement, error) {
 	if len(steps) > MaxStatements {
 		return nil, fmt.Errorf("txsql: %d steps; at most %d run in one transaction", len(steps), MaxStatements)
 	}
-	out := make([]Statement, len(steps))
+	out := make([]Statement, 0, len(steps))
 	for i := range steps {
 		st, err := compileStep(d, &steps[i])
 		if err != nil {
 			return nil, fmt.Errorf("txsql: step %d: %w", i+1, err)
 		}
-		out[i] = st
+		out = append(out, st...)
+	}
+	if len(out) > MaxStatements {
+		return nil, fmt.Errorf("txsql: the steps compile to %d statements; at most %d run in one transaction", len(out), MaxStatements)
 	}
 	return out, nil
 }
@@ -110,11 +113,29 @@ type step struct {
 	returns []string
 }
 
-func compileStep(d sqlDialect, g *GuidedStep) (Statement, error) {
+// compileStep writes the statements for one step: one, except where the
+// database cannot hand columns back from the write itself (see
+// sqlDialect.readBack).
+func compileStep(d sqlDialect, g *GuidedStep) ([]Statement, error) {
 	s, err := checkStep(d, g)
 	if err != nil {
-		return Statement{}, err
+		return nil, err
 	}
+	action := strings.ToLower(strings.TrimSpace(g.Action))
+	if action == "" {
+		action = ActionUpsert
+	}
+	if action == ActionUpsert && len(s.returns) > 0 && d.readBack != nil {
+		return d.readBack(d, s, g)
+	}
+	st, err := compileOne(d, s, g)
+	if err != nil {
+		return nil, err
+	}
+	return []Statement{st}, nil
+}
+
+func compileOne(d sqlDialect, s step, g *GuidedStep) (Statement, error) {
 	st := Statement{Name: g.Name, ForEach: g.ForEach, As: g.As}
 
 	action := strings.ToLower(strings.TrimSpace(g.Action))
@@ -224,6 +245,10 @@ func quoteName(d sqlDialect, name string, qualified bool) (string, error) {
 type sqlDialect struct {
 	quote   func(string) string
 	compile func(action string, s step, st *Statement, returning []string) (string, error)
+	// readBack, when set, compiles an upsert that gives columns back as the
+	// upsert followed by a SELECT of them: the database's upsert cannot
+	// return them itself.
+	readBack func(d sqlDialect, s step, g *GuidedStep) ([]Statement, error)
 }
 
 var guidedDialects = map[string]sqlDialect{
@@ -231,6 +256,7 @@ var guidedDialects = map[string]sqlDialect{
 	"sqlite":    {quote: dq, compile: compileStandard},
 	"mysql":     {quote: bq, compile: compileMySQL},
 	"sqlserver": {quote: sq, compile: compileSQLServer},
+	"oracle":    {quote: oq, compile: compileOracle, readBack: oracleReadBack},
 }
 
 func dq(s string) string { return `"` + s + `"` }

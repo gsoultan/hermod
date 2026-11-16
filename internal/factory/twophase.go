@@ -10,7 +10,13 @@
 
 package factory
 
-import "slices"
+import (
+	"fmt"
+	"slices"
+	"strings"
+
+	"github.com/gsoultan/hermod/pkg/comm/sink/txsql"
+)
 
 // twoPhaseCapableSinkTypes are the sink types whose sinks implement
 // hermod.TwoPhaseCommit, and so can be members of a transactional group.
@@ -33,11 +39,15 @@ import "slices"
 // PREPARE TRANSACTION. mysql and mariadb share a sink too, which uses XA
 // transactions; its preflight refuses a server version on which a prepared XA
 // transaction would not survive a disconnect (MySQL < 5.7.7, MariaDB < 10.5.2).
+//
+// txsql, the Transactional SQL sink, can prepare only on some of the databases
+// it runs on; CheckTwoPhaseMember reads its driver.
 var twoPhaseCapableSinkTypes = []string{
 	"postgres",
 	"yugabyte",
 	"mysql",
 	"mariadb",
+	"txsql",
 }
 
 // TwoPhaseCapableSinkTypes returns the sink types that can join a transactional
@@ -50,4 +60,19 @@ func TwoPhaseCapableSinkTypes() []string {
 // a transactional group.
 func SupportsTwoPhaseCommit(sinkType string) bool {
 	return slices.Contains(twoPhaseCapableSinkTypes, sinkType)
+}
+
+// CheckTwoPhaseMember refuses a sink, by its type and stored configuration,
+// that cannot be a member of a transactional group, and says which can.
+// Callers add which node or sink it was.
+func CheckTwoPhaseMember(sinkType string, config map[string]string) error {
+	if !SupportsTwoPhaseCommit(sinkType) {
+		return fmt.Errorf("a %q sink cannot take part in two-phase commit; only these can: %s",
+			sinkType, strings.Join(twoPhaseCapableSinkTypes, ", "))
+	}
+	if sinkType == "txsql" && !txsql.SupportsTwoPhaseCommit(config["driver"]) {
+		return fmt.Errorf("a Transactional SQL sink on %q cannot hold a transaction in doubt, so it cannot "+
+			"take part in two-phase commit; it can on: %s", config["driver"], strings.Join(txsql.TwoPhaseDrivers, ", "))
+	}
+	return nil
 }
