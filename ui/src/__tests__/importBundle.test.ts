@@ -7,6 +7,7 @@ import {
   applyConflictDecisions,
   nameCollisions,
   suggestFreeName,
+  moveToVHost,
   type ImportBundle,
 } from '../utils/importBundle'
 
@@ -154,6 +155,60 @@ describe('detectConflicts', () => {
       sinks: [],
     })
     expect(conflicts).toEqual([])
+  })
+})
+
+// Exported from vhost "default", imported into "team-b" on the same server.
+// The bundle still names the original's source and sink by id; reusing them
+// shared one connection between two vhosts, so deleting the copy's sink was
+// refused as "used by workflow Orders" — or, with the vhost changed, moved it
+// out from under the original.
+describe('detectConflicts across vhosts', () => {
+  const existing = {
+    workflows: [{ id: 'wf-1', name: 'Orders', vhost: 'default' }],
+    sources: [{ id: 'src-1', name: 'Main', vhost: 'default' }],
+    sinks: [{ id: 'snk-1', name: 'Out', vhost: '' }],
+  }
+  const bundle = (wfVHost: string, resVHost = 'default'): ImportBundle => ({
+    workflow: { id: 'wf-1', name: 'Orders', vhost: wfVHost, nodes: [], edges: [] },
+    sources: [{ id: 'src-1', name: 'Main', type: 'postgres', vhost: resVHost, config: {} }],
+    sinks: [{ id: 'snk-1', name: 'Out', type: 'postgres', vhost: resVHost, config: {} }],
+  })
+
+  it('marks a connection that lives in another vhost as not shareable', () => {
+    const conflicts = detectConflicts(bundle('team-b'), existing)
+    const snk = conflicts.find((c) => c.kind === 'sink')
+    expect(snk?.foreign).toBe(true)
+    expect(snk?.existingVHost).toBe('default')
+    expect(conflicts.find((c) => c.kind === 'source')?.foreign).toBe(true)
+  })
+
+  it('marks one the bundle would move to the other vhost as not shareable either', () => {
+    const conflicts = detectConflicts(bundle('team-b', 'team-b'), existing)
+    expect(conflicts.filter((c) => c.kind !== 'workflow').every((c) => c.foreign)).toBe(true)
+  })
+
+  it('leaves a re-import into the same vhost free to replace, reading "" as default', () => {
+    const conflicts = detectConflicts(bundle(''), existing)
+    expect(conflicts.filter((c) => c.kind !== 'workflow').some((c) => c.foreign)).toBe(false)
+  })
+})
+
+describe('moveToVHost', () => {
+  it('takes the connections that were with the workflow along, and leaves the rest', () => {
+    const b: ImportBundle = {
+      workflow: { id: 'wf-1', name: 'W', vhost: 'default', nodes: [], edges: [] },
+      sources: [
+        { id: 's1', name: 'A', type: 'postgres', vhost: 'default', config: {} },
+        { id: 's2', name: 'B', type: 'postgres', vhost: 'shared', config: {} },
+      ],
+      sinks: [{ id: 'k1', name: 'K', type: 'postgres', vhost: 'default', config: {} }],
+    }
+    const next = moveToVHost(b, 'team-b')
+    expect(next.workflow.vhost).toBe('team-b')
+    expect(next.sources.map((s) => s.vhost)).toEqual(['team-b', 'shared'])
+    expect(next.sinks[0].vhost).toBe('team-b')
+    expect(b.workflow.vhost).toBe('default')
   })
 })
 

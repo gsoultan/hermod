@@ -11,7 +11,7 @@ import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '@/api'
 import {
   parseImportBundle, collectReviewNodes, detectConflicts, applyConflictDecisions,
-  buildImportPlan, nameCollisions, takenNames, suggestFreeName, forImport, importErrorMessage,
+  buildImportPlan, nameCollisions, takenNames, suggestFreeName, forImport, importErrorMessage, moveToVHost,
   type ImportBundle, type ImportResource, type ConflictDecision, type Conflict,
 } from '@/utils/importBundle'
 import { configComponents } from '@/components/forms/SinkForm'
@@ -155,7 +155,8 @@ export function ImportWizard({ defaultVHost, availableVHosts, onCancel, onImport
       const next = { ...current }
       let changed = false
       for (const c of conflicts) {
-        if (!next[c.id]) {
+        // A connection from another vhost is copied by the effect below.
+        if (!next[c.id] && !c.foreign) {
           next[c.id] = 'overwrite'
           changed = true
         }
@@ -163,6 +164,24 @@ export function ImportWizard({ defaultVHost, availableVHosts, onCancel, onImport
       return changed ? next : current
     })
   }, [conflicts])
+
+  // A source or sink that is here in another vhost cannot be replaced: two
+  // vhosts' workflows would share one connection, and deleting this
+  // workflow's sink would be refused because the original uses it. It is
+  // imported as a separate copy, renamed like any other copy, and this runs
+  // again when the workflow's vhost changes.
+  useEffect(() => {
+    if (!bundle) return
+    for (const c of conflicts) {
+      if (!c.foreign || c.kind === 'workflow' || decisions[c.id] === 'copy') continue
+      const kind = c.kind === 'source' ? 'sources' : 'sinks'
+      const resource = bundle[kind].find((r) => r.id === c.id)
+      if (resource) chooseDecision(kind, resource, 'copy')
+    }
+    // chooseDecision is recreated each render; what decides the outcome is
+    // the conflicts and the decisions already taken.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conflicts, decisions])
 
   const chooseDecision = (kind: 'sources' | 'sinks', resource: ImportResource, decision: ConflictDecision) => {
     setDecisions((cur) => ({ ...cur, [resource.id]: decision }))
@@ -449,7 +468,7 @@ export function ImportWizard({ defaultVHost, availableVHosts, onCancel, onImport
                     label="Virtual host"
                     data={availableVHosts}
                     value={bundle.workflow.vhost || ''}
-                    onChange={(v) => setBundle((b) => b && ({ ...b, workflow: { ...b.workflow, vhost: v || '' } }))}
+                    onChange={(v) => setBundle((b) => b && moveToVHost(b, v || ''))}
                     searchable
                   />
                 </Group>

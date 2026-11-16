@@ -77,3 +77,36 @@ A source's subtype is read three different ways across the codebase
 (`config.transType` in validation, `config.type` in `internal/ai`, the node type
 itself elsewhere). `nodeTransType` accepts all three rather than betting on one;
 anything dispatching on subtype should do the same.
+
+### A connection is never shared across vhosts by an import
+
+The import upserts sources and sinks by id, and an export keeps the
+original's ids. Imported into another vhost on the same server, the copy used
+to point at the original's own connections: deleting the copy's sink was
+refused as "used by workflow <original>" (the delete guard in
+`internal/sink/transport/http/sink.go` was right — the record really was
+shared), and giving the connection the new vhost on import moved it out from
+under the original.
+
+**Rule.** `foreignConnectionInBundle` (`internal/workflow/transport/http/workflow.go`)
+refuses the whole import with `409`, before anything is written, when a
+bundle source or sink names an id that exists here and either the record's
+vhost differs from the workflow's or the bundle would change it. `""` reads
+as `default` on both sides. `detectConflicts` in `ui/src/utils/importBundle.ts`
+mirrors it as `Conflict.foreign`; the wizard forces "Import as a separate
+copy" for those (with the usual `(copy)` rename, since names are globally
+`UNIQUE`) and disables Replace. `moveToVHost` takes the connections that were
+in the workflow's vhost along when the operator changes it.
+
+A copy does not inherit the original's password: credentials are restored by
+id only, deliberately, so an editor of one vhost cannot pull another vhost's
+password into theirs by importing a bundle that names it. The operator types
+it in the wizard.
+
+Covered by `TestImportIntoAnotherVHostDoesNotReuseTheOriginalsConnections`,
+the `detectConflicts across vhosts` unit tests, and end to end by
+`importing into another vhost gives the workflow its own sink, which it can
+delete` in `ui/__tests__/workflow_export_import_e2e.spec.ts`. The other two
+tests in that spec still drive the old `/workflows` page (a "Search
+workflows..." field and "Import JSON" button that no longer exist) and fail
+before reaching the wizard; that is older than this fix.

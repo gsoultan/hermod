@@ -75,7 +75,10 @@ export function ImportResourceCard({
             <Stack gap="xs">
               <Text size="sm">
                 This instance already has a {kind} with id <Code>{conflict.id}</Code>, named{' '}
-                <strong>{conflict.existingName}</strong>. Decide what happens to it.
+                <strong>{conflict.existingName}</strong>
+                {conflict.foreign
+                  ? <>, in vhost <strong>{conflict.existingVHost}</strong>. Its workflows there keep it, so this workflow gets its own copy.</>
+                  : '. Decide what happens to it.'}
               </Text>
               <Radio.Group
                 value={decision}
@@ -86,7 +89,10 @@ export function ImportResourceCard({
                   <Radio
                     value="overwrite"
                     label={`Replace ${conflict.existingName}`}
-                    description={`Its configuration is overwritten with what is below. Anything already using this ${kind} starts using these settings.`}
+                    disabled={conflict.foreign}
+                    description={conflict.foreign
+                      ? `Not available: ${conflict.existingName} belongs to vhost ${conflict.existingVHost}, and one ${kind} cannot be shared between vhosts.`
+                      : `Its configuration is overwritten with what is below. Anything already using this ${kind} starts using these settings.`}
                   />
                   <Radio
                     value="copy"

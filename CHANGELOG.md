@@ -7,6 +7,20 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — a workflow imported into another vhost shared the original's sink
+
+Exporting a workflow from one vhost and importing it into another on the same server kept the
+ids of the original's sources and sinks, and the import wizard defaulted to replacing them. The
+imported workflow therefore pointed at the original's own connections: taking the sink out of
+the imported workflow and deleting it was refused as "used by workflow" the original, and a
+connection given the new vhost on import was moved out from under the original. A source or
+sink that is already here in another vhost is now imported as a separate copy, with a new id
+and a free name, and replacing it is not offered. The server refuses an import that would
+share or move one (`409`), and the wizard moves the workflow's connections along when its vhost
+is changed. A copy is a new connection, so its password is typed in the wizard. Workflows
+imported before this keep pointing at the original's connections; re-import them, or point
+their steps at a new source or sink.
+
 ### Fixed — a SQLite sink set up in the form opened no database file
 
 The SQLite sink form saved the file under `db_path`, but the connection reads `path`, so a sink
