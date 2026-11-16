@@ -305,3 +305,13 @@ describe('the ClickHouse sink', () => {
     expect(missingConnectionFields('sink', 'clickhouse', { addr: 'ch.example.com:9000' })).toEqual([]);
   });
 });
+
+// The SQLite sink form wrote its file under db_path while the factory read
+// path, so a sink saved from it opened no file, and nothing gated the field.
+describe('the SQLite sink', () => {
+  it('needs a database file, under the key the factory reads or the one older sinks were saved with', () => {
+    expect(missingConnectionFields('sink', 'sqlite', {})).toEqual(['Database file path']);
+    expect(missingConnectionFields('sink', 'sqlite', { path: '/data/a.db' })).toEqual([]);
+    expect(missingConnectionFields('sink', 'sqlite', { db_path: '/data/old.db' })).toEqual([]);
+  });
+});

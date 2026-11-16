@@ -109,3 +109,26 @@ func TestBuildConnectionString_RabbitMQ_SSL(t *testing.T) {
 		})
 	}
 }
+
+// The SQLite sink form wrote its file under db_path while the connection read
+// path, so a sink saved from it opened no file. The form now writes path;
+// sinks already saved with db_path must keep opening the file they name.
+func TestBuildConnectionStringSQLiteReadsPathAndTheOlderDBPath(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  map[string]string
+		want string
+	}{
+		{"path", map[string]string{"path": "/data/a.db"}, "/data/a.db"},
+		{"saved before the fix", map[string]string{"db_path": "/data/old.db"}, "/data/old.db"},
+		{"both: path wins", map[string]string{"path": "/data/a.db", "db_path": "/data/old.db"}, "/data/a.db"},
+		{"connection string", map[string]string{"connection_string": "/data/cs.db", "db_path": "/data/old.db"}, "/data/cs.db"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := factory.BuildConnectionString(tc.cfg, "sqlite"); got != tc.want {
+				t.Errorf("BuildConnectionString = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

@@ -7,6 +7,12 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — a SQLite sink set up in the form opened no database file
+
+The SQLite sink form saved the file under `db_path`, but the connection reads `path`, so a sink
+set up there started with no file to open. The form now writes `path` and requires it before Next.
+Sinks already saved with `db_path` keep working: the connection falls back to it, and the form
+shows it.
 ### Added — `.deb` installs update themselves, and a server installs in one command
 
 The Updates page, automatic updates and `hermod --update` now work where Hermod was installed

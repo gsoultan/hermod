@@ -1634,7 +1634,12 @@ func BuildConnectionString(cfg map[string]string, sourceType string) string {
 		return fmt.Sprintf("tcp(%s:%s)/%s", host, port, dbname)
 
 	case "sqlite":
-		return cfg["path"]
+		if cfg["path"] != "" {
+			return cfg["path"]
+		}
+		// The SQLite sink form saved its file under db_path until it was
+		// fixed to write path; sinks saved then must keep opening that file.
+		return cfg["db_path"]
 	case "rabbitmq", "rabbitmq_queue":
 		useSSL := strings.EqualFold(cfg["use_ssl"], "true")
 		u := &url.URL{
