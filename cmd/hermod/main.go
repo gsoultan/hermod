@@ -280,6 +280,9 @@ func closeStorage(s storage.Storage) {
 
 func logSetupStatus(logger hermod.Logger, configured, userSetup bool, port int) {
 	if !configured || !userSetup {
-		logger.Info("First-time setup detected. Starting API only.", "setup_url", fmt.Sprintf("http://localhost:%d/setup", port))
+		urls := localSetupURLs(port)
+		logger.Info("First-time setup detected. Starting API only. Open setup from another machine at one of setup_urls; "+
+			"on a cloud server use its public address and allow the port in its firewall or security group.",
+			"setup_url", urls[0], "setup_urls", strings.Join(urls, ", "))
 	}
 }
