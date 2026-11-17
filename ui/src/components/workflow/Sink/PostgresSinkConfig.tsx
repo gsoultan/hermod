@@ -1,7 +1,7 @@
 import { IconRefresh } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
 import { FormRow } from '@/components/common/FormRow';
-import { ActionIcon, Autocomplete, Group, Switch, Stack, Divider, Select, Button, Loader, Checkbox } from '@mantine/core'
+import { ActionIcon, Autocomplete, Group, Switch, Stack, Divider, Select, Button, Loader } from '@mantine/core'
 import { TextInput } from '@/components/shared/ReferenceInputs'
 import { useState, type FC, useEffect } from 'react'
 import { ColumnMappingEditor, type ColumnMapping } from './ColumnMappingEditor'
@@ -322,13 +322,27 @@ export const PostgresSinkConfig: FC<PostgresSinkConfigProps> = ({
 
       {(type === 'postgres' || type === 'yugabyte') && (
         <FormRow>
-          <TextInput label="SSL Mode" placeholder="disable" value={config.sslmode || ''} onChange={(e) => updateConfig('sslmode', e.target.value)} />
-          <Checkbox
-            mt="xl"
-            label="Using PgBouncer"
-            description="Transaction/Statement mode safety"
-            checked={config.pgbouncer === 'true'}
-            onChange={(e) => updateConfig('pgbouncer', e.target.checked ? 'true' : 'false')}
+          <TextInput
+            label="SSL Mode"
+            description="disable, require, verify-ca or verify-full"
+            placeholder="disable"
+            value={config.sslmode || ''}
+            onChange={(e) => updateConfig('sslmode', e.target.value)}
+            mih={80}
+          />
+          {/* A Select rather than a checkbox, so the row's two fields have the
+              same anatomy (label, description, input) and the same height. */}
+          <Select
+            label="PgBouncer"
+            description="Through PgBouncer, the simple protocol is used"
+            data={[
+              { value: 'false', label: 'Not used: direct connection' },
+              { value: 'true', label: 'Used, in transaction or statement mode' },
+            ]}
+            value={config.pgbouncer === 'true' ? 'true' : 'false'}
+            onChange={(v) => updateConfig('pgbouncer', v === 'true' ? 'true' : 'false')}
+            allowDeselect={false}
+            mih={80}
           />
         </FormRow>
       )}

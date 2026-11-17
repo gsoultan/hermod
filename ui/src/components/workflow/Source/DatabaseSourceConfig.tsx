@@ -1,5 +1,5 @@
 import { FormRow } from '@/components/common/FormRow';
-import { Stack, Group, Divider, Checkbox, NumberInput, Fieldset, Switch, Text, Radio } from '@mantine/core';
+import { Stack, Group, Divider, Checkbox, NumberInput, Fieldset, Switch, Text, Radio, Select } from '@mantine/core';
 import { PasswordInput, TextInput } from '@/components/shared/ReferenceInputs';
 import { PostgresReplicationConfig } from './PostgresReplicationConfig';
 import { ConnectionUrlPaste } from '../../shared/ConnectionUrlPaste';
@@ -169,13 +169,27 @@ export function DatabaseSourceConfig({ type, config, updateConfig, tablesInput, 
           
           {type === 'postgres' && (
             <FormRow>
-              <TextInput label="SSL Mode" placeholder="disable" value={config.sslmode || 'disable'} onChange={(e) => updateConfig('sslmode', e.target.value)} />
-              <Checkbox
-                mt="xl"
-                label="Using PgBouncer"
-                description="Transaction/Statement mode safety"
-                checked={config.pgbouncer === 'true'}
-                onChange={(e) => updateConfig('pgbouncer', e.target.checked ? 'true' : 'false')}
+              <TextInput
+                label="SSL Mode"
+                description="disable, require, verify-ca or verify-full"
+                placeholder="disable"
+                value={config.sslmode || 'disable'}
+                onChange={(e) => updateConfig('sslmode', e.target.value)}
+                mih={80}
+              />
+              {/* A Select rather than a checkbox, so the row's two fields have the
+                  same anatomy (label, description, input) and the same height. */}
+              <Select
+                label="PgBouncer"
+                description="Through PgBouncer, the simple protocol is used"
+                data={[
+                  { value: 'false', label: 'Not used: direct connection' },
+                  { value: 'true', label: 'Used, in transaction or statement mode' },
+                ]}
+                value={config.pgbouncer === 'true' ? 'true' : 'false'}
+                onChange={(v) => updateConfig('pgbouncer', v === 'true' ? 'true' : 'false')}
+                allowDeselect={false}
+                mih={80}
               />
             </FormRow>
           )}

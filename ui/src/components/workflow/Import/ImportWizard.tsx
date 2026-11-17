@@ -18,6 +18,7 @@ import { configComponents } from '@/components/forms/SinkForm'
 import { ImportResourceCard, type TestState } from './ImportResourceCard'
 import { ImportSourceConfig } from './ImportSourceConfig'
 import { ImportNodeCard } from './ImportNodeCard'
+import { FormRow } from '@/components/common/FormRow'
 
 const API_BASE = '/api'
 
@@ -450,9 +451,10 @@ export function ImportWizard({ defaultVHost, availableVHosts, onCancel, onImport
                     </Stack>
                   </Alert>
                 )}
-                <Group grow align="flex-start">
+                <FormRow>
                   <TextInput
                     label="Name"
+                    description="What the flow is called here."
                     value={bundle.workflow.name ?? ''}
                     onChange={(e) => {
                       // Read the value here, not inside the updater: React
@@ -466,12 +468,14 @@ export function ImportWizard({ defaultVHost, availableVHosts, onCancel, onImport
                   />
                   <Select
                     label="Virtual host"
+                    description="Where the flow lands on this instance."
                     data={availableVHosts}
                     value={bundle.workflow.vhost || ''}
                     onChange={(v) => setBundle((b) => b && moveToVHost(b, v || ''))}
                     searchable
+                    allowDeselect={false}
                   />
-                </Group>
+                </FormRow>
                 <Alert color="gray" variant="light" icon={<IconInfoCircle size="1rem" />}>
                   <Text size="sm">
                     The workflow imports stopped. Start it from the list once you have checked it

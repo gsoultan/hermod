@@ -4,6 +4,7 @@ import {
 } from '@mantine/core'
 import { IconAlertTriangle, IconPlugConnected, IconCheck, IconX, IconLock } from '@tabler/icons-react'
 import type { Conflict, ConflictDecision, ImportResource } from '@/utils/importBundle'
+import { FormRow } from '@/components/common/FormRow'
 
 export interface TestState {
   status: 'ok' | 'error'
@@ -105,9 +106,10 @@ export function ImportResourceCard({
           </Alert>
         )}
 
-        <Group grow align="flex-start">
+        <FormRow>
           <TextInput
             label="Name"
+            description={`Unique among this instance's ${kind}s.`}
             value={resource.name ?? ''}
             onChange={(e) => onChange({ name: e.currentTarget.value })}
             error={nameError}
@@ -120,8 +122,9 @@ export function ImportResourceCard({
             value={resource.vhost || ''}
             onChange={(v) => onChange({ vhost: v || '' })}
             searchable
+            allowDeselect={false}
           />
-        </Group>
+        </FormRow>
 
         <Divider label="Connection" labelPosition="left" />
 
