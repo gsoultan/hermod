@@ -68,3 +68,13 @@ User docs: `docs/updating.md`.
   checksums.txt, installs with apt/dnf/yum/rpm/apk, try-restarts on upgrade.
 - Release workflow runs goreleaser with `--parallelism 1`: four parallel cold
   compiles of hermod/hermod-edge (both pull anthropic-sdk-go) OOM the runner.
+
+# Setup address on a network install
+
+- The API binds `:<port>` (all interfaces, `cmd/hermod/server_util.go`). The
+  first-run log used to print `http://localhost:<port>/setup`; it now uses
+  `localSetupURLs` (`cmd/hermod/setup_url.go`): non-loopback, non-link-local
+  interface IPs (IPv4 first), then hostname, then localhost. Logged as
+  `setup_url` (first) and `setup_urls`. A cloud VM's public IP is not on its
+  interfaces; the usual "can't reach setup" cause on AWS is the security group
+  not allowing the port.

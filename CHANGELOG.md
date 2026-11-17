@@ -7,6 +7,15 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — the first-run log pointed a network install at localhost
+
+On first start Hermod logged `setup_url=http://localhost:4000/setup`, which is useless when
+Hermod runs on a server you reach over the network. The API already listens on every
+address, so only the message was wrong. It now lists the server's own network addresses
+(`setup_url` and `setup_urls`), falls back to its hostname, and uses `localhost` only when
+the machine has no other address. A cloud server's public address is not on its interfaces:
+open that address, and allow the port in the firewall or security group.
+
 ### Fixed — a workflow imported into another vhost shared the original's sink
 
 Exporting a workflow from one vhost and importing it into another on the same server kept the
