@@ -8,16 +8,18 @@ import {
   IconChecklist, IconUpload, IconAlertTriangle, IconInfoCircle, IconCheck,
 } from '@tabler/icons-react'
 import { useQuery } from '@tanstack/react-query'
+import { useElementSize } from '@mantine/hooks'
 import { apiFetch } from '@/api'
 import {
   parseImportBundle, collectReviewNodes, detectConflicts, applyConflictDecisions,
-  buildImportPlan, nameCollisions, takenNames, suggestFreeName, forImport, importErrorMessage,
+  buildImportPlan, nameCollisions, takenNames, suggestFreeName, forImport, importErrorMessage, moveToVHost,
   type ImportBundle, type ImportResource, type ConflictDecision, type Conflict,
 } from '@/utils/importBundle'
 import { configComponents } from '@/components/forms/SinkForm'
 import { ImportResourceCard, type TestState } from './ImportResourceCard'
 import { ImportSourceConfig } from './ImportSourceConfig'
 import { ImportNodeCard } from './ImportNodeCard'
+import { FormRow } from '@/components/common/FormRow'
 
 const API_BASE = '/api'
 
@@ -47,6 +49,9 @@ type StepKey = 'bundle' | 'workflow' | 'sources' | 'sinks' | 'nodes' | 'review'
  * only then send one request. The rewriting of ids and references lives in
  * utils/importBundle.ts, which is pure and tested — this file is the shell.
  */
+const STEPPER_FULL_WIDTH = 840
+const STEPPER_LABELS_WIDTH = 670
+
 export function ImportWizard({ defaultVHost, availableVHosts, onCancel, onImported }: ImportWizardProps) {
   const [raw, setRaw] = useState('')
   const [bundle, setBundle] = useState<ImportBundle | null>(null)
@@ -155,7 +160,8 @@ export function ImportWizard({ defaultVHost, availableVHosts, onCancel, onImport
       const next = { ...current }
       let changed = false
       for (const c of conflicts) {
-        if (!next[c.id]) {
+        // A connection from another vhost is copied by the effect below.
+        if (!next[c.id] && !c.foreign) {
           next[c.id] = 'overwrite'
           changed = true
         }
@@ -163,6 +169,24 @@ export function ImportWizard({ defaultVHost, availableVHosts, onCancel, onImport
       return changed ? next : current
     })
   }, [conflicts])
+
+  // A source or sink that is here in another vhost cannot be replaced: two
+  // vhosts' workflows would share one connection, and deleting this
+  // workflow's sink would be refused because the original uses it. It is
+  // imported as a separate copy, renamed like any other copy, and this runs
+  // again when the workflow's vhost changes.
+  useEffect(() => {
+    if (!bundle) return
+    for (const c of conflicts) {
+      if (!c.foreign || c.kind === 'workflow' || decisions[c.id] === 'copy') continue
+      const kind = c.kind === 'source' ? 'sources' : 'sinks'
+      const resource = bundle[kind].find((r) => r.id === c.id)
+      if (resource) chooseDecision(kind, resource, 'copy')
+    }
+    // chooseDecision is recreated each render; what decides the outcome is
+    // the conflicts and the decisions already taken.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conflicts, decisions])
 
   const chooseDecision = (kind: 'sources' | 'sinks', resource: ImportResource, decision: ConflictDecision) => {
     setDecisions((cur) => ({ ...cur, [resource.id]: decision }))
@@ -310,19 +334,53 @@ export function ImportWizard({ defaultVHost, availableVHosts, onCancel, onImport
     reader.readAsText(file)
   }
 
+  // STEPPER_FULL_WIDTH and STEPPER_LABELS_WIDTH are the widths, in px, a row
+  // of all six steps needs with descriptions (831 measured) and with labels
+  // alone (662 measured), plus a little room.
+  const { ref: stepperRef, width: stepperWidth } = useElementSize()
+  const stepperMode: 'full' | 'labels' | 'icons' =
+    stepperWidth === 0 || stepperWidth >= STEPPER_FULL_WIDTH ? 'full'
+      : stepperWidth >= STEPPER_LABELS_WIDTH ? 'labels' : 'icons'
+
   return (
     <Stack gap="md">
-      <Stepper active={active} onStepClick={setActive} allowNextStepsSelect={false} size="sm">
-        {steps.map((s) => (
-          <Stepper.Step
-            key={s.key}
-            label={s.label}
-            description={s.description}
-            icon={s.icon}
-            completedIcon={<IconCheck size="1.1rem" />}
-          />
-        ))}
-      </Stepper>
+      {/* The steps stay on one row. Mantine's Stepper wraps when its steps do
+          not fit, which pushed Review onto a line of its own in the modal.
+          Below the width that holds every label and description, the
+          descriptions go, and below the width that holds the labels, only
+          the icons stay, with the current step named underneath. */}
+      <div ref={stepperRef}>
+        <Stepper
+          active={active}
+          onStepClick={setActive}
+          allowNextStepsSelect={false}
+          size="sm"
+          iconSize={stepperMode === 'icons' ? 28 : 32}
+          styles={{
+            steps: { flexWrap: 'nowrap' },
+            step: { minWidth: 0, flexShrink: 0 },
+            stepBody: stepperMode === 'icons' ? { display: 'none' } : { whiteSpace: 'nowrap' },
+            separator: stepperMode === 'icons' ? { minWidth: 4, marginInline: 4 } : { minWidth: 8, marginInline: 6 },
+          }}
+        >
+          {steps.map((s) => (
+            <Stepper.Step
+              key={s.key}
+              label={s.label}
+              description={stepperMode === 'full' ? s.description : undefined}
+              icon={s.icon}
+              completedIcon={<IconCheck size="1.1rem" />}
+              aria-label={stepperMode === 'icons' ? `${s.label}: ${s.description}` : undefined}
+            />
+          ))}
+        </Stepper>
+        {stepperMode !== 'full' && steps[active] && (
+          <Text size="sm" mt="xs" data-testid="current-step">
+            <Text span fw={600}>{steps[active].label}</Text>
+            <Text span c="dimmed"> · {steps[active].description}</Text>
+          </Text>
+        )}
+      </div>
 
       <ScrollArea.Autosize mah="58vh" type="auto" offsetScrollbars>
         <Stack gap="md" pr="xs">
@@ -431,9 +489,10 @@ export function ImportWizard({ defaultVHost, availableVHosts, onCancel, onImport
                     </Stack>
                   </Alert>
                 )}
-                <Group grow align="flex-start">
+                <FormRow>
                   <TextInput
                     label="Name"
+                    description="What the flow is called here."
                     value={bundle.workflow.name ?? ''}
                     onChange={(e) => {
                       // Read the value here, not inside the updater: React
@@ -447,12 +506,14 @@ export function ImportWizard({ defaultVHost, availableVHosts, onCancel, onImport
                   />
                   <Select
                     label="Virtual host"
+                    description="Where the flow lands on this instance."
                     data={availableVHosts}
                     value={bundle.workflow.vhost || ''}
-                    onChange={(v) => setBundle((b) => b && ({ ...b, workflow: { ...b.workflow, vhost: v || '' } }))}
+                    onChange={(v) => setBundle((b) => b && moveToVHost(b, v || ''))}
                     searchable
+                    allowDeselect={false}
                   />
-                </Group>
+                </FormRow>
                 <Alert color="gray" variant="light" icon={<IconInfoCircle size="1rem" />}>
                   <Text size="sm">
                     The workflow imports stopped. Start it from the list once you have checked it

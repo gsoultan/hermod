@@ -308,3 +308,104 @@ test('importing a colliding bundle as a copy leaves the original alone and repoi
   expect(sinkNode.ref_id).not.toBe(ids.sinkID);
   expect((await apiRequest(page, `/api/sinks/${sinkNode.ref_id}`)).status).toBe(200);
 });
+
+/**
+ * Exported from one vhost and imported into another on the same server.
+ *
+ * Every id in the bundle already names a connection in the first vhost. The
+ * wizard used to default to replacing them, so the imported workflow pointed
+ * at the original's own source and sink: removing the sink from the imported
+ * workflow and deleting it was refused as "used by workflow <original>", and
+ * a sink moved to the new vhost was taken away from the original. A
+ * connection that lives in another vhost is now imported as a copy, and
+ * replacing it is not offered.
+ */
+test('importing into another vhost gives the workflow its own sink, which it can delete', async ({ page }) => {
+  await login(page);
+  const n = names('c');
+  const { WF_NAME, MAIN_SOURCE, SINK_NAME } = n;
+  const ids = await seed(page, n);
+  const vhost = `vh_imp_${Date.now().toString(36)}`;
+  const made = await apiRequest(page, '/api/vhosts', { method: 'POST', body: { name: vhost, description: 'import target' } });
+  expect(made.status, `creating vhost failed: ${made.body}`).toBeLessThan(300);
+
+  // The bundle is fetched directly: what is under test is the import.
+  const exported = await apiRequest(page, `/api/workflows/${ids.wfID}/export`);
+  expect(exported.status, `export failed: ${exported.body}`).toBe(200);
+  // seed() stores the password under db_password, a key the connection forms
+  // do not show; a connection made in the UI keeps it under password, which
+  // is what the form in the wizard fills.
+  const bundle = JSON.parse(exported.body);
+  for (const r of [...bundle.sources, ...bundle.sinks]) {
+    r.config.password = r.config.db_password;
+    delete r.config.db_password;
+  }
+  const raw = JSON.stringify(bundle);
+
+  await page.goto('/workflows');
+  await page.getByRole('button', { name: 'More ways to make a flow' }).click();
+  await page.getByRole('menuitem', { name: 'Import JSON' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Import a flow' });
+  await dialog.locator('textarea').first().fill(raw.trim());
+  await expect(dialog.getByText('4 id collisions')).toBeVisible({ timeout: 10000 });
+
+  const next = dialog.getByRole('button', { name: 'Next' });
+  await next.click();                                     // -> Workflow
+  await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill(`${WF_NAME} in ${vhost}`);
+  await dialog.getByRole('combobox', { name: 'What should happen to it' }).click();
+  await page.getByRole('option', { name: 'Import alongside it, as a new workflow' }).click();
+  await dialog.getByRole('combobox', { name: 'Virtual host', exact: true }).click();
+  await page.getByRole('option', { name: vhost, exact: true }).click();
+
+  await next.click();                                     // -> Sources
+  const mainCard = dialog.locator('.mantine-Card-root').filter({ hasText: MAIN_SOURCE });
+  await expect(mainCard.getByRole('radio', { name: 'Import as a separate copy' })).toBeChecked();
+  await expect(mainCard.getByRole('radio', { name: /^Replace / })).toBeDisabled();
+  await expect(mainCard.getByRole('combobox', { name: 'Virtual host', exact: true })).toHaveValue(vhost);
+  // A copy is a new connection, so it does not inherit the original's
+  // password: the file leaves it out and the operator types it.
+  for (const card of await dialog.locator('.mantine-Card-root').all()) {
+    await card.locator('input[type="password"]').first().fill('p');
+  }
+
+  await next.click();                                     // -> Sinks
+  const sinkCard = dialog.locator('.mantine-Card-root').filter({ hasText: SINK_NAME });
+  await expect(sinkCard.getByRole('radio', { name: 'Import as a separate copy' })).toBeChecked();
+  await expect(sinkCard.getByRole('radio', { name: /^Replace / })).toBeDisabled();
+  await expect(sinkCard.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue(`${SINK_NAME} (copy)`);
+  await sinkCard.locator('input[type="password"]').first().fill('p');
+
+  await next.click();                                     // -> Nodes
+  await next.click();                                     // -> Review
+  await expect(dialog.getByRole('row').filter({ hasText: 'replace' })).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Import workflow' }).click();
+  await expect(page.getByText(/is ready\. It arrives stopped/i)).toBeVisible({ timeout: 15000 });
+
+  const list = await apiRequest(page, `/api/workflows?limit=200&search=${encodeURIComponent(WF_NAME)}`);
+  const copy = (JSON.parse(list.body).data as any[]).find((w) => w.id !== ids.wfID && w.name.includes(WF_NAME));
+  expect(copy, 'the import should be a second workflow').toBeTruthy();
+  expect(copy.vhost).toBe(vhost);
+  const sinkNode = copy.nodes.find((x: any) => x.type === 'sink');
+  expect(sinkNode.ref_id, 'the imported workflow must not share the original sink').not.toBe(ids.sinkID);
+  const copiedSink = JSON.parse((await apiRequest(page, `/api/sinks/${sinkNode.ref_id}`)).body);
+  expect(copiedSink.vhost).toBe(vhost);
+
+  // What the operator did: take the sink step out of the imported workflow,
+  // then delete the sink.
+  const withoutSink = {
+    ...copy,
+    nodes: copy.nodes.filter((x: any) => x.id !== sinkNode.id),
+    edges: (copy.edges ?? []).filter((e: any) => e.source_id !== sinkNode.id && e.target_id !== sinkNode.id),
+  };
+  const saved = await apiRequest(page, `/api/workflows/${copy.id}`, { method: 'PUT', body: withoutSink });
+  expect(saved.status, `saving the workflow without its sink failed: ${saved.body}`).toBeLessThan(300);
+  const deleted = await apiRequest(page, `/api/sinks/${sinkNode.ref_id}`, { method: 'DELETE' });
+  expect(deleted.status, `deleting the imported workflow's sink was refused: ${deleted.body}`).toBeLessThan(300);
+
+  // The original keeps its sink, in its own vhost, and still guards it.
+  const original = await apiRequest(page, `/api/sinks/${ids.sinkID}`);
+  expect(original.status).toBe(200);
+  expect(JSON.parse(original.body).vhost).toBe('default');
+  const guarded = await apiRequest(page, `/api/sinks/${ids.sinkID}`, { method: 'DELETE' });
+  expect(guarded.status, 'the original workflow still uses its sink').toBe(409);
+});

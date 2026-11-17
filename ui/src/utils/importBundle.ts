@@ -263,12 +263,44 @@ export interface Conflict {
   id: string
   incomingName: string
   existingName: string
+  /** The vhost the record that is already here lives in. */
+  existingVHost?: string
+  /**
+   * Set on a source or sink that is here in a vhost other than the
+   * workflow's, or that the bundle would move to another vhost. Replacing it
+   * would share one connection between two vhosts' workflows, so it can only
+   * be imported as a separate copy; the server refuses anything else.
+   */
+  foreign?: boolean
 }
 
+type ExistingRow = { id: string; name: string; vhost?: string }
+
 type Existing = {
-  workflows: { id: string; name: string }[]
-  sources: { id: string; name: string }[]
-  sinks: { id: string; name: string }[]
+  workflows: ExistingRow[]
+  sources: ExistingRow[]
+  sinks: ExistingRow[]
+}
+
+/** A vhost as the server reads it: an empty one is "default". */
+export function vhostOf(vhost: string | undefined | null): string {
+  return vhost || 'default'
+}
+
+/**
+ * The bundle with its workflow in `vhost`, taking along every source and sink
+ * that was in the workflow's vhost. One the operator had already put
+ * somewhere else stays where they put it.
+ */
+export function moveToVHost(bundle: ImportBundle, vhost: string): ImportBundle {
+  const from = vhostOf(bundle.workflow.vhost)
+  const follow = (r: ImportResource) => (vhostOf(r.vhost) === from ? { ...r, vhost } : r)
+  return {
+    ...bundle,
+    workflow: { ...bundle.workflow, vhost },
+    sources: bundle.sources.map(follow),
+    sinks: bundle.sinks.map(follow),
+  }
 }
 
 /**
@@ -278,7 +310,27 @@ type Existing = {
  */
 export function detectConflicts(bundle: ImportBundle, existing: Existing): Conflict[] {
   const out: Conflict[] = []
-  const index = (rows: { id: string; name: string }[]) => new Map(rows.map((r) => [r.id, r.name]))
+  const index = (rows: ExistingRow[]) => new Map(rows.map((r) => [r.id, r.name]))
+  const target = vhostOf(bundle.workflow.vhost)
+
+  // Mirrors foreignConnectionInBundle on the server: the record here must be
+  // in the workflow's vhost, and must stay there.
+  const connection = (kind: 'source' | 'sink', rows: ImportResource[], theirs: ExistingRow[]) => {
+    const byID = new Map(theirs.map((r) => [r.id, r]))
+    for (const s of rows) {
+      const here = byID.get(s.id)
+      if (!here) continue
+      const existingVHost = vhostOf(here.vhost)
+      out.push({
+        kind,
+        id: s.id,
+        incomingName: s.name,
+        existingName: here.name,
+        existingVHost,
+        foreign: existingVHost !== target || vhostOf(s.vhost) !== existingVHost,
+      })
+    }
+  }
 
   const wfs = index(existing.workflows ?? [])
   if (wfs.has(bundle.workflow.id)) {
@@ -290,19 +342,8 @@ export function detectConflicts(bundle: ImportBundle, existing: Existing): Confl
     })
   }
 
-  const srcs = index(existing.sources ?? [])
-  for (const s of bundle.sources) {
-    if (srcs.has(s.id)) {
-      out.push({ kind: 'source', id: s.id, incomingName: s.name, existingName: srcs.get(s.id)! })
-    }
-  }
-
-  const snks = index(existing.sinks ?? [])
-  for (const s of bundle.sinks) {
-    if (snks.has(s.id)) {
-      out.push({ kind: 'sink', id: s.id, incomingName: s.name, existingName: snks.get(s.id)! })
-    }
-  }
+  connection('source', bundle.sources, existing.sources ?? [])
+  connection('sink', bundle.sinks, existing.sinks ?? [])
 
   return out
 }

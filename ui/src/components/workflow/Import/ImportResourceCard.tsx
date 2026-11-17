@@ -4,6 +4,7 @@ import {
 } from '@mantine/core'
 import { IconAlertTriangle, IconPlugConnected, IconCheck, IconX, IconLock } from '@tabler/icons-react'
 import type { Conflict, ConflictDecision, ImportResource } from '@/utils/importBundle'
+import { FormRow } from '@/components/common/FormRow'
 
 export interface TestState {
   status: 'ok' | 'error'
@@ -75,7 +76,10 @@ export function ImportResourceCard({
             <Stack gap="xs">
               <Text size="sm">
                 This instance already has a {kind} with id <Code>{conflict.id}</Code>, named{' '}
-                <strong>{conflict.existingName}</strong>. Decide what happens to it.
+                <strong>{conflict.existingName}</strong>
+                {conflict.foreign
+                  ? <>, in vhost <strong>{conflict.existingVHost}</strong>. Its workflows there keep it, so this workflow gets its own copy.</>
+                  : '. Decide what happens to it.'}
               </Text>
               <Radio.Group
                 value={decision}
@@ -86,7 +90,10 @@ export function ImportResourceCard({
                   <Radio
                     value="overwrite"
                     label={`Replace ${conflict.existingName}`}
-                    description={`Its configuration is overwritten with what is below. Anything already using this ${kind} starts using these settings.`}
+                    disabled={conflict.foreign}
+                    description={conflict.foreign
+                      ? `Not available: ${conflict.existingName} belongs to vhost ${conflict.existingVHost}, and one ${kind} cannot be shared between vhosts.`
+                      : `Its configuration is overwritten with what is below. Anything already using this ${kind} starts using these settings.`}
                   />
                   <Radio
                     value="copy"
@@ -99,9 +106,10 @@ export function ImportResourceCard({
           </Alert>
         )}
 
-        <Group grow align="flex-start">
+        <FormRow>
           <TextInput
             label="Name"
+            description={`Unique among this instance's ${kind}s.`}
             value={resource.name ?? ''}
             onChange={(e) => onChange({ name: e.currentTarget.value })}
             error={nameError}
@@ -114,8 +122,9 @@ export function ImportResourceCard({
             value={resource.vhost || ''}
             onChange={(v) => onChange({ vhost: v || '' })}
             searchable
+            allowDeselect={false}
           />
-        </Group>
+        </FormRow>
 
         <Divider label="Connection" labelPosition="left" />
 

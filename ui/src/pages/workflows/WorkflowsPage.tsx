@@ -424,7 +424,9 @@ export default function WorkflowsPage() {
         opened={importOpened}
         onClose={closeImport}
         title="Import a flow"
-        size="xl"
+        // Wide enough for the wizard's six steps, labels and descriptions, on
+        // one row.
+        size={960}
         closeOnClickOutside={false}
       >
         <Suspense fallback={<Text size="sm">Loading the import wizard…</Text>}>

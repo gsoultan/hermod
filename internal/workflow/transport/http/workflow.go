@@ -2034,6 +2034,16 @@ func (h *WorkflowHandler) ImportWorkflow(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	// A connection that is already here, in another vhost, is not this
+	// workflow's to take. Refused before anything is written.
+	if msg, err := h.foreignConnectionInBundle(ctx, bundle); err != nil {
+		h.JsonError(w, "Failed to read the bundle's connections: "+err.Error(), http.StatusInternalServerError)
+		return
+	} else if msg != "" {
+		h.JsonError(w, msg, http.StatusConflict)
+		return
+	}
+
 	// An export leaves connection credentials out. Fill them from this
 	// instance's own connections, and refuse before writing anything when one
 	// is neither here nor typed in.
@@ -2137,6 +2147,67 @@ func (h *WorkflowHandler) ImportWorkflow(w http.ResponseWriter, r *http.Request)
 	_ = json.NewEncoder(w).Encode(bundle.Workflow)
 
 	h.RecordAuditLog(r, "INFO", "Imported workflow "+bundle.Workflow.Name, "IMPORT", bundle.Workflow.ID, "", "", nil)
+}
+
+// importVHost is the vhost a record names, with "" read as "default", the
+// way the import and the rest of the server read it.
+func importVHost(vhost string) string {
+	if vhost == "" {
+		return "default"
+	}
+	return vhost
+}
+
+// foreignConnectionInBundle names the first source or sink in bundle whose id
+// is already a connection here in a vhost other than the workflow's, or
+// returns "" when there is none.
+//
+// The import upserts connections by id. A workflow exported from one vhost
+// and imported into another on the same instance carries the original's ids,
+// so the upsert either shared the original's connection across the two
+// vhosts — and deleting the copy's sink was refused as used by the original
+// workflow — or, when the bundle gave it the new vhost, moved it out from
+// under the original. A connection reused across vhosts is not something the
+// import may decide on the original's behalf; the wizard imports it as a
+// separate copy instead, with a new id.
+func (h *WorkflowHandler) foreignConnectionInBundle(ctx context.Context, bundle storage.WorkflowExportBundle) (string, error) {
+	target := importVHost(bundle.Workflow.VHost)
+	refuse := func(kind, id, name, here, sent string) string {
+		where := "vhost " + here
+		if sent != here {
+			where += ", and importing it as part of vhost " + sent + " would move it out of there"
+		}
+		return fmt.Sprintf("The bundle's %s %s (%s) is already a %s on this server in %s. "+
+			"A workflow in vhost %s cannot share it: import the %s as a separate copy.",
+			kind, id, name, kind, where, target, kind)
+	}
+	for _, src := range bundle.Sources {
+		existing, err := h.Storage.GetSource(ctx, src.ID)
+		if errors.Is(err, storage.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return "", fmt.Errorf("source %s: %w", src.ID, err)
+		}
+		here, sent := importVHost(existing.VHost), importVHost(src.VHost)
+		if here != target || sent != here {
+			return refuse("source", src.ID, existing.Name, here, sent), nil
+		}
+	}
+	for _, snk := range bundle.Sinks {
+		existing, err := h.Storage.GetSink(ctx, snk.ID)
+		if errors.Is(err, storage.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return "", fmt.Errorf("sink %s: %w", snk.ID, err)
+		}
+		here, sent := importVHost(existing.VHost), importVHost(snk.VHost)
+		if here != target || sent != here {
+			return refuse("sink", snk.ID, existing.Name, here, sent), nil
+		}
+	}
+	return "", nil
 }
 
 // DetectDecryptionSettings answers "how was this value encrypted?" for the
