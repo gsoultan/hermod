@@ -39,8 +39,8 @@ func setupURLs(port int, addrs []net.Addr, hostname string) []string {
 			v6 = append(v6, u)
 		}
 	}
-	if urls := append(v4, v6...); len(urls) > 0 {
-		return urls
+	if v4 = append(v4, v6...); len(v4) > 0 {
+		return v4
 	}
 	host := hostname
 	if host == "" {
