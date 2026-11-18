@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { MantineProvider } from '@mantine/core'
 import { vi } from 'vitest'
 import { SQLConfig } from '@/components/workflow/Transformation/configs/enrichment/SQLConfig'
@@ -21,7 +21,24 @@ describe('execute_sql form layout', () => {
   it('lays the settings out as numbered steps, in the order they are decided', () => {
     renderConfig({ sourceId: 'ops' })
     const titles = screen.getAllByRole('heading', { level: 4 }).map((h) => h.textContent)
-    expect(titles).toEqual(['1. Database', '2. Statement', '3. Returned data', '4. Missing values'])
+    expect(titles).toEqual(['1. Database', '2. Statement', '3. Returned data', '4. Missing values', '5. Time limit'])
+  })
+
+  // The stuck-step warning says to set a timeout on the step; this is where.
+  it('offers a timeout and writes it to the node', () => {
+    const update = vi.fn()
+    render(
+      <MantineProvider>
+        <SQLConfig config={{ sourceId: 'ops' }} updateNodeConfig={update} nodeId="n1" sources={[ops]} availableFields={[]} />
+      </MantineProvider>
+    )
+    fireEvent.change(screen.getByRole('textbox', { name: 'Timeout' }), { target: { value: '30s' } })
+    expect(update).toHaveBeenCalledWith('n1', { timeout: '30s' })
+  })
+
+  it('says when a timeout has no unit', () => {
+    renderConfig({ sourceId: 'ops', timeout: '30' })
+    expect(screen.getByText(/needs a unit/i)).toBeInTheDocument()
   })
 
   it('does not describe itself as an enrichment query', () => {

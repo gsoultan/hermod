@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/gsoultan/hermod/pkg/comm/transformer"
 
@@ -31,14 +32,17 @@ func init() {
 
 type ExecuteSQLTransformer struct{}
 
+// dbByID is what execute_sql needs from the registry.
+type dbByID interface {
+	GetOrOpenDBByID(ctx context.Context, id string) (*sql.DB, string, error)
+}
+
 func (t *ExecuteSQLTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
 	}
 
-	registry, ok := ctx.Value(hermod.RegistryKey).(interface {
-		GetOrOpenDBByID(ctx context.Context, id string) (*sql.DB, string, error)
-	})
+	registry, ok := ctx.Value(hermod.RegistryKey).(dbByID)
 
 	if !ok {
 		return msg, errors.New("registry not found in context or does not implement GetOrOpenDBByID")
@@ -56,6 +60,39 @@ func (t *ExecuteSQLTransformer) Transform(ctx context.Context, msg hermod.Messag
 			sourceID, queryTemplate)
 	}
 
+	timeout, err := execSQLTimeout(config)
+	if err != nil {
+		return msg, err
+	}
+	if timeout > 0 {
+		// Covers getting the pool as well as the statement: a step stuck
+		// waiting for a connection is as stuck as one waiting for a lock.
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+	out, err := t.run(ctx, registry, msg, config, sourceID, queryTemplate)
+	if timeout > 0 && errors.Is(err, context.DeadlineExceeded) {
+		err = fmt.Errorf("execute_sql: no answer from the database within %s: %w", timeout, err)
+	}
+	return out, err
+}
+
+// execSQLTimeout is the node's optional time limit. Empty means none.
+func execSQLTimeout(config map[string]any) (time.Duration, error) {
+	s := strings.TrimSpace(core.GetConfigString(config, "timeout"))
+	if s == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil || d <= 0 {
+		return 0, fmt.Errorf("execute_sql: timeout %q is not a positive duration such as %q", s, "30s")
+	}
+	return d, nil
+}
+
+// run gets the database and runs the statement on ctx.
+func (t *ExecuteSQLTransformer) run(ctx context.Context, registry dbByID, msg hermod.Message, config map[string]any, sourceID, queryTemplate string) (hermod.Message, error) {
 	// No CDC guard here, deliberately, and it is worth saying why because
 	// db_lookup and batch_sql both have one.
 	//
