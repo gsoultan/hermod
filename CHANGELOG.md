@@ -18,6 +18,24 @@ The unit no longer sets it, and the updater reads the new binary out of the pack
 the filter lifted once before it can update itself: see
 [docs/updating.md](docs/updating.md#cannot-mkdir-function-not-implemented).
 
+### Fixed — an Exec SQL step could wait forever with nothing running on the database
+
+Before every statement, Exec SQL (and every other step that runs SQL through a database
+source's shared pool) checks the pool with a ping. That ping had no time limit and ran on the
+engine's own context rather than the message's, so when a pooled connection's peer had gone
+without closing it (a firewall or NAT dropping an idle connection, a failover), the ping waited
+on a reply that never came. The step never sent its statement, so the database showed no query
+and no lock, and neither a workflow restart nor the stuck-step watchdog could reach it. The
+check now gives up after 5 seconds and stops when the message's context ends, and a ping that
+only ran out of time no longer closes a pool other messages are using. A Postgres pool whose
+connection string sets no `connect_timeout` now gets 15 seconds.
+
+### Added — a Timeout on the Exec SQL step
+
+The stuck-step warning says to set a timeout on the step, and Exec SQL had none. It now has a
+**Timeout** (step 5 of its form, a duration such as `30s`). It covers getting a connection and
+running the statement; when it runs out the statement is cancelled and the message fails, so it
+can be retried. Empty keeps the old behaviour: no limit.
 ### Added — test a flow from its read-only view
 
 The test simulation was only in the editor, so checking how a message would go through a

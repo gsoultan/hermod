@@ -3,6 +3,7 @@ import { Stack, Select, Text, rem, Alert, Title, Paper, SimpleGrid, Divider } fr
 import { TextInput } from '@/components/shared/ReferenceInputs';
 import { sourceAllowsDirectQueries } from '@/lib/sourceCdc';
 import { IconDatabase, IconInfoCircle } from '@tabler/icons-react';
+import { goDurationMs } from '../ai-agent/agentTools';
 
 const SQLQueryBuilder = lazy(() =>
   import('../../../../forms/SQLQueryBuilder').then((m) => ({ default: m.SQLQueryBuilder }))
@@ -90,6 +91,12 @@ export function SQLConfig({ config, updateNodeConfig, nodeId, sources, available
     !resultField && statementReturnsRows(config.queryTemplate || config.query || '');
 
   const sourceId = config.sourceId || config.sourceID || '';
+
+  // The engine reads this as a Go duration and fails every message on one it
+  // cannot read, so say so here rather than after the workflow starts.
+  const timeout = String(config.timeout || '').trim();
+  const timeoutError =
+    timeout && !(goDurationMs(timeout) > 0) ? 'The timeout needs a unit, like 30s or 2m.' : undefined;
 
   return (
     <Stack gap="lg">
@@ -250,6 +257,24 @@ export function SQLConfig({ config, updateNodeConfig, nodeId, sources, available
           value={String(config.onUnresolved || '').toLowerCase() === 'fail' ? 'fail' : 'null'}
           onChange={(val) => updateNodeConfig(nodeId, { onUnresolved: val || 'null' })}
           allowDeselect={false}
+          size="sm"
+        />
+      </Section>
+
+      <Divider />
+
+      <Section
+        step={5}
+        title="Time limit"
+        description="How long the step waits for the database before it fails the message."
+      >
+        <TextInput
+          label="Timeout"
+          placeholder="e.g. 30s (optional)"
+          description="Covers getting a connection and running the statement. When it runs out, the statement is cancelled and the message fails, so it can be retried. Empty means no limit."
+          value={config.timeout || ''}
+          onChange={(e) => updateNodeConfig(nodeId, { timeout: e.currentTarget.value })}
+          error={timeoutError}
           size="sm"
         />
       </Section>
