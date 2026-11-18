@@ -25,6 +25,15 @@ The stuck-step warning says to set a timeout on the step, and Exec SQL had none.
 **Timeout** (step 5 of its form, a duration such as `30s`). It covers getting a connection and
 running the statement; when it runs out the statement is cancelled and the message fails, so it
 can be retried. Empty keeps the old behaviour: no limit.
+### Added — test a flow from its read-only view
+
+The test simulation was only in the editor, so checking how a message would go through a
+saved flow meant opening it for editing. The flow's view now has the editor's **Test**
+button, with Run simulation, Configure & run and Clear simulation. It runs the same
+simulation on the flow as saved, feeds each source its saved sample (or asks for a message
+when none has one), and draws the result on the view's canvas: the path taken, each step's
+outcome badge, and the summary with replay. Nothing is sent to a sink and the flow is not
+changed. Only Editors and Administrators see it, as the server allows only them to simulate.
 
 ### Fixed — the first-run log pointed a network install at localhost
 
