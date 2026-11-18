@@ -20,7 +20,7 @@ import { formatDateTime } from '@/utils/dateUtils';
 import { JourneyStep, type TraceStep } from './traces/JourneyStep';
 import { 
   IconArrowLeft, IconRotateDot, IconChevronRight, IconClock, IconCopy, IconDots, IconEye, IconHistory, IconInfoCircle, IconPencil, IconRefresh, IconSearch, IconTimeline,
-  IconPlayerPlay, IconFirstAidKit, IconShieldLock, IconTrash,
+  IconPlayerPlay, IconFirstAidKit, IconShieldLock, IconTrash, IconChevronDown, IconSettings, IconEraser, IconRoute,
   IconDownload, IconRocket
 } from '@tabler/icons-react';
 import { WorkflowDebugger } from './WorkflowDebugger';
@@ -35,7 +35,9 @@ import { ComplianceReportModal } from './ComplianceReportModal';
 import { DetailFlowCanvas, toViewEdges } from './WorkflowEditor/components/DetailFlowCanvas';
 import { SampleInspector } from './WorkflowEditor/components/SampleInspector';
 import { useWorkflowWebSockets } from './WorkflowEditor/hooks/useWorkflowWebSockets';
-import { noLiveState } from './WorkflowEditor/hooks/useWorkflowInitialization';
+import { noLiveState, toStoreValues } from './WorkflowEditor/hooks/useWorkflowInitialization';
+import { useSimulation } from './WorkflowEditor/hooks/useSimulation';
+import { SimulationInputModal } from './WorkflowEditor/simulation/SimulationInputModal';
 import { useWorkflowStore } from './WorkflowEditor/store/useWorkflowStore';
 import { useConfirm } from '@/components/common/ConfirmProvider';
 import { useSessionStore } from '@/auth/session';
@@ -206,6 +208,21 @@ export function WorkflowDetailPage() {
     },
   });
   const flowActions = useFlowActions(id, workflow?.name);
+
+  // Test runs the editor's simulation on the flow as saved. The connections
+  // are read for their saved samples, which feed a source that has none of its
+  // own; the server lets only an Editor simulate, so a Viewer reads nothing.
+  const flowVHost = (workflow as any)?.vhost;
+  const { data: sources } = useQuery({
+    queryKey: ['sources', flowVHost],
+    queryFn: async () => {
+      const vhostParam = (flowVHost && flowVHost !== 'all') ? `?vhost=${flowVHost}` : '';
+      return (await apiFetch(`${API_BASE}/sources${vhostParam}`)).json();
+    },
+    enabled: canEdit && Boolean(workflow),
+  });
+  const { testMutation, handleTest } = useSimulation(sources?.data);
+  const hasSimulation = useWorkflowStore((s) => s.testResults != null);
   const promoteTarget = usePromoteTarget(id, workflow?.vhost, canPromote);
 
   const wsActive = activeTab === 'logs' && activePage === 1 && !debouncedSearch;
@@ -322,11 +339,12 @@ export function WorkflowDetailPage() {
 
       const initialEdges = toViewEdges(workflow);
 
-      // What the live view reads: the flow's steps and lines, and its saved
-      // status until the feed reports the engine's own.
+      // What the live view reads: the flow as the editor loads it, steps,
+      // lines with the branch each leaves from, and settings, which a Test run
+      // sends as they are; and its saved status until the feed reports the
+      // engine's own.
       useWorkflowStore.setState({
-        nodes: initialNodes,
-        edges: initialEdges,
+        ...toStoreValues(workflow),
         workflowStatus: useWorkflowStore.getState().workflowStatus || workflow.status || 'Stopped',
       });
       setNodes(initialNodes);
@@ -393,6 +411,34 @@ export function WorkflowDetailPage() {
           )}
           actions={canEdit ? (
             <>
+              {/* The editor's Test: a simulation that sends nothing to a sink and changes nothing in the flow. */}
+              <Button.Group aria-label="Test">
+                <Button
+                  variant="default"
+                  leftSection={<IconRoute size="1rem" />}
+                  onClick={() => { openTab('build'); handleTest(null); }}
+                  loading={testMutation.isPending}
+                >
+                  Test
+                </Button>
+                <Menu position="bottom-end" withArrow shadow="md">
+                  <Menu.Target>
+                    <Button aria-label="More test actions" variant="default" px={10}>
+                      <IconChevronDown size="1rem" />
+                    </Button>
+                  </Menu.Target>
+                  <Menu.Dropdown>
+                    <Menu.Item leftSection={<IconPlayerPlay size="1rem" />} onClick={() => { openTab('build'); handleTest(null); }}>Run simulation</Menu.Item>
+                    <Menu.Item leftSection={<IconSettings size="1rem" />} onClick={() => { openTab('build'); useWorkflowStore.getState().setTestModalOpened(true); }}>Configure &amp; run…</Menu.Item>
+                    {hasSimulation && (
+                      <>
+                        <Menu.Divider />
+                        <Menu.Item color="orange" leftSection={<IconEraser size="1rem" />} onClick={() => useWorkflowStore.getState().setTestResults(null)}>Clear simulation</Menu.Item>
+                      </>
+                    )}
+                  </Menu.Dropdown>
+                </Menu>
+              </Button.Group>
               <Button variant="default" leftSection={<IconPlayerPlay size="1rem" />} onClick={() => setRunInputOpened(true)}>
                 Run{' '}<span className="hermod-hide-phone">with input</span>
               </Button>
@@ -464,6 +510,8 @@ export function WorkflowDetailPage() {
             versions={Array.isArray(versions) ? versions : []}
           />
         )}
+
+        {canEdit && <SimulationInputModal onRun={() => testMutation.mutate(undefined)} isTesting={testMutation.isPending} />}
 
         {canEdit && runInputOpened && (
           <RunWithInputModal

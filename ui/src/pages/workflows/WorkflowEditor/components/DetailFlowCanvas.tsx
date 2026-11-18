@@ -26,6 +26,8 @@ import { StepProblem, StepSample, stepStats, useStepLive } from '../nodes/stepLi
 import { useWorkflowStore } from '../store/useWorkflowStore';
 import { isEngineLive } from '../live/liveHealth';
 import { LiveEdge } from './LiveEdge';
+import { SimulationOverlay } from '../simulation/SimulationOverlay';
+import { SIMULATION_STATUS_STYLE, SimulationStatusBadge } from '../simulation/SimulationStatusBadge';
 
 /**
  * A step as the read-only view draws it: the same card as the editor's (see
@@ -44,12 +46,24 @@ function StepCard({ id, data, color, icon: Icon, kind, title, detail, inbound, o
   const live = useStepLive(id, data);
   const stats = stepStats({ cbStatus: live.cbStatus, metric: live.metric, errorCount: live.errorCount, dlqCount: data.dlqCount, bufferFill: live.bufferFill });
   const status = endpoint === 'source' ? live.sourceStatus : endpoint === 'sink' ? live.sinkStatus : null;
-  const ring = live.cbStatus === 'open' ? 'red' : live.problemColor ?? (live.errorCount > 0 ? 'orange' : null);
+  // After a test simulation the card says what it did here, as the editor's
+  // does: its ring and corner badge, and a step the message never reached is
+  // greyed so the ones it did read as a path.
+  const simulation = live.simulation;
+  const simulationColor = simulation ? SIMULATION_STATUS_STYLE[simulation.status].color : null;
+  const reached = simulation && simulation.status !== 'skipped';
+  const ring = live.cbStatus === 'open' ? 'red' : simulationColor ?? live.problemColor ?? (live.errorCount > 0 ? 'orange' : null);
   return (
     <Paper
       radius="md"
       className="hermod-step"
-      style={ring ? { border: `${live.problemColor ? 3 : 2}px solid var(--mantine-color-${ring}-6)` } : undefined}
+      data-simulation={simulation?.status}
+      style={{
+        border: ring ? `${live.problemColor ? 3 : 2}px solid var(--mantine-color-${ring}-6)` : undefined,
+        boxShadow: reached ? `0 0 0 4px var(--mantine-color-${simulationColor}-light)` : undefined,
+        opacity: simulation?.status === 'skipped' ? 0.65 : undefined,
+        filter: simulation?.status === 'skipped' ? 'grayscale(1)' : undefined,
+      }}
     >
       {inbound && <Handle type="target" position={vertical ? Position.Top : Position.Left} style={{ visibility: 'hidden' }} />}
       {outbound && <Handle type="source" position={vertical ? Position.Bottom : Position.Right} style={{ visibility: 'hidden' }} />}
@@ -71,6 +85,7 @@ function StepCard({ id, data, color, icon: Icon, kind, title, detail, inbound, o
         {stats.length > 0 && <Group className="hermod-step-stats" gap={6} wrap="wrap">{stats}</Group>}
       </Stack>
       {live.problemColor && live.problemText && <StepProblem color={live.problemColor} text={live.problemText} />}
+      {simulation && <SimulationStatusBadge result={simulation} />}
     </Paper>
   );
 }
@@ -200,7 +215,10 @@ export function toViewEdges(workflow: { edges?: any[] } | undefined): Edge[] {
  * and a stopped one looked the same.
  */
 export function LiveNote({ compact }: { compact?: boolean }) {
-  const { workflowStatus, stale } = useWorkflowStore(useShallow((s) => ({ workflowStatus: s.workflowStatus, stale: s.statusFeedStale })));
+  const { workflowStatus, stale, simulated } = useWorkflowStore(useShallow((s) => ({ workflowStatus: s.workflowStatus, stale: s.statusFeedStale, simulated: s.testResults != null })));
+  // A test simulation's summary takes this corner's row while it is shown;
+  // drawn together they overlapped.
+  if (simulated) return null;
   const state = !isEngineLive(workflowStatus) ? 'stopped' : stale ? 'stale' : 'live';
   return (
     <Group gap={8} wrap="nowrap" className="hermod-canvas-note" data-testid="flow-live-note" data-state={state} aria-live="polite">
@@ -344,6 +362,8 @@ export function DetailFlowCanvas({ nodes, edges, onNodesChange, onEdgesChange, s
             overflow: 'hidden',
           }}
         />
+        {/* The last test simulation's summary, as the editor shows it. */}
+        <SimulationOverlay />
       </ReactFlow>
       <LiveNote compact={phone} />
       <Box className="hermod-canvas-bottom-left" style={{ bottom: 12 }}>
