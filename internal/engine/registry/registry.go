@@ -61,6 +61,7 @@ import (
 	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
 	"github.com/gsoultan/hermod/pkg/ml/worker"
 	"github.com/gsoultan/hermod/pkg/security/secrets"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/microsoft/go-mssqldb"
 	_ "github.com/sijms/go-ora/v2"
@@ -161,7 +162,7 @@ type Registry struct {
 	// debugger before every node and edge; at zero it answers without the
 	// lock, whose shared reader count otherwise bounces between cores.
 	debuggerSubCount atomic.Int32
-	debugChans          map[string]chan string
+	debugChans       map[string]chan string
 	// debugHeld is the announcement of each pause in debugChans, by the same key.
 	debugHeld           map[string]DebuggerEvent
 	debugChansMu        sync.Mutex
@@ -1111,13 +1112,29 @@ func getConfigString(config map[string]any, key string) string {
 // pooling). All other drivers fall back to the standard sql.Open behaviour.
 func openSQLDB(driverName, connStr string) (*sql.DB, error) {
 	if driverName == "pgx" {
-		cfg, _, err := pgxutil.ParseConfig(connStr)
+		cfg, err := pgPoolConnConfig(connStr)
 		if err != nil {
-			return nil, fmt.Errorf("parse postgres connection config: %w", err)
+			return nil, err
 		}
 		return stdlib.OpenDB(*cfg), nil
 	}
 	return sql.Open(driverName, connStr)
+}
+
+// pgPoolConnConfig is the pgx config openSQLDB opens a Postgres pool with.
+func pgPoolConnConfig(connStr string) (*pgx.ConnConfig, error) {
+	cfg, _, err := pgxutil.ParseConfig(connStr)
+	if err != nil {
+		return nil, fmt.Errorf("parse postgres connection config: %w", err)
+	}
+	// Without connect_timeout in the DSN, pgx bounds neither the dial nor the
+	// startup exchange after it except by the caller's context, which for the
+	// registry's own callers has no deadline: a server that accepts the TCP
+	// connection and never answers holds the caller for good.
+	if cfg.ConnectTimeout == 0 {
+		cfg.ConnectTimeout = pgConnectTimeout
+	}
+	return cfg, nil
 }
 
 // pooledDB is a cached connection pool together with the source it was opened
@@ -1167,19 +1184,72 @@ func (r *Registry) pingCtx() context.Context {
 	return r.ctx
 }
 
-func (r *Registry) GetOrOpenDB(src storage.Source) (*sql.DB, error) {
-	poolKey := dbPoolKey(src)
+// poolPingTimeout bounds the liveness check GetOrOpenDB runs on a cached pool.
+//
+// It used to have no bound at all. A pooled connection whose peer had gone
+// without closing it made the ping wait on a reply that never came, and every
+// message that asked for the pool waited with it -- before its statement was
+// sent, so the database showed nothing running and nothing locked. A variable
+// so tests can shorten it.
+var poolPingTimeout = 5 * time.Second
 
-	// 1. Fast path: check existing pool with RLock (no bottleneck for active pools)
+// pgConnectTimeout is the dial limit for a Postgres pool whose DSN sets no
+// connect_timeout of its own.
+const pgConnectTimeout = 15 * time.Second
+
+// pingPool runs one bounded liveness check on db, under ctx.
+func pingPool(ctx context.Context, db *sql.DB) error {
+	ctx, cancel := context.WithTimeout(ctx, poolPingTimeout)
+	defer cancel()
+	return db.PingContext(ctx)
+}
+
+// pingTimedOut reports whether a ping failed only because it ran out of time.
+// That says the pool was busy or one of its connections was dead -- the ping
+// discards a dead one -- not that the pool itself is wrong, so it is no reason
+// to close a pool other messages have statements running on.
+func pingTimedOut(err error) bool {
+	return errors.Is(err, context.DeadlineExceeded)
+}
+
+func (r *Registry) GetOrOpenDB(src storage.Source) (*sql.DB, error) {
+	return r.getOrOpenDB(r.pingCtx(), src)
+}
+
+// cachedPool is the pool cached under poolKey if a bounded ping says it can be
+// used, nil with no error when it has to be opened again, and an error when the
+// caller's context ended first.
+func (r *Registry) cachedPool(ctx context.Context, poolKey string) (*sql.DB, error) {
 	r.dbPoolMu.RLock()
 	entry, ok := r.dbPool[poolKey]
 	r.dbPoolMu.RUnlock()
+	if !ok {
+		return nil, nil
+	}
 
-	if ok {
-		// Ping outside the lock to avoid blocking other sources during network I/O
-		if err := entry.db.PingContext(r.pingCtx()); err == nil {
-			return entry.db, nil
-		}
+	// Ping outside the lock to avoid blocking other sources during network I/O
+	err := pingPool(ctx, entry.db)
+	if err == nil {
+		return entry.db, nil
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, fmt.Errorf("checking the database connection: %w", ctxErr)
+	}
+	if pingTimedOut(err) {
+		return entry.db, nil
+	}
+	return nil, nil
+}
+
+// getOrOpenDB is GetOrOpenDB for a caller with its own context: the liveness
+// check stops when that context ends, so a step timeout or a workflow stop
+// reaches a message that is waiting for its pool.
+func (r *Registry) getOrOpenDB(ctx context.Context, src storage.Source) (*sql.DB, error) {
+	poolKey := dbPoolKey(src)
+
+	// 1. Fast path: the cached pool, when it answers.
+	if db, err := r.cachedPool(ctx, poolKey); db != nil || err != nil {
+		return db, err
 	}
 
 	// 2. Slow path: open or reopen the pool using singleflight to prevent
@@ -1191,71 +1261,81 @@ func (r *Registry) GetOrOpenDB(src storage.Source) (*sql.DB, error) {
 		r.dbPoolMu.RUnlock()
 
 		if ok {
-			if err := entry.db.PingContext(r.pingCtx()); err == nil {
+			// On the registry's context, not a caller's: every caller waiting
+			// on this singleflight shares the answer.
+			err := pingPool(r.pingCtx(), entry.db)
+			if err == nil || pingTimedOut(err) {
 				return entry.db, nil
 			}
 			// Ping failed: close the stale pool and prepare to reopen
 			_ = entry.db.Close()
 		}
 
-		sourceType := src.Type
-		config := src.Config
-		vhost := src.VHost
-
-		if sourceType == "batch_sql" {
-			// Resolve the underlying database source
-			underlyingID := config["source_id"]
-			if underlying, err := r.GetSourceConfig(context.Background(), underlyingID); err == nil {
-				sourceType = underlying.Type
-				config = underlying.Config
-				// Its references are its own vhost's to answer.
-				vhost = underlying.VHost
-			}
-		}
-
-		resolvedConfig, err := r.resolveSecrets(context.Background(), vhost, config)
-		if err != nil {
-			return nil, err
-		}
-		connStr := factory.BuildConnectionString(resolvedConfig, sourceType)
-
-		// Resolve the actual database/sql driver name from the user-facing type using
-		// the single source of truth shared with placeholder generation.
-		driverName, ok := sqlutil.CanonicalDriver(sourceType)
-		if !ok {
-			return nil, fmt.Errorf("unsupported source type for generic sql: %s", sourceType)
-		}
-
-		newDB, err := openSQLDB(driverName, connStr)
-		if err != nil {
-			return nil, err
-		}
-
-		// Configure pool with conservative, performant defaults
-		newDB.SetMaxOpenConns(20)
-		newDB.SetMaxIdleConns(10)
-		newDB.SetConnMaxIdleTime(60 * time.Second)
-
-		r.dbPoolMu.Lock()
-		// A source holds at most one pool. Pools opened for its previous
-		// connection details can never be asked for again, so close them here
-		// instead of letting an edited source leak one pool per edit.
-		for key, stale := range r.dbPool {
-			if key != poolKey && stale.sourceID == src.ID {
-				_ = stale.db.Close()
-				delete(r.dbPool, key)
-			}
-		}
-		r.dbPool[poolKey] = pooledDB{sourceID: src.ID, db: newDB}
-		r.dbPoolMu.Unlock()
-
-		return newDB, nil
+		return r.openPool(src, poolKey)
 	})
 
 	if err != nil {
 		return nil, err
 	}
-	return val.(*sql.DB), nil
+	db, _ := val.(*sql.DB)
+	return db, nil
+}
+
+// openPool opens a new pool for src, caches it under poolKey and closes the
+// pools the source held under connection details it no longer has.
+func (r *Registry) openPool(src storage.Source, poolKey string) (*sql.DB, error) {
+	sourceType := src.Type
+	config := src.Config
+	vhost := src.VHost
+
+	if sourceType == "batch_sql" {
+		// Resolve the underlying database source
+		underlyingID := config["source_id"]
+		if underlying, err := r.GetSourceConfig(context.Background(), underlyingID); err == nil {
+			sourceType = underlying.Type
+			config = underlying.Config
+			// Its references are its own vhost's to answer.
+			vhost = underlying.VHost
+		}
+	}
+
+	resolvedConfig, err := r.resolveSecrets(context.Background(), vhost, config)
+	if err != nil {
+		return nil, err
+	}
+	connStr := factory.BuildConnectionString(resolvedConfig, sourceType)
+
+	// Resolve the actual database/sql driver name from the user-facing type using
+	// the single source of truth shared with placeholder generation.
+	driverName, ok := sqlutil.CanonicalDriver(sourceType)
+	if !ok {
+		return nil, fmt.Errorf("unsupported source type for generic sql: %s", sourceType)
+	}
+
+	newDB, err := openSQLDB(driverName, connStr)
+	if err != nil {
+		return nil, err
+	}
+
+	// Configure pool with conservative, performant defaults
+	newDB.SetMaxOpenConns(20)
+	newDB.SetMaxIdleConns(10)
+	newDB.SetConnMaxIdleTime(60 * time.Second)
+
+	r.dbPoolMu.Lock()
+	// A source holds at most one pool. Pools opened for its previous
+	// connection details can never be asked for again, so close them here
+	// instead of letting an edited source leak one pool per edit.
+	for key, stale := range r.dbPool {
+		if key != poolKey && stale.sourceID == src.ID {
+			_ = stale.db.Close()
+			delete(r.dbPool, key)
+		}
+	}
+	r.dbPool[poolKey] = pooledDB{sourceID: src.ID, db: newDB}
+	r.dbPoolMu.Unlock()
+
+	return newDB, nil
 }
 
 func (r *Registry) SetFactories(sourceFactory SourceFactory, sinkFactory SinkFactory) {
@@ -1653,7 +1733,7 @@ func (r *Registry) GetOrOpenDBByID(ctx context.Context, id string) (*sql.DB, str
 	if err != nil {
 		return nil, "", err
 	}
-	db, err := r.GetOrOpenDB(src)
+	db, err := r.getOrOpenDB(ctx, src)
 	return db, src.Type, err
 }
 
