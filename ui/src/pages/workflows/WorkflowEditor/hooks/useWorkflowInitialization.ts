@@ -11,7 +11,7 @@ import { unroutedBranchEdges } from '../nodes/branchHandleId';
 const API_BASE = '/api';
 
 /** The store state a server workflow is drawn from. */
-function toStoreValues(workflow: any): any {
+export function toStoreValues(workflow: any): any {
   const newValues: any = {
     name: workflow.name || '',
     vhost: workflow.vhost || 'default',

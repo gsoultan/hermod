@@ -87,3 +87,19 @@ differs: with a forced branch it does not take unlabelled edges.
 - E2E: `simulation_path_e2e.spec.ts`. Screenshot with `animations: 'disabled'` —
   a capture taken as the result lands shows the canvas before its 0.2s
   transitions, which reads exactly like the highlight not working.
+
+## On the read-only view too
+
+- The flow view (`WorkflowDetailPage`) has the editor's Test button group. Both pages run
+  the simulation through `WorkflowEditor/hooks/useSimulation.ts` (the run-numbering, graph
+  snapshot, `handleTest` input choice), and both open `simulation/SimulationInputModal.tsx`.
+  Do not fork a second request builder for the view.
+- The view loads the store with `toStoreValues(workflow)` (exported from
+  `useWorkflowInitialization`), so the store's edges keep `sourceHandle` and the flow's
+  settings: the view's own React Flow edges (`toViewEdges`) drop handles, and a simulation
+  sent from them routes no condition/switch branch.
+- `DetailFlowCanvas` draws `SimulationOverlay` and each `StepCard` carries
+  `data-simulation`, the ring and `SimulationStatusBadge`. `LiveNote` hides while a result
+  is shown, because the two overlapped at the top of the canvas.
+- Gated by `canEdit` in the UI; `POST /api/workflows/test` is `EditorOnly` on the server.
+  Test: `viewSimulation.test.tsx`.
