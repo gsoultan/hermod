@@ -21,7 +21,8 @@ User docs: `docs/updating.md`.
   `dpkg-query --search`, process euid 0) get `Capability.Method = deb`:
   `Installer.installDeb` (`install/deb.go`) downloads `hermod_<ver>_<os>_<arch>.deb`
   to a temp dir, checks SHA-256, `dpkg-deb --field Package` must be `hermod`,
-  `dpkg-deb --extract` + `--version` smoke test, then `arm` (keep `.previous`,
+  `dpkg-deb --fsys-tarfile` read with Go's archive/tar (never GNU tar: see
+  below) + `--version` smoke test, then `arm` (keep `.previous`,
   write marker) and `dpkg --force-confdef --force-confold --install`. If dpkg
   fails and `/usr/bin/hermod` is still the `.previous` inode, the marker is
   removed; otherwise it stays armed. Rollback is binary-only (dpkg db then lists
@@ -63,6 +64,14 @@ User docs: `docs/updating.md`.
   never restart (the self-updater restarts itself). If
   `/etc/systemd/system/hermod.service` exists (from `hermod --service install`)
   the scripts touch nothing. Unit runs as root (dpkg needs it), Restart=always.
+- The unit must not set `RestrictSUIDSGID=yes` or `SystemCallFilter=`
+  (`service_unit_test.go` guards it). systemd's RestrictSUIDSGID seccomp filter
+  returns ENOSYS for every `openat2`, and GNU tar (run by `dpkg-deb --extract`)
+  opens folders with openat2: v1.26.1 → v1.26.2 failed with "Cannot mkdir:
+  Function not implemented". Servers on ≤ v1.26.2 need the drop-in
+  `/etc/systemd/system/hermod.service.d/allow-update.conf` with
+  `RestrictSUIDSGID=no` (docs/updating.md), since the running version's unit
+  and updater decide how its update runs.
 - `deploy/package/install.sh` (curl | sudo sh): picks the newest release that
   has this machine's .deb/.rpm/.apk (skips empty releases and `-rc`), checks
   checksums.txt, installs with apt/dnf/yum/rpm/apk, try-restarts on upgrade.

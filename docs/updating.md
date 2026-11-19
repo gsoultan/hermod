@@ -76,8 +76,8 @@ the release's `.deb` rather than the archive, so `dpkg -l hermod` keeps telling 
 between:
 
 - the `.deb` is downloaded to the system's temporary folder and must match `checksums.txt`;
-- `dpkg-deb` must report the package as `hermod`, and the `hermod` binary unpacked from it must
-  report the release's version;
+- `dpkg-deb` must report the package as `hermod`, and the `hermod` binary read from it
+  (`dpkg-deb --fsys-tarfile`, without running `tar`) must report the release's version;
 - `dpkg --force-confdef --force-confold --install` installs it without prompting and keeps any
   changed configuration. The package does not restart Hermod on an upgrade; Hermod restarts
   itself into the new version as in step 6.
@@ -91,6 +91,25 @@ version, so install the older `.deb` by hand if you want the two to agree.
 
 A release whose build failed before it uploaded its files is not offered to an installation
 that could install it, because there would be nothing to download.
+
+### "Cannot mkdir: Function not implemented"
+
+Up to v1.26.2 the packaged unit set `RestrictSUIDSGID=yes`. Its seccomp filter answers every
+`openat2` call with `ENOSYS`, and the `tar` that `dpkg-deb --extract` runs needs `openat2`, so an
+update from the Updates page stopped with `dpkg-deb could not unpack hermod_<version>_<os>_<arch>.deb
+... Cannot mkdir: Function not implemented`. Nothing was changed. Later releases drop the setting
+and no longer run `tar`, but the version that is running decides how the update runs, so lift
+the filter once on a server still on one of those versions:
+
+```sh
+sudo mkdir -p /etc/systemd/system/hermod.service.d
+printf '[Service]\nRestrictSUIDSGID=no\n' | sudo tee /etc/systemd/system/hermod.service.d/allow-update.conf
+sudo systemctl daemon-reload
+sudo systemctl restart hermod
+```
+
+Then install the update from the page again. The file can stay: it only repeats what later
+releases already do.
 
 ## Where Hermod cannot replace itself
 

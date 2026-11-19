@@ -77,9 +77,11 @@ type Installer struct {
 
 	// Method is how the release is put in place; empty means MethodBinary.
 	Method Method
-	// Command runs dpkg and dpkg-deb for MethodDeb and returns what they
-	// printed. Nil runs them for real.
-	Command func(ctx context.Context, name string, args ...string) ([]byte, error)
+	// Command runs dpkg and dpkg-deb for MethodDeb. With a nil stdout it
+	// returns all they printed; otherwise their standard output goes to
+	// stdout and it returns what they printed on standard error. Nil runs
+	// them for real.
+	Command func(ctx context.Context, stdout io.Writer, name string, args ...string) ([]byte, error)
 	// TempDir is where a .deb is downloaded and unpacked; empty means the
 	// system's temporary folder.
 	TempDir string

@@ -290,15 +290,16 @@ var debPlan = Plan{Tag: "v1.25.0", ArchiveName: debName, ArchiveURL: debURL, Che
 // fakeDpkg stands in for dpkg-deb and dpkg. The fake package's bytes are the
 // binary it carries.
 type fakeDpkg struct {
-	t       *testing.T
-	exe     string
-	pkgName string
-	failAt  string // "extract" or "install": fail that step
-	partial bool   // on an install failure, replace the binary first
-	calls   []string
+	t        *testing.T
+	exe      string
+	pkgName  string
+	failAt   string // "extract" or "install": fail that step
+	partial  bool   // on an install failure, replace the binary first
+	noBinary bool   // the package's data has no hermod binary
+	calls    []string
 }
 
-func (f *fakeDpkg) run(_ context.Context, name string, args ...string) ([]byte, error) {
+func (f *fakeDpkg) run(_ context.Context, stdout io.Writer, name string, args ...string) ([]byte, error) {
 	action := args[0]
 	if name == "dpkg" {
 		action = args[len(args)-2] // options first, as dpkg(1) documents
@@ -308,20 +309,37 @@ func (f *fakeDpkg) run(_ context.Context, name string, args ...string) ([]byte, 
 	switch {
 	case name == "dpkg-deb" && args[0] == "--field":
 		return []byte(f.pkgName + "\n"), nil
-	case name == "dpkg-deb" && args[0] == "--extract":
+	case name == "dpkg-deb" && args[0] == "--fsys-tarfile":
 		if f.failAt == "extract" {
 			return []byte("dpkg-deb: error: not a Debian format archive"), errors.New("exit status 2")
 		}
-		pkg = args[1]
+		if stdout == nil {
+			f.t.Fatal("dpkg-deb --fsys-tarfile run without a place for the tar it prints")
+		}
 		body, err := os.ReadFile(pkg)
 		if err != nil {
 			return nil, err
 		}
-		dst := filepath.Join(args[2], f.exe)
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return nil, err
+		// The data tar of a real .deb: "./" paths, folders first, and the
+		// other programs beside hermod.
+		files := []struct{ name, body string }{
+			{"./usr/bin/hermodctl", "ctl"},
+			{"." + filepath.Join(filepath.Dir(f.exe), "nested", filepath.Base(f.exe)), "lookalike"},
+			{"." + f.exe, string(body)},
 		}
-		return nil, os.WriteFile(dst, body, 0o755)
+		if f.noBinary {
+			files = files[:2]
+		}
+		tw := tar.NewWriter(stdout)
+		for _, file := range files {
+			if err := tw.WriteHeader(&tar.Header{Name: file.name, Mode: 0o755, Size: int64(len(file.body)), Typeflag: tar.TypeReg}); err != nil {
+				return nil, err
+			}
+			if _, err := io.WriteString(tw, file.body); err != nil {
+				return nil, err
+			}
+		}
+		return nil, tw.Close()
 	case name == "dpkg" && action == "--install":
 		if f.failAt == "install" && !f.partial {
 			return []byte("dpkg: error: dpkg frontend lock was locked by another process"), errors.New("exit status 2")
@@ -375,7 +393,7 @@ func TestInstallDebRunsDpkgKeepsPreviousAndArmsGuard(t *testing.T) {
 	if err != nil || m == nil || m.From != "v1.24.9" || m.To != "v1.25.0" {
 		t.Fatalf("pending marker = %+v, %v", m, err)
 	}
-	if want := "[dpkg-deb --field dpkg-deb --extract dpkg --install]"; fmt.Sprint(d.calls) != want {
+	if want := "[dpkg-deb --field dpkg-deb --fsys-tarfile dpkg --install]"; fmt.Sprint(d.calls) != want {
 		t.Fatalf("commands = %v, want %s", d.calls, want)
 	}
 	if want := []Phase{PhaseDownloading, PhaseVerifying, PhaseInstalling}; fmt.Sprint(phases) != fmt.Sprint(want) {
@@ -399,6 +417,10 @@ func TestInstallDebRefusesBeforeTouchingAnything(t *testing.T) {
 		},
 		"cannot unpack": func(_ *Installer, _ *fakeRelease, d *fakeDpkg) error {
 			d.failAt = "extract"
+			return nil
+		},
+		"no binary inside": func(_ *Installer, _ *fakeRelease, d *fakeDpkg) error {
+			d.noBinary = true
 			return nil
 		},
 		"wrong version inside": func(_ *Installer, rel *fakeRelease, _ *fakeDpkg) error {

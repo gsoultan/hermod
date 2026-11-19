@@ -165,14 +165,20 @@ func ExtractBinary(archivePath, name string, dst io.Writer, limit int64) error {
 		return fmt.Errorf("the release archive is not gzip: %w", err)
 	}
 	defer func() { _ = gz.Close() }()
-	tr := tar.NewReader(gz)
+	return extractFromTar(tar.NewReader(gz), "the release archive", name, dst, limit)
+}
+
+// extractFromTar copies the regular file at name (a path without a leading
+// "./" or "/") out of tr into dst, refusing more than limit bytes. Only that
+// exact path counts, never a file of the same name in another folder.
+func extractFromTar(tr *tar.Reader, what, name string, dst io.Writer, limit int64) error {
 	for {
 		h, err := tr.Next()
 		if errors.Is(err, io.EOF) {
-			return fmt.Errorf("the release archive has no %s binary", name)
+			return fmt.Errorf("%s has no %s binary", what, name)
 		}
 		if err != nil {
-			return fmt.Errorf("reading the release archive: %w", err)
+			return fmt.Errorf("reading %s: %w", what, err)
 		}
 		if h.Typeflag != tar.TypeReg || path.Clean(strings.TrimPrefix(h.Name, "./")) != name {
 			continue

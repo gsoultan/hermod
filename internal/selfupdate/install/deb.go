@@ -11,9 +11,12 @@
 package install
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,11 +54,11 @@ func (in *Installer) installDeb(ctx context.Context, plan Plan, from string, pro
 	if name := strings.TrimSpace(string(out)); name != DebPackage {
 		return fmt.Errorf("%w: %s is package %q", ErrNotHermodPackage, plan.ArchiveName, name)
 	}
-	root := filepath.Join(work, "root")
-	if out, err := in.run(ctx, "dpkg-deb", "--extract", pkg, root); err != nil {
-		return dpkgError("dpkg-deb could not unpack "+plan.ArchiveName, err, out)
+	staged, err := in.unpackBinary(ctx, pkg, work, plan.ArchiveName)
+	if err != nil {
+		return err
 	}
-	if err := in.smokeTest(ctx, filepath.Join(root, in.Exe), plan.Tag); err != nil {
+	if err := in.smokeTest(ctx, staged, plan.Tag); err != nil {
 		return err
 	}
 
@@ -81,13 +84,83 @@ func (in *Installer) installDeb(ctx context.Context, plan Plan, from string, pro
 	return nil
 }
 
+// unpackBinary copies the package's copy of the running binary into work
+// for the smoke test. It reads the package's data with dpkg-deb
+// --fsys-tarfile and Go's tar reader, not dpkg-deb --extract: that runs GNU
+// tar, which opens folders with openat2(2), and systemd's RestrictSUIDSGID=
+// (in the hermod.service of v1.26.2 and before) answers openat2 with ENOSYS,
+// so tar failed on every folder with "Function not implemented".
+func (in *Installer) unpackBinary(ctx context.Context, pkg, work, archiveName string) (string, error) {
+	data, err := os.CreateTemp(work, "data-*.tar")
+	if err != nil {
+		return "", fmt.Errorf("cannot make a file to unpack the package into: %w", err)
+	}
+	defer func() { _ = data.Close() }()
+	maxBinary := orDefault(in.MaxBinary, DefaultMaxBinary)
+	// The data holds hermod, hermod-edge and hermodctl, each at most
+	// maxBinary, plus the unit and tar headers.
+	limit := &limitedWriter{w: data, left: 4 * maxBinary}
+	if out, err := in.runTo(ctx, limit, "dpkg-deb", "--fsys-tarfile", pkg); err != nil {
+		if limit.left < 0 {
+			return "", ErrTooLarge
+		}
+		return "", dpkgError("dpkg-deb could not unpack "+archiveName, err, out)
+	}
+	if _, err := data.Seek(0, io.SeekStart); err != nil {
+		return "", err
+	}
+	staged := filepath.Join(work, binaryInArchiveName)
+	f, err := os.OpenFile(staged, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o700) //nolint:gosec // G304: a fixed name in the temporary folder made for this install.
+	if err != nil {
+		return "", fmt.Errorf("cannot unpack the binary: %w", err)
+	}
+	name := strings.TrimPrefix(filepath.ToSlash(in.Exe), "/")
+	err = extractFromTar(tar.NewReader(data), archiveName, name, f, maxBinary)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return "", err
+	}
+	return staged, nil
+}
+
+// limitedWriter takes at most left bytes and fails after, leaving left
+// negative so the caller can tell a size refusal from a failed command.
+type limitedWriter struct {
+	w    io.Writer
+	left int64
+}
+
+func (l *limitedWriter) Write(p []byte) (int, error) {
+	if int64(len(p)) > l.left {
+		l.left = -1
+		return 0, ErrTooLarge
+	}
+	n, err := l.w.Write(p)
+	l.left -= int64(n)
+	return n, err
+}
+
 func (in *Installer) run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return in.runTo(ctx, nil, name, args...)
+}
+
+// runTo runs a dpkg tool. With a nil stdout it returns all the tool printed;
+// otherwise standard output goes to stdout and it returns standard error.
+func (in *Installer) runTo(ctx context.Context, stdout io.Writer, name string, args ...string) ([]byte, error) {
 	if in.Command != nil {
-		return in.Command(ctx, name, args...)
+		return in.Command(ctx, stdout, name, args...)
 	}
 	cmd := exec.CommandContext(ctx, systemTool(name), args...) //nolint:gosec // G204: a fixed dpkg command on a package whose checksum was verified.
 	cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
-	return cmd.CombinedOutput()
+	if stdout == nil {
+		return cmd.CombinedOutput()
+	}
+	var stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = stdout, &stderr
+	err := cmd.Run()
+	return stderr.Bytes(), err
 }
 
 // systemTool is the root-owned copy of a dpkg tool when there is one, so a

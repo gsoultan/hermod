@@ -7,6 +7,17 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — an update installed from the Updates page could not unpack the .deb
+
+On a server installed from the `.deb`, installing an update stopped with `dpkg-deb could not
+unpack ... Cannot mkdir: Function not implemented`, and nothing changed. The packaged
+`hermod.service` set `RestrictSUIDSGID=yes`, whose seccomp filter answers every `openat2`
+call with `ENOSYS`; the `tar` that `dpkg-deb --extract` runs opens each folder with `openat2`.
+The unit no longer sets it, and the updater reads the new binary out of the package with
+`dpkg-deb --fsys-tarfile` instead of running `tar`. A server still on v1.26.2 or earlier needs
+the filter lifted once before it can update itself: see
+[docs/updating.md](docs/updating.md#cannot-mkdir-function-not-implemented).
+
 ### Fixed — an Exec SQL step could wait forever with nothing running on the database
 
 Before every statement, Exec SQL (and every other step that runs SQL through a database
