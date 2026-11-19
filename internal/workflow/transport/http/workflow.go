@@ -1199,6 +1199,13 @@ func (h *WorkflowHandler) ToggleWorkflow(w http.ResponseWriter, r *http.Request)
 	if wf.Active {
 		wf.Active = false
 		wf.Status = "Stopped"
+		// Save first, as the batch toggle does. StopEngine saves only when this
+		// process has the engine, so a flow whose engine had died, or runs on
+		// another worker, stayed switched on and its Stop button did nothing.
+		if err := h.Storage.UpdateWorkflow(r.Context(), wf); err != nil {
+			h.JsonError(w, "Failed to update workflow: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 		_ = h.Registry.StopEngine(r.Context(), id)
 	} else {
 		// Validation check before starting
