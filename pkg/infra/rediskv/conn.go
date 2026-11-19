@@ -138,7 +138,10 @@ func connChecks(conn Conn, err error) []string {
 	if checks := networkChecks(conn, err); checks != nil {
 		return checks
 	}
-	return replyChecks(err)
+	if checks := replyChecks(err); checks != nil {
+		return checks
+	}
+	return tlsChecks(conn, err)
 }
 
 // networkChecks covers failures to reach the server at all.
@@ -176,8 +179,7 @@ func networkChecks(conn Conn, err error) []string {
 	return nil
 }
 
-// replyChecks covers the server's own refusals, and a connection it closed
-// before answering, which is most often a TLS mismatch.
+// replyChecks covers the server's own refusals.
 func replyChecks(err error) []string {
 	upper := strings.ToUpper(err.Error())
 	switch {
@@ -203,8 +205,24 @@ func replyChecks(err error) []string {
 		return []string{
 			"The ACL user may not run this command or touch this key. Grant it, e.g. ACL SETUSER <user> +ping +xadd +set +hset +expire ~<key or stream pattern>.",
 		}
-	case strings.Contains(upper, "TLS"), strings.Contains(upper, "X509"), strings.Contains(upper, "CERTIFICATE"),
-		upper == "EOF", strings.HasSuffix(upper, ": EOF"), errors.Is(err, syscall.ECONNRESET):
+	}
+	return nil
+}
+
+// tlsChecks covers TLS failures, and a connection the server closed before
+// answering. What a closed connection means depends on whether this node
+// spoke TLS: with TLS off, the checks must not read as a TLS setup the user
+// never chose.
+func tlsChecks(conn Conn, err error) []string {
+	host, port, splitErr := net.SplitHostPort(conn.Addr)
+	if splitErr != nil {
+		host, port = conn.Addr, defaultPort
+	}
+	upper := strings.ToUpper(err.Error())
+	if upper == "EOF" || strings.HasSuffix(upper, ": EOF") || isHangUp(err) {
+		return closedChecks(conn.TLS, host, port)
+	}
+	if strings.Contains(upper, "TLS") || strings.Contains(upper, "X509") || strings.Contains(upper, "CERTIFICATE") {
 		return []string{
 			"TLS on this sink matches the server: managed Redis (AWS ElastiCache with in-transit encryption, Azure Cache, Upstash, Redis Cloud) usually needs TLS on, or a rediss:// address; a plain redis-server needs it off.",
 			"The port is the TLS port when TLS is on (tls-port in redis.conf), and the plain port when it is off.",
@@ -212,6 +230,25 @@ func replyChecks(err error) []string {
 		}
 	}
 	return nil
+}
+
+// closedChecks covers a server that accepted the connection and closed it
+// without a reply.
+func closedChecks(tlsOn bool, host, port string) []string {
+	other := fmt.Sprintf("Redis itself, not something in front of it, answers on %s:%s. These hang up the same way: a Docker published port whose container is stopped or restarting, or a proxy or load balancer with no healthy Redis behind it. From the machine Hermod runs on, redis-cli -h %s -p %s PING should print PONG.", host, port, host, port)
+	logs := "The Redis server log at the time of the test says why it closed the connection."
+	if tlsOn {
+		return []string{
+			fmt.Sprintf("The server closed the connection during the TLS handshake. TLS is on for this sink (Use TLS, or a rediss:// address), and a plain redis-server does not speak TLS: turn Use TLS off and use a redis:// address, or use the tls-port from redis.conf instead of %s.", port),
+			other,
+			logs,
+		}
+	}
+	return []string{
+		fmt.Sprintf("The server closed the connection without answering. Use TLS is off on this sink, so it sent plain Redis commands: a server that only accepts TLS on port %s (tls-port %s with port 0 in redis.conf, or a managed Redis with in-transit encryption) hangs up on them. If so, turn Use TLS on; otherwise point Address at the plain port.", port, port),
+		other,
+		logs + " A TLS-only port logs \"Error accepting a client connection\" with an SSL error such as \"wrong version number\".",
+	}
 }
 
 func isLoopback(host string) bool {
