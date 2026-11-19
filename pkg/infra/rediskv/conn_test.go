@@ -179,3 +179,68 @@ func TestParseConnKeepsTheURLPasswordOutOfItsError(t *testing.T) {
 		}
 	}
 }
+
+// hangUpAddr starts a server that accepts each connection and closes it
+// without a reply, as a TLS-only Redis port does with a plain client, and as
+// a Docker published port does when its container is down.
+func hangUpAddr(t *testing.T) string {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = l.Close() })
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			_ = c.Close()
+		}
+	}()
+	return l.Addr().String()
+}
+
+func TestExplainHangUpWithTLSOffDoesNotBlameTLSSettings(t *testing.T) {
+	conn := Conn{Addr: hangUpAddr(t)}
+	c := NewClient(conn)
+	defer c.Close()
+	msg := ExplainConnError(conn, c.Ping(t.Context()).Err()).Error()
+	for _, want := range []string{"closed the connection", "Use TLS is off", "tls-port", "Docker", "redis-cli"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("message lacks %q:\n%s", want, msg)
+		}
+	}
+	for _, unwanted := range []string{"certificate", "TLS port when TLS is on"} {
+		if strings.Contains(msg, unwanted) {
+			t.Errorf("message talks about %q although TLS is off:\n%s", unwanted, msg)
+		}
+	}
+}
+
+func TestExplainHangUpWithTLSOnPointsAtAPlainServer(t *testing.T) {
+	conn := Conn{Addr: "cache:6379", TLS: true}
+	msg := ExplainConnError(conn, errors.New("EOF")).Error()
+	for _, want := range []string{"closed the connection", "TLS is on", "rediss://", "Use TLS off"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("message lacks %q:\n%s", want, msg)
+		}
+	}
+}
+
+func TestExplainConnectionResetWithTLSOff(t *testing.T) {
+	conn := Conn{Addr: "cache:6379"}
+	msg := ExplainConnError(conn, &net.OpError{Op: "read", Net: "tcp", Err: syscall.ECONNRESET}).Error()
+	if !strings.Contains(msg, "Use TLS is off") || strings.Contains(msg, "certificate") {
+		t.Errorf("a reset with TLS off is explained as a TLS setup problem:\n%s", msg)
+	}
+}
+
+func TestExplainCertificateErrorsKeepTheTLSChecks(t *testing.T) {
+	conn := Conn{Addr: "cache:6380", TLS: true}
+	msg := ExplainConnError(conn, errors.New("tls: failed to verify certificate: x509: certificate is valid for a, not cache")).Error()
+	if !strings.Contains(msg, "certificate is valid for the host name") {
+		t.Errorf("message lacks the certificate check:\n%s", msg)
+	}
+}

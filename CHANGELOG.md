@@ -7,6 +7,16 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — a Redis sink with TLS off was told to check its TLS setup
+
+When Redis accepted the connection and closed it without a reply, Test Connection showed
+`cannot connect to Redis at <addr>: EOF` followed by a TLS checklist (managed Redis, the TLS
+port, the server certificate), even with Use TLS off. The checklist now depends on whether the
+sink spoke TLS. With TLS off it says the server hung up on plain commands, which a TLS-only port
+(`tls-port` with `port 0`) does, and that a Docker published port with a stopped container or a
+proxy with no Redis behind it looks the same. With TLS on (the toggle or a `rediss://` address)
+it points at a plain server. Certificate errors keep the TLS checklist.
+
 ### Fixed — an update installed from the Updates page could not unpack the .deb
 
 On a server installed from the `.deb`, installing an update stopped with `dpkg-deb could not
