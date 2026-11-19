@@ -186,7 +186,7 @@ func TestParseConnKeepsTheURLPasswordOutOfItsError(t *testing.T) {
 // a Docker published port does when its container is down.
 func hangUpAddr(t *testing.T) string {
 	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	l, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +251,7 @@ func TestExplainCertificateErrorsKeepTheTLSChecks(t *testing.T) {
 // then hangs up.
 func refusingAddr(t *testing.T, reply string) string {
 	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	l, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +309,8 @@ func TestARefusalIsForgottenOnceACommandSucceeds(t *testing.T) {
 	if err := g.explain(nil); err != nil {
 		t.Fatalf("explain(nil) = %v", err)
 	}
-	if got := g.explain(io.EOF); got != io.EOF {
+	var re *RefusedError
+	if got := g.explain(io.EOF); errors.As(got, &re) {
 		t.Fatalf("a refusal outlived a successful command: %v", got)
 	}
 }
@@ -326,7 +327,8 @@ func TestPingOnAnOldRedisIsNotARefusal(t *testing.T) {
 	g := &greeting{}
 	c := &greetingConn{Conn: fakeConn{data: "-ERR unknown command 'HELLO'\r\n"}, g: g}
 	_, _ = c.Read(make([]byte, 64))
-	if got := g.explain(io.EOF); got != io.EOF {
+	var re *RefusedError
+	if got := g.explain(io.EOF); errors.As(got, &re) {
 		t.Fatalf("an unknown-command reply was kept as a refusal: %v", got)
 	}
 }

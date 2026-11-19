@@ -72,7 +72,8 @@ func (g *greeting) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.Pro
 	return func(ctx context.Context, cmds []redis.Cmder) error {
 		err := next(ctx, cmds)
 		explained := g.explain(err)
-		if explained != err {
+		var re *RefusedError
+		if errors.As(explained, &re) {
 			for _, cmd := range cmds {
 				if cmd.Err() != nil {
 					cmd.SetErr(explained)
