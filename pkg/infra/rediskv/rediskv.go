@@ -58,7 +58,9 @@ func NewClient(conn Conn) *redis.Client {
 		}
 		opts.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, ServerName: host}
 	}
-	return redis.NewClient(opts)
+	c := redis.NewClient(opts)
+	c.AddHook(&greeting{})
+	return c
 }
 
 // Pool holds one client per connection for the life of its owner, so a

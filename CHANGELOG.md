@@ -17,6 +17,13 @@ sink spoke TLS. With TLS off it says the server hung up on plain commands, which
 proxy with no Redis behind it looks the same. With TLS on (the toggle or a `rediss://` address)
 it points at a plain server. Certificate errors keep the TLS checklist.
 
+The EOF itself often hid the real answer. Redis refuses some clients as soon as they connect,
+in protected-mode (`DENIED Redis is running in protected mode ...`) or at `maxclients`, and
+hangs up. go-redis read that line as the reply to its `HELLO` and reported the EOF or broken
+pipe of its next command instead. The Redis client now keeps a refusal that arrives as a
+connection's first bytes and reports it in place of that network error, with the matching
+checklist (protected-mode, `requirepass`, `bind`; or `maxclients`).
+
 ### Fixed — an update installed from the Updates page could not unpack the .deb
 
 On a server installed from the `.deb`, installing an update stopped with `dpkg-deb could not

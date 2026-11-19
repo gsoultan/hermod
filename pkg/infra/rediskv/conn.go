@@ -13,7 +13,6 @@ package rediskv
 import (
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/url"
 	"strconv"
@@ -220,7 +219,7 @@ func tlsChecks(conn Conn, err error) []string {
 		host, port = conn.Addr, defaultPort
 	}
 	upper := strings.ToUpper(err.Error())
-	if upper == "EOF" || strings.HasSuffix(upper, ": EOF") || errors.Is(err, io.EOF) || errors.Is(err, syscall.ECONNRESET) {
+	if upper == "EOF" || strings.HasSuffix(upper, ": EOF") || isHangUp(err) {
 		return closedChecks(conn.TLS, host, port)
 	}
 	if strings.Contains(upper, "TLS") || strings.Contains(upper, "X509") || strings.Contains(upper, "CERTIFICATE") {
