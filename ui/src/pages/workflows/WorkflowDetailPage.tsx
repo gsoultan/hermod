@@ -439,8 +439,11 @@ export function WorkflowDetailPage() {
                   </Menu.Dropdown>
                 </Menu>
               </Button.Group>
-              <Button variant="default" leftSection={<IconPlayerPlay size="1rem" />} onClick={() => setRunInputOpened(true)}>
-                Run{' '}<span className="hermod-hide-phone">with input</span>
+              <Button variant="default" leftSection={<IconPlayerPlay size="1rem" />} onClick={() => setRunInputOpened(true)} aria-label="Run with input">
+                {/* The label is a flex box, which drops a space at the edge of
+                    a text run, so it lives inside the span as a no-break space.
+                    The aria-label keeps the name whole, on a phone too. */}
+                Run<span className="hermod-hide-phone">{'\u00a0'}with input</span>
               </Button>
               <Button
                 variant="default"
