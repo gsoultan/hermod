@@ -15,6 +15,16 @@ are listed explicitly as exceptions.
 repository, which protects nobody. Set `crypto_master_key` in `db_config.yaml`, or rotate through
 `PUT /api/config/crypto` (Admin only, minimum 16 characters).
 
+**A key set outside `db_config.yaml` wins.** `--master-key` and `HERMOD_MASTER_KEY` take precedence
+over `crypto_master_key` at every start-up; a package install sets `HERMOD_MASTER_KEY` in
+`/etc/hermod/hermod.env`. On such a server the setup wizard uses that key instead of offering one,
+and `PUT /api/config/crypto` answers 409: change the key where it is set instead. Older versions let
+the wizard and rotation save a different key to `db_config.yaml` and use it until the next restart,
+after which everything saved in between failed with "cannot decrypt with the configured master
+key". At start-up Hermod now also reads values under the file's key when it differs, and
+re-encrypts all of them under the key in use, once. Keep `db_config.yaml`: database backups taken
+before that still need its key.
+
 **Rotation re-encrypts before it switches.** `PUT /api/config/crypto` rewrites every stored
 credential under the new key first, in one transaction, and installs the key only once that has
 committed. If anything cannot be re-encrypted the request fails and *nothing* is changed — including

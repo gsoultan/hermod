@@ -96,3 +96,25 @@ describe('setup wizard: admin step', () => {
     expect(screen.getByText(/password is too weak/i)).toBeInTheDocument()
   })
 })
+
+describe('setup wizard: master key set on the server', () => {
+  // A package install sets HERMOD_MASTER_KEY in /etc/hermod/hermod.env. That
+  // key wins at every start-up, so setup uses it; offering a generated key to
+  // copy and back up would hand over one the server never uses.
+  it('does not offer a key of its own when the server already has one', async () => {
+    server.use(http.get('/api/config/status', () =>
+      HttpResponse.json({ configured: false, user_setup: false, master_key_pinned: true })))
+    renderSetup()
+
+    expect(await screen.findByText(/HERMOD_MASTER_KEY/)).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText(/minimum 16 characters/i)).not.toBeInTheDocument()
+  })
+
+  it('still offers a key when the server has none', async () => {
+    server.use(http.get('/api/config/status', () =>
+      HttpResponse.json({ configured: false, user_setup: false, master_key_pinned: false })))
+    renderSetup()
+
+    expect(await screen.findByPlaceholderText(/minimum 16 characters/i)).toBeInTheDocument()
+  })
+})

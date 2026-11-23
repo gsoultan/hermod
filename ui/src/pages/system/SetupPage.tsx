@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Title, Text, TextInput, Select, Button, Paper, Stack, Container, Group, PasswordInput, Alert, Progress, Checkbox, NumberInput, Stepper, SimpleGrid, ActionIcon, Tooltip } from '@mantine/core'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { IconDatabase, IconUser, IconSettings, IconPlug, IconCheck, IconCopy, IconRefresh, IconSearch, IconEye, IconEyeOff } from '@tabler/icons-react'
 import { apiFetch } from '@/api'
 import { copyToClipboard, generateStrongPassword } from '@/utils/cryptoUtils'
@@ -45,6 +45,16 @@ export function SetupPage({ onConfigured }: SetupPageProps) {
   const [email, setEmail] = useState('')
   const [cryptoMasterKey, setCryptoMasterKey] = useState('')
   const [keyVisible, setKeyVisible] = useState(false)
+  // A key set on the server (HERMOD_MASTER_KEY, which a package install puts in
+  // /etc/hermod/hermod.env) is the one setup uses, so none is offered here.
+  const { data: masterKeyPinned = false } = useQuery({
+    queryKey: ['config-status', 'master-key-pinned'],
+    queryFn: async () => {
+      const response = await apiFetch('/api/config/status')
+      const json = await response.json().catch(() => ({}))
+      return Boolean(json?.master_key_pinned)
+    },
+  })
 
   // SMTP state
   const [smtpHost, setSmtpHost] = useState('')
@@ -504,36 +514,44 @@ export function SetupPage({ onConfigured }: SetupPageProps) {
                     onChange={handleDbTypeChange}
                     required
                   />
-                  <PasswordInput
-                    label="Crypto Master Key"
-                    description="Used to encrypt secrets. Minimum 16 chars."
-                    placeholder="Minimum 16 characters"
-                    required
-                    value={cryptoMasterKey}
-                    onChange={(e) => setCryptoMasterKey(e.currentTarget.value)}
-                    visible={keyVisible}
-                    onVisibilityChange={setKeyVisible}
-                    rightSectionWidth={92}
-                    rightSection={
-                      <Group gap={0} mr={5}>
-                        <Tooltip label="Generate Key">
-                          <ActionIcon aria-label="Generate Key" variant="subtle" color="gray" onClick={() => setCryptoMasterKey(generateStrongPassword(32))}>
-                            <IconRefresh size={16} />
-                          </ActionIcon>
-                        </Tooltip>
-                        <Tooltip label="Copy Key">
-                          <ActionIcon aria-label="Copy" variant="subtle" color="gray" onClick={() => { if (cryptoMasterKey) copyToClipboard(cryptoMasterKey) }} disabled={!cryptoMasterKey}>
-                            <IconCopy size={16} />
-                          </ActionIcon>
-                        </Tooltip>
-                        <Tooltip label={keyVisible ? "Hide Key" : "Show Key"}>
-                          <ActionIcon aria-label="Hide" variant="subtle" color="gray" onClick={() => setKeyVisible(!keyVisible)}>
-                            {keyVisible ? <IconEyeOff size={16} /> : <IconEye size={16} />}
-                          </ActionIcon>
-                        </Tooltip>
-                      </Group>
-                    }
-                  />
+                  {masterKeyPinned ? (
+                    <Alert color="blue" variant="light" title="Crypto master key">
+                      This server already has a master key, set by HERMOD_MASTER_KEY
+                      (on a package install, in /etc/hermod/hermod.env). Setup uses that key.
+                      Back up that file: without it, stored credentials cannot be read.
+                    </Alert>
+                  ) : (
+                    <PasswordInput
+                      label="Crypto Master Key"
+                      description="Used to encrypt secrets. Minimum 16 chars."
+                      placeholder="Minimum 16 characters"
+                      required
+                      value={cryptoMasterKey}
+                      onChange={(e) => setCryptoMasterKey(e.currentTarget.value)}
+                      visible={keyVisible}
+                      onVisibilityChange={setKeyVisible}
+                      rightSectionWidth={92}
+                      rightSection={
+                        <Group gap={0} mr={5}>
+                          <Tooltip label="Generate Key">
+                            <ActionIcon aria-label="Generate Key" variant="subtle" color="gray" onClick={() => setCryptoMasterKey(generateStrongPassword(32))}>
+                              <IconRefresh size={16} />
+                            </ActionIcon>
+                          </Tooltip>
+                          <Tooltip label="Copy Key">
+                            <ActionIcon aria-label="Copy" variant="subtle" color="gray" onClick={() => { if (cryptoMasterKey) copyToClipboard(cryptoMasterKey) }} disabled={!cryptoMasterKey}>
+                              <IconCopy size={16} />
+                            </ActionIcon>
+                          </Tooltip>
+                          <Tooltip label={keyVisible ? "Hide Key" : "Show Key"}>
+                            <ActionIcon aria-label="Hide" variant="subtle" color="gray" onClick={() => setKeyVisible(!keyVisible)}>
+                              {keyVisible ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+                            </ActionIcon>
+                          </Tooltip>
+                        </Group>
+                      }
+                    />
+                  )}
                 </SimpleGrid>
 
                 {/* DSN builder vs raw input */}
