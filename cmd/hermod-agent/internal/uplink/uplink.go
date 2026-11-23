@@ -59,6 +59,10 @@ type Config struct {
 	// most records sent but not yet acknowledged; default 4096.
 	BatchSize int
 	Window    uint64
+	// MaxBatchBytes is the most payload bytes per message; default 1 MiB.
+	// Hermod refuses a message over 4 MiB, and the stream with it. A record
+	// larger than this still goes, alone.
+	MaxBatchBytes int
 
 	MinBackoff, MaxBackoff time.Duration
 }
@@ -69,6 +73,9 @@ func (c *Config) defaults() {
 	}
 	if c.Window == 0 {
 		c.Window = 4096
+	}
+	if c.MaxBatchBytes <= 0 {
+		c.MaxBatchBytes = 1 << 20
 	}
 	if c.HeartbeatEvery <= 0 {
 		c.HeartbeatEvery = 15 * time.Second
@@ -141,8 +148,18 @@ func session(ctx context.Context, client pb.AgentServiceClient, cfg *Config) (bo
 	}
 	acks := make(chan struct{}, 1)
 	errc := make(chan error, 1)
-	go func() { errc <- receive(st, cfg, acks) }()
-	return true, send(ctx, st, cfg, acks, errc)
+	received := make(chan struct{})
+	go func() {
+		defer close(received)
+		errc <- receive(st, cfg, acks)
+	}()
+	err = send(ctx, st, cfg, acks, errc)
+	// The receiver acknowledges into the spool. It has to be finished before
+	// the session returns, or it could write to a spool its owner has
+	// already closed.
+	cancel()
+	<-received
+	return true, err
 }
 
 func handshake(st stream, cfg *Config) error {
@@ -215,7 +232,7 @@ func send(ctx context.Context, st stream, cfg *Config, acks <-chan struct{}, err
 		cursor = max(cursor, stats.AckedSeq)
 		if cursor-stats.AckedSeq < cfg.Window {
 			n := min(cfg.BatchSize, int(cfg.Window-(cursor-stats.AckedSeq)))
-			next, err := sendBatch(st, cfg.Spool, cursor, n)
+			next, err := sendBatch(st, cfg.Spool, cursor, n, cfg.MaxBatchBytes)
 			if err != nil {
 				return err
 			}
@@ -243,11 +260,19 @@ func send(ctx context.Context, st stream, cfg *Config, acks <-chan struct{}, err
 	}
 }
 
-// sendBatch sends up to n records after cursor and returns the new cursor.
-func sendBatch(st stream, sp *spool.Spool, cursor uint64, n int) (uint64, error) {
+// sendBatch sends up to n records after cursor, and no more than maxBytes of
+// payload unless one record alone is larger, and returns the new cursor.
+func sendBatch(st stream, sp *spool.Spool, cursor uint64, n, maxBytes int) (uint64, error) {
 	recs, err := sp.ReadFrom(cursor, n)
 	if err != nil || len(recs) == 0 {
 		return cursor, err
+	}
+	size := len(recs[0].Raw)
+	for i := 1; i < len(recs); i++ {
+		if size += len(recs[i].Raw); size > maxBytes {
+			recs = recs[:i]
+			break
+		}
 	}
 	batch := &pb.RecordBatch{Records: make([]*pb.Record, len(recs))}
 	for i, r := range recs {

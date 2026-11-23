@@ -25,6 +25,11 @@ import (
 // DefaultMaxRecordBytes is used when the settings leave the limit at zero.
 const DefaultMaxRecordBytes = 64 << 10
 
+// MaxRecordBytesLimit is the largest record limit settings may ask for: a
+// record has to fit, with room to spare, in one message to Hermod, which
+// refuses messages over 4 MiB.
+const MaxRecordBytesLimit = 1 << 20
+
 // Framer turns chunks of bytes into records. It is not safe for concurrent
 // use; each connection gets its own.
 type Framer interface {
@@ -47,6 +52,9 @@ func New(f *pb.Framing) (Framer, error) {
 	limit := int(f.GetMaxRecordBytes())
 	if limit == 0 {
 		limit = DefaultMaxRecordBytes
+	}
+	if limit > MaxRecordBytesLimit {
+		return nil, fmt.Errorf("framing: a record may be at most %d bytes", MaxRecordBytesLimit)
 	}
 	build, ok := builders[f.GetKind()]
 	if !ok {

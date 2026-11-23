@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -42,6 +43,7 @@ type fakeServer struct {
 	dropAfter int // close the stream after this many records, once
 	streams   int
 	changed   chan struct{}
+	onBatch   func(records int)
 }
 
 func newFake() *fakeServer { return &fakeServer{autoAck: true, changed: make(chan struct{}, 1000)} }
@@ -96,6 +98,9 @@ func (f *fakeServer) handle(stream grpc.BidiStreamingServer[pb.ConnectRequest, p
 	case *pb.ConnectRequest_Heartbeat:
 		f.beats++
 	case *pb.ConnectRequest_Records:
+		if f.onBatch != nil {
+			f.onBatch(len(b.Records.GetRecords()))
+		}
 		for _, r := range b.Records.GetRecords() {
 			f.received = append(f.received, r.GetSeq())
 		}
@@ -326,5 +331,41 @@ func TestTransportCredentialsRefuseInsecureOffLoopback(t *testing.T) {
 	}
 	if _, err := TransportCredentials("hermod.example.com:9443", "/no/such/ca.pem", false); err == nil {
 		t.Fatal("missing CA file accepted")
+	}
+}
+
+// Hermod refuses a gRPC message over 4 MiB and the stream with it, so a batch
+// of 256 large records would never be delivered: the agent would reconnect and
+// resend the same batch for ever. A batch stops at MaxBatchBytes of payload,
+// and a single record larger than that still goes, alone.
+func TestBatchesStopAtTheByteLimit(t *testing.T) {
+	f := newFake()
+	s := openSpool(t)
+	big := make([]byte, 600)
+	for range 5 {
+		if _, err := s.Append([]spool.Record{{DeviceID: "d", Raw: big}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.Append([]spool.Record{{DeviceID: "d", Raw: make([]byte, 2500)}}); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var sizes []int
+	f.onBatch = func(n int) { mu.Lock(); sizes = append(sizes, n); mu.Unlock() }
+	cfg := baseConfig(startFake(t, f), s)
+	cfg.MaxBatchBytes = 1300
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() { _ = Run(ctx, cfg); close(done) }()
+	// Run acks into the spool's directory; it has to stop before the test's
+	// temporary directory is removed.
+	defer func() { cancel(); <-done }()
+
+	f.waitFor(t, func() bool { return len(f.received) == 6 })
+	mu.Lock()
+	defer mu.Unlock()
+	if want := []int{2, 2, 1, 1}; !reflect.DeepEqual(sizes, want) {
+		t.Fatalf("batch sizes = %v, want %v", sizes, want)
 	}
 }

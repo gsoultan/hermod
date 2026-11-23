@@ -164,3 +164,14 @@ func TestInvalidSettingsAreRefused(t *testing.T) {
 		}
 	}
 }
+
+// A record has to fit in one message to Hermod, so the limit a device's
+// settings may ask for is capped.
+func TestMaxRecordBytesIsCapped(t *testing.T) {
+	if _, err := New(&pb.Framing{MaxRecordBytes: MaxRecordBytesLimit + 1}); err == nil {
+		t.Fatalf("a record limit over %d bytes was accepted", MaxRecordBytesLimit)
+	}
+	if _, err := New(&pb.Framing{MaxRecordBytes: MaxRecordBytesLimit}); err != nil {
+		t.Fatalf("the largest allowed limit was refused: %v", err)
+	}
+}
