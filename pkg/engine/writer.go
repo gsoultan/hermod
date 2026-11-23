@@ -580,6 +580,7 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 		}
 	}
 
+	writeStart := time.Now()
 	for j := range maxRetries {
 		start := time.Now()
 		var before map[string]any
@@ -686,6 +687,11 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 		if !errors.Is(lastErr, hermod.ErrPermanent) {
 			e.logger.Error("Sink write failed after retries", "workflow_id", e.workflowID, "sink_id", sinkID, "error", lastErr)
 		}
+		// The step for a sink used to be recorded only after a successful
+		// attempt, so a write that failed for good left the trace ending at the
+		// router with every step green — which reads as a success. The step
+		// spans every attempt and carries the last error.
+		e.RecordTraceStep(ctx, msg, sinkID, writeStart, nil, lastErr)
 		span.RecordError(lastErr)
 		span.SetStatus(codes.Error, lastErr.Error())
 		if e.deadLetterSink != nil {

@@ -18,6 +18,8 @@ import { apiFetch } from '@/api';
 import { useDisclosure, useDebouncedValue, useMediaQuery } from '@mantine/hooks';
 import { formatDateTime } from '@/utils/dateUtils';
 import { JourneyStep, type TraceStep } from './traces/JourneyStep';
+import { traceOutcome, type SinkNode } from './traces/traceOutcome';
+import { TraceListStatus, TraceOutcomeBanner } from './traces/TraceOutcome';
 import { 
   IconArrowLeft, IconRotateDot, IconChevronRight, IconClock, IconCopy, IconDots, IconEye, IconHistory, IconInfoCircle, IconPencil, IconRefresh, IconSearch, IconTimeline,
   IconPlayerPlay, IconFirstAidKit, IconShieldLock, IconTrash, IconChevronDown, IconSettings, IconEraser, IconRoute,
@@ -319,6 +321,15 @@ export function WorkflowDetailPage() {
     return map;
   }, [workflow]);
 
+  const sinkNodes = useMemo<SinkNode[]>(() => (((workflow as any)?.nodes || []) as any[])
+    .filter((n) => n?.type === 'sink' && n?.id)
+    .map((n) => ({ id: n.id, refId: n.ref_id || '', name: n?.config?.label || n?.name || n.id })), [workflow]);
+
+  const selectedOutcome = useMemo(() => {
+    const steps = (selectedTrace as any)?.steps;
+    return Array.isArray(steps) && steps.length > 0 ? traceOutcome(steps as TraceStep[], sinkNodes) : null;
+  }, [selectedTrace, sinkNodes]);
+
   const lastInitializedId = useRef<string | null>(null);
 
   useEffect(() => {
@@ -603,6 +614,7 @@ export function WorkflowDetailPage() {
                               <Text size="sm" fw={600} truncate>{t.message_id}</Text>
                               <Text size="xs" c="dimmed">{formatDateTime(t.created_at)}</Text>
                             </Box>
+                            <TraceListStatus errorCount={t.error_count} />
                             <IconChevronRight size="1rem" color="var(--mantine-color-gray-5)" />
                           </Group>
                         </UnstyledButton>
@@ -666,6 +678,10 @@ export function WorkflowDetailPage() {
                           <Title order={phone ? 5 : 4} mb={phone ? 2 : 'xs'}>Message Journey</Title>
                           <Text size={phone ? 'xs' : 'sm'} c="dimmed" truncate>Tracking ID: <Code>{selectedTraceID}</Code></Text>
                         </Box>
+
+                        {selectedOutcome && (
+                          <TraceOutcomeBanner outcome={selectedOutcome} nodeName={(nid) => nodeNameById.get(nid) || sinkNodes.find((sn) => sn.refId === nid)?.name} />
+                        )}
 
                         {/* Inset by half a marker: each step's marker hangs
                             13px left of its line and the scroll area clips it. */}

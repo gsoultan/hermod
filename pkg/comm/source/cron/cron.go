@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/message"
 	"github.com/robfig/cron/v3"
@@ -45,7 +46,10 @@ func (s *CronSource) Read(ctx context.Context) (hermod.Message, error) {
 		var err error
 		s.entryID, err = s.cron.AddFunc(s.Schedule, func() {
 			msg := message.AcquireMessage()
-			msg.SetID(fmt.Sprintf("cron_%d", s.entryID))
+			// One id per firing. Traces, runs and idempotency keys are all
+			// keyed by message id; "cron_<entry>" was the same for every
+			// firing, so every run a schedule made became one trace.
+			msg.SetID("cron_" + uuid.NewString())
 			msg.SetOperation(hermod.OpSnapshot)
 			msg.SetTable("cron")
 
