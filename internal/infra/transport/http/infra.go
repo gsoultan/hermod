@@ -110,6 +110,10 @@ func (h *InfraHandler) UpdateCryptoMasterKey(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
+	if msg := pinnedKeyRefusal(); msg != "" {
+		http.Error(w, msg, http.StatusConflict)
+		return
+	}
 	key := strings.TrimSpace(req.CryptoMasterKey)
 	if len(key) < 16 {
 		http.Error(w, "crypto_master_key must be at least 16 characters", http.StatusBadRequest)
@@ -140,6 +144,11 @@ func (h *InfraHandler) UpdateCryptoMasterKey(w http.ResponseWriter, r *http.Requ
 			http.Error(w, "cannot rotate the master key: "+err.Error()+
 				"; no key was changed and no data was modified", http.StatusInternalServerError)
 			return
+		}
+		// Start-up compares the key against this check; left under the old key
+		// it would refuse to start on the new one.
+		if err := storage.WriteKeyCheck(r.Context(), h.Storage, key); err != nil {
+			_ = h.Storage.SaveSetting(r.Context(), storage.KeyCheckSetting, "")
 		}
 	}
 
@@ -182,6 +191,9 @@ func (h *InfraHandler) GetConfigStatus(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]bool{
 		"configured": configured,
 		"user_setup": userSetup,
+		// The wizard does not offer a key of its own when one is set outside
+		// db_config.yaml: setup uses that one (see masterKeyForSetup).
+		"master_key_pinned": config.PinnedMasterKey() != "",
 	})
 }
 
@@ -527,6 +539,11 @@ func (h *InfraHandler) SaveDBConfig(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	currentKey := ""
+	if !h.IsFirstRun(r.Context()) {
+		currentKey, _ = config.FileMasterKey()
+	}
+	cfg.CryptoMasterKey = masterKeyForSave(cfg.CryptoMasterKey, currentKey)
 	if len(strings.TrimSpace(cfg.CryptoMasterKey)) < 16 {
 		http.Error(w, "crypto_master_key must be at least 16 characters", http.StatusBadRequest)
 		return
@@ -1011,6 +1028,7 @@ func (h *InfraHandler) FinalizeInitialSetup(w http.ResponseWriter, r *http.Reque
 		h.JsonError(w, "database type and connection are required", http.StatusBadRequest)
 		return
 	}
+	req.DB.CryptoMasterKey = masterKeyForSetup(req.DB.CryptoMasterKey)
 	if len(strings.TrimSpace(req.DB.CryptoMasterKey)) < 16 {
 		h.JsonError(w, "crypto_master_key must be at least 16 characters", http.StatusBadRequest)
 		return

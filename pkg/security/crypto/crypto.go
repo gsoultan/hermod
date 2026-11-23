@@ -39,6 +39,9 @@ type keyState struct {
 	primary cipher.AEAD // key derived with SHA-256
 	legacy  cipher.AEAD // key derived the historical way; decrypt-only
 	isKey   string      // the configured key, for IsDefaultMasterKey
+	// extra holds decrypt-only ciphers for keys data may still be under; see
+	// AddDecryptKey. Nothing is ever encrypted with them.
+	extra []cipher.AEAD
 }
 
 var state atomic.Pointer[keyState]
@@ -101,7 +104,42 @@ func SetMasterKey(key string) {
 	if legacy, err := newAEAD(deriveLegacy(key)); err == nil {
 		next.legacy = legacy
 	}
+	if prev := state.Load(); prev != nil {
+		next.extra = prev.extra
+	}
 	state.Store(next)
+}
+
+// AddDecryptKey lets Decrypt also open values written under key, without ever
+// encrypting with it. Each such value moves to the master key the next time it
+// is saved.
+//
+// It exists for a server whose master key comes from HERMOD_MASTER_KEY while
+// db_config.yaml holds a different crypto_master_key. The setup wizard used to
+// save a key of its own there and encrypt with it until the next restart, when
+// the environment's key took over and everything saved before it became
+// unreadable. Start-up adds the file's key here so that data still opens.
+func AddDecryptKey(key string) {
+	if key == "" {
+		return
+	}
+	for {
+		prev := state.Load()
+		if prev == nil || prev.isKey == key {
+			return
+		}
+		next := *prev
+		next.extra = append([]cipher.AEAD(nil), prev.extra...)
+		if aead, err := newAEAD(derive(key)); err == nil {
+			next.extra = append(next.extra, aead)
+		}
+		if aead, err := newAEAD(deriveLegacy(key)); err == nil {
+			next.extra = append(next.extra, aead)
+		}
+		if state.CompareAndSwap(prev, &next) {
+			return
+		}
+	}
 }
 
 // IsDefaultMasterKey reports whether encryption is running on the built-in key,
@@ -168,7 +206,7 @@ func Decrypt(cryptoText string) (string, error) {
 		return "", errors.New("crypto: master key is not initialised")
 	}
 
-	for _, aead := range []cipher.AEAD{s.primary, s.legacy} {
+	for _, aead := range append([]cipher.AEAD{s.primary, s.legacy}, s.extra...) {
 		if aead == nil {
 			continue
 		}

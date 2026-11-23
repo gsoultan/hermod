@@ -134,6 +134,7 @@ func runApp(svcCtx context.Context, o *Options) int {
 
 	dbType, dbConn, logType, logConn := getStorageConfig(o)
 	firstRun := !config.IsDBConfigured()
+	fileKey := keepFileMasterKeyReadable(logger)
 
 	// Say so when credentials are being encrypted with the built-in key. It is
 	// a constant in published source, so "encrypted at rest" means nothing
@@ -150,6 +151,12 @@ func runApp(svcCtx context.Context, o *Options) int {
 	if !isWorkerModeWithPlatform(o) && !firstRun {
 		store = initPrimaryStorage(svcCtx, dbType, dbConn, logger)
 		logStore = initLogStorage(svcCtx, logType, logConn, logger)
+		if store != nil {
+			moveOffFileMasterKey(svcCtx, store, fileKey, logger)
+			if !masterKeyReadsTheData(svcCtx, store, logger) {
+				return 1
+			}
+		}
 	}
 
 	reg, cfg := setupRegistry(store, logStore, logger, o)
@@ -186,6 +193,7 @@ func runApp(svcCtx context.Context, o *Options) int {
 }
 
 func initMasterKey(o *Options) {
+	config.SetPinnedMasterKey(o.masterKey)
 	if o.masterKey != "" {
 		crypto.SetMasterKey(o.masterKey)
 	} else if envKey := os.Getenv("HERMOD_MASTER_KEY"); envKey != "" {
