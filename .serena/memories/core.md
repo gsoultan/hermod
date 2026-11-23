@@ -316,6 +316,10 @@ find a claim that outruns the code, fix the claim.
   when its edge was drawn first; the simulation walks the graph differently and
   could not show it. `Fired` is not delivery, and a mock that skips `Retain()`
   corrupts the message pool for *other* tests.
+- [hermod-agent](hermod_agent.md) — the separate device data agent: spool,
+  framing, serial and TCP readers, detection, uplink stream. It may link only
+  its own packages and `pkg/agent/proto` (guard test). Server side and UI are
+  not built yet.
 
 ### Gates
 
