@@ -27,7 +27,7 @@ import (
 var vhostNameCollections = []string{
 	"workflows", "sources", "sinks", deadLettersCollection, "dashboard_history",
 	mlJobsCollection, mlJobResultsCollection, mlFeedbackCollection, mlPredictionLogsCollection,
-	"audit_logs",
+	agentsCollection, "audit_logs",
 }
 
 // vhostPrefixedCollections have an _id that starts with the vhost's name and
