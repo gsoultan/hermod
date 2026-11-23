@@ -17,6 +17,16 @@ a range on a hash-only column, and conditions no index serves. It shows the
 `CREATE INDEX CONCURRENTLY` statement that would fix each one, to copy and run. The check runs in
 a read-only transaction with a 5 second limit, refuses a query with more than one statement,
 works through PgBouncer, and takes an editor (`POST /api/workflows/{id}/insights/lookup-plans`).
+### Added — hermod-agent reads serial and LAN devices into workflows
+
+`hermod-agent` is a separate program for the machine next to the hardware (Linux, Raspberry Pi
+or Windows). It reads serial devices and devices on the LAN, keeps each reading on its own disk
+and sends it to Hermod, which acknowledges it only when every workflow reading that device has
+finished with it, so a network outage, a Hermod restart or a stopped workflow loses nothing.
+Agents are added to a vhost through `/api/vhosts/{vhost}/agents` with a token shown once and
+stored only as a hash; claimed devices and their framing are saved with `PUT /api/agents/{id}`
+and reach a connected agent at once; workflows read them with the new **Agent** source
+(`type: agent`). The Agents page in the UI follows. See [hermod-agent](docs/hermod-agent.md).
 
 ### Fixed — a DB Lookup step failed with `context canceled` when its query got no answer
 

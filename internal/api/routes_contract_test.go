@@ -59,6 +59,7 @@ var update = flag.Bool("update", false, "rewrite "+routesGolden+" from the curre
 // outside the inventory, which is the failure this test exists to prevent.
 var routeDirs = []string{
 	"internal/advisor/transport/http",
+	"internal/agenthub/transport/http",
 	"internal/aibudget/transport/http",
 	"internal/api",
 	"internal/approval/transport/http",

@@ -839,16 +839,17 @@ func (h *Handler) RecordAuditLog(r *http.Request, level, message, action string,
 	// Also write to dedicated audit_logs table
 	entityType := ""
 	entityID := ""
-	if sourceID == "user" || sourceID == "vhost" {
+	switch {
+	case sourceID == "user" || sourceID == "vhost" || sourceID == "agent":
 		entityType = sourceID
 		entityID = workflowID
-	} else if workflowID != "" {
+	case workflowID != "":
 		entityType = "workflow"
 		entityID = workflowID
-	} else if sourceID != "" {
+	case sourceID != "":
 		entityType = "source"
 		entityID = sourceID
-	} else if sinkID != "" {
+	case sinkID != "":
 		entityType = "sink"
 		entityID = sinkID
 	}

@@ -224,6 +224,7 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		s.queries.get(QueryInitMLJobResultsTable),
 		s.queries.get(QueryInitAIBudgetsTable),
 		s.queries.get(QueryInitAIUsageTable),
+		s.queries.get(QueryInitAgentsTable),
 		s.queries.get(QueryInitDeadLettersTable),
 		s.queries.get(QueryInitWorkersTable),
 		s.queries.get(QueryInitApprovalsTable),
@@ -1587,6 +1588,9 @@ func (s *sqlStorage) DeleteVHost(ctx context.Context, id string) error {
 			return err
 		}
 		if err := s.DeleteAIBudgets(ctx, vhost.Name); err != nil {
+			return err
+		}
+		if err := s.DeleteAgents(ctx, vhost.Name); err != nil {
 			return err
 		}
 	}

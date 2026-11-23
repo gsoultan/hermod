@@ -25,7 +25,7 @@ import (
 var vhostNameTables = []string{
 	"workflows", "sources", "sinks", "dead_letters", "dashboard_history",
 	"ml_jobs", "ml_job_results", "ml_feedback", "ml_prediction_logs",
-	"ml_quotas", "ai_budgets", "audit_logs",
+	"ml_quotas", "ai_budgets", "agents", "audit_logs",
 }
 
 // vhostKeyedTable is a table whose id is built from the vhost's name, so a
