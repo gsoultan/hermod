@@ -7,6 +7,17 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — check a DB Lookup's query against the table's indexes, from the Tuning tab
+
+The Tuning tab has a **Lookup queries and indexes** section. **Check lookup queries** plans
+each DB Lookup step's query on its PostgreSQL source without running it. It says which index each
+table is read through and of what type, or that the table is read whole and why. That covers a
+key wrapped in a function such as `TRIM(LOWER(col))`, a leading-wildcard `LIKE`, a JSON search,
+a range on a hash-only column, and conditions no index serves. It shows the
+`CREATE INDEX CONCURRENTLY` statement that would fix each one, to copy and run. The check runs in
+a read-only transaction with a 5 second limit, refuses a query with more than one statement,
+works through PgBouncer, and takes an editor (`POST /api/workflows/{id}/insights/lookup-plans`).
+
 ### Fixed — a DB Lookup step failed with `context canceled` when its query got no answer
 
 A DB Lookup had no time limit. A query waiting in PgBouncer's queue for a server connection,

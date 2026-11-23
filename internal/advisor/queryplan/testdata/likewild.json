@@ -1,0 +1,18 @@
+[
+  {
+    "Plan": {
+      "Node Type": "Seq Scan",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Relation Name": "sales_orders",
+      "Schema": "public",
+      "Alias": "sales_orders",
+      "Startup Cost": 0.00,
+      "Total Cost": 924.00,
+      "Plan Rows": 200,
+      "Plan Width": 16,
+      "Output": ["id"],
+      "Filter": "(sales_orders.doc_no ~~ ('%'::text || $1))"
+    }
+  }
+]

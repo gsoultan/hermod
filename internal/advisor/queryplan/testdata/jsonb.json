@@ -1,0 +1,18 @@
+[
+  {
+    "Plan": {
+      "Node Type": "Seq Scan",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Relation Name": "SODTL",
+      "Schema": "etl",
+      "Alias": "SODTL",
+      "Startup Cost": 0.00,
+      "Total Cost": 1194.00,
+      "Plan Rows": 500,
+      "Plan Width": 8,
+      "Output": ["\"DocNo\""],
+      "Filter": "(\"SODTL\".meta @> $1)"
+    }
+  }
+]

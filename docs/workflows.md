@@ -168,6 +168,46 @@ When it is on, editors see an "Explain in plain words" button above the recommen
   [AI budget](ai-automation.md), and answers `429` when the budget is spent. The answer is capped
   at 600 tokens. Each call is written to the audit log as `AI_EXPLAIN_INSIGHTS`.
 
+#### Checking a DB Lookup's query and indexes
+
+The Tuning tab's **Lookup queries and indexes** section checks each DB Lookup step's query on
+its source when an editor presses **Check lookup queries**
+(`POST /api/workflows/{id}/insights/lookup-plans`, Editor and up, written to the audit log as
+`LOOKUP_PLAN_CHECK`). It works whether or not the workflow is running. For each step it shows:
+
+- the statement the step sends, with `$1`, `$2` where message values go;
+- each table the plan reads, and how: through which index and of what type (btree, hash, GIN,
+  ...), or by reading the whole table;
+- what to change, with the SQL to do it. Hermod never runs that SQL. It is
+  `CREATE INDEX CONCURRENTLY`, which builds the index without blocking writes but reads the whole
+  table, so run it in a quiet hour and outside a transaction.
+
+What it flags, on a table of 10,000 rows or more (a smaller one is read whole as fast):
+
+| Seen in the plan | What it proposes |
+|---|---|
+| A function around the key, such as `TRIM(LOWER(col)) = ...` in a filter or a join. An index on `col` cannot serve it. | Compare the plain column (clean the values when they are written), or an index on the expression exactly as the query writes it. |
+| `LIKE '%...'` or any `ILIKE` | A trigram GIN index (`pg_trgm`). |
+| `jsonb @>`, `?`, `?|`, `?&` | A GIN index (`jsonb_path_ops` for `@>`). |
+| A range (`<`, `>=`, ...) on a column whose only index is a hash index | A btree index. A hash index answers equality only. |
+| Equality and range conditions no index serves | One btree index, equality columns first and range columns last. |
+| An index that fits, which the planner still did not use | Nothing to create. It expects too many rows to match; if the value is rare, run `ANALYZE` on the table. |
+
+How the check reaches the database: the query is prepared and planned with
+`EXPLAIN (VERBOSE) EXECUTE` under `plan_cache_mode = force_generic_plan`, in a `READ ONLY`
+transaction with a 5 second `statement_timeout`. The transaction is rolled back and the prepared
+statement is dropped afterwards. The query is never executed, and a query with two statements is
+refused by the server. It works through PgBouncer in transaction mode, with or without
+`max_prepared_statements`. Each step's check is limited to 15 seconds, and four steps are checked
+at a time.
+
+Limits:
+
+- PostgreSQL sources only, for now. Any other source says so.
+- The plan is the *generic* one, made without the message's values, because a check has no
+  message. A running lookup may get a plan made for its actual values, which can differ when
+  values are very unevenly spread.
+
 ## Workflows as MCP tools
 
 Hermod serves the [Model Context Protocol](https://modelcontextprotocol.io) at `POST /api/mcp`

@@ -25,6 +25,7 @@ import (
 	"testing"
 
 	"github.com/gsoultan/hermod/internal/advisor"
+	"github.com/gsoultan/hermod/internal/advisor/queryplan"
 	"github.com/gsoultan/hermod/internal/api/handlers"
 	"github.com/gsoultan/hermod/internal/engine/registry"
 	"github.com/gsoultan/hermod/internal/storage"
@@ -223,5 +224,77 @@ func TestExplainSaysWhyItCannot(t *testing.T) {
 		if rec := post(t, tc.mux, storage.RoleEditor, "team-a"); rec.Code != tc.want {
 			t.Errorf("%s: status = %d, want %d: %s", name, rec.Code, tc.want, rec.Body)
 		}
+	}
+}
+
+// plansMux serves wf-1 with its lookups checked by check; calls counts them.
+func plansMux(t *testing.T, calls *int, nodes ...queryplan.NodeCheck) *http.ServeMux {
+	t.Helper()
+	mux := http.NewServeMux()
+	store := storeWith(t)
+	reg := registry.NewRegistry(store)
+	t.Cleanup(reg.Close)
+	h := NewInsightsHandler(&handlers.Handler{Storage: store, LogStorage: store, Registry: reg})
+	h.lookupChecks = func(_ context.Context, wf storage.Workflow) []queryplan.NodeCheck {
+		*calls++
+		if wf.ID != "wf-1" {
+			t.Errorf("checked workflow %q", wf.ID)
+		}
+		return nodes
+	}
+	h.RegisterInsightsRoutes(mux)
+	return mux
+}
+
+func postPlans(t *testing.T, mux *http.ServeMux, role storage.Role, vhosts ...string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/workflows/wf-1/insights/lookup-plans", nil)
+	req = req.WithContext(context.WithValue(req.Context(), handlers.UserContextKey,
+		&storage.User{ID: "u-1", Username: "tester", Role: role, VHosts: vhosts}))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestLookupPlansReturnsEachNodesCheck(t *testing.T) {
+	calls := 0
+	mux := plansMux(t, &calls, queryplan.NodeCheck{NodeID: "n1", Label: "Orders", SQL: "SELECT 1",
+		Check: queryplan.Check{Findings: []queryplan.Finding{{Rule: queryplan.RuleIndexUsed, Severity: queryplan.SeverityOK}}}})
+	rec := postPlans(t, mux, storage.RoleEditor, "team-a")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body)
+	}
+	var got struct {
+		Nodes []queryplan.NodeCheck `json:"nodes"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Nodes) != 1 || got.Nodes[0].NodeID != "n1" || got.Nodes[0].Findings[0].Rule != queryplan.RuleIndexUsed {
+		t.Fatalf("body = %s", rec.Body)
+	}
+}
+
+func TestLookupPlansListIsNeverNull(t *testing.T) {
+	calls := 0
+	rec := postPlans(t, plansMux(t, &calls), storage.RoleEditor, "team-a")
+	if !strings.Contains(rec.Body.String(), `"nodes":[]`) {
+		t.Fatalf("a flow with no lookups gets an empty list: %s", rec.Body)
+	}
+}
+
+// The check connects to the flow's source databases, so it takes an editor
+// of the flow's vhost, like the other actions that reach them.
+func TestLookupPlansIsForEditorsOfTheFlowsVHost(t *testing.T) {
+	calls := 0
+	mux := plansMux(t, &calls)
+	if rec := postPlans(t, mux, storage.RoleViewer, "team-a"); rec.Code != http.StatusForbidden {
+		t.Errorf("viewer: status = %d, want 403", rec.Code)
+	}
+	if rec := postPlans(t, mux, storage.RoleEditor, "team-b"); rec.Code != http.StatusForbidden {
+		t.Errorf("other vhost: status = %d, want 403", rec.Code)
+	}
+	if calls != 0 {
+		t.Errorf("databases were reached %d times for refused requests", calls)
 	}
 }
