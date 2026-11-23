@@ -25,6 +25,12 @@ key". At start-up Hermod now also reads values under the file's key when it diff
 re-encrypts all of them under the key in use, once. Keep `db_config.yaml`: database backups taken
 before that still need its key.
 
+**Start-up checks the key.** Hermod keeps a known value encrypted under the master key (setting
+`crypto_key_check`) and refuses to start when the key in use cannot read it, naming where keys come
+from. Starting anyway would save new credentials under the wrong key next to the old ones, and then
+putting the right key back would no longer fix everything. Saving the database settings on a running
+server keeps the current key; only rotation changes it, and rotation moves the check with the data.
+
 **Rotation re-encrypts before it switches.** `PUT /api/config/crypto` rewrites every stored
 credential under the new key first, in one transaction, and installs the key only once that has
 committed. If anything cannot be re-encrypted the request fails and *nothing* is changed — including

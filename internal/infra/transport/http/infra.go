@@ -145,6 +145,11 @@ func (h *InfraHandler) UpdateCryptoMasterKey(w http.ResponseWriter, r *http.Requ
 				"; no key was changed and no data was modified", http.StatusInternalServerError)
 			return
 		}
+		// Start-up compares the key against this check; left under the old key
+		// it would refuse to start on the new one.
+		if err := storage.WriteKeyCheck(r.Context(), h.Storage, key); err != nil {
+			_ = h.Storage.SaveSetting(r.Context(), storage.KeyCheckSetting, "")
+		}
 	}
 
 	cfg.CryptoMasterKey = key
@@ -534,7 +539,11 @@ func (h *InfraHandler) SaveDBConfig(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	cfg.CryptoMasterKey = masterKeyForSetup(cfg.CryptoMasterKey)
+	currentKey := ""
+	if !h.IsFirstRun(r.Context()) {
+		currentKey, _ = config.FileMasterKey()
+	}
+	cfg.CryptoMasterKey = masterKeyForSave(cfg.CryptoMasterKey, currentKey)
 	if len(strings.TrimSpace(cfg.CryptoMasterKey)) < 16 {
 		http.Error(w, "crypto_master_key must be at least 16 characters", http.StatusBadRequest)
 		return

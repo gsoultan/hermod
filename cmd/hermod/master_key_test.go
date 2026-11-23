@@ -123,3 +123,20 @@ func TestNothingMovesWhenTheKeysAgree(t *testing.T) {
 		t.Fatalf("ReEncryptSecrets called with no file key to move off")
 	}
 }
+
+// Start-up refuses to run under a key that cannot read the stored data, so no
+// value is ever saved under the wrong key next to ones under the right key.
+func TestStartUpRefusesAKeyThatCannotReadTheData(t *testing.T) {
+	t.Cleanup(func() { crypto.SetMasterKey(crypto.DefaultMasterKey) })
+	store := &fakeKeyStore{settings: map[string]string{}}
+	logger := telemetry.NewDefaultLogger()
+
+	crypto.SetMasterKey("the-key-the-data-is-under-0123")
+	if !masterKeyReadsTheData(context.Background(), store, logger) {
+		t.Fatal("refused the key the data is under")
+	}
+	crypto.SetMasterKey("a-key-someone-put-in-hermod-env")
+	if masterKeyReadsTheData(context.Background(), store, logger) {
+		t.Fatal("started under a key that cannot read the stored data")
+	}
+}

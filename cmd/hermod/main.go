@@ -153,6 +153,9 @@ func runApp(svcCtx context.Context, o *Options) int {
 		logStore = initLogStorage(svcCtx, logType, logConn, logger)
 		if store != nil {
 			moveOffFileMasterKey(svcCtx, store, fileKey, logger)
+			if !masterKeyReadsTheData(svcCtx, store, logger) {
+				return 1
+			}
 		}
 	}
 

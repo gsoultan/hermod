@@ -50,3 +50,25 @@ func TestRotationIsRefusedWhenTheKeyIsPinned(t *testing.T) {
 		t.Fatalf("rotation refused with no pinned key: %q", msg)
 	}
 }
+
+// Saving database settings on a server that is already set up must not change
+// the master key: only rotation re-encrypts what is stored, so a different key
+// saved here would leave everything unreadable after the next restart. The
+// Settings page sends no key at all, which must keep the current one too.
+func TestSavingSettingsKeepsTheCurrentKey(t *testing.T) {
+	config.SetPinnedMasterKey("")
+	t.Setenv("HERMOD_MASTER_KEY", "")
+	if got := masterKeyForSave("a-different-key-0123456789", "current-key-0123456789"); got != "current-key-0123456789" {
+		t.Fatalf("masterKeyForSave = %q, want the current key", got)
+	}
+	if got := masterKeyForSave("", "current-key-0123456789"); got != "current-key-0123456789" {
+		t.Fatalf("masterKeyForSave with no key sent = %q, want the current key", got)
+	}
+	if got := masterKeyForSave("first-key-0123456789", ""); got != "first-key-0123456789" {
+		t.Fatalf("masterKeyForSave on first setup = %q, want the typed key", got)
+	}
+	t.Setenv("HERMOD_MASTER_KEY", "key-from-hermod-env-0123456789")
+	if got := masterKeyForSave("x-0123456789abcdef", "current-key-0123456789"); got != "key-from-hermod-env-0123456789" {
+		t.Fatalf("masterKeyForSave with a pinned key = %q, want the pinned key", got)
+	}
+}

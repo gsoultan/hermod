@@ -34,3 +34,18 @@ func pinnedKeyRefusal() string {
 		"db_config.yaml at every start-up, so a key rotated here would be dropped at the next " +
 		"restart and the data re-encrypted under it could no longer be read; no key was changed"
 }
+
+// masterKeyForSave is the key saving the database settings keeps. A pinned key
+// wins; on a server that already has a key, that key stays, because only
+// rotation re-encrypts what is stored and a different key saved here would
+// leave all of it unreadable after the next restart. Only first setup takes
+// the key it was given.
+func masterKeyForSave(requested, current string) string {
+	if pinned := config.PinnedMasterKey(); pinned != "" {
+		return pinned
+	}
+	if current != "" {
+		return current
+	}
+	return requested
+}

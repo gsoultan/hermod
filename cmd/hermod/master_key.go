@@ -14,9 +14,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/config"
+	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/security/crypto"
 )
 
@@ -90,4 +92,23 @@ func moveOffFileMasterKey(ctx context.Context, store keyMigrationStore, fileKey 
 func keyPairFingerprint(from, to string) string {
 	sum := sha256.Sum256([]byte("hermod-master-key-migration\x00" + from + "\x00" + to))
 	return hex.EncodeToString(sum[:])
+}
+
+// masterKeyReadsTheData reports whether start-up may go on: false only when the
+// key check proves the key in force cannot read what is stored. A database that
+// cannot be asked yet is not a reason to stop.
+func masterKeyReadsTheData(ctx context.Context, store storage.SettingStore, logger hermod.Logger) bool {
+	err := storage.VerifyMasterKey(ctx, store)
+	if errors.Is(err, storage.ErrWrongMasterKey) {
+		logger.Error("Refusing to start: the crypto master key in use cannot read the credentials " +
+			"and secrets this database stores, and starting would save new ones under it. Put back " +
+			"the key the data was saved under (--master-key, HERMOD_MASTER_KEY in " +
+			"/etc/hermod/hermod.env on a package install, or crypto_master_key in db_config.yaml), " +
+			"then change keys only through key rotation.")
+		return false
+	}
+	if err != nil {
+		logger.Warn("Could not check the crypto master key against the stored data", "error", err)
+	}
+	return true
 }

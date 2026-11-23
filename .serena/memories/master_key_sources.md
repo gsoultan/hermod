@@ -24,3 +24,12 @@
   under the pinned key once (all-or-nothing), recorded in setting
   `crypto_file_key_migrated` (sha256 fingerprint of the key pair). The file key
   is kept: pre-update DB backups are still under it.
+- Guards against a repeat: `storage.VerifyMasterKey` (setting `crypto_key_check`,
+  written on first start, rewritten by rotation via `storage.WriteKeyCheck`);
+  `masterKeyReadsTheData` makes runApp return 1 on `ErrWrongMasterKey`.
+  POST /api/config/database keeps the current file key once set up
+  (`masterKeyForSave`). Root test `master_key_switch_guard_test.go` allowlists the
+  only files that may call `crypto.SetMasterKey` (main.go, infra.go).
+- Not covered: an install that had already diverged before its first start on a
+  version with the check (no check recorded yet), and data restored from a
+  backup taken under a key since rotated away.
