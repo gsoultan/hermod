@@ -219,6 +219,24 @@ The DB Lookup transformation and SQL sources/sinks share an interactive SQL Quer
 - **Fullscreen Editor**: Expand the editor into a large modal for comfortable editing of long, multi-line statements.
 - **Convenience**: Copy the query to the clipboard, see a live character/line counter, and run with `Cmd/Ctrl + Enter`.
 
+### SQL steps have a time limit
+
+A DB Lookup gives up on its database after **30 seconds** unless its **Timeout** setting
+(Advanced tab, a Go duration such as `45s` or `2m`) says otherwise. The limit covers
+everything the lookup waits on: the source's settings, a free connection in the pool, a
+lock, and the answer, including a batched lookup's shared query. When it runs out the
+query is cancelled and the message fails with `db_lookup: no answer from the database
+within 30s`, so it takes the node's retry, `onError` and dead-letter path. A cache hit
+waits on nothing and is not affected.
+
+Without a limit a lookup that never got an answer, for example one queued in PgBouncer
+for a server connection (`SHOW POOLS`, column `cl_waiting`) or blocked by a lock, held
+its message until the stall watchdog restarted the workflow after 60 seconds, and every
+message in flight then failed with `failed to execute lookup query: context canceled`.
+
+Execute SQL has the same **Timeout** setting (its step 5, *Time limit*). It has no
+default: empty means no limit.
+
 ### Previews run in a rolled-back sandbox
 
 **Simulate**, **Run Preview** and the SQL builder's preview never commit. A preview run

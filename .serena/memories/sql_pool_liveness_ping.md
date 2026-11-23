@@ -23,3 +23,5 @@ per-message SQL step goes through it: `execute_sql`, `db_lookup`, `batch_sql`, .
 - **`execute_sql` has a `timeout` setting** (Go duration, empty = none). It wraps
   getting the pool *and* the statement; the error names the duration. The
   editor (`SQLConfig.tsx`, step 5 "Time limit") validates the unit.
+- **`db_lookup` has a `timeout` too, defaulting to 30s** -- see
+  `db_lookup_time_limit.md`.
