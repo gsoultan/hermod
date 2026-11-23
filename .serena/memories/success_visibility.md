@@ -34,6 +34,14 @@ message stays on the source. A panic counts as failed.
 - The trace list shows `error_count` as a badge ("No errors" / "N errors").
   It already came back from `ListMessageTraces`; nothing displayed it.
 
+## Cron runs all had one id
+
+The cron source set every firing's id to `cron_<entryID>`, and a source has a
+single entry, so every firing was `cron_1`. Traces, Runs and idempotency keys
+are keyed by message id: every run a cron workflow ever made merged into one
+"cron_1" run (seen: 131 minutes, 2247 steps, FAILED by the first error in any
+of them). Each firing is now `cron_<uuid>` (`cron_id_test.go`).
+
 ## Not changed
 
 The stdout sink logs the raw payload at INFO via the workflow logger; that is
