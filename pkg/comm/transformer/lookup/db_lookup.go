@@ -131,6 +131,12 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 	if err != nil {
 		return msg, fmt.Errorf("db_lookup: %w", err)
 	}
+	// Read up front for the same reason: a bad value must fail before a query
+	// is sent, not after one has waited on it.
+	timeout, err := resolveLookupTimeout(config)
+	if err != nil {
+		return msg, err
+	}
 	// A preview reads through its own uncommitted writes. The cache is shared
 	// with live workflows, so it can neither answer a preview (the row may have
 	// changed earlier in the same run) nor keep what a preview read (a row
@@ -170,9 +176,17 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 		}
 	}
 
+	// Everything from here to the result waits on a database -- the source's
+	// config, the pool, the query, the batch -- so the time limit covers all of
+	// it. A cache hit above needs none of that and is not bounded.
+	parent := ctx
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	src, err := registry.GetSourceConfig(ctx, sourceID)
 	if err != nil {
-		return msg, fmt.Errorf("failed to get source for lookup (sourceId: '%s'): %w", sourceID, err)
+		return msg, lookupTimeoutError(parent, timeout,
+			fmt.Errorf("failed to get source for lookup (sourceId: '%s'): %w", sourceID, err))
 	}
 
 	// Ahead of the branch below, not inside one arm of it: a lookup that batches
@@ -218,10 +232,10 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 			batchWait = d
 		}
 
-		b := t.getOrCreateBatcher(nodeID, registry, src, table, keyColumn, valueColumn, whereClause, defaultValue, batchSize, batchWait)
+		b := t.getOrCreateBatcher(nodeID, registry, src, table, keyColumn, valueColumn, whereClause, defaultValue, batchSize, batchWait, timeout)
 		resultVal, err = b.Execute(ctx, keyVal)
 		if err != nil {
-			return msg, err
+			return msg, lookupTimeoutError(parent, timeout, err)
 		}
 	} else {
 		if src.Type == "mongodb" {
@@ -247,7 +261,7 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 	}
 
 	if err != nil {
-		return msg, err
+		return msg, lookupTimeoutError(parent, timeout, err)
 	}
 
 	if resultVal != nil {
@@ -726,13 +740,13 @@ type batcherEntry struct {
 // Digested rather than concatenated because a source's config is arbitrary
 // length, and this string is a value in a map that lives for the life of the
 // process.
-func batcherFingerprint(src storage.Source, table, keyColumn, valueColumn, whereClause, defaultValue string, batchSize int, batchWait time.Duration) string {
+func batcherFingerprint(src storage.Source, table, keyColumn, valueColumn, whereClause, defaultValue string, batchSize int, batchWait, timeout time.Duration) string {
 	h := sha256.New()
 	// fmt sorts map keys, so a config map prints the same way every time.
-	_, _ = fmt.Fprintf(h, "%s\x00%s\x00%v\x00%s\x00%s\x00%s\x00%s\x00%s\x00%d\x00%d",
+	_, _ = fmt.Fprintf(h, "%s\x00%s\x00%v\x00%s\x00%s\x00%s\x00%s\x00%s\x00%d\x00%d\x00%d",
 		src.ID, src.Type, src.Config,
 		table, keyColumn, valueColumn, whereClause, defaultValue,
-		batchSize, batchWait)
+		batchSize, batchWait, timeout)
 	return hex.EncodeToString(h.Sum(nil))
 }
 
@@ -751,8 +765,8 @@ func batcherFingerprint(src storage.Source, table, keyColumn, valueColumn, where
 // reconfiguration into failed messages; an abandoned batcher instead flushes
 // whatever it already had -- its timer is a one-shot AfterFunc -- and is then
 // garbage.
-func (t *DBLookupTransformer) getOrCreateBatcher(nodeID string, registry any, src storage.Source, table, keyColumn, valueColumn, whereClause, defaultValue string, batchSize int, batchWait time.Duration) *batcher.Batcher[any, any] {
-	fingerprint := batcherFingerprint(src, table, keyColumn, valueColumn, whereClause, defaultValue, batchSize, batchWait)
+func (t *DBLookupTransformer) getOrCreateBatcher(nodeID string, registry any, src storage.Source, table, keyColumn, valueColumn, whereClause, defaultValue string, batchSize int, batchWait, timeout time.Duration) *batcher.Batcher[any, any] {
+	fingerprint := batcherFingerprint(src, table, keyColumn, valueColumn, whereClause, defaultValue, batchSize, batchWait, timeout)
 
 	t.batchersMu.RLock()
 	entry, ok := t.batchers[nodeID]
@@ -769,6 +783,12 @@ func (t *DBLookupTransformer) getOrCreateBatcher(nodeID string, registry any, sr
 	}
 
 	b := batcher.NewBatcher(batchSize, batchWait, func(ctx context.Context, keys []any) (map[any]any, error) {
+		// The batcher runs this on a background context of its own, so the
+		// callers' limits never reach it. Bounded here as well, or a batch
+		// query that gets no answer holds its pool connection -- and every
+		// later key that joins the batcher -- for good.
+		ctx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
 		// nil, not the creating message's data: the caller only reaches this
 		// path when whereClause carries no {{ }} token, so there is nothing for
 		// lookupSQL to resolve against. Passing the data through is how a single

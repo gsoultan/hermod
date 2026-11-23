@@ -7,6 +7,21 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — a DB Lookup step failed with `context canceled` when its query got no answer
+
+A DB Lookup had no time limit. A query waiting in PgBouncer's queue for a server connection,
+on a lock, or on a connection whose peer had gone held its message for as long as the workflow
+ran. Nothing completed, the stall watchdog restarted the workflow after 60 seconds, and every
+lookup in flight then failed with `failed to execute lookup query: context canceled`, which
+named neither the database nor the wait. The same happened with or without PgBouncer.
+
+A lookup now gives up after 30 seconds, or after its new **Timeout** setting (Advanced tab),
+and fails the message with `db_lookup: no answer from the database within <limit>`, so the
+node's retry and dead-letter handling applies and the workflow keeps running. The limit covers
+getting the source and a connection as well as the query, and a batched lookup's shared query
+too, which used to run on a context nothing could cancel. A stop still reports as a stop, not
+as a timeout.
+
 ### Fixed — a Redis sink with TLS off was told to check its TLS setup
 
 When Redis accepted the connection and closed it without a reply, Test Connection showed

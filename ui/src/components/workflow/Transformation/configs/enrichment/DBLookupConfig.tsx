@@ -30,6 +30,7 @@ import {
 } from '@tabler/icons-react';
 import { TemplateField } from '../../../../shared/TemplateField';
 import { sourceAllowsDirectQueries } from '@/lib/sourceCdc';
+import { goDurationMs } from '../ai-agent/agentTools';
 
 const SQLQueryBuilder = lazy(() =>
   import('../../../../forms/SQLQueryBuilder').then((m) => ({ default: m.SQLQueryBuilder }))
@@ -107,6 +108,12 @@ export function DBLookupConfig({
   // than erroring. Showing anything else would name a policy the pipeline is not
   // actually running.
   const hasDefaultValue = String(config.defaultValue || '') !== '';
+  // The engine reads this as a Go duration and fails every message on one it
+  // cannot read, so say so here rather than after the workflow starts.
+  const timeout = String(config.timeout || '').trim();
+  const timeoutError =
+    timeout && !(goDurationMs(timeout) > 0) ? 'The timeout needs a unit, like 30s or 2m.' : undefined;
+
   const missPolicy = useMemo(() => {
     const chosen = String(config.onMiss || '').trim().toLowerCase();
     if (chosen === 'fail' || chosen === 'default' || chosen === 'passthrough') return chosen;
@@ -504,6 +511,22 @@ export function DBLookupConfig({
                 }
               />
             </FormRow>
+
+            <TextInput
+              label="Timeout"
+              placeholder="e.g. 30s"
+              value={config.timeout || ''}
+              onChange={(e) => updateNodeConfig(nodeId, { timeout: e.currentTarget.value })}
+              error={timeoutError}
+              size="sm"
+              description={
+                <span data-testid="db-lookup-timeout-description">
+                  How long the lookup waits for its database — a free connection, a lock, the answer —
+                  before it fails the message, so it takes the retry and dead-letter path instead of
+                  stalling the workflow. Empty means <b>30s</b>. A cache hit does not wait at all.
+                </span>
+              }
+            />
 
             <Button
               variant="filled"
