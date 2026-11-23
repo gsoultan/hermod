@@ -202,6 +202,7 @@ func (r *Runner) Start(ctx context.Context) (err error) {
 				return
 			case <-ticker.C:
 				r.checkHealth(interval)
+				r.engine.outcomes.flushDue(r.engine)
 			}
 		}
 	})
@@ -350,6 +351,10 @@ func (r *Runner) Start(ctx context.Context) (err error) {
 		_ = r.engine.Checkpoint(checkpointCtx)
 		cancel()
 	}
+
+	// Whatever the summary line counted since it last wrote, before the
+	// engine says it has stopped.
+	r.engine.outcomes.flush(r.engine)
 
 	var lastErr error
 	for err := range r.errCh {
@@ -873,9 +878,17 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 	// A caller may be waiting to hear what became of this message. It is told
 	// once, on the way out, whichever way out that is — including a panic,
 	// which leaves the outcome at what it starts as here.
-	rs := replyState{out: reply.Outcome{Status: reply.Failed, Error: "the workflow stopped before it finished with the message"}}
+	rs := replyState{
+		out:    reply.Outcome{Status: reply.Failed, Error: "the workflow stopped before it finished with the message"},
+		status: reply.Failed,
+	}
 	rs.id, rs.awaited = reply.Take(m)
 	defer rs.resolve()
+	defer func() {
+		if !rs.uncounted {
+			r.engine.outcomes.note(r.engine, rs.status)
+		}
+	}()
 
 	start := time.Now()
 	defer func() {
@@ -965,6 +978,7 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 				"message_id", m.ID())
 			r.engine.RecordTraceStepSnapshot(ctx, m, "router", rstart, nil, routed, err)
 			rs.conclude(reply.Failed, err.Error(), m)
+			rs.uncounted = true
 			return
 		}
 		if err != nil {
@@ -1164,12 +1178,10 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 	// dead-letter sink also returns none, so that the source is acknowledged.
 	// The caller is told which of the two happened.
 	r.engine.delivered(targets)
-	if rs.awaited {
-		if parked := firstDeadLettered(targets); parked != nil {
-			rs.conclude(reply.DeadLettered, lastError(parked), parked)
-		} else {
-			rs.conclude(reply.Delivered, "", firstRouted(targets, m))
-		}
+	if parked := firstDeadLettered(targets); parked != nil {
+		rs.conclude(reply.DeadLettered, lastError(parked), parked)
+	} else {
+		rs.conclude(reply.Delivered, "", firstRouted(targets, m))
 	}
 
 	// Acknowledge the message to the source after all successful sink writes.

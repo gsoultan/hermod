@@ -31,6 +31,14 @@ type replyState struct {
 	id      string
 	awaited bool
 	out     reply.Outcome
+
+	// status is what became of the message, kept whether or not a caller is
+	// waiting: the workflow log's summary line counts it. It starts at Failed,
+	// as out does, so a panic is counted as a failure.
+	status reply.Status
+	// uncounted leaves the message out of that summary: a stop interrupted
+	// it, and it stays on the source to be processed again.
+	uncounted bool
 }
 
 // conclude records what happened to the message. rec is the message the caller
@@ -39,6 +47,7 @@ type replyState struct {
 // The record is captured here and not when the caller is answered, because by
 // then the routed messages have been released.
 func (s *replyState) conclude(status reply.Status, cause string, rec hermod.Message) {
+	s.status = status
 	if !s.awaited {
 		return
 	}

@@ -112,6 +112,9 @@ type Engine struct {
 	// Node-level backpressure
 	nodeSemsMu sync.RWMutex
 	nodeSems   map[string]chan struct{}
+
+	// outcomes is the workflow log's summary of what became of its messages.
+	outcomes *outcomeReport
 }
 
 func NewEngine(source hermod.Source, sinks []hermod.Sink, buffer hermod.Producer) *Engine {
@@ -123,6 +126,7 @@ func NewEngine(source hermod.Source, sinks []hermod.Sink, buffer hermod.Producer
 		config:        config.DefaultConfig(),
 		statusTracker: telemetry.NewStatusTracker(),
 		dqScorer:      governance.NewScorer(),
+		outcomes:      newOutcomeReport(),
 	}
 	// initialize inflight semaphore using configured cap
 	capSize := e.config.MaxInflight
