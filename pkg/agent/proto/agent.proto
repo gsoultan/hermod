@@ -1,0 +1,262 @@
+// Copyright (c) 2025 Gembit Soultan Shirazi. All rights reserved.
+// SPDX-License-Identifier: LicenseRef-Hermod-Proprietary
+//
+// Governed by the Hermod Proprietary License; see LICENSE for the terms.
+// Every use, copy, change or distribution needs written permission.
+// May not be sold, resold or sublicensed to any third party.
+// Bundling it into a paid or hosted service for others is prohibited.
+// It is proprietary and confidential to Gembit Soultan Shirazi.
+// There is no warranty of any kind; it is provided "AS IS".
+
+syntax = "proto3";
+
+package hermod.agent.v1;
+
+option go_package = "github.com/gsoultan/hermod/pkg/agent/proto";
+
+// AgentService is the one connection between hermod-agent and a Hermod
+// server. hermod-agent runs next to hardware, reads the devices attached to
+// it, and keeps every reading in a disk spool until the server acknowledges
+// it. The agent always dials out; the server never connects to the agent.
+//
+// The agent authenticates with its own token in the `authorization` metadata
+// key, as `Bearer <token>`.
+service AgentService {
+  // Connect is a single long-lived stream. The agent opens it with a Hello,
+  // then sends its device list and batches of records. The server answers
+  // with a Welcome, the settings of the devices a user has claimed, and
+  // acknowledgements. On any error the agent reconnects and resends every
+  // record after the last acknowledged sequence number.
+  rpc Connect(stream ConnectRequest) returns (stream ConnectResponse);
+}
+
+// ConnectRequest is anything the agent sends.
+message ConnectRequest {
+  oneof body {
+    Hello hello = 1;
+    DeviceList devices = 2;
+    RecordBatch records = 3;
+    Heartbeat heartbeat = 4;
+  }
+}
+
+// ConnectResponse is anything the server sends.
+message ConnectResponse {
+  oneof body {
+    Welcome welcome = 1;
+    Ack ack = 2;
+    DeviceSettingsList settings = 3;
+  }
+}
+
+// Hello is the first message on every stream.
+message Hello {
+  // The agent's version, for example "0.1.0".
+  string version = 1;
+  // The machine's host name.
+  string hostname = 2;
+  // GOOS and GOARCH, for example "linux" and "arm64".
+  string os = 3;
+  string arch = 4;
+  // The highest sequence number the agent has written to its spool, and the
+  // highest the server has acknowledged, as the agent last saw them.
+  uint64 last_seq = 5;
+  uint64 acked_seq = 6;
+}
+
+// Welcome answers Hello.
+message Welcome {
+  // The agent id the server holds for this token.
+  string agent_id = 1;
+  // The highest sequence number the server has already acknowledged. The
+  // agent resends everything after it.
+  uint64 acked_seq = 2;
+}
+
+// DeviceKind is how a device is attached to the agent's machine.
+enum DeviceKind {
+  DEVICE_KIND_UNSPECIFIED = 0;
+  // A serial port: RS-232, RS-485 through an adapter, a USB-serial cable,
+  // or a microcontroller board such as an ESP32 plugged in by USB.
+  DEVICE_KIND_SERIAL = 1;
+  // A device on the LAN that sends raw bytes over TCP.
+  DEVICE_KIND_TCP = 2;
+}
+
+// Device is one device the agent can see.
+message Device {
+  // A stable identity that survives a replug: "usb:<vid>:<pid>:<serial>"
+  // when the USB serial number is known, otherwise "port:<path>". A TCP
+  // device's id is the one the server gave it when a user added it.
+  string device_id = 1;
+  DeviceKind kind = 2;
+  // The port the operating system assigned, for example /dev/ttyUSB0 or
+  // COM3. It can change after a replug; device_id does not.
+  string port = 3;
+  // USB vendor and product id in hex, and the USB serial number, when known.
+  string vid = 4;
+  string pid = 5;
+  string serial_number = 6;
+  // A human-readable product name, when the operating system reports one.
+  string product = 7;
+  // False when the identity falls back to the port path, because the device
+  // reported no USB serial number.
+  bool stable_id = 8;
+  // True while the device is attached or reachable.
+  bool present = 9;
+}
+
+// DeviceList is everything the agent can see right now. Each one replaces the
+// last.
+message DeviceList {
+  repeated Device devices = 1;
+}
+
+// Parity of a serial line.
+enum Parity {
+  PARITY_UNSPECIFIED = 0;
+  PARITY_NONE = 1;
+  PARITY_ODD = 2;
+  PARITY_EVEN = 3;
+  PARITY_MARK = 4;
+  PARITY_SPACE = 5;
+}
+
+// StopBits of a serial line.
+enum StopBits {
+  STOP_BITS_UNSPECIFIED = 0;
+  STOP_BITS_ONE = 1;
+  STOP_BITS_ONE_POINT_FIVE = 2;
+  STOP_BITS_TWO = 3;
+}
+
+// SerialSettings open a serial port.
+message SerialSettings {
+  // Bits per second, for example 9600.
+  uint32 baud_rate = 1;
+  // 5 to 8. Zero means 8.
+  uint32 data_bits = 2;
+  // Unspecified means none.
+  Parity parity = 3;
+  // Unspecified means one.
+  StopBits stop_bits = 4;
+}
+
+// TcpMode is which side opens a TCP connection.
+enum TcpMode {
+  TCP_MODE_UNSPECIFIED = 0;
+  // The agent connects to the device at address.
+  TCP_MODE_CLIENT = 1;
+  // The device connects to the agent, which listens at address.
+  TCP_MODE_LISTEN = 2;
+}
+
+// TcpSettings reach a LAN device.
+message TcpSettings {
+  // host:port. In listen mode, the interface address to listen on; an empty
+  // host is refused so a listener never opens on every interface by accident.
+  string address = 1;
+  // Unspecified means client.
+  TcpMode mode = 2;
+}
+
+// FramingKind is how a byte stream is cut into records.
+enum FramingKind {
+  FRAMING_KIND_UNSPECIFIED = 0;
+  // One record per line, ending in LF, CR or CRLF. The line ending is not
+  // part of the record. Unspecified framing means this.
+  FRAMING_KIND_LINE = 1;
+  // Records end with the delimiter bytes, which are not part of the record.
+  FRAMING_KIND_DELIMITER = 2;
+  // Every record is exactly length bytes.
+  FRAMING_KIND_FIXED_LENGTH = 3;
+  // A record starts with start_bytes and ends with end_bytes, for example
+  // STX and ETX. Bytes outside a start and end pair are discarded.
+  FRAMING_KIND_START_END = 4;
+  // A record is a big-endian length of prefix_size bytes, then that many
+  // bytes.
+  FRAMING_KIND_LENGTH_PREFIX = 5;
+  // A record is whatever arrived before the line went quiet for idle_ms.
+  FRAMING_KIND_IDLE_GAP = 6;
+}
+
+// Framing cuts a byte stream into records.
+message Framing {
+  FramingKind kind = 1;
+  bytes delimiter = 2;
+  uint32 length = 3;
+  bytes start_bytes = 4;
+  bytes end_bytes = 5;
+  // 1, 2 or 4.
+  uint32 prefix_size = 6;
+  uint32 idle_ms = 7;
+  // The longest record kept, in bytes. Zero means 65536. A longer record is
+  // dropped and counted, so a device that never sends a delimiter cannot grow
+  // the agent's memory without bound.
+  uint32 max_record_bytes = 8;
+}
+
+// DeviceSettings is how to read one claimed device.
+message DeviceSettings {
+  string device_id = 1;
+  DeviceKind kind = 2;
+  // A user's name for the device, for logs.
+  string name = 3;
+  SerialSettings serial = 4;
+  TcpSettings tcp = 5;
+  Framing framing = 6;
+  // False stops the reader without forgetting the settings.
+  bool enabled = 7;
+}
+
+// DeviceSettingsList is every claimed device for this agent. Each one replaces
+// the last, so a device missing from it is no longer read.
+message DeviceSettingsList {
+  repeated DeviceSettings devices = 1;
+}
+
+// Record is one framed reading.
+message Record {
+  // Increases by one for every record the agent writes, across all devices,
+  // and never repeats for one agent. Together with the agent id it is an
+  // idempotency key.
+  uint64 seq = 1;
+  string device_id = 2;
+  // When the agent read the last byte of the record, by the agent's clock,
+  // in nanoseconds since the Unix epoch.
+  int64 received_at_unix_nano = 3;
+  // The record exactly as framed, without the delimiter.
+  bytes raw = 4;
+  // The port it came from, for example /dev/ttyUSB0 or 192.168.1.40:9100.
+  string port = 5;
+}
+
+// RecordBatch is records in sequence order.
+message RecordBatch {
+  repeated Record records = 1;
+}
+
+// Ack tells the agent every record up to and including up_to_seq has been
+// delivered, so it may delete them.
+message Ack {
+  uint64 up_to_seq = 1;
+}
+
+// Heartbeat reports the agent's spool and clock.
+message Heartbeat {
+  // The agent's clock, in milliseconds since the Unix epoch, so the server
+  // can report how far it is off.
+  int64 clock_unix_ms = 1;
+  // Records written but not yet acknowledged.
+  uint64 spool_waiting = 2;
+  // Bytes on disk in the spool.
+  uint64 spool_bytes = 3;
+  // When the oldest unacknowledged record was received, in milliseconds
+  // since the Unix epoch; zero when nothing is waiting.
+  int64 spool_oldest_unix_ms = 4;
+  // Records dropped because the spool was full, since the agent started its
+  // spool directory.
+  uint64 spool_dropped = 5;
+  // Records dropped because they were longer than max_record_bytes.
+  uint64 oversize_dropped = 6;
+}

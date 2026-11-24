@@ -18,6 +18,10 @@ modules:
   # hermod.ml.v1 InferenceService: applications call a vhost's models with the
   # model's serving key. A published wire contract like the one above.
   - path: pkg/ml/proto
+  # hermod.agent.v1 AgentService: the stream hermod-agent opens to a Hermod
+  # server to send device readings. Agents in the field upgrade separately
+  # from the server, so this contract has to stay compatible across versions.
+  - path: pkg/agent/proto
 
 lint:
   use:

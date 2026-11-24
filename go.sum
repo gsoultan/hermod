@@ -1152,6 +1152,8 @@ github.com/zeebo/assert v1.3.0/go.mod h1:Pq9JiuJQpG8JLJdtkwrJESF0Foym2/D9XMU5ciN
 github.com/zeebo/xxh3 v1.0.2 h1:xZmwmqxHZA8AI603jOQ0tMqmBr9lPeFwGg6d+xy9DC0=
 github.com/zeebo/xxh3 v1.0.2/go.mod h1:5NWz9Sef7zIDm2JHfFlcQvNekmcEl9ekUZQQKCYaDcA=
 github.com/zenazn/goji v0.9.0/go.mod h1:7S9M489iMyHBNxwZnk9/EHS098H4/F6TATF2mIxtB1Q=
+go.bug.st/serial v1.8.0 h1:ZtnmN8aYXtPlTghwSvDWPHKBHL9TM6oFDa+KpSn4SQE=
+go.bug.st/serial v1.8.0/go.mod h1:d0MmS16Qt9b1m06yoYRNUXhRRTJV5Qg2S5EKqQtnayQ=
 go.etcd.io/etcd/api/v3 v3.6.0-alpha.0 h1:se+XckWlVTTfwjZSsAZJ2zGPzmIMq3j7fKBCmHoB9UA=
 go.etcd.io/etcd/api/v3 v3.6.0-alpha.0/go.mod h1:z13pg39zewDLZeXIKeM0xELOeFKcqjLocfwl5M820+w=
 go.etcd.io/etcd/client/pkg/v3 v3.6.0-alpha.0 h1:2UyRzFWbZZzgu/xzxoRukgixvafiJtGyxO+3IKUyJ6c=

@@ -114,6 +114,7 @@ require (
 	github.com/xitongsys/parquet-go v1.6.2
 	github.com/xitongsys/parquet-go-source v0.0.0-20241021075129-b732d2ac9c9b
 	github.com/yuin/gopher-lua v1.1.1
+	go.bug.st/serial v1.8.0
 	go.etcd.io/etcd/client/v3 v3.6.0-alpha.0
 	go.mongodb.org/mongo-driver/v2 v2.5.0
 	go.opentelemetry.io/otel v1.45.0
