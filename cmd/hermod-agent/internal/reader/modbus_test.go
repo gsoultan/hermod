@@ -13,8 +13,8 @@ package reader
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"errors"
+	"io"
 	"net"
 	"sync"
 	"testing"
