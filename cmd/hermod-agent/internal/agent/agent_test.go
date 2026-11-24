@@ -186,8 +186,10 @@ func TestCachedSettingsKeepDevicesReadingWithoutTheServer(t *testing.T) {
 
 	srv := &server{}
 	ctx, cancel = context.WithCancel(t.Context())
-	defer cancel()
-	go func() { _ = Run(ctx, options(dir, serve(t, srv))) }()
+	done = make(chan error, 1)
+	go func() { done <- Run(ctx, options(dir, serve(t, srv))) }()
+	// Wait for the agent before the data directory is removed.
+	t.Cleanup(func() { cancel(); <-done })
 	eventually(t, "spooled readings delivered", func() bool { r, _ := srv.snapshot(); return len(r) > 0 })
 	recs, _ := srv.snapshot()
 	if string(recs[0].GetRaw()) != "reading" || recs[0].GetSeq() != 1 {
