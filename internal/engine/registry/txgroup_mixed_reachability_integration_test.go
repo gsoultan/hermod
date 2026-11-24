@@ -175,7 +175,7 @@ func TestAMixedPostgresAndMySQLGroupBuiltFromStoredConfigurationWrites(t *testin
 		"sink-my": storedMySQLSink("sink-my", myDSN, myTable),
 	}, "grp-mixed", "sink-pg,sink-my")
 
-	pgBefore := reachabilityPreparedCount(t, p)
+	pgBefore := reachabilityPreparedCount(t, p, pgTable)
 
 	if err := group.WriteBatch(context.Background(), []hermod.Message{
 		reachabilityMessage("1", "one"),
@@ -190,7 +190,7 @@ func TestAMixedPostgresAndMySQLGroupBuiltFromStoredConfigurationWrites(t *testin
 	if got := mysqlRowCount(t, my, myTable); got != 2 {
 		t.Errorf("MySQL member has %d rows, want 2", got)
 	}
-	if got := reachabilityPreparedCount(t, p); got != pgBefore {
+	if got := reachabilityPreparedCount(t, p, pgTable); got != pgBefore {
 		t.Errorf("pg_prepared_xacts went from %d to %d; a transaction is still holding locks", pgBefore, got)
 	}
 	if left := mysqlInDoubt(t, my); len(left) != 0 {
@@ -215,7 +215,7 @@ func TestAMixedGroupFromStoredConfigurationIsAtomic(t *testing.T) {
 			"sink-my": storedMySQLSink("sink-my", myDSN, myTable),
 		}, "grp-mixed-atomic-1", "sink-pg,sink-my")
 
-		pgBefore := reachabilityPreparedCount(t, p)
+		pgBefore := reachabilityPreparedCount(t, p, pgTable)
 		if err := group.WriteBatch(context.Background(), []hermod.Message{
 			reachabilityMessage("1", "one"),
 		}); err == nil {
@@ -224,7 +224,7 @@ func TestAMixedGroupFromStoredConfigurationIsAtomic(t *testing.T) {
 		if got := reachabilityRowCount(t, p, pgTable); got != 0 {
 			t.Errorf("PostgreSQL kept %d rows after the group failed; the write was not atomic", got)
 		}
-		if got := reachabilityPreparedCount(t, p); got != pgBefore {
+		if got := reachabilityPreparedCount(t, p, pgTable); got != pgBefore {
 			t.Errorf("pg_prepared_xacts went from %d to %d; a failed write left a transaction in doubt", pgBefore, got)
 		}
 		if left := mysqlInDoubt(t, my); len(left) != 0 {
@@ -250,7 +250,7 @@ func TestAMixedGroupFromStoredConfigurationIsAtomic(t *testing.T) {
 			"sink-pg": storedPostgresSink("sink-pg", pgDSN, pgTable),
 		}, "grp-mixed-atomic-2", "sink-my,sink-pg")
 
-		pgBefore := reachabilityPreparedCount(t, p)
+		pgBefore := reachabilityPreparedCount(t, p, pgTable)
 		if err := group.WriteBatch(ctx, []hermod.Message{
 			reachabilityMessage("1", "one"),
 		}); err == nil {
@@ -262,7 +262,7 @@ func TestAMixedGroupFromStoredConfigurationIsAtomic(t *testing.T) {
 		if left := mysqlInDoubt(t, my); len(left) != 0 {
 			t.Errorf("XA RECOVER lists %v after a failed write", left)
 		}
-		if got := reachabilityPreparedCount(t, p); got != pgBefore {
+		if got := reachabilityPreparedCount(t, p, pgTable); got != pgBefore {
 			t.Errorf("pg_prepared_xacts went from %d to %d after a failed write", pgBefore, got)
 		}
 	})

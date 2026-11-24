@@ -102,7 +102,7 @@ func TestCommitTogetherGivesEachDatabaseItsOwnRows(t *testing.T) {
 		"sink-my": storedMySQLSink("sink-my", myDSN, myTable),
 	}, commitTogetherWorkflow("wf-ct"))
 
-	pgBefore := reachabilityPreparedCount(t, p)
+	pgBefore := reachabilityPreparedCount(t, p, pgTable)
 	// One event: branch X produced a row for PostgreSQL, branch Y one for MySQL.
 	if err := group.WriteBatch(context.Background(), []hermod.Message{
 		rowThrough("PG", "x-1", "for postgres"),
@@ -125,7 +125,7 @@ func TestCommitTogetherGivesEachDatabaseItsOwnRows(t *testing.T) {
 	if err := my.QueryRowContext(context.Background(), "SELECT val FROM "+myTable).Scan(&myVal); err == nil && myVal != "for mysql" {
 		t.Errorf("MySQL got the row %q, want the one built for it", myVal)
 	}
-	if got := reachabilityPreparedCount(t, p); got != pgBefore {
+	if got := reachabilityPreparedCount(t, p, pgTable); got != pgBefore {
 		t.Errorf("pg_prepared_xacts went from %d to %d; a transaction is still holding locks", pgBefore, got)
 	}
 	if left := mysqlInDoubt(t, my); len(left) != 0 {
@@ -149,7 +149,7 @@ func TestCommitTogetherRollsBackEveryDatabaseWhenOneRefuses(t *testing.T) {
 		"sink-my": storedMySQLSink("sink-my", myDSN, myTable),
 	}, commitTogetherWorkflow("wf-ct-atomic"))
 
-	pgBefore := reachabilityPreparedCount(t, p)
+	pgBefore := reachabilityPreparedCount(t, p, pgTable)
 	if err := group.WriteBatch(context.Background(), []hermod.Message{
 		rowThrough("PG", "x-1", "for postgres"),
 		rowThrough("MY", "y-1", "for mysql"),
@@ -159,7 +159,7 @@ func TestCommitTogetherRollsBackEveryDatabaseWhenOneRefuses(t *testing.T) {
 	if got := reachabilityRowCount(t, p, pgTable); got != 0 {
 		t.Errorf("PostgreSQL kept %d rows after MySQL refused; the event was not one transaction", got)
 	}
-	if got := reachabilityPreparedCount(t, p); got != pgBefore {
+	if got := reachabilityPreparedCount(t, p, pgTable); got != pgBefore {
 		t.Errorf("pg_prepared_xacts went from %d to %d; a failed write left a transaction in doubt", pgBefore, got)
 	}
 	if left := mysqlInDoubt(t, my); len(left) != 0 {

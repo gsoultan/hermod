@@ -102,12 +102,19 @@ func rowCount(t *testing.T, p *pgxpool.Pool, table string) int {
 	return n
 }
 
-// preparedCount reads the view an operator would check.
-func preparedCount(t *testing.T, p *pgxpool.Pool) int {
+// preparedCount counts the prepared transactions that still hold locks on the
+// given tables. It does not count all of pg_prepared_xacts, because other
+// packages prepare transactions on the same server while this one runs; a
+// prepared transaction's locks stay in pg_locks with no backend pid.
+func preparedCount(t *testing.T, p *pgxpool.Pool, tables ...string) int {
 	t.Helper()
 	var n int
-	if err := p.QueryRow(context.Background(), "SELECT count(*) FROM pg_prepared_xacts").Scan(&n); err != nil {
-		t.Fatalf("count pg_prepared_xacts: %v", err)
+	if err := p.QueryRow(context.Background(),
+		`SELECT count(DISTINCT virtualtransaction) FROM pg_locks
+		  WHERE pid IS NULL AND locktype = 'relation'
+		    AND relation = ANY (SELECT to_regclass(x)::oid FROM unnest($1::text[]) AS x)`,
+		tables).Scan(&n); err != nil {
+		t.Fatalf("count prepared transactions on %v: %v", tables, err)
 	}
 	return n
 }
@@ -200,7 +207,7 @@ func TestCommitLandsInBothTables(t *testing.T) {
 		t.Fatalf("txgroup.New: %v", err)
 	}
 
-	before := preparedCount(t, p)
+	before := preparedCount(t, p, tableA, tableB)
 
 	if err := g.WriteBatch(context.Background(), []hermod.Message{
 		msg("1", "one"), msg("2", "two"),
@@ -217,7 +224,7 @@ func TestCommitLandsInBothTables(t *testing.T) {
 
 	// Nothing may be left in doubt after a clean commit. This is the assertion
 	// that would have caught a coordinator that resolved with the wrong gid.
-	if got := preparedCount(t, p); got != before {
+	if got := preparedCount(t, p, tableA, tableB); got != before {
 		t.Errorf("pg_prepared_xacts went from %d to %d; the transaction is still holding locks", before, got)
 	}
 }
@@ -246,27 +253,28 @@ func TestCrashAfterPrepareLeavesRowsInvisibleUntilRecovery(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	before := preparedCount(t, p)
-
 	// Drive both participants to PREPARED and stop, the way a crash would.
-	if err := prepareOnlyViaSinks(ctx, a, b, tableA, tableB); err != nil {
+	// Only this test's own transactions are counted and rolled back: other
+	// packages run 2PC tests against the same server at the same time.
+	gids, err := prepareOnlyViaSinks(ctx, a, b, tableA, tableB)
+	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
 
 	// Prepared, therefore in doubt: the rows exist but are invisible.
-	if got := preparedCount(t, p); got != before+2 {
-		t.Fatalf("pg_prepared_xacts is %d, want %d — the transactions did not stay in doubt", got, before+2)
+	if got := preparedAmong(t, p, gids); got != 2 {
+		t.Fatalf("pg_prepared_xacts holds %d of this test's transactions, want 2 — they did not stay in doubt", got)
 	}
 	if got := rowCount(t, p, tableA); got != 0 {
 		t.Errorf("table A shows %d rows from a prepared-but-uncommitted transaction, want 0", got)
 	}
 
 	// Roll them back the way Recover would, and confirm the locks are released.
-	if err := rollbackPrepared(ctx, p); err != nil {
+	if err := rollbackPrepared(ctx, p, gids); err != nil {
 		t.Fatalf("rollback prepared: %v", err)
 	}
-	if got := preparedCount(t, p); got != before {
-		t.Errorf("pg_prepared_xacts is %d after rollback, want %d", got, before)
+	if got := preparedAmong(t, p, gids); got != 0 {
+		t.Errorf("pg_prepared_xacts still holds %d of this test's transactions after rollback, want 0", got)
 	}
 	if got := rowCount(t, p, tableA); got != 0 {
 		t.Errorf("table A has %d rows after rollback, want 0", got)
@@ -277,49 +285,49 @@ func TestCrashAfterPrepareLeavesRowsInvisibleUntilRecovery(t *testing.T) {
 // prepareOnlyViaSinks writes to both sinks and prepares them, leaving both in
 // doubt. It drives the sinks directly because the point is to stop between the
 // vote and the decision, which the coordinator deliberately does not expose.
-func prepareOnlyViaSinks(ctx context.Context, a, b *sinkpostgres.PostgresSink, _, _ string) error {
+func prepareOnlyViaSinks(ctx context.Context, a, b *sinkpostgres.PostgresSink, _, _ string) ([]string, error) {
 	// Begin before writing, the same order the coordinator uses: a sink cannot
 	// prepare work that is not already inside a transaction it owns.
 	if err := a.Begin(ctx); err != nil {
-		return fmt.Errorf("begin a: %w", err)
+		return nil, fmt.Errorf("begin a: %w", err)
 	}
 	if err := b.Begin(ctx); err != nil {
-		return fmt.Errorf("begin b: %w", err)
+		return nil, fmt.Errorf("begin b: %w", err)
 	}
 	if err := a.Write(ctx, msg("x1", "a")); err != nil {
-		return fmt.Errorf("write a: %w", err)
+		return nil, fmt.Errorf("write a: %w", err)
 	}
 	if err := b.Write(ctx, msg("x1", "b")); err != nil {
-		return fmt.Errorf("write b: %w", err)
+		return nil, fmt.Errorf("write b: %w", err)
 	}
-	if _, err := a.Prepare(ctx, ""); err != nil {
-		return fmt.Errorf("prepare a: %w", err)
+	gidA, err := a.Prepare(ctx, "")
+	if err != nil {
+		return nil, fmt.Errorf("prepare a: %w", err)
 	}
-	if _, err := b.Prepare(ctx, ""); err != nil {
-		return fmt.Errorf("prepare b: %w", err)
+	gidB, err := b.Prepare(ctx, "")
+	if err != nil {
+		return []string{gidA}, fmt.Errorf("prepare b: %w", err)
 	}
-	return nil
+	return []string{gidA, gidB}, nil
 }
 
-// rollbackPrepared resolves every prepared transaction on the server, which is
-// the manual procedure documented in docs/transactional-sink-groups.md for a lost coordinator log.
-func rollbackPrepared(ctx context.Context, p *pgxpool.Pool) error {
-	rows, err := p.Query(ctx, "SELECT gid FROM pg_prepared_xacts")
-	if err != nil {
-		return err
+// preparedAmong counts how many of gids are still prepared on the server.
+func preparedAmong(t *testing.T, p *pgxpool.Pool, gids []string) int {
+	t.Helper()
+	var n int
+	if err := p.QueryRow(context.Background(),
+		"SELECT count(*) FROM pg_prepared_xacts WHERE gid = ANY($1)", gids).Scan(&n); err != nil {
+		t.Fatalf("count pg_prepared_xacts: %v", err)
 	}
-	var gids []string
-	for rows.Next() {
-		var gid string
-		if err := rows.Scan(&gid); err != nil {
-			rows.Close()
-			return err
-		}
-		gids = append(gids, gid)
-	}
-	rows.Close()
+	return n
+}
 
+// rollbackPrepared resolves the given prepared transactions by name, which is
+// the manual procedure documented in docs/transactional-sink-groups.md for a
+// lost coordinator log.
+func rollbackPrepared(ctx context.Context, p *pgxpool.Pool, gids []string) error {
 	for _, gid := range gids {
+		// gid came from PostgresSink.Prepare, which only prepares under a UUID.
 		if _, err := p.Exec(ctx, fmt.Sprintf("ROLLBACK PREPARED '%s'", gid)); err != nil {
 			return fmt.Errorf("rollback prepared %q: %w", gid, err)
 		}

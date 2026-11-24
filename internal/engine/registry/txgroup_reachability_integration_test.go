@@ -104,12 +104,19 @@ func reachabilityRowCount(t *testing.T, p *pgxpool.Pool, table string) int {
 	return n
 }
 
-func reachabilityPreparedCount(t *testing.T, p *pgxpool.Pool) int {
+// reachabilityPreparedCount counts the prepared transactions that still hold
+// locks on this test's own tables. Counting all of pg_prepared_xacts would
+// pick up transactions other packages prepare on the same server at the same
+// time; a prepared transaction's locks stay in pg_locks with no backend pid.
+func reachabilityPreparedCount(t *testing.T, p *pgxpool.Pool, tables ...string) int {
 	t.Helper()
 	var n int
 	if err := p.QueryRow(context.Background(),
-		`SELECT count(*) FROM pg_prepared_xacts`).Scan(&n); err != nil {
-		t.Fatalf("count pg_prepared_xacts: %v", err)
+		`SELECT count(DISTINCT virtualtransaction) FROM pg_locks
+		  WHERE pid IS NULL AND locktype = 'relation'
+		    AND relation = ANY (SELECT to_regclass(x)::oid FROM unnest($1::text[]) AS x)`,
+		tables).Scan(&n); err != nil {
+		t.Fatalf("count prepared transactions on %v: %v", tables, err)
 	}
 	return n
 }
@@ -173,7 +180,7 @@ func TestAGroupBuiltFromStoredConfigurationWrites(t *testing.T) {
 		t.Fatalf("the group built from configuration is %T, which is not a hermod.BatchSink", group)
 	}
 
-	before := reachabilityPreparedCount(t, p)
+	before := reachabilityPreparedCount(t, p, tableA, tableB)
 
 	if err := batch.WriteBatch(context.Background(), []hermod.Message{
 		reachabilityMessage("1", "one"),
@@ -191,7 +198,7 @@ func TestAGroupBuiltFromStoredConfigurationWrites(t *testing.T) {
 
 	// A clean commit must leave nothing in doubt. A prepared transaction left
 	// behind holds locks and blocks VACUUM until somebody resolves it by hand.
-	if got := reachabilityPreparedCount(t, p); got != before {
+	if got := reachabilityPreparedCount(t, p, tableA, tableB); got != before {
 		t.Errorf("pg_prepared_xacts went from %d to %d; a transaction is still holding locks",
 			before, got)
 	}
@@ -246,7 +253,7 @@ func TestAGroupFromStoredConfigurationIsAtomic(t *testing.T) {
 		t.Fatalf("the group built from configuration is %T, which is not a hermod.BatchSink", group)
 	}
 
-	before := reachabilityPreparedCount(t, p)
+	before := reachabilityPreparedCount(t, p, tableA, tableB)
 
 	if err := batch.WriteBatch(context.Background(), []hermod.Message{
 		reachabilityMessage("1", "one"),
@@ -258,7 +265,7 @@ func TestAGroupFromStoredConfigurationIsAtomic(t *testing.T) {
 		t.Errorf("member A kept %d rows after the group failed; the write was not atomic, "+
 			"which is the whole reason for two-phase commit", got)
 	}
-	if got := reachabilityPreparedCount(t, p); got != before {
+	if got := reachabilityPreparedCount(t, p, tableA, tableB); got != before {
 		t.Errorf("pg_prepared_xacts went from %d to %d; a failed write left a transaction in doubt "+
 			"holding locks and blocking VACUUM", before, got)
 	}
