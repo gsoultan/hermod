@@ -38,6 +38,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/selfupdate"
 	"github.com/gsoultan/hermod/internal/storage"
 	pb "github.com/gsoultan/hermod/pkg/agent/proto"
 )
@@ -68,6 +69,9 @@ type Hub struct {
 
 	mu     sync.Mutex
 	agents map[string]*agentState
+	// release is this Hermod's release tag, offered to agents that accept
+	// updates and run an older one; empty offers nothing.
+	release string
 }
 
 // agentState is what the hub knows of one agent, connected or not.
@@ -137,6 +141,25 @@ func (h *Hub) SetStore(store func() any) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.store = store
+}
+
+// SetAgentRelease sets the release offered to agents: this Hermod's version.
+// A development build ("dev") offers nothing.
+func (h *Hub) SetAgentRelease(version string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.release = selfupdate.Canonical(version)
+}
+
+// offer is the release to offer an agent that said hello, or "".
+func (h *Hub) offer(hello *pb.Hello) string {
+	h.mu.Lock()
+	release := h.release
+	h.mu.Unlock()
+	if release == "" || !hello.GetAcceptsUpdates() || !selfupdate.IsNewer(release, hello.GetVersion()) {
+		return ""
+	}
+	return release
 }
 
 // SetLogger sets the hub's logger.
@@ -255,9 +278,16 @@ func (h *Hub) Connect(stream grpc.BidiStreamingServer[pb.ConnectRequest, pb.Conn
 	if err := stream.Send(&pb.ConnectResponse{Body: &pb.ConnectResponse_Welcome{Welcome: welcome}}); err != nil {
 		return err
 	}
+	// Before sendLoop starts, so this goroutine is the only sender.
+	if v := h.offer(hello); v != "" {
+		if err := stream.Send(&pb.ConnectResponse{Body: &pb.ConnectResponse_Update{Update: &pb.Update{Version: v}}}); err != nil {
+			return err
+		}
+	}
 	sess.poke()
 	h.report(ctx, a.ID, func(s *storage.AgentStatus) {
 		s.Hostname, s.OS, s.Arch, s.Version = hello.GetHostname(), hello.GetOs(), hello.GetArch(), hello.GetVersion()
+		s.AcceptsUpdates = hello.GetAcceptsUpdates()
 	})
 
 	go h.sendLoop(sctx, stream, a.ID, sess)

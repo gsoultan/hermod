@@ -168,6 +168,7 @@ type agent struct {
 	err      error
 	changed  chan struct{}
 	commands []*pb.Command
+	updates  []string
 	// answer, when set, answers each command the hub sends.
 	answer func(*pb.Command) *pb.CommandResult
 }
@@ -222,6 +223,8 @@ func (a *agent) recv() {
 			a.acked = b.Ack.GetUpToSeq()
 		case *pb.ConnectResponse_Settings:
 			a.settings = append(a.settings, b.Settings)
+		case *pb.ConnectResponse_Update:
+			a.updates = append(a.updates, b.Update.GetVersion())
 		case *pb.ConnectResponse_Command:
 			a.commands = append(a.commands, b.Command)
 			if a.answer != nil {

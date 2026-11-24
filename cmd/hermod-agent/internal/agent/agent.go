@@ -23,6 +23,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,6 +32,7 @@ import (
 	"github.com/gsoultan/hermod/cmd/hermod-agent/internal/detect"
 	"github.com/gsoultan/hermod/cmd/hermod-agent/internal/hid"
 	"github.com/gsoultan/hermod/cmd/hermod-agent/internal/spool"
+	"github.com/gsoultan/hermod/cmd/hermod-agent/internal/update"
 	"github.com/gsoultan/hermod/cmd/hermod-agent/internal/uplink"
 	pb "github.com/gsoultan/hermod/pkg/agent/proto"
 	"google.golang.org/grpc/credentials"
@@ -68,13 +71,26 @@ type Options struct {
 	// DiscoverInterval is how often both run; default 5 minutes.
 	DiscoverInterval time.Duration
 
+	// AllowUpdate lets the server's offer of a newer release replace this
+	// binary; Run then returns ErrRestart. Updater does the replacing;
+	// default the project's GitHub releases for this build's platform.
+	AllowUpdate bool
+	Updater     *update.Updater
+
 	// Dialer and uplink backoff are for tests.
 	Dialer                 func(ctx context.Context, addr string) (net.Conn, error)
 	MinBackoff, MaxBackoff time.Duration
 }
 
-// Run runs the agent until ctx ends.
-func Run(ctx context.Context, opt Options) error {
+// ErrRestart is returned by Run after a newer release replaced the binary:
+// the caller starts the new one.
+var ErrRestart = errors.New("hermod-agent was updated; restart it")
+
+// Run runs the agent until ctx ends, or until it has updated itself, when it
+// returns ErrRestart.
+func Run(parent context.Context, opt Options) error {
+	ctx, stop := context.WithCancelCause(parent)
+	defer stop(nil)
 	if opt.Log == nil {
 		opt.Log = slog.Default()
 	}
@@ -97,6 +113,7 @@ func Run(ctx context.Context, opt Options) error {
 	defer func() { _ = sp.Close() }()
 
 	a := newAgent(ctx, opt, sp)
+	a.restart = stop
 	var wg sync.WaitGroup
 	wg.Go(func() { a.batch.run(ctx) })
 	wg.Go(func() { a.watcher.Run(ctx) })
@@ -110,10 +127,14 @@ func Run(ctx context.Context, opt Options) error {
 	err = uplink.Run(ctx, a.uplinkConfig())
 	a.readers.stopAll()
 	wg.Wait()
+	if errors.Is(context.Cause(ctx), ErrRestart) {
+		return ErrRestart
+	}
 	return err
 }
 
 type agent struct {
+	ctx       context.Context
 	opt       Options
 	sp        *spool.Spool
 	batch     *batcher
@@ -123,10 +144,13 @@ type agent struct {
 	hids      *hidWatcher
 	oversize  atomic.Uint64
 	changed   chan struct{}
+
+	restart  context.CancelCauseFunc
+	updating atomic.Bool
 }
 
 func newAgent(ctx context.Context, opt Options, sp *spool.Spool) *agent {
-	a := &agent{opt: opt, sp: sp, batch: newBatcher(sp, opt.Log), changed: make(chan struct{}, 1)}
+	a := &agent{ctx: ctx, opt: opt, sp: sp, batch: newBatcher(sp, opt.Log), changed: make(chan struct{}, 1)}
 	a.watcher = detect.NewWatcher(opt.Lister, opt.ScanInterval, func([]detect.Port) { a.devicesChanged() })
 	emit := func(deviceID string, raw []byte, port string, at time.Time) {
 		a.batch.add(ctx, spool.Record{DeviceID: deviceID, Port: port, ReceivedAt: at.UnixNano(), Raw: raw})
@@ -174,6 +198,7 @@ func (a *agent) uplinkConfig() uplink.Config {
 		DevicesChanged: a.changed,
 		OnSettings:     a.onSettings,
 		OnCommand:      a.readers.command,
+		OnUpdate:       a.onUpdate,
 		Heartbeat:      func(hb *pb.Heartbeat) { hb.OversizeDropped = a.oversize.Load() },
 		OnState:        a.onState,
 		MinBackoff:     a.opt.MinBackoff,
@@ -183,7 +208,56 @@ func (a *agent) uplinkConfig() uplink.Config {
 
 func (a *agent) hello() *pb.Hello {
 	host, _ := os.Hostname()
-	return &pb.Hello{Version: a.opt.Version, Hostname: host, Os: runtime.GOOS, Arch: runtime.GOARCH}
+	return &pb.Hello{Version: a.opt.Version, Hostname: host, Os: runtime.GOOS, Arch: runtime.GOARCH,
+		AcceptsUpdates: a.opt.AllowUpdate}
+}
+
+// onUpdate installs an offered release, one at a time, and stops the agent
+// so it restarts into it.
+func (a *agent) onUpdate(version string) {
+	if !a.opt.AllowUpdate {
+		a.opt.Log.Info("the server offers a newer release; start the agent with -allow-update to install it", "version", version)
+		return
+	}
+	if !a.updating.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer a.updating.Store(false)
+		u := a.opt.Updater
+		if u == nil {
+			exe, err := os.Executable()
+			if err != nil {
+				a.opt.Log.Warn("cannot update: where is this binary?", "err", err)
+				return
+			}
+			u = &update.Updater{BaseURL: update.DefaultBaseURL, Exe: exe, Version: a.opt.Version,
+				GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, GOARM: goarm()}
+		}
+		a.opt.Log.Info("installing an offered release", "from", a.opt.Version, "to", version)
+		err := u.Apply(context.WithoutCancel(a.ctx), version)
+		switch {
+		case errors.Is(err, update.ErrNotNewer):
+			a.opt.Log.Info("ignoring an offer that is not newer", "offered", version, "running", a.opt.Version)
+		case err != nil:
+			a.opt.Log.Warn("update failed; still running the current release", "to", version, "err", err)
+		default:
+			a.opt.Log.Info("update installed; restarting", "to", version)
+			a.restart(ErrRestart)
+		}
+	}()
+}
+
+// goarm is the ARM version this binary was built for, from its build info.
+func goarm() string {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, s := range info.Settings {
+			if s.Key == "GOARM" {
+				return strings.Split(s.Value, ",")[0] // "7" or "7,softfloat"
+			}
+		}
+	}
+	return ""
 }
 
 func (a *agent) onSettings(list *pb.DeviceSettingsList) {

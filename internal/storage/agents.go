@@ -155,13 +155,16 @@ const (
 
 // AgentStatus is what an agent last told Hermod about itself.
 type AgentStatus struct {
-	Hostname   string      `json:"hostname,omitempty"`
-	OS         string      `json:"os,omitempty"`
-	Arch       string      `json:"arch,omitempty"`
-	Version    string      `json:"version,omitempty"`
-	LastSeenAt time.Time   `json:"last_seen_at,omitzero"`
-	Ports      []AgentPort `json:"ports,omitempty"`
-	Spool      AgentSpool  `json:"spool"`
+	Hostname string `json:"hostname,omitempty"`
+	OS       string `json:"os,omitempty"`
+	Arch     string `json:"arch,omitempty"`
+	Version  string `json:"version,omitempty"`
+	// AcceptsUpdates is whether the agent runs with -allow-update, so Hermod
+	// offers it its own release when the agent's is older.
+	AcceptsUpdates bool        `json:"accepts_updates,omitempty"`
+	LastSeenAt     time.Time   `json:"last_seen_at,omitzero"`
+	Ports          []AgentPort `json:"ports,omitempty"`
+	Spool          AgentSpool  `json:"spool"`
 }
 
 // AgentPort is a device the agent found: a serial port, or a TCP device it

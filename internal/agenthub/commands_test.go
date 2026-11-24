@@ -177,3 +177,43 @@ func TestRunCommandRefusesWhatIsNotAllowed(t *testing.T) {
 		t.Errorf("a value with a line ending: err = %v", err)
 	}
 }
+
+// An agent that accepts updates is offered this Hermod's release when it
+// runs an older one; nothing else is offered anything.
+func TestAgentsAreOfferedANewerRelease(t *testing.T) {
+	f := newFixture(t)
+	f.hub.SetAgentRelease("v1.9.0 (Enterprise Edition)")
+	cases := []struct {
+		hello *pb.Hello
+		want  bool
+	}{
+		{&pb.Hello{Version: "v1.8.2", AcceptsUpdates: true}, true},
+		{&pb.Hello{Version: "v1.8.2"}, false},
+		{&pb.Hello{Version: "v1.9.0", AcceptsUpdates: true}, false},
+		{&pb.Hello{Version: "v2.0.0", AcceptsUpdates: true}, false},
+		{&pb.Hello{Version: "dev", AcceptsUpdates: true}, false},
+	}
+	for _, c := range cases {
+		a := f.connect(c.hello)
+		a.waitFor("settings", func() bool { return len(a.settings) > 0 })
+		time.Sleep(20 * time.Millisecond)
+		a.mu.Lock()
+		got := len(a.updates) == 1 && a.updates[0] == "v1.9.0"
+		none := len(a.updates) == 0
+		a.mu.Unlock()
+		if c.want && !got || !c.want && !none {
+			t.Errorf("hello %v: updates = %v", c.hello, a.updates)
+		}
+		a.cancel()
+	}
+	dev := newFixture(t)
+	dev.hub.SetAgentRelease("dev")
+	a := dev.connect(&pb.Hello{Version: "v1.0.0", AcceptsUpdates: true})
+	a.waitFor("settings", func() bool { return len(a.settings) > 0 })
+	time.Sleep(20 * time.Millisecond)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(a.updates) != 0 {
+		t.Fatalf("a development Hermod offered %v", a.updates)
+	}
+}

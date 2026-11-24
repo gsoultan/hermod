@@ -33,18 +33,28 @@ type server struct {
 
 	// commands are sent to the agent as the test pushes them.
 	commands chan *pb.Command
+	// update, when set, is offered after the welcome.
+	update string
 
 	mu      sync.Mutex
 	records []*pb.Record
 	devices []*pb.Device
 	results []*pb.CommandResult
+	hello   *pb.Hello
 }
 
 func (s *server) Connect(st grpc.BidiStreamingServer[pb.ConnectRequest, pb.ConnectResponse]) error {
-	if _, err := st.Recv(); err != nil {
+	first, err := st.Recv()
+	if err != nil {
 		return err
 	}
+	s.mu.Lock()
+	s.hello = first.GetHello()
+	s.mu.Unlock()
 	_ = st.Send(&pb.ConnectResponse{Body: &pb.ConnectResponse_Welcome{Welcome: &pb.Welcome{AgentId: "a1"}}})
+	if s.update != "" {
+		_ = st.Send(&pb.ConnectResponse{Body: &pb.ConnectResponse_Update{Update: &pb.Update{Version: s.update}}})
+	}
 	if s.settings != nil {
 		_ = st.Send(&pb.ConnectResponse{Body: &pb.ConnectResponse_Settings{Settings: s.settings}})
 	}

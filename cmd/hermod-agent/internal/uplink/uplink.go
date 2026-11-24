@@ -53,6 +53,9 @@ type Config struct {
 	// result. It runs on its own goroutine, at most maxCommands at once, and
 	// must return when ctx ends. Without it every command fails.
 	OnCommand func(ctx context.Context, c *pb.Command) *pb.CommandResult
+	// OnUpdate receives an offer of a release, by version. It must not
+	// block the stream; nil ignores offers.
+	OnUpdate func(version string)
 	// Heartbeat adds to the spool figures the uplink fills in itself; it may
 	// be nil.
 	Heartbeat      func(*pb.Heartbeat)
@@ -231,6 +234,10 @@ func receive(st stream, cfg *Config, acks chan<- struct{}, cmds *commands) error
 			}
 		case *pb.ConnectResponse_Command:
 			cmds.start(b.Command)
+		case *pb.ConnectResponse_Update:
+			if cfg.OnUpdate != nil {
+				cfg.OnUpdate(b.Update.GetVersion())
+			}
 		}
 	}
 }

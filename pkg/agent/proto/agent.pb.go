@@ -688,6 +688,7 @@ type ConnectResponse struct {
 	//	*ConnectResponse_Ack
 	//	*ConnectResponse_Settings
 	//	*ConnectResponse_Command
+	//	*ConnectResponse_Update
 	Body          isConnectResponse_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -766,6 +767,15 @@ func (x *ConnectResponse) GetCommand() *Command {
 	return nil
 }
 
+func (x *ConnectResponse) GetUpdate() *Update {
+	if x != nil {
+		if x, ok := x.Body.(*ConnectResponse_Update); ok {
+			return x.Update
+		}
+	}
+	return nil
+}
+
 type isConnectResponse_Body interface {
 	isConnectResponse_Body()
 }
@@ -786,6 +796,10 @@ type ConnectResponse_Command struct {
 	Command *Command `protobuf:"bytes,4,opt,name=command,proto3,oneof"`
 }
 
+type ConnectResponse_Update struct {
+	Update *Update `protobuf:"bytes,5,opt,name=update,proto3,oneof"`
+}
+
 func (*ConnectResponse_Welcome) isConnectResponse_Body() {}
 
 func (*ConnectResponse_Ack) isConnectResponse_Body() {}
@@ -793,6 +807,8 @@ func (*ConnectResponse_Ack) isConnectResponse_Body() {}
 func (*ConnectResponse_Settings) isConnectResponse_Body() {}
 
 func (*ConnectResponse_Command) isConnectResponse_Body() {}
+
+func (*ConnectResponse_Update) isConnectResponse_Body() {}
 
 // Hello is the first message on every stream.
 type Hello struct {
@@ -806,10 +822,13 @@ type Hello struct {
 	Arch string `protobuf:"bytes,4,opt,name=arch,proto3" json:"arch,omitempty"`
 	// The highest sequence number the agent has written to its spool, and the
 	// highest the server has acknowledged, as the agent last saw them.
-	LastSeq       uint64 `protobuf:"varint,5,opt,name=last_seq,json=lastSeq,proto3" json:"last_seq,omitempty"`
-	AckedSeq      uint64 `protobuf:"varint,6,opt,name=acked_seq,json=ackedSeq,proto3" json:"acked_seq,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	LastSeq  uint64 `protobuf:"varint,5,opt,name=last_seq,json=lastSeq,proto3" json:"last_seq,omitempty"`
+	AckedSeq uint64 `protobuf:"varint,6,opt,name=acked_seq,json=ackedSeq,proto3" json:"acked_seq,omitempty"`
+	// True when the agent was started with -allow-update and will replace
+	// itself with a newer release when the server offers one.
+	AcceptsUpdates bool `protobuf:"varint,7,opt,name=accepts_updates,json=acceptsUpdates,proto3" json:"accepts_updates,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Hello) Reset() {
@@ -884,6 +903,63 @@ func (x *Hello) GetAckedSeq() uint64 {
 	return 0
 }
 
+func (x *Hello) GetAcceptsUpdates() bool {
+	if x != nil {
+		return x.AcceptsUpdates
+	}
+	return false
+}
+
+// Update offers the agent a newer release, by version only. The agent builds
+// the download address itself, from the project's releases on GitHub, and
+// checks the archive against the release's published checksums.txt, so the
+// server cannot point it at any other file. An agent ignores an offer of its
+// own version or an older one.
+type Update struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// A release tag, for example "v1.9.0".
+	Version       string `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Update) Reset() {
+	*x = Update{}
+	mi := &file_agent_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Update) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Update) ProtoMessage() {}
+
+func (x *Update) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Update.ProtoReflect.Descriptor instead.
+func (*Update) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *Update) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
 // Welcome answers Hello.
 type Welcome struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -898,7 +974,7 @@ type Welcome struct {
 
 func (x *Welcome) Reset() {
 	*x = Welcome{}
-	mi := &file_agent_proto_msgTypes[3]
+	mi := &file_agent_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -910,7 +986,7 @@ func (x *Welcome) String() string {
 func (*Welcome) ProtoMessage() {}
 
 func (x *Welcome) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[3]
+	mi := &file_agent_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -923,7 +999,7 @@ func (x *Welcome) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Welcome.ProtoReflect.Descriptor instead.
 func (*Welcome) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{3}
+	return file_agent_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Welcome) GetAgentId() string {
@@ -975,7 +1051,7 @@ type Device struct {
 
 func (x *Device) Reset() {
 	*x = Device{}
-	mi := &file_agent_proto_msgTypes[4]
+	mi := &file_agent_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -987,7 +1063,7 @@ func (x *Device) String() string {
 func (*Device) ProtoMessage() {}
 
 func (x *Device) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[4]
+	mi := &file_agent_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1000,7 +1076,7 @@ func (x *Device) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Device.ProtoReflect.Descriptor instead.
 func (*Device) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{4}
+	return file_agent_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Device) GetDeviceId() string {
@@ -1091,7 +1167,7 @@ type DeviceList struct {
 
 func (x *DeviceList) Reset() {
 	*x = DeviceList{}
-	mi := &file_agent_proto_msgTypes[5]
+	mi := &file_agent_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1103,7 +1179,7 @@ func (x *DeviceList) String() string {
 func (*DeviceList) ProtoMessage() {}
 
 func (x *DeviceList) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[5]
+	mi := &file_agent_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1116,7 +1192,7 @@ func (x *DeviceList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceList.ProtoReflect.Descriptor instead.
 func (*DeviceList) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{5}
+	return file_agent_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *DeviceList) GetDevices() []*Device {
@@ -1143,7 +1219,7 @@ type SerialSettings struct {
 
 func (x *SerialSettings) Reset() {
 	*x = SerialSettings{}
-	mi := &file_agent_proto_msgTypes[6]
+	mi := &file_agent_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1155,7 +1231,7 @@ func (x *SerialSettings) String() string {
 func (*SerialSettings) ProtoMessage() {}
 
 func (x *SerialSettings) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[6]
+	mi := &file_agent_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1168,7 +1244,7 @@ func (x *SerialSettings) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SerialSettings.ProtoReflect.Descriptor instead.
 func (*SerialSettings) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{6}
+	return file_agent_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *SerialSettings) GetBaudRate() uint32 {
@@ -1213,7 +1289,7 @@ type UdpSettings struct {
 
 func (x *UdpSettings) Reset() {
 	*x = UdpSettings{}
-	mi := &file_agent_proto_msgTypes[7]
+	mi := &file_agent_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1225,7 +1301,7 @@ func (x *UdpSettings) String() string {
 func (*UdpSettings) ProtoMessage() {}
 
 func (x *UdpSettings) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[7]
+	mi := &file_agent_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1238,7 +1314,7 @@ func (x *UdpSettings) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UdpSettings.ProtoReflect.Descriptor instead.
 func (*UdpSettings) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{7}
+	return file_agent_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *UdpSettings) GetAddress() string {
@@ -1271,7 +1347,7 @@ type ModbusRead struct {
 
 func (x *ModbusRead) Reset() {
 	*x = ModbusRead{}
-	mi := &file_agent_proto_msgTypes[8]
+	mi := &file_agent_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1283,7 +1359,7 @@ func (x *ModbusRead) String() string {
 func (*ModbusRead) ProtoMessage() {}
 
 func (x *ModbusRead) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[8]
+	mi := &file_agent_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1296,7 +1372,7 @@ func (x *ModbusRead) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModbusRead.ProtoReflect.Descriptor instead.
 func (*ModbusRead) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{8}
+	return file_agent_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ModbusRead) GetName() string {
@@ -1350,7 +1426,7 @@ type ModbusSettings struct {
 
 func (x *ModbusSettings) Reset() {
 	*x = ModbusSettings{}
-	mi := &file_agent_proto_msgTypes[9]
+	mi := &file_agent_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1362,7 +1438,7 @@ func (x *ModbusSettings) String() string {
 func (*ModbusSettings) ProtoMessage() {}
 
 func (x *ModbusSettings) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[9]
+	mi := &file_agent_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1375,7 +1451,7 @@ func (x *ModbusSettings) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModbusSettings.ProtoReflect.Descriptor instead.
 func (*ModbusSettings) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{9}
+	return file_agent_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ModbusSettings) GetTransport() ModbusTransport {
@@ -1431,7 +1507,7 @@ type HidSettings struct {
 
 func (x *HidSettings) Reset() {
 	*x = HidSettings{}
-	mi := &file_agent_proto_msgTypes[10]
+	mi := &file_agent_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1443,7 +1519,7 @@ func (x *HidSettings) String() string {
 func (*HidSettings) ProtoMessage() {}
 
 func (x *HidSettings) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[10]
+	mi := &file_agent_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1456,7 +1532,7 @@ func (x *HidSettings) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HidSettings.ProtoReflect.Descriptor instead.
 func (*HidSettings) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{10}
+	return file_agent_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *HidSettings) GetMode() HidMode {
@@ -1480,7 +1556,7 @@ type TcpSettings struct {
 
 func (x *TcpSettings) Reset() {
 	*x = TcpSettings{}
-	mi := &file_agent_proto_msgTypes[11]
+	mi := &file_agent_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1492,7 +1568,7 @@ func (x *TcpSettings) String() string {
 func (*TcpSettings) ProtoMessage() {}
 
 func (x *TcpSettings) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[11]
+	mi := &file_agent_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1505,7 +1581,7 @@ func (x *TcpSettings) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TcpSettings.ProtoReflect.Descriptor instead.
 func (*TcpSettings) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{11}
+	return file_agent_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *TcpSettings) GetAddress() string {
@@ -1543,7 +1619,7 @@ type Framing struct {
 
 func (x *Framing) Reset() {
 	*x = Framing{}
-	mi := &file_agent_proto_msgTypes[12]
+	mi := &file_agent_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1555,7 +1631,7 @@ func (x *Framing) String() string {
 func (*Framing) ProtoMessage() {}
 
 func (x *Framing) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[12]
+	mi := &file_agent_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1568,7 +1644,7 @@ func (x *Framing) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Framing.ProtoReflect.Descriptor instead.
 func (*Framing) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{12}
+	return file_agent_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *Framing) GetKind() FramingKind {
@@ -1652,7 +1728,7 @@ type DeviceSettings struct {
 
 func (x *DeviceSettings) Reset() {
 	*x = DeviceSettings{}
-	mi := &file_agent_proto_msgTypes[13]
+	mi := &file_agent_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1664,7 +1740,7 @@ func (x *DeviceSettings) String() string {
 func (*DeviceSettings) ProtoMessage() {}
 
 func (x *DeviceSettings) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[13]
+	mi := &file_agent_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1677,7 +1753,7 @@ func (x *DeviceSettings) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceSettings.ProtoReflect.Descriptor instead.
 func (*DeviceSettings) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{13}
+	return file_agent_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *DeviceSettings) GetDeviceId() string {
@@ -1768,7 +1844,7 @@ type DeviceSettingsList struct {
 
 func (x *DeviceSettingsList) Reset() {
 	*x = DeviceSettingsList{}
-	mi := &file_agent_proto_msgTypes[14]
+	mi := &file_agent_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1780,7 +1856,7 @@ func (x *DeviceSettingsList) String() string {
 func (*DeviceSettingsList) ProtoMessage() {}
 
 func (x *DeviceSettingsList) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[14]
+	mi := &file_agent_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1793,7 +1869,7 @@ func (x *DeviceSettingsList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceSettingsList.ProtoReflect.Descriptor instead.
 func (*DeviceSettingsList) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{14}
+	return file_agent_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *DeviceSettingsList) GetDevices() []*DeviceSettings {
@@ -1824,7 +1900,7 @@ type Record struct {
 
 func (x *Record) Reset() {
 	*x = Record{}
-	mi := &file_agent_proto_msgTypes[15]
+	mi := &file_agent_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1836,7 +1912,7 @@ func (x *Record) String() string {
 func (*Record) ProtoMessage() {}
 
 func (x *Record) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[15]
+	mi := &file_agent_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1849,7 +1925,7 @@ func (x *Record) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Record.ProtoReflect.Descriptor instead.
 func (*Record) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{15}
+	return file_agent_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *Record) GetSeq() uint64 {
@@ -1897,7 +1973,7 @@ type RecordBatch struct {
 
 func (x *RecordBatch) Reset() {
 	*x = RecordBatch{}
-	mi := &file_agent_proto_msgTypes[16]
+	mi := &file_agent_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1909,7 +1985,7 @@ func (x *RecordBatch) String() string {
 func (*RecordBatch) ProtoMessage() {}
 
 func (x *RecordBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[16]
+	mi := &file_agent_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1922,7 +1998,7 @@ func (x *RecordBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecordBatch.ProtoReflect.Descriptor instead.
 func (*RecordBatch) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{16}
+	return file_agent_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *RecordBatch) GetRecords() []*Record {
@@ -1943,7 +2019,7 @@ type Ack struct {
 
 func (x *Ack) Reset() {
 	*x = Ack{}
-	mi := &file_agent_proto_msgTypes[17]
+	mi := &file_agent_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1955,7 +2031,7 @@ func (x *Ack) String() string {
 func (*Ack) ProtoMessage() {}
 
 func (x *Ack) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[17]
+	mi := &file_agent_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1968,7 +2044,7 @@ func (x *Ack) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Ack.ProtoReflect.Descriptor instead.
 func (*Ack) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{17}
+	return file_agent_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *Ack) GetUpToSeq() uint64 {
@@ -2002,7 +2078,7 @@ type Heartbeat struct {
 
 func (x *Heartbeat) Reset() {
 	*x = Heartbeat{}
-	mi := &file_agent_proto_msgTypes[18]
+	mi := &file_agent_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2014,7 +2090,7 @@ func (x *Heartbeat) String() string {
 func (*Heartbeat) ProtoMessage() {}
 
 func (x *Heartbeat) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[18]
+	mi := &file_agent_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2027,7 +2103,7 @@ func (x *Heartbeat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Heartbeat.ProtoReflect.Descriptor instead.
 func (*Heartbeat) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{18}
+	return file_agent_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *Heartbeat) GetClockUnixMs() int64 {
@@ -2094,7 +2170,7 @@ type Command struct {
 
 func (x *Command) Reset() {
 	*x = Command{}
-	mi := &file_agent_proto_msgTypes[19]
+	mi := &file_agent_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2106,7 +2182,7 @@ func (x *Command) String() string {
 func (*Command) ProtoMessage() {}
 
 func (x *Command) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[19]
+	mi := &file_agent_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2119,7 +2195,7 @@ func (x *Command) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Command.ProtoReflect.Descriptor instead.
 func (*Command) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{19}
+	return file_agent_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *Command) GetCommandId() string {
@@ -2165,7 +2241,7 @@ type CommandResult struct {
 
 func (x *CommandResult) Reset() {
 	*x = CommandResult{}
-	mi := &file_agent_proto_msgTypes[20]
+	mi := &file_agent_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2177,7 +2253,7 @@ func (x *CommandResult) String() string {
 func (*CommandResult) ProtoMessage() {}
 
 func (x *CommandResult) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[20]
+	mi := &file_agent_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2190,7 +2266,7 @@ func (x *CommandResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommandResult.ProtoReflect.Descriptor instead.
 func (*CommandResult) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{20}
+	return file_agent_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *CommandResult) GetCommandId() string {
@@ -2239,20 +2315,24 @@ const file_agent_proto_rawDesc = "" +
 	"\arecords\x18\x03 \x01(\v2\x1c.hermod.agent.v1.RecordBatchH\x00R\arecords\x12:\n" +
 	"\theartbeat\x18\x04 \x01(\v2\x1a.hermod.agent.v1.HeartbeatH\x00R\theartbeat\x12G\n" +
 	"\x0ecommand_result\x18\x05 \x01(\v2\x1e.hermod.agent.v1.CommandResultH\x00R\rcommandResultB\x06\n" +
-	"\x04body\"\xf2\x01\n" +
+	"\x04body\"\xa5\x02\n" +
 	"\x0fConnectResponse\x124\n" +
 	"\awelcome\x18\x01 \x01(\v2\x18.hermod.agent.v1.WelcomeH\x00R\awelcome\x12(\n" +
 	"\x03ack\x18\x02 \x01(\v2\x14.hermod.agent.v1.AckH\x00R\x03ack\x12A\n" +
 	"\bsettings\x18\x03 \x01(\v2#.hermod.agent.v1.DeviceSettingsListH\x00R\bsettings\x124\n" +
-	"\acommand\x18\x04 \x01(\v2\x18.hermod.agent.v1.CommandH\x00R\acommandB\x06\n" +
-	"\x04body\"\x99\x01\n" +
+	"\acommand\x18\x04 \x01(\v2\x18.hermod.agent.v1.CommandH\x00R\acommand\x121\n" +
+	"\x06update\x18\x05 \x01(\v2\x17.hermod.agent.v1.UpdateH\x00R\x06updateB\x06\n" +
+	"\x04body\"\xc2\x01\n" +
 	"\x05Hello\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\tR\aversion\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12\x0e\n" +
 	"\x02os\x18\x03 \x01(\tR\x02os\x12\x12\n" +
 	"\x04arch\x18\x04 \x01(\tR\x04arch\x12\x19\n" +
 	"\blast_seq\x18\x05 \x01(\x04R\alastSeq\x12\x1b\n" +
-	"\tacked_seq\x18\x06 \x01(\x04R\backedSeq\"A\n" +
+	"\tacked_seq\x18\x06 \x01(\x04R\backedSeq\x12'\n" +
+	"\x0faccepts_updates\x18\a \x01(\bR\x0eacceptsUpdates\"\"\n" +
+	"\x06Update\x12\x18\n" +
+	"\aversion\x18\x01 \x01(\tR\aversion\"A\n" +
 	"\aWelcome\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1b\n" +
 	"\tacked_seq\x18\x02 \x01(\x04R\backedSeq\"\xc3\x02\n" +
@@ -2425,7 +2505,7 @@ func file_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
-var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
+var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_agent_proto_goTypes = []any{
 	(DeviceKind)(0),            // 0: hermod.agent.v1.DeviceKind
 	(Parity)(0),                // 1: hermod.agent.v1.Parity
@@ -2439,62 +2519,64 @@ var file_agent_proto_goTypes = []any{
 	(*ConnectRequest)(nil),     // 9: hermod.agent.v1.ConnectRequest
 	(*ConnectResponse)(nil),    // 10: hermod.agent.v1.ConnectResponse
 	(*Hello)(nil),              // 11: hermod.agent.v1.Hello
-	(*Welcome)(nil),            // 12: hermod.agent.v1.Welcome
-	(*Device)(nil),             // 13: hermod.agent.v1.Device
-	(*DeviceList)(nil),         // 14: hermod.agent.v1.DeviceList
-	(*SerialSettings)(nil),     // 15: hermod.agent.v1.SerialSettings
-	(*UdpSettings)(nil),        // 16: hermod.agent.v1.UdpSettings
-	(*ModbusRead)(nil),         // 17: hermod.agent.v1.ModbusRead
-	(*ModbusSettings)(nil),     // 18: hermod.agent.v1.ModbusSettings
-	(*HidSettings)(nil),        // 19: hermod.agent.v1.HidSettings
-	(*TcpSettings)(nil),        // 20: hermod.agent.v1.TcpSettings
-	(*Framing)(nil),            // 21: hermod.agent.v1.Framing
-	(*DeviceSettings)(nil),     // 22: hermod.agent.v1.DeviceSettings
-	(*DeviceSettingsList)(nil), // 23: hermod.agent.v1.DeviceSettingsList
-	(*Record)(nil),             // 24: hermod.agent.v1.Record
-	(*RecordBatch)(nil),        // 25: hermod.agent.v1.RecordBatch
-	(*Ack)(nil),                // 26: hermod.agent.v1.Ack
-	(*Heartbeat)(nil),          // 27: hermod.agent.v1.Heartbeat
-	(*Command)(nil),            // 28: hermod.agent.v1.Command
-	(*CommandResult)(nil),      // 29: hermod.agent.v1.CommandResult
+	(*Update)(nil),             // 12: hermod.agent.v1.Update
+	(*Welcome)(nil),            // 13: hermod.agent.v1.Welcome
+	(*Device)(nil),             // 14: hermod.agent.v1.Device
+	(*DeviceList)(nil),         // 15: hermod.agent.v1.DeviceList
+	(*SerialSettings)(nil),     // 16: hermod.agent.v1.SerialSettings
+	(*UdpSettings)(nil),        // 17: hermod.agent.v1.UdpSettings
+	(*ModbusRead)(nil),         // 18: hermod.agent.v1.ModbusRead
+	(*ModbusSettings)(nil),     // 19: hermod.agent.v1.ModbusSettings
+	(*HidSettings)(nil),        // 20: hermod.agent.v1.HidSettings
+	(*TcpSettings)(nil),        // 21: hermod.agent.v1.TcpSettings
+	(*Framing)(nil),            // 22: hermod.agent.v1.Framing
+	(*DeviceSettings)(nil),     // 23: hermod.agent.v1.DeviceSettings
+	(*DeviceSettingsList)(nil), // 24: hermod.agent.v1.DeviceSettingsList
+	(*Record)(nil),             // 25: hermod.agent.v1.Record
+	(*RecordBatch)(nil),        // 26: hermod.agent.v1.RecordBatch
+	(*Ack)(nil),                // 27: hermod.agent.v1.Ack
+	(*Heartbeat)(nil),          // 28: hermod.agent.v1.Heartbeat
+	(*Command)(nil),            // 29: hermod.agent.v1.Command
+	(*CommandResult)(nil),      // 30: hermod.agent.v1.CommandResult
 }
 var file_agent_proto_depIdxs = []int32{
 	11, // 0: hermod.agent.v1.ConnectRequest.hello:type_name -> hermod.agent.v1.Hello
-	14, // 1: hermod.agent.v1.ConnectRequest.devices:type_name -> hermod.agent.v1.DeviceList
-	25, // 2: hermod.agent.v1.ConnectRequest.records:type_name -> hermod.agent.v1.RecordBatch
-	27, // 3: hermod.agent.v1.ConnectRequest.heartbeat:type_name -> hermod.agent.v1.Heartbeat
-	29, // 4: hermod.agent.v1.ConnectRequest.command_result:type_name -> hermod.agent.v1.CommandResult
-	12, // 5: hermod.agent.v1.ConnectResponse.welcome:type_name -> hermod.agent.v1.Welcome
-	26, // 6: hermod.agent.v1.ConnectResponse.ack:type_name -> hermod.agent.v1.Ack
-	23, // 7: hermod.agent.v1.ConnectResponse.settings:type_name -> hermod.agent.v1.DeviceSettingsList
-	28, // 8: hermod.agent.v1.ConnectResponse.command:type_name -> hermod.agent.v1.Command
-	0,  // 9: hermod.agent.v1.Device.kind:type_name -> hermod.agent.v1.DeviceKind
-	13, // 10: hermod.agent.v1.DeviceList.devices:type_name -> hermod.agent.v1.Device
-	1,  // 11: hermod.agent.v1.SerialSettings.parity:type_name -> hermod.agent.v1.Parity
-	2,  // 12: hermod.agent.v1.SerialSettings.stop_bits:type_name -> hermod.agent.v1.StopBits
-	5,  // 13: hermod.agent.v1.ModbusRead.table:type_name -> hermod.agent.v1.ModbusTable
-	4,  // 14: hermod.agent.v1.ModbusSettings.transport:type_name -> hermod.agent.v1.ModbusTransport
-	17, // 15: hermod.agent.v1.ModbusSettings.reads:type_name -> hermod.agent.v1.ModbusRead
-	6,  // 16: hermod.agent.v1.HidSettings.mode:type_name -> hermod.agent.v1.HidMode
-	3,  // 17: hermod.agent.v1.TcpSettings.mode:type_name -> hermod.agent.v1.TcpMode
-	7,  // 18: hermod.agent.v1.Framing.kind:type_name -> hermod.agent.v1.FramingKind
-	0,  // 19: hermod.agent.v1.DeviceSettings.kind:type_name -> hermod.agent.v1.DeviceKind
-	15, // 20: hermod.agent.v1.DeviceSettings.serial:type_name -> hermod.agent.v1.SerialSettings
-	20, // 21: hermod.agent.v1.DeviceSettings.tcp:type_name -> hermod.agent.v1.TcpSettings
-	21, // 22: hermod.agent.v1.DeviceSettings.framing:type_name -> hermod.agent.v1.Framing
-	16, // 23: hermod.agent.v1.DeviceSettings.udp:type_name -> hermod.agent.v1.UdpSettings
-	18, // 24: hermod.agent.v1.DeviceSettings.modbus:type_name -> hermod.agent.v1.ModbusSettings
-	19, // 25: hermod.agent.v1.DeviceSettings.hid:type_name -> hermod.agent.v1.HidSettings
-	22, // 26: hermod.agent.v1.DeviceSettingsList.devices:type_name -> hermod.agent.v1.DeviceSettings
-	24, // 27: hermod.agent.v1.RecordBatch.records:type_name -> hermod.agent.v1.Record
-	8,  // 28: hermod.agent.v1.CommandResult.status:type_name -> hermod.agent.v1.CommandStatus
-	9,  // 29: hermod.agent.v1.AgentService.Connect:input_type -> hermod.agent.v1.ConnectRequest
-	10, // 30: hermod.agent.v1.AgentService.Connect:output_type -> hermod.agent.v1.ConnectResponse
-	30, // [30:31] is the sub-list for method output_type
-	29, // [29:30] is the sub-list for method input_type
-	29, // [29:29] is the sub-list for extension type_name
-	29, // [29:29] is the sub-list for extension extendee
-	0,  // [0:29] is the sub-list for field type_name
+	15, // 1: hermod.agent.v1.ConnectRequest.devices:type_name -> hermod.agent.v1.DeviceList
+	26, // 2: hermod.agent.v1.ConnectRequest.records:type_name -> hermod.agent.v1.RecordBatch
+	28, // 3: hermod.agent.v1.ConnectRequest.heartbeat:type_name -> hermod.agent.v1.Heartbeat
+	30, // 4: hermod.agent.v1.ConnectRequest.command_result:type_name -> hermod.agent.v1.CommandResult
+	13, // 5: hermod.agent.v1.ConnectResponse.welcome:type_name -> hermod.agent.v1.Welcome
+	27, // 6: hermod.agent.v1.ConnectResponse.ack:type_name -> hermod.agent.v1.Ack
+	24, // 7: hermod.agent.v1.ConnectResponse.settings:type_name -> hermod.agent.v1.DeviceSettingsList
+	29, // 8: hermod.agent.v1.ConnectResponse.command:type_name -> hermod.agent.v1.Command
+	12, // 9: hermod.agent.v1.ConnectResponse.update:type_name -> hermod.agent.v1.Update
+	0,  // 10: hermod.agent.v1.Device.kind:type_name -> hermod.agent.v1.DeviceKind
+	14, // 11: hermod.agent.v1.DeviceList.devices:type_name -> hermod.agent.v1.Device
+	1,  // 12: hermod.agent.v1.SerialSettings.parity:type_name -> hermod.agent.v1.Parity
+	2,  // 13: hermod.agent.v1.SerialSettings.stop_bits:type_name -> hermod.agent.v1.StopBits
+	5,  // 14: hermod.agent.v1.ModbusRead.table:type_name -> hermod.agent.v1.ModbusTable
+	4,  // 15: hermod.agent.v1.ModbusSettings.transport:type_name -> hermod.agent.v1.ModbusTransport
+	18, // 16: hermod.agent.v1.ModbusSettings.reads:type_name -> hermod.agent.v1.ModbusRead
+	6,  // 17: hermod.agent.v1.HidSettings.mode:type_name -> hermod.agent.v1.HidMode
+	3,  // 18: hermod.agent.v1.TcpSettings.mode:type_name -> hermod.agent.v1.TcpMode
+	7,  // 19: hermod.agent.v1.Framing.kind:type_name -> hermod.agent.v1.FramingKind
+	0,  // 20: hermod.agent.v1.DeviceSettings.kind:type_name -> hermod.agent.v1.DeviceKind
+	16, // 21: hermod.agent.v1.DeviceSettings.serial:type_name -> hermod.agent.v1.SerialSettings
+	21, // 22: hermod.agent.v1.DeviceSettings.tcp:type_name -> hermod.agent.v1.TcpSettings
+	22, // 23: hermod.agent.v1.DeviceSettings.framing:type_name -> hermod.agent.v1.Framing
+	17, // 24: hermod.agent.v1.DeviceSettings.udp:type_name -> hermod.agent.v1.UdpSettings
+	19, // 25: hermod.agent.v1.DeviceSettings.modbus:type_name -> hermod.agent.v1.ModbusSettings
+	20, // 26: hermod.agent.v1.DeviceSettings.hid:type_name -> hermod.agent.v1.HidSettings
+	23, // 27: hermod.agent.v1.DeviceSettingsList.devices:type_name -> hermod.agent.v1.DeviceSettings
+	25, // 28: hermod.agent.v1.RecordBatch.records:type_name -> hermod.agent.v1.Record
+	8,  // 29: hermod.agent.v1.CommandResult.status:type_name -> hermod.agent.v1.CommandStatus
+	9,  // 30: hermod.agent.v1.AgentService.Connect:input_type -> hermod.agent.v1.ConnectRequest
+	10, // 31: hermod.agent.v1.AgentService.Connect:output_type -> hermod.agent.v1.ConnectResponse
+	31, // [31:32] is the sub-list for method output_type
+	30, // [30:31] is the sub-list for method input_type
+	30, // [30:30] is the sub-list for extension type_name
+	30, // [30:30] is the sub-list for extension extendee
+	0,  // [0:30] is the sub-list for field type_name
 }
 
 func init() { file_agent_proto_init() }
@@ -2514,6 +2596,7 @@ func file_agent_proto_init() {
 		(*ConnectResponse_Ack)(nil),
 		(*ConnectResponse_Settings)(nil),
 		(*ConnectResponse_Command)(nil),
+		(*ConnectResponse_Update)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -2521,7 +2604,7 @@ func file_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_proto_rawDesc), len(file_agent_proto_rawDesc)),
 			NumEnums:      9,
-			NumMessages:   21,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

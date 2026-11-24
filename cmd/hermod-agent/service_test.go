@@ -166,3 +166,21 @@ func TestInstalledServiceKeepsDiscovery(t *testing.T) {
 		}
 	}
 }
+
+func TestInstalledServiceKeepsAllowUpdate(t *testing.T) {
+	f, err := parseFlags([]string{"-server", "h:1", "-token-file", "/t", "-service", "install", "-allow-update"}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args, err := serviceArgs(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(args, "-allow-update") {
+		t.Fatalf("args = %q", args)
+	}
+	f, _ = parseFlags([]string{"-server", "h:1", "-token-file", "/t", "-service", "install"}, &bytes.Buffer{})
+	if args, _ := serviceArgs(f); slices.Contains(args, "-allow-update") {
+		t.Fatal("updates were turned on without being asked for")
+	}
+}

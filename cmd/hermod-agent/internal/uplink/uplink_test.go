@@ -46,6 +46,7 @@ type fakeServer struct {
 	onBatch   func(records int)
 	commands  []*pb.Command // sent after the welcome
 	results   []*pb.CommandResult
+	update    string // offered after the welcome when set
 }
 
 func newFake() *fakeServer { return &fakeServer{autoAck: true, changed: make(chan struct{}, 1000)} }
@@ -73,6 +74,7 @@ func (f *fakeServer) Connect(stream grpc.BidiStreamingServer[pb.ConnectRequest, 
 	welcome := &pb.Welcome{AgentId: "agent-1", AckedSeq: f.acked}
 	settings := f.settings
 	commands := f.commands
+	update := f.update
 	f.mu.Unlock()
 	if err := stream.Send(&pb.ConnectResponse{Body: &pb.ConnectResponse_Welcome{Welcome: welcome}}); err != nil {
 		return err
@@ -82,6 +84,9 @@ func (f *fakeServer) Connect(stream grpc.BidiStreamingServer[pb.ConnectRequest, 
 	}
 	for _, c := range commands {
 		_ = stream.Send(&pb.ConnectResponse{Body: &pb.ConnectResponse_Command{Command: c}})
+	}
+	if update != "" {
+		_ = stream.Send(&pb.ConnectResponse{Body: &pb.ConnectResponse_Update{Update: &pb.Update{Version: update}}})
 	}
 	for {
 		m, err := stream.Recv()
@@ -414,5 +419,22 @@ func TestCommandsFailWithoutAHandler(t *testing.T) {
 	defer f.mu.Unlock()
 	if r := f.results[0]; r.GetStatus() != pb.CommandStatus_COMMAND_STATUS_FAILED || r.GetWritten() {
 		t.Fatalf("result = %v", r)
+	}
+}
+
+func TestUpdateOffersReachTheHandler(t *testing.T) {
+	f := newFake()
+	f.update = "v9.9.9"
+	got := make(chan string, 1)
+	cfg := baseConfig(startFake(t, f), openSpool(t))
+	cfg.OnUpdate = func(v string) { got <- v }
+	runUntilTestEnds(t, cfg)
+	select {
+	case v := <-got:
+		if v != "v9.9.9" {
+			t.Fatalf("offered %q", v)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the offer never arrived")
 	}
 }

@@ -48,6 +48,7 @@ message ConnectResponse {
     Ack ack = 2;
     DeviceSettingsList settings = 3;
     Command command = 4;
+    Update update = 5;
   }
 }
 
@@ -64,6 +65,19 @@ message Hello {
   // highest the server has acknowledged, as the agent last saw them.
   uint64 last_seq = 5;
   uint64 acked_seq = 6;
+  // True when the agent was started with -allow-update and will replace
+  // itself with a newer release when the server offers one.
+  bool accepts_updates = 7;
+}
+
+// Update offers the agent a newer release, by version only. The agent builds
+// the download address itself, from the project's releases on GitHub, and
+// checks the archive against the release's published checksums.txt, so the
+// server cannot point it at any other file. An agent ignores an offer of its
+// own version or an older one.
+message Update {
+  // A release tag, for example "v1.9.0".
+  string version = 1;
 }
 
 // Welcome answers Hello.

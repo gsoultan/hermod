@@ -107,6 +107,9 @@ func serviceArgs(f flags) ([]string, error) {
 	if f.plaintext {
 		args = append(args, "-plaintext")
 	}
+	if f.allowUpdate {
+		args = append(args, "-allow-update")
+	}
 	if f.mdnsServices != defaultMDNSServices {
 		args = append(args, "-mdns-services="+f.mdnsServices)
 	}

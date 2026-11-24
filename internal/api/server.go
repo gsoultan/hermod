@@ -60,6 +60,7 @@ import (
 	sourcehttp "github.com/gsoultan/hermod/internal/source/transport/http"
 	ssehttp "github.com/gsoultan/hermod/internal/sse/transport/http"
 	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/internal/version"
 	webhookshttp "github.com/gsoultan/hermod/internal/webhooks/transport/http"
 	workerhttp "github.com/gsoultan/hermod/internal/worker/transport/http"
 	builderhttp "github.com/gsoultan/hermod/internal/workflow/builder/transport/http"
@@ -507,6 +508,9 @@ func (s *Server) newGRPCServer() *googlegrpc.Server {
 	// of the moment, as the API keys above are, and what it reads goes to
 	// the Agent sources of the workflows running in this process.
 	agenthub.Default.SetStore(func() any { return s.currentStorage() })
+	// Agents started with -allow-update are offered this release when they
+	// run an older one; a development build offers nothing.
+	agenthub.Default.SetAgentRelease(version.Version)
 	agentpb.RegisterAgentServiceServer(s.GrpcServer, agenthub.Default)
 	return s.GrpcServer
 }
