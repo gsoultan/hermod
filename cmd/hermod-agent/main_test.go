@@ -64,3 +64,23 @@ func TestPlaintextToARemoteServerIsRefused(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestDiscoveryFlags(t *testing.T) {
+	f, err := parseFlags([]string{"-server", "h:1"}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.mdnsServices != defaultMDNSServices || f.scanSubnet != "" {
+		t.Fatalf("defaults: mDNS %q, scan %q; the scan must be opt-in", f.mdnsServices, f.scanSubnet)
+	}
+	for _, bad := range [][]string{
+		{"-server", "h:1", "-scan-subnet", "10.0.0.0/8"},
+		{"-server", "h:1", "-scan-subnet", "nope"},
+		{"-server", "h:1", "-mdns-services", "has space"},
+		{"-server", "h:1", "-discover-interval", "1s"},
+	} {
+		if _, err := parseFlags(bad, &bytes.Buffer{}); err == nil {
+			t.Errorf("%q was accepted", bad)
+		}
+	}
+}

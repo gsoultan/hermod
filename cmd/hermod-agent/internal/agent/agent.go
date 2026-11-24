@@ -19,6 +19,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -52,6 +53,18 @@ type Options struct {
 	ScanInterval time.Duration
 	// Lister lists serial ports; default the operating system's.
 	Lister detect.Lister
+	// MDNSServices are the mDNS service types to look for, such as
+	// "_modbus._tcp"; none turns mDNS discovery off. MDNSAddress is where
+	// queries go, default the mDNS group (tests point it elsewhere).
+	MDNSServices []string
+	MDNSAddress  string
+	// ScanSubnets, when set, are scanned for ScanPort (default 502, Modbus
+	// TCP). Off unless the operator names them.
+	ScanSubnets []netip.Prefix
+	ScanPort    uint16
+	// DiscoverInterval is how often both run; default 5 minutes.
+	DiscoverInterval time.Duration
+
 	// Dialer and uplink backoff are for tests.
 	Dialer                 func(ctx context.Context, addr string) (net.Conn, error)
 	MinBackoff, MaxBackoff time.Duration
@@ -81,6 +94,7 @@ func Run(ctx context.Context, opt Options) error {
 	var wg sync.WaitGroup
 	wg.Go(func() { a.batch.run(ctx) })
 	wg.Go(func() { a.watcher.Run(ctx) })
+	wg.Go(func() { a.discovery.run(ctx) })
 	if cached, err := loadSettings(opt.DataDir); err != nil {
 		opt.Log.Warn("cached device settings unreadable; waiting for the server", "err", err)
 	} else if cached != nil {
@@ -93,13 +107,14 @@ func Run(ctx context.Context, opt Options) error {
 }
 
 type agent struct {
-	opt      Options
-	sp       *spool.Spool
-	batch    *batcher
-	watcher  *detect.Watcher
-	readers  *readers
-	oversize atomic.Uint64
-	changed  chan struct{}
+	opt       Options
+	sp        *spool.Spool
+	batch     *batcher
+	watcher   *detect.Watcher
+	readers   *readers
+	discovery *discovery
+	oversize  atomic.Uint64
+	changed   chan struct{}
 }
 
 func newAgent(ctx context.Context, opt Options, sp *spool.Spool) *agent {
@@ -109,6 +124,7 @@ func newAgent(ctx context.Context, opt Options, sp *spool.Spool) *agent {
 		a.batch.add(ctx, spool.Record{DeviceID: deviceID, Port: port, ReceivedAt: at.UnixNano(), Raw: raw})
 	}
 	a.readers = newReaders(ctx, opt.Log, emit, a.watcher.Resolve, &a.oversize, a.devicesChanged)
+	a.discovery = newDiscovery(opt, a.devicesChanged)
 	return a
 }
 
@@ -120,7 +136,19 @@ func (a *agent) devicesChanged() {
 }
 
 func (a *agent) devices() []*pb.Device {
-	return append(detect.Convert(a.watcher.Devices()), a.readers.networkDevices()...)
+	network := a.readers.networkDevices()
+	claimed := map[string]bool{}
+	for _, d := range network {
+		claimed[d.GetPort()] = true
+	}
+	out := append(detect.Convert(a.watcher.Devices()), network...)
+	// A found device already claimed by its address is listed once.
+	for _, d := range a.discovery.devices() {
+		if !claimed[d.GetPort()] {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 func (a *agent) uplinkConfig() uplink.Config {

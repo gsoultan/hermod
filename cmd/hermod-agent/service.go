@@ -107,6 +107,15 @@ func serviceArgs(f flags) ([]string, error) {
 	if f.plaintext {
 		args = append(args, "-plaintext")
 	}
+	if f.mdnsServices != defaultMDNSServices {
+		args = append(args, "-mdns-services="+f.mdnsServices)
+	}
+	if f.scanSubnet != "" {
+		args = append(args, "-scan-subnet", f.scanSubnet)
+	}
+	if f.discoverInterval != defaultDiscoverInterval {
+		args = append(args, "-discover-interval", f.discoverInterval.String())
+	}
 	return args, nil
 }
 

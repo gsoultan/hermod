@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/netip"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -32,11 +33,13 @@ import (
 	"slices"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/kardianos/service"
 	"google.golang.org/grpc/credentials"
 
 	"github.com/gsoultan/hermod/cmd/hermod-agent/internal/agent"
+	"github.com/gsoultan/hermod/cmd/hermod-agent/internal/discover"
 	"github.com/gsoultan/hermod/cmd/hermod-agent/internal/spool"
 	"github.com/gsoultan/hermod/cmd/hermod-agent/internal/uplink"
 )
@@ -54,6 +57,32 @@ type flags struct {
 	// service is a -service action: install, uninstall, start, stop,
 	// restart or status. Empty runs the agent.
 	service string
+
+	// Discovery: mDNS service types (empty turns it off), the opt-in
+	// subnets to scan for Modbus, and how often.
+	mdnsServices, scanSubnet string
+	discoverInterval         time.Duration
+	scanPrefixes             []netip.Prefix
+}
+
+// defaultMDNSServices are what ESP32 firmware and Modbus gateways announce.
+const defaultMDNSServices = "_hermod._tcp,_modbus._tcp"
+
+// minDiscoverInterval keeps discovery from flooding the LAN.
+const (
+	minDiscoverInterval     = time.Minute
+	defaultDiscoverInterval = 5 * time.Minute
+)
+
+// mdnsServiceList splits -mdns-services.
+func mdnsServiceList(s string) []string {
+	var out []string
+	for _, e := range strings.Split(s, ",") {
+		if e = strings.TrimSpace(e); e != "" {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 func parseFlags(args []string, out io.Writer) (flags, error) {
@@ -68,8 +97,33 @@ func parseFlags(args []string, out io.Writer) (flags, error) {
 	fs.Int64Var(&f.spoolMaxMB, "spool-max-mb", 1024, "largest the spool may grow on disk, in MiB")
 	fs.BoolVar(&f.showVersion, "version", false, "print the version and exit")
 	fs.StringVar(&f.service, "service", "", "manage the agent as a system service: "+strings.Join(serviceActions, ", "))
+	fs.StringVar(&f.mdnsServices, "mdns-services", defaultMDNSServices, "mDNS service types to look for on the LAN, comma-separated; empty turns mDNS discovery off")
+	fs.StringVar(&f.scanSubnet, "scan-subnet", "", "IPv4 ranges to scan for Modbus TCP (port 502), comma-separated, at most 4096 addresses; off unless set")
+	fs.DurationVar(&f.discoverInterval, "discover-interval", defaultDiscoverInterval, "how often to look for LAN devices; at least 1m")
 	if err := fs.Parse(args); err != nil {
 		return f, err
+	}
+	for _, s := range mdnsServiceList(f.mdnsServices) {
+		if !strings.HasPrefix(s, "_") || strings.ContainsAny(s, " /") || !strings.HasSuffix(s, "._tcp") && !strings.HasSuffix(s, "._udp") {
+			return f, fmt.Errorf("-mdns-services %q: a service type looks like _modbus._tcp", s)
+		}
+	}
+	if f.scanSubnet != "" {
+		prefixes, err := discover.ParsePrefixes(f.scanSubnet)
+		if err != nil {
+			return f, fmt.Errorf("-scan-subnet: %w", err)
+		}
+		total := 0
+		for _, p := range prefixes {
+			total += 1 << (32 - p.Bits())
+		}
+		if total > discover.MaxScanHosts {
+			return f, fmt.Errorf("-scan-subnet covers %d addresses; at most %d", total, discover.MaxScanHosts)
+		}
+		f.scanPrefixes = prefixes
+	}
+	if f.discoverInterval < minDiscoverInterval {
+		return f, fmt.Errorf("-discover-interval must be at least %s", minDiscoverInterval)
 	}
 	if f.service != "" && !slices.Contains(serviceActions, f.service) {
 		return f, fmt.Errorf("-service %q: want one of %s", f.service, strings.Join(serviceActions, ", "))
@@ -176,6 +230,10 @@ func runAgent(ctx context.Context, f flags, token string, creds credentials.Tran
 		Version: version,
 		Spool:   spool.Options{MaxBytes: f.spoolMaxMB << 20},
 		Log:     log,
+
+		MDNSServices:     mdnsServiceList(f.mdnsServices),
+		ScanSubnets:      f.scanPrefixes,
+		DiscoverInterval: f.discoverInterval,
 	})
 }
 
