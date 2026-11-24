@@ -134,6 +134,7 @@ func (a *agent) uplinkConfig() uplink.Config {
 		Devices:        a.devices,
 		DevicesChanged: a.changed,
 		OnSettings:     a.onSettings,
+		OnCommand:      a.readers.command,
 		Heartbeat:      func(hb *pb.Heartbeat) { hb.OversizeDropped = a.oversize.Load() },
 		OnState:        a.onState,
 		MinBackoff:     a.opt.MinBackoff,

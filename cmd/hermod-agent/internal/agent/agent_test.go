@@ -31,9 +31,13 @@ type server struct {
 	pb.UnimplementedAgentServiceServer
 	settings *pb.DeviceSettingsList
 
+	// commands are sent to the agent as the test pushes them.
+	commands chan *pb.Command
+
 	mu      sync.Mutex
 	records []*pb.Record
 	devices []*pb.Device
+	results []*pb.CommandResult
 }
 
 func (s *server) Connect(st grpc.BidiStreamingServer[pb.ConnectRequest, pb.ConnectResponse]) error {
@@ -44,6 +48,18 @@ func (s *server) Connect(st grpc.BidiStreamingServer[pb.ConnectRequest, pb.Conne
 	if s.settings != nil {
 		_ = st.Send(&pb.ConnectResponse{Body: &pb.ConnectResponse_Settings{Settings: s.settings}})
 	}
+	if s.commands != nil {
+		go func() {
+			for {
+				select {
+				case c := <-s.commands:
+					_ = st.Send(&pb.ConnectResponse{Body: &pb.ConnectResponse_Command{Command: c}})
+				case <-st.Context().Done():
+					return
+				}
+			}
+		}()
+	}
 	for {
 		m, err := st.Recv()
 		if err != nil {
@@ -52,6 +68,9 @@ func (s *server) Connect(st grpc.BidiStreamingServer[pb.ConnectRequest, pb.Conne
 		s.mu.Lock()
 		if d := m.GetDevices(); d != nil {
 			s.devices = d.GetDevices()
+		}
+		if r := m.GetCommandResult(); r != nil {
+			s.results = append(s.results, r)
 		}
 		recs := m.GetRecords().GetRecords()
 		s.records = append(s.records, recs...)

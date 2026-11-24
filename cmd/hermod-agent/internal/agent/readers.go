@@ -49,6 +49,7 @@ type running struct {
 	done     chan struct{}
 	status   atomic.Int32
 	port     atomic.Value // string
+	link     *reader.Link
 }
 
 func newReaders(ctx context.Context, log *slog.Logger, emit emitFunc, resolve func(string) (string, bool), oversize *atomic.Uint64, changed func()) *readers {
@@ -108,12 +109,13 @@ func (r *readers) stopAll() {
 
 func (r *readers) start(s *pb.DeviceSettings) *running {
 	ctx, cancel := context.WithCancel(r.ctx)
-	run := &running{settings: proto.CloneOf(s), cancel: cancel, done: make(chan struct{})}
+	run := &running{settings: proto.CloneOf(s), cancel: cancel, done: make(chan struct{}), link: reader.NewLink()}
 	run.port.Store("")
 	id := s.GetDeviceId()
 	cfg := reader.Config{
 		Framing:  s.GetFraming(),
 		Oversize: r.oversize,
+		Link:     run.link,
 		Emit: func(raw []byte, port string, at time.Time) {
 			r.emit(id, raw, port, at)
 		},

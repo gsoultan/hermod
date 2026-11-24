@@ -37,6 +37,7 @@ message ConnectRequest {
     DeviceList devices = 2;
     RecordBatch records = 3;
     Heartbeat heartbeat = 4;
+    CommandResult command_result = 5;
   }
 }
 
@@ -46,6 +47,7 @@ message ConnectResponse {
     Welcome welcome = 1;
     Ack ack = 2;
     DeviceSettingsList settings = 3;
+    Command command = 4;
   }
 }
 
@@ -207,6 +209,9 @@ message DeviceSettings {
   Framing framing = 6;
   // False stops the reader without forgetting the settings.
   bool enabled = 7;
+  // True lets the server send this device commands. The agent refuses a
+  // command for a device without it, whatever the server says.
+  bool allow_commands = 8;
 }
 
 // DeviceSettingsList is every claimed device for this agent. Each one replaces
@@ -259,4 +264,39 @@ message Heartbeat {
   uint64 spool_dropped = 5;
   // Records dropped because they were longer than max_record_bytes.
   uint64 oversize_dropped = 6;
+}
+
+// Command asks the agent to write bytes to one of its devices. The agent
+// writes them as they are: it never interprets them or runs anything.
+message Command {
+  // Chosen by the server; the result carries it back.
+  string command_id = 1;
+  string device_id = 2;
+  // The bytes to write, at most 64 KiB.
+  bytes payload = 3;
+  // When above zero, the agent waits up to this long, at most 60000, for
+  // the next record the device sends and returns it as the reply. That
+  // record is also spooled as an ordinary reading.
+  uint32 reply_timeout_ms = 4;
+}
+
+enum CommandStatus {
+  COMMAND_STATUS_UNSPECIFIED = 0;
+  // The bytes were written and no reply was asked for.
+  COMMAND_STATUS_WRITTEN = 1;
+  // The bytes were written and the device replied in time.
+  COMMAND_STATUS_REPLIED = 2;
+  // Nothing was written, the write failed, or no reply came in time; error
+  // says which.
+  COMMAND_STATUS_FAILED = 3;
+}
+
+message CommandResult {
+  string command_id = 1;
+  CommandStatus status = 2;
+  bytes reply = 3;
+  string error = 4;
+  // False when the failure came before anything reached the device, so the
+  // command is safe to send again.
+  bool written = 5;
 }

@@ -319,6 +319,62 @@ func (FramingKind) EnumDescriptor() ([]byte, []int) {
 	return file_agent_proto_rawDescGZIP(), []int{4}
 }
 
+type CommandStatus int32
+
+const (
+	CommandStatus_COMMAND_STATUS_UNSPECIFIED CommandStatus = 0
+	// The bytes were written and no reply was asked for.
+	CommandStatus_COMMAND_STATUS_WRITTEN CommandStatus = 1
+	// The bytes were written and the device replied in time.
+	CommandStatus_COMMAND_STATUS_REPLIED CommandStatus = 2
+	// Nothing was written, the write failed, or no reply came in time; error
+	// says which.
+	CommandStatus_COMMAND_STATUS_FAILED CommandStatus = 3
+)
+
+// Enum value maps for CommandStatus.
+var (
+	CommandStatus_name = map[int32]string{
+		0: "COMMAND_STATUS_UNSPECIFIED",
+		1: "COMMAND_STATUS_WRITTEN",
+		2: "COMMAND_STATUS_REPLIED",
+		3: "COMMAND_STATUS_FAILED",
+	}
+	CommandStatus_value = map[string]int32{
+		"COMMAND_STATUS_UNSPECIFIED": 0,
+		"COMMAND_STATUS_WRITTEN":     1,
+		"COMMAND_STATUS_REPLIED":     2,
+		"COMMAND_STATUS_FAILED":      3,
+	}
+)
+
+func (x CommandStatus) Enum() *CommandStatus {
+	p := new(CommandStatus)
+	*p = x
+	return p
+}
+
+func (x CommandStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (CommandStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_agent_proto_enumTypes[5].Descriptor()
+}
+
+func (CommandStatus) Type() protoreflect.EnumType {
+	return &file_agent_proto_enumTypes[5]
+}
+
+func (x CommandStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use CommandStatus.Descriptor instead.
+func (CommandStatus) EnumDescriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{5}
+}
+
 // ConnectRequest is anything the agent sends.
 type ConnectRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -328,6 +384,7 @@ type ConnectRequest struct {
 	//	*ConnectRequest_Devices
 	//	*ConnectRequest_Records
 	//	*ConnectRequest_Heartbeat
+	//	*ConnectRequest_CommandResult
 	Body          isConnectRequest_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -406,6 +463,15 @@ func (x *ConnectRequest) GetHeartbeat() *Heartbeat {
 	return nil
 }
 
+func (x *ConnectRequest) GetCommandResult() *CommandResult {
+	if x != nil {
+		if x, ok := x.Body.(*ConnectRequest_CommandResult); ok {
+			return x.CommandResult
+		}
+	}
+	return nil
+}
+
 type isConnectRequest_Body interface {
 	isConnectRequest_Body()
 }
@@ -426,6 +492,10 @@ type ConnectRequest_Heartbeat struct {
 	Heartbeat *Heartbeat `protobuf:"bytes,4,opt,name=heartbeat,proto3,oneof"`
 }
 
+type ConnectRequest_CommandResult struct {
+	CommandResult *CommandResult `protobuf:"bytes,5,opt,name=command_result,json=commandResult,proto3,oneof"`
+}
+
 func (*ConnectRequest_Hello) isConnectRequest_Body() {}
 
 func (*ConnectRequest_Devices) isConnectRequest_Body() {}
@@ -433,6 +503,8 @@ func (*ConnectRequest_Devices) isConnectRequest_Body() {}
 func (*ConnectRequest_Records) isConnectRequest_Body() {}
 
 func (*ConnectRequest_Heartbeat) isConnectRequest_Body() {}
+
+func (*ConnectRequest_CommandResult) isConnectRequest_Body() {}
 
 // ConnectResponse is anything the server sends.
 type ConnectResponse struct {
@@ -442,6 +514,7 @@ type ConnectResponse struct {
 	//	*ConnectResponse_Welcome
 	//	*ConnectResponse_Ack
 	//	*ConnectResponse_Settings
+	//	*ConnectResponse_Command
 	Body          isConnectResponse_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -511,6 +584,15 @@ func (x *ConnectResponse) GetSettings() *DeviceSettingsList {
 	return nil
 }
 
+func (x *ConnectResponse) GetCommand() *Command {
+	if x != nil {
+		if x, ok := x.Body.(*ConnectResponse_Command); ok {
+			return x.Command
+		}
+	}
+	return nil
+}
+
 type isConnectResponse_Body interface {
 	isConnectResponse_Body()
 }
@@ -527,11 +609,17 @@ type ConnectResponse_Settings struct {
 	Settings *DeviceSettingsList `protobuf:"bytes,3,opt,name=settings,proto3,oneof"`
 }
 
+type ConnectResponse_Command struct {
+	Command *Command `protobuf:"bytes,4,opt,name=command,proto3,oneof"`
+}
+
 func (*ConnectResponse_Welcome) isConnectResponse_Body() {}
 
 func (*ConnectResponse_Ack) isConnectResponse_Body() {}
 
 func (*ConnectResponse_Settings) isConnectResponse_Body() {}
+
+func (*ConnectResponse_Command) isConnectResponse_Body() {}
 
 // Hello is the first message on every stream.
 type Hello struct {
@@ -1089,7 +1177,10 @@ type DeviceSettings struct {
 	Tcp     *TcpSettings    `protobuf:"bytes,5,opt,name=tcp,proto3" json:"tcp,omitempty"`
 	Framing *Framing        `protobuf:"bytes,6,opt,name=framing,proto3" json:"framing,omitempty"`
 	// False stops the reader without forgetting the settings.
-	Enabled       bool `protobuf:"varint,7,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	Enabled bool `protobuf:"varint,7,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	// True lets the server send this device commands. The agent refuses a
+	// command for a device without it, whatever the server says.
+	AllowCommands bool `protobuf:"varint,8,opt,name=allow_commands,json=allowCommands,proto3" json:"allow_commands,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1169,6 +1260,13 @@ func (x *DeviceSettings) GetFraming() *Framing {
 func (x *DeviceSettings) GetEnabled() bool {
 	if x != nil {
 		return x.Enabled
+	}
+	return false
+}
+
+func (x *DeviceSettings) GetAllowCommands() bool {
+	if x != nil {
+		return x.AllowCommands
 	}
 	return false
 }
@@ -1488,21 +1586,176 @@ func (x *Heartbeat) GetOversizeDropped() uint64 {
 	return 0
 }
 
+// Command asks the agent to write bytes to one of its devices. The agent
+// writes them as they are: it never interprets them or runs anything.
+type Command struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Chosen by the server; the result carries it back.
+	CommandId string `protobuf:"bytes,1,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
+	DeviceId  string `protobuf:"bytes,2,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	// The bytes to write, at most 64 KiB.
+	Payload []byte `protobuf:"bytes,3,opt,name=payload,proto3" json:"payload,omitempty"`
+	// When above zero, the agent waits up to this long, at most 60000, for
+	// the next record the device sends and returns it as the reply. That
+	// record is also spooled as an ordinary reading.
+	ReplyTimeoutMs uint32 `protobuf:"varint,4,opt,name=reply_timeout_ms,json=replyTimeoutMs,proto3" json:"reply_timeout_ms,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *Command) Reset() {
+	*x = Command{}
+	mi := &file_agent_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Command) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Command) ProtoMessage() {}
+
+func (x *Command) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Command.ProtoReflect.Descriptor instead.
+func (*Command) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *Command) GetCommandId() string {
+	if x != nil {
+		return x.CommandId
+	}
+	return ""
+}
+
+func (x *Command) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+func (x *Command) GetPayload() []byte {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *Command) GetReplyTimeoutMs() uint32 {
+	if x != nil {
+		return x.ReplyTimeoutMs
+	}
+	return 0
+}
+
+type CommandResult struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	CommandId string                 `protobuf:"bytes,1,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
+	Status    CommandStatus          `protobuf:"varint,2,opt,name=status,proto3,enum=hermod.agent.v1.CommandStatus" json:"status,omitempty"`
+	Reply     []byte                 `protobuf:"bytes,3,opt,name=reply,proto3" json:"reply,omitempty"`
+	Error     string                 `protobuf:"bytes,4,opt,name=error,proto3" json:"error,omitempty"`
+	// False when the failure came before anything reached the device, so the
+	// command is safe to send again.
+	Written       bool `protobuf:"varint,5,opt,name=written,proto3" json:"written,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CommandResult) Reset() {
+	*x = CommandResult{}
+	mi := &file_agent_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CommandResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CommandResult) ProtoMessage() {}
+
+func (x *CommandResult) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CommandResult.ProtoReflect.Descriptor instead.
+func (*CommandResult) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *CommandResult) GetCommandId() string {
+	if x != nil {
+		return x.CommandId
+	}
+	return ""
+}
+
+func (x *CommandResult) GetStatus() CommandStatus {
+	if x != nil {
+		return x.Status
+	}
+	return CommandStatus_COMMAND_STATUS_UNSPECIFIED
+}
+
+func (x *CommandResult) GetReply() []byte {
+	if x != nil {
+		return x.Reply
+	}
+	return nil
+}
+
+func (x *CommandResult) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *CommandResult) GetWritten() bool {
+	if x != nil {
+		return x.Written
+	}
+	return false
+}
+
 var File_agent_proto protoreflect.FileDescriptor
 
 const file_agent_proto_rawDesc = "" +
 	"\n" +
-	"\vagent.proto\x12\x0fhermod.agent.v1\"\xf7\x01\n" +
+	"\vagent.proto\x12\x0fhermod.agent.v1\"\xc0\x02\n" +
 	"\x0eConnectRequest\x12.\n" +
 	"\x05hello\x18\x01 \x01(\v2\x16.hermod.agent.v1.HelloH\x00R\x05hello\x127\n" +
 	"\adevices\x18\x02 \x01(\v2\x1b.hermod.agent.v1.DeviceListH\x00R\adevices\x128\n" +
 	"\arecords\x18\x03 \x01(\v2\x1c.hermod.agent.v1.RecordBatchH\x00R\arecords\x12:\n" +
-	"\theartbeat\x18\x04 \x01(\v2\x1a.hermod.agent.v1.HeartbeatH\x00R\theartbeatB\x06\n" +
-	"\x04body\"\xbc\x01\n" +
+	"\theartbeat\x18\x04 \x01(\v2\x1a.hermod.agent.v1.HeartbeatH\x00R\theartbeat\x12G\n" +
+	"\x0ecommand_result\x18\x05 \x01(\v2\x1e.hermod.agent.v1.CommandResultH\x00R\rcommandResultB\x06\n" +
+	"\x04body\"\xf2\x01\n" +
 	"\x0fConnectResponse\x124\n" +
 	"\awelcome\x18\x01 \x01(\v2\x18.hermod.agent.v1.WelcomeH\x00R\awelcome\x12(\n" +
 	"\x03ack\x18\x02 \x01(\v2\x14.hermod.agent.v1.AckH\x00R\x03ack\x12A\n" +
-	"\bsettings\x18\x03 \x01(\v2#.hermod.agent.v1.DeviceSettingsListH\x00R\bsettingsB\x06\n" +
+	"\bsettings\x18\x03 \x01(\v2#.hermod.agent.v1.DeviceSettingsListH\x00R\bsettings\x124\n" +
+	"\acommand\x18\x04 \x01(\v2\x18.hermod.agent.v1.CommandH\x00R\acommandB\x06\n" +
 	"\x04body\"\x99\x01\n" +
 	"\x05Hello\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\tR\aversion\x12\x1a\n" +
@@ -1545,7 +1798,7 @@ const file_agent_proto_rawDesc = "" +
 	"\vprefix_size\x18\x06 \x01(\rR\n" +
 	"prefixSize\x12\x17\n" +
 	"\aidle_ms\x18\a \x01(\rR\x06idleMs\x12(\n" +
-	"\x10max_record_bytes\x18\b \x01(\rR\x0emaxRecordBytes\"\xa9\x02\n" +
+	"\x10max_record_bytes\x18\b \x01(\rR\x0emaxRecordBytes\"\xd0\x02\n" +
 	"\x0eDeviceSettings\x12\x1b\n" +
 	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12/\n" +
 	"\x04kind\x18\x02 \x01(\x0e2\x1b.hermod.agent.v1.DeviceKindR\x04kind\x12\x12\n" +
@@ -1553,7 +1806,8 @@ const file_agent_proto_rawDesc = "" +
 	"\x06serial\x18\x04 \x01(\v2\x1f.hermod.agent.v1.SerialSettingsR\x06serial\x12.\n" +
 	"\x03tcp\x18\x05 \x01(\v2\x1c.hermod.agent.v1.TcpSettingsR\x03tcp\x122\n" +
 	"\aframing\x18\x06 \x01(\v2\x18.hermod.agent.v1.FramingR\aframing\x12\x18\n" +
-	"\aenabled\x18\a \x01(\bR\aenabled\"O\n" +
+	"\aenabled\x18\a \x01(\bR\aenabled\x12%\n" +
+	"\x0eallow_commands\x18\b \x01(\bR\rallowCommands\"O\n" +
 	"\x12DeviceSettingsList\x129\n" +
 	"\adevices\x18\x01 \x03(\v2\x1f.hermod.agent.v1.DeviceSettingsR\adevices\"\x90\x01\n" +
 	"\x06Record\x12\x10\n" +
@@ -1573,7 +1827,20 @@ const file_agent_proto_rawDesc = "" +
 	"spoolBytes\x12/\n" +
 	"\x14spool_oldest_unix_ms\x18\x04 \x01(\x03R\x11spoolOldestUnixMs\x12#\n" +
 	"\rspool_dropped\x18\x05 \x01(\x04R\fspoolDropped\x12)\n" +
-	"\x10oversize_dropped\x18\x06 \x01(\x04R\x0foversizeDropped*V\n" +
+	"\x10oversize_dropped\x18\x06 \x01(\x04R\x0foversizeDropped\"\x89\x01\n" +
+	"\aCommand\x12\x1d\n" +
+	"\n" +
+	"command_id\x18\x01 \x01(\tR\tcommandId\x12\x1b\n" +
+	"\tdevice_id\x18\x02 \x01(\tR\bdeviceId\x12\x18\n" +
+	"\apayload\x18\x03 \x01(\fR\apayload\x12(\n" +
+	"\x10reply_timeout_ms\x18\x04 \x01(\rR\x0ereplyTimeoutMs\"\xac\x01\n" +
+	"\rCommandResult\x12\x1d\n" +
+	"\n" +
+	"command_id\x18\x01 \x01(\tR\tcommandId\x126\n" +
+	"\x06status\x18\x02 \x01(\x0e2\x1e.hermod.agent.v1.CommandStatusR\x06status\x12\x14\n" +
+	"\x05reply\x18\x03 \x01(\fR\x05reply\x12\x14\n" +
+	"\x05error\x18\x04 \x01(\tR\x05error\x12\x18\n" +
+	"\awritten\x18\x05 \x01(\bR\awritten*V\n" +
 	"\n" +
 	"DeviceKind\x12\x1b\n" +
 	"\x17DEVICE_KIND_UNSPECIFIED\x10\x00\x12\x16\n" +
@@ -1603,7 +1870,12 @@ const file_agent_proto_rawDesc = "" +
 	"\x19FRAMING_KIND_FIXED_LENGTH\x10\x03\x12\x1a\n" +
 	"\x16FRAMING_KIND_START_END\x10\x04\x12\x1e\n" +
 	"\x1aFRAMING_KIND_LENGTH_PREFIX\x10\x05\x12\x19\n" +
-	"\x15FRAMING_KIND_IDLE_GAP\x10\x062`\n" +
+	"\x15FRAMING_KIND_IDLE_GAP\x10\x06*\x82\x01\n" +
+	"\rCommandStatus\x12\x1e\n" +
+	"\x1aCOMMAND_STATUS_UNSPECIFIED\x10\x00\x12\x1a\n" +
+	"\x16COMMAND_STATUS_WRITTEN\x10\x01\x12\x1a\n" +
+	"\x16COMMAND_STATUS_REPLIED\x10\x02\x12\x19\n" +
+	"\x15COMMAND_STATUS_FAILED\x10\x032`\n" +
 	"\fAgentService\x12P\n" +
 	"\aConnect\x12\x1f.hermod.agent.v1.ConnectRequest\x1a .hermod.agent.v1.ConnectResponse(\x010\x01B,Z*github.com/gsoultan/hermod/pkg/agent/protob\x06proto3"
 
@@ -1619,57 +1891,63 @@ func file_agent_proto_rawDescGZIP() []byte {
 	return file_agent_proto_rawDescData
 }
 
-var file_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
+var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_agent_proto_goTypes = []any{
 	(DeviceKind)(0),            // 0: hermod.agent.v1.DeviceKind
 	(Parity)(0),                // 1: hermod.agent.v1.Parity
 	(StopBits)(0),              // 2: hermod.agent.v1.StopBits
 	(TcpMode)(0),               // 3: hermod.agent.v1.TcpMode
 	(FramingKind)(0),           // 4: hermod.agent.v1.FramingKind
-	(*ConnectRequest)(nil),     // 5: hermod.agent.v1.ConnectRequest
-	(*ConnectResponse)(nil),    // 6: hermod.agent.v1.ConnectResponse
-	(*Hello)(nil),              // 7: hermod.agent.v1.Hello
-	(*Welcome)(nil),            // 8: hermod.agent.v1.Welcome
-	(*Device)(nil),             // 9: hermod.agent.v1.Device
-	(*DeviceList)(nil),         // 10: hermod.agent.v1.DeviceList
-	(*SerialSettings)(nil),     // 11: hermod.agent.v1.SerialSettings
-	(*TcpSettings)(nil),        // 12: hermod.agent.v1.TcpSettings
-	(*Framing)(nil),            // 13: hermod.agent.v1.Framing
-	(*DeviceSettings)(nil),     // 14: hermod.agent.v1.DeviceSettings
-	(*DeviceSettingsList)(nil), // 15: hermod.agent.v1.DeviceSettingsList
-	(*Record)(nil),             // 16: hermod.agent.v1.Record
-	(*RecordBatch)(nil),        // 17: hermod.agent.v1.RecordBatch
-	(*Ack)(nil),                // 18: hermod.agent.v1.Ack
-	(*Heartbeat)(nil),          // 19: hermod.agent.v1.Heartbeat
+	(CommandStatus)(0),         // 5: hermod.agent.v1.CommandStatus
+	(*ConnectRequest)(nil),     // 6: hermod.agent.v1.ConnectRequest
+	(*ConnectResponse)(nil),    // 7: hermod.agent.v1.ConnectResponse
+	(*Hello)(nil),              // 8: hermod.agent.v1.Hello
+	(*Welcome)(nil),            // 9: hermod.agent.v1.Welcome
+	(*Device)(nil),             // 10: hermod.agent.v1.Device
+	(*DeviceList)(nil),         // 11: hermod.agent.v1.DeviceList
+	(*SerialSettings)(nil),     // 12: hermod.agent.v1.SerialSettings
+	(*TcpSettings)(nil),        // 13: hermod.agent.v1.TcpSettings
+	(*Framing)(nil),            // 14: hermod.agent.v1.Framing
+	(*DeviceSettings)(nil),     // 15: hermod.agent.v1.DeviceSettings
+	(*DeviceSettingsList)(nil), // 16: hermod.agent.v1.DeviceSettingsList
+	(*Record)(nil),             // 17: hermod.agent.v1.Record
+	(*RecordBatch)(nil),        // 18: hermod.agent.v1.RecordBatch
+	(*Ack)(nil),                // 19: hermod.agent.v1.Ack
+	(*Heartbeat)(nil),          // 20: hermod.agent.v1.Heartbeat
+	(*Command)(nil),            // 21: hermod.agent.v1.Command
+	(*CommandResult)(nil),      // 22: hermod.agent.v1.CommandResult
 }
 var file_agent_proto_depIdxs = []int32{
-	7,  // 0: hermod.agent.v1.ConnectRequest.hello:type_name -> hermod.agent.v1.Hello
-	10, // 1: hermod.agent.v1.ConnectRequest.devices:type_name -> hermod.agent.v1.DeviceList
-	17, // 2: hermod.agent.v1.ConnectRequest.records:type_name -> hermod.agent.v1.RecordBatch
-	19, // 3: hermod.agent.v1.ConnectRequest.heartbeat:type_name -> hermod.agent.v1.Heartbeat
-	8,  // 4: hermod.agent.v1.ConnectResponse.welcome:type_name -> hermod.agent.v1.Welcome
-	18, // 5: hermod.agent.v1.ConnectResponse.ack:type_name -> hermod.agent.v1.Ack
-	15, // 6: hermod.agent.v1.ConnectResponse.settings:type_name -> hermod.agent.v1.DeviceSettingsList
-	0,  // 7: hermod.agent.v1.Device.kind:type_name -> hermod.agent.v1.DeviceKind
-	9,  // 8: hermod.agent.v1.DeviceList.devices:type_name -> hermod.agent.v1.Device
-	1,  // 9: hermod.agent.v1.SerialSettings.parity:type_name -> hermod.agent.v1.Parity
-	2,  // 10: hermod.agent.v1.SerialSettings.stop_bits:type_name -> hermod.agent.v1.StopBits
-	3,  // 11: hermod.agent.v1.TcpSettings.mode:type_name -> hermod.agent.v1.TcpMode
-	4,  // 12: hermod.agent.v1.Framing.kind:type_name -> hermod.agent.v1.FramingKind
-	0,  // 13: hermod.agent.v1.DeviceSettings.kind:type_name -> hermod.agent.v1.DeviceKind
-	11, // 14: hermod.agent.v1.DeviceSettings.serial:type_name -> hermod.agent.v1.SerialSettings
-	12, // 15: hermod.agent.v1.DeviceSettings.tcp:type_name -> hermod.agent.v1.TcpSettings
-	13, // 16: hermod.agent.v1.DeviceSettings.framing:type_name -> hermod.agent.v1.Framing
-	14, // 17: hermod.agent.v1.DeviceSettingsList.devices:type_name -> hermod.agent.v1.DeviceSettings
-	16, // 18: hermod.agent.v1.RecordBatch.records:type_name -> hermod.agent.v1.Record
-	5,  // 19: hermod.agent.v1.AgentService.Connect:input_type -> hermod.agent.v1.ConnectRequest
-	6,  // 20: hermod.agent.v1.AgentService.Connect:output_type -> hermod.agent.v1.ConnectResponse
-	20, // [20:21] is the sub-list for method output_type
-	19, // [19:20] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	8,  // 0: hermod.agent.v1.ConnectRequest.hello:type_name -> hermod.agent.v1.Hello
+	11, // 1: hermod.agent.v1.ConnectRequest.devices:type_name -> hermod.agent.v1.DeviceList
+	18, // 2: hermod.agent.v1.ConnectRequest.records:type_name -> hermod.agent.v1.RecordBatch
+	20, // 3: hermod.agent.v1.ConnectRequest.heartbeat:type_name -> hermod.agent.v1.Heartbeat
+	22, // 4: hermod.agent.v1.ConnectRequest.command_result:type_name -> hermod.agent.v1.CommandResult
+	9,  // 5: hermod.agent.v1.ConnectResponse.welcome:type_name -> hermod.agent.v1.Welcome
+	19, // 6: hermod.agent.v1.ConnectResponse.ack:type_name -> hermod.agent.v1.Ack
+	16, // 7: hermod.agent.v1.ConnectResponse.settings:type_name -> hermod.agent.v1.DeviceSettingsList
+	21, // 8: hermod.agent.v1.ConnectResponse.command:type_name -> hermod.agent.v1.Command
+	0,  // 9: hermod.agent.v1.Device.kind:type_name -> hermod.agent.v1.DeviceKind
+	10, // 10: hermod.agent.v1.DeviceList.devices:type_name -> hermod.agent.v1.Device
+	1,  // 11: hermod.agent.v1.SerialSettings.parity:type_name -> hermod.agent.v1.Parity
+	2,  // 12: hermod.agent.v1.SerialSettings.stop_bits:type_name -> hermod.agent.v1.StopBits
+	3,  // 13: hermod.agent.v1.TcpSettings.mode:type_name -> hermod.agent.v1.TcpMode
+	4,  // 14: hermod.agent.v1.Framing.kind:type_name -> hermod.agent.v1.FramingKind
+	0,  // 15: hermod.agent.v1.DeviceSettings.kind:type_name -> hermod.agent.v1.DeviceKind
+	12, // 16: hermod.agent.v1.DeviceSettings.serial:type_name -> hermod.agent.v1.SerialSettings
+	13, // 17: hermod.agent.v1.DeviceSettings.tcp:type_name -> hermod.agent.v1.TcpSettings
+	14, // 18: hermod.agent.v1.DeviceSettings.framing:type_name -> hermod.agent.v1.Framing
+	15, // 19: hermod.agent.v1.DeviceSettingsList.devices:type_name -> hermod.agent.v1.DeviceSettings
+	17, // 20: hermod.agent.v1.RecordBatch.records:type_name -> hermod.agent.v1.Record
+	5,  // 21: hermod.agent.v1.CommandResult.status:type_name -> hermod.agent.v1.CommandStatus
+	6,  // 22: hermod.agent.v1.AgentService.Connect:input_type -> hermod.agent.v1.ConnectRequest
+	7,  // 23: hermod.agent.v1.AgentService.Connect:output_type -> hermod.agent.v1.ConnectResponse
+	23, // [23:24] is the sub-list for method output_type
+	22, // [22:23] is the sub-list for method input_type
+	22, // [22:22] is the sub-list for extension type_name
+	22, // [22:22] is the sub-list for extension extendee
+	0,  // [0:22] is the sub-list for field type_name
 }
 
 func init() { file_agent_proto_init() }
@@ -1682,19 +1960,21 @@ func file_agent_proto_init() {
 		(*ConnectRequest_Devices)(nil),
 		(*ConnectRequest_Records)(nil),
 		(*ConnectRequest_Heartbeat)(nil),
+		(*ConnectRequest_CommandResult)(nil),
 	}
 	file_agent_proto_msgTypes[1].OneofWrappers = []any{
 		(*ConnectResponse_Welcome)(nil),
 		(*ConnectResponse_Ack)(nil),
 		(*ConnectResponse_Settings)(nil),
+		(*ConnectResponse_Command)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_proto_rawDesc), len(file_agent_proto_rawDesc)),
-			NumEnums:      5,
-			NumMessages:   15,
+			NumEnums:      6,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
