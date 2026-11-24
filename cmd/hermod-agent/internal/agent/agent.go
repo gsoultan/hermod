@@ -120,7 +120,7 @@ func (a *agent) devicesChanged() {
 }
 
 func (a *agent) devices() []*pb.Device {
-	return append(detect.Convert(a.watcher.Devices()), a.readers.tcpDevices()...)
+	return append(detect.Convert(a.watcher.Devices()), a.readers.networkDevices()...)
 }
 
 func (a *agent) uplinkConfig() uplink.Config {

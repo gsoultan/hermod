@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"strings"
 	"time"
 )
@@ -50,6 +51,9 @@ type Agent struct {
 const (
 	AgentDeviceSerial = "serial"
 	AgentDeviceTCP    = "tcp"
+	AgentDeviceUDP    = "udp"
+	AgentDeviceModbus = "modbus"
+	AgentDeviceHID    = "hid"
 )
 
 // AgentDevice is how the agent reads one claimed device.
@@ -59,9 +63,15 @@ type AgentDevice struct {
 	Name     string `json:"name,omitempty"`
 	// Enabled is whether the agent reads the device now. A claimed device
 	// that is not enabled keeps its settings and is left alone.
-	Enabled bool         `json:"enabled"`
-	Serial  *AgentSerial `json:"serial,omitempty"`
-	TCP     *AgentTCP    `json:"tcp,omitempty"`
+	Enabled bool `json:"enabled"`
+	// Serial is a serial device's line settings, and a Modbus RTU device's.
+	Serial *AgentSerial `json:"serial,omitempty"`
+	TCP    *AgentTCP    `json:"tcp,omitempty"`
+	UDP    *AgentUDP    `json:"udp,omitempty"`
+	Modbus *AgentModbus `json:"modbus,omitempty"`
+	HID    *AgentHID    `json:"hid,omitempty"`
+	// Framing applies to serial and TCP devices. A UDP datagram, a Modbus
+	// poll and a HID scan are already records; only the size limit applies.
 	Framing AgentFraming `json:"framing"`
 	// AllowCommands lets workflows send this device the Commands saved for
 	// it. Off, nothing is written to the device, whatever is saved.
@@ -83,6 +93,41 @@ type AgentSerial struct {
 type AgentTCP struct {
 	Address string `json:"address"`
 	Mode    string `json:"mode"`
+}
+
+// AgentUDP receives datagrams on Address. AllowFrom, when set, keeps only
+// datagrams from those addresses or CIDR ranges.
+type AgentUDP struct {
+	Address   string   `json:"address"`
+	AllowFrom []string `json:"allow_from,omitempty"`
+}
+
+// AgentModbus polls a register map. Transport tcp reaches Address; rtu uses
+// the device's serial settings. Each poll is one record: a JSON object with
+// each read's name and its values.
+type AgentModbus struct {
+	Transport      string            `json:"transport"`
+	Address        string            `json:"address,omitempty"`
+	UnitID         int               `json:"unit_id,omitempty"`
+	PollIntervalMS int               `json:"poll_interval_ms,omitempty"`
+	TimeoutMS      int               `json:"timeout_ms,omitempty"`
+	Reads          []AgentModbusRead `json:"reads"`
+}
+
+// AgentModbusRead is one block read on every poll. Table is coils,
+// discrete_inputs, holding_registers or input_registers; Address is zero
+// based.
+type AgentModbusRead struct {
+	Name    string `json:"name"`
+	Table   string `json:"table"`
+	Address int    `json:"address"`
+	Count   int    `json:"count"`
+}
+
+// AgentHID reads a USB HID device. Mode keyboard turns key presses into
+// text, one record per Enter (a barcode scanner); raw records each report.
+type AgentHID struct {
+	Mode string `json:"mode"`
 }
 
 // AgentFraming is how the agent cuts a device's byte stream into records.
@@ -133,6 +178,10 @@ type AgentPort struct {
 	// port: it does for a USB device with a serial number.
 	StableID bool `json:"stable_id"`
 	Present  bool `json:"present"`
+	// DiscoveredBy is "mdns" or "scan" for a LAN device the agent found by
+	// itself, which a user can then add; Service is its mDNS service type.
+	DiscoveredBy string `json:"discovered_by,omitempty"`
+	Service      string `json:"service,omitempty"`
 }
 
 // AgentSpool is the agent's disk spool: records read but not yet confirmed
@@ -201,28 +250,134 @@ func validateAgentDevice(d AgentDevice) error {
 	if len(d.Name) > maxAgentNameLen {
 		return fmt.Errorf("the name may be at most %d characters", maxAgentNameLen)
 	}
+	set := map[string]bool{"serial": d.Serial != nil, "tcp": d.TCP != nil, "udp": d.UDP != nil,
+		"modbus": d.Modbus != nil, "hid": d.HID != nil}
+	var err error
 	switch d.Kind {
 	case AgentDeviceSerial:
-		if d.TCP != nil {
-			return errors.New("a serial device has no TCP settings")
-		}
-		if err := validateAgentSerial(d.Serial); err != nil {
-			return err
-		}
+		err = validateAgentSerial(d.Serial)
 	case AgentDeviceTCP:
-		if d.Serial != nil {
-			return errors.New("a TCP device has no serial settings")
+		err = validateAgentTCP(d.TCP)
+	case AgentDeviceUDP:
+		err = validateAgentUDP(d.UDP)
+	case AgentDeviceModbus:
+		err = validateAgentModbus(d.Modbus, d.Serial)
+		if d.Modbus != nil && d.Modbus.Transport == "rtu" {
+			set["serial"] = false
 		}
-		if err := validateAgentTCP(d.TCP); err != nil {
-			return err
-		}
+	case AgentDeviceHID:
+		err = validateAgentHID(d.HID)
 	default:
-		return fmt.Errorf("unknown device kind %q (serial or tcp)", d.Kind)
+		return fmt.Errorf("unknown device kind %q (serial, tcp, udp, modbus or hid)", d.Kind)
+	}
+	if err != nil {
+		return err
+	}
+	set[d.Kind] = false
+	for _, other := range []string{"serial", "tcp", "udp", "modbus", "hid"} {
+		if set[other] {
+			return fmt.Errorf("a %s device has no %s settings", d.Kind, other)
+		}
 	}
 	if err := validateAgentFraming(d.Framing); err != nil {
 		return err
 	}
 	return validateAgentCommands(d.Commands)
+}
+
+func validateAgentUDP(u *AgentUDP) error {
+	if u == nil {
+		return errors.New("a UDP device needs an address to listen on")
+	}
+	if err := hostAndPort(u.Address); err != nil {
+		return err
+	}
+	if len(u.AllowFrom) > 64 {
+		return errors.New("allow_from may list at most 64 entries")
+	}
+	for _, e := range u.AllowFrom {
+		if _, err := netip.ParsePrefix(e); err == nil {
+			continue
+		}
+		if _, err := netip.ParseAddr(e); err != nil {
+			return fmt.Errorf("allow_from %q: not an address or CIDR range", e)
+		}
+	}
+	return nil
+}
+
+// Modbus limits, from the protocol: one read returns at most 125 registers
+// or 2000 coils, and unit ids run to 247.
+const (
+	maxModbusRegisters = 125
+	maxModbusBits      = 2000
+	maxModbusUnit      = 247
+	maxModbusReads     = 64
+	minModbusPollMS    = 100
+)
+
+var modbusTables = map[string]int{
+	"coils": maxModbusBits, "discrete_inputs": maxModbusBits,
+	"holding_registers": maxModbusRegisters, "input_registers": maxModbusRegisters,
+}
+
+func validateAgentModbus(m *AgentModbus, serial *AgentSerial) error {
+	if m == nil {
+		return errors.New("a Modbus device needs its Modbus settings")
+	}
+	switch m.Transport {
+	case "tcp":
+		if err := hostAndPort(m.Address); err != nil {
+			return err
+		}
+	case "rtu":
+		if m.Address != "" {
+			return errors.New("a Modbus RTU device has no address: it uses its serial port")
+		}
+		if err := validateAgentSerial(serial); err != nil {
+			return fmt.Errorf("the serial port for Modbus RTU: %w", err)
+		}
+	default:
+		return fmt.Errorf("unknown Modbus transport %q (tcp or rtu)", m.Transport)
+	}
+	switch {
+	case m.UnitID < 0 || m.UnitID > maxModbusUnit:
+		return fmt.Errorf("the unit id must be 0 to %d", maxModbusUnit)
+	case m.PollIntervalMS != 0 && (m.PollIntervalMS < minModbusPollMS || m.PollIntervalMS > 24*3600*1000):
+		return fmt.Errorf("the poll interval must be %d ms to a day", minModbusPollMS)
+	case m.TimeoutMS < 0 || m.TimeoutMS > 60000:
+		return errors.New("the timeout must be 0 (1 s) to 60000 ms")
+	case len(m.Reads) == 0 || len(m.Reads) > maxModbusReads:
+		return fmt.Errorf("a Modbus device needs 1 to %d reads", maxModbusReads)
+	}
+	names := map[string]bool{}
+	for _, r := range m.Reads {
+		limit, ok := modbusTables[r.Table]
+		switch {
+		case r.Name == "" || len(r.Name) > maxAgentNameLen:
+			return fmt.Errorf("each read needs a name of at most %d characters", maxAgentNameLen)
+		case names[r.Name]:
+			return fmt.Errorf("two reads are named %q", r.Name)
+		case !ok:
+			return fmt.Errorf("read %q: unknown table %q", r.Name, r.Table)
+		case r.Count < 1 || r.Count > limit:
+			return fmt.Errorf("read %q: the count must be 1 to %d", r.Name, limit)
+		case r.Address < 0 || r.Address+r.Count > 65536:
+			return fmt.Errorf("read %q: addresses run 0 to 65535", r.Name)
+		}
+		names[r.Name] = true
+	}
+	return nil
+}
+
+func validateAgentHID(h *AgentHID) error {
+	if h == nil {
+		return errors.New("a HID device needs its HID settings")
+	}
+	if h.Mode != "" && h.Mode != "keyboard" && h.Mode != "raw" {
+		return fmt.Errorf("unknown HID mode %q (keyboard or raw)", h.Mode)
+	}
+	return nil
 }
 
 func validateAgentSerial(s *AgentSerial) error {
@@ -252,14 +407,18 @@ func validateAgentTCP(t *AgentTCP) error {
 	if t.Mode != "client" && t.Mode != "listen" {
 		return fmt.Errorf("unknown TCP mode %q (client or listen)", t.Mode)
 	}
-	host, port, err := net.SplitHostPort(t.Address)
+	return hostAndPort(t.Address)
+}
+
+func hostAndPort(address string) error {
+	host, port, err := net.SplitHostPort(address)
 	if err != nil {
-		return fmt.Errorf("address %q: %w", t.Address, err)
+		return fmt.Errorf("address %q: %w", address, err)
 	}
 	// The agent refuses an empty host, which would listen on every
 	// interface: the user names one, even 0.0.0.0, so it is never an accident.
 	if host == "" || port == "" {
-		return fmt.Errorf("address %q needs a host and a port", t.Address)
+		return fmt.Errorf("address %q needs a host and a port", address)
 	}
 	return nil
 }

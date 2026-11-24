@@ -42,6 +42,23 @@ func deviceSettings(d storage.AgentDevice) *pb.DeviceSettings {
 	if d.TCP != nil {
 		s.Tcp = &pb.TcpSettings{Address: d.TCP.Address, Mode: tcpModes[d.TCP.Mode]}
 	}
+	if d.UDP != nil {
+		s.Udp = &pb.UdpSettings{Address: d.UDP.Address, AllowFrom: d.UDP.AllowFrom}
+	}
+	if m := d.Modbus; m != nil {
+		s.Modbus = &pb.ModbusSettings{
+			Transport: modbusTransports[m.Transport], Address: m.Address, UnitId: uint32(m.UnitID),
+			PollIntervalMs: uint32(m.PollIntervalMS), TimeoutMs: uint32(m.TimeoutMS),
+		}
+		for _, r := range m.Reads {
+			s.Modbus.Reads = append(s.Modbus.Reads, &pb.ModbusRead{
+				Name: r.Name, Table: modbusTables[r.Table], Address: uint32(r.Address), Count: uint32(r.Count),
+			})
+		}
+	}
+	if d.HID != nil {
+		s.Hid = &pb.HidSettings{Mode: hidModes[d.HID.Mode]}
+	}
 	return s
 }
 
@@ -56,6 +73,18 @@ var (
 	tcpModes = map[string]pb.TcpMode{
 		"client": pb.TcpMode_TCP_MODE_CLIENT, "listen": pb.TcpMode_TCP_MODE_LISTEN,
 	}
+	modbusTransports = map[string]pb.ModbusTransport{
+		"tcp": pb.ModbusTransport_MODBUS_TRANSPORT_TCP, "rtu": pb.ModbusTransport_MODBUS_TRANSPORT_RTU,
+	}
+	modbusTables = map[string]pb.ModbusTable{
+		"coils":             pb.ModbusTable_MODBUS_TABLE_COILS,
+		"discrete_inputs":   pb.ModbusTable_MODBUS_TABLE_DISCRETE_INPUTS,
+		"holding_registers": pb.ModbusTable_MODBUS_TABLE_HOLDING_REGISTERS,
+		"input_registers":   pb.ModbusTable_MODBUS_TABLE_INPUT_REGISTERS,
+	}
+	hidModes = map[string]pb.HidMode{
+		"keyboard": pb.HidMode_HID_MODE_KEYBOARD, "raw": pb.HidMode_HID_MODE_RAW,
+	}
 	framingKinds = map[string]pb.FramingKind{
 		storage.AgentFramingLine:         pb.FramingKind_FRAMING_KIND_LINE,
 		storage.AgentFramingDelimiter:    pb.FramingKind_FRAMING_KIND_DELIMITER,
@@ -66,22 +95,21 @@ var (
 	}
 )
 
-func deviceKind(kind string) pb.DeviceKind {
-	switch kind {
-	case storage.AgentDeviceSerial:
-		return pb.DeviceKind_DEVICE_KIND_SERIAL
-	case storage.AgentDeviceTCP:
-		return pb.DeviceKind_DEVICE_KIND_TCP
-	}
-	return pb.DeviceKind_DEVICE_KIND_UNSPECIFIED
+var deviceKinds = map[string]pb.DeviceKind{
+	storage.AgentDeviceSerial: pb.DeviceKind_DEVICE_KIND_SERIAL,
+	storage.AgentDeviceTCP:    pb.DeviceKind_DEVICE_KIND_TCP,
+	storage.AgentDeviceUDP:    pb.DeviceKind_DEVICE_KIND_UDP,
+	storage.AgentDeviceModbus: pb.DeviceKind_DEVICE_KIND_MODBUS,
+	storage.AgentDeviceHID:    pb.DeviceKind_DEVICE_KIND_HID,
 }
 
+func deviceKind(kind string) pb.DeviceKind { return deviceKinds[kind] }
+
 func kindName(kind pb.DeviceKind) string {
-	switch kind {
-	case pb.DeviceKind_DEVICE_KIND_SERIAL:
-		return storage.AgentDeviceSerial
-	case pb.DeviceKind_DEVICE_KIND_TCP:
-		return storage.AgentDeviceTCP
+	for name, k := range deviceKinds {
+		if k == kind {
+			return name
+		}
 	}
 	return ""
 }
@@ -107,6 +135,7 @@ func ports(list []*pb.Device) []storage.AgentPort {
 			DeviceID: d.GetDeviceId(), Kind: kindName(d.GetKind()), Port: d.GetPort(), VID: d.GetVid(),
 			PID: d.GetPid(), SerialNumber: d.GetSerialNumber(), Product: d.GetProduct(),
 			StableID: d.GetStableId(), Present: d.GetPresent(),
+			DiscoveredBy: d.GetDiscoveredBy(), Service: d.GetService(),
 		})
 	}
 	return out

@@ -139,6 +139,15 @@ func (r *readers) run(ctx context.Context, s *pb.DeviceSettings, cfg reader.Conf
 	case s.GetKind() == pb.DeviceKind_DEVICE_KIND_SERIAL:
 		cfg.Open = reader.SerialOpener(func() (string, bool) { return r.resolve(id) }, s.GetSerial())
 		reader.Run(ctx, cfg)
+	case s.GetKind() == pb.DeviceKind_DEVICE_KIND_UDP:
+		allow, _ := reader.ParseAllowList(s.GetUdp().GetAllowFrom()) // validated
+		var lc net.ListenConfig
+		pc, err := lc.ListenPacket(ctx, "udp", s.GetUdp().GetAddress())
+		if err != nil {
+			cfg.OnStatus(reader.StatusDisconnected, err)
+			return
+		}
+		reader.RunUDP(ctx, pc, allow, cfg)
 	case s.GetTcp().GetMode() == pb.TcpMode_TCP_MODE_LISTEN:
 		var lc net.ListenConfig
 		ln, err := lc.Listen(ctx, "tcp", s.GetTcp().GetAddress())
@@ -153,20 +162,29 @@ func (r *readers) run(ctx context.Context, s *pb.DeviceSettings, cfg reader.Conf
 	}
 }
 
-// tcpDevices describes the claimed TCP devices for the device list. A TCP
-// device is present while its reader is connected.
-func (r *readers) tcpDevices() []*pb.Device {
+// networkDevices describes the claimed LAN devices for the device list: TCP,
+// UDP and Modbus TCP. One is present while its reader is reading.
+func (r *readers) networkDevices() []*pb.Device {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	var out []*pb.Device
 	for id, run := range r.running {
-		if run.settings.GetKind() != pb.DeviceKind_DEVICE_KIND_TCP {
+		s := run.settings
+		var port string
+		switch {
+		case s.GetKind() == pb.DeviceKind_DEVICE_KIND_TCP:
+			port = s.GetTcp().GetAddress()
+		case s.GetKind() == pb.DeviceKind_DEVICE_KIND_UDP:
+			port = s.GetUdp().GetAddress()
+		case s.GetKind() == pb.DeviceKind_DEVICE_KIND_MODBUS && s.GetModbus().GetTransport() == pb.ModbusTransport_MODBUS_TRANSPORT_TCP:
+			port = s.GetModbus().GetAddress()
+		default:
 			continue
 		}
 		out = append(out, &pb.Device{
 			DeviceId: id,
-			Kind:     pb.DeviceKind_DEVICE_KIND_TCP,
-			Port:     run.settings.GetTcp().GetAddress(),
+			Kind:     s.GetKind(),
+			Port:     port,
 			StableId: true,
 			Present:  reader.Status(run.status.Load()) == reader.StatusReading,
 		})
@@ -194,15 +212,80 @@ func validate(s *pb.DeviceSettings) error {
 		return nil
 	case pb.DeviceKind_DEVICE_KIND_TCP:
 		return validateTCP(s.GetTcp())
+	case pb.DeviceKind_DEVICE_KIND_UDP:
+		if s.GetUdp() == nil {
+			return errors.New("UDP device needs an address")
+		}
+		if _, err := reader.ParseAllowList(s.GetUdp().GetAllowFrom()); err != nil {
+			return err
+		}
+		return validateHostPort(s.GetUdp().GetAddress())
+	case pb.DeviceKind_DEVICE_KIND_MODBUS:
+		return validateModbus(s)
+	case pb.DeviceKind_DEVICE_KIND_HID:
+		if s.GetHid() == nil {
+			return errors.New("HID device needs its HID settings")
+		}
+		return nil
 	default:
 		return fmt.Errorf("unknown device kind %v", s.GetKind())
 	}
 }
 
 func validateTCP(t *pb.TcpSettings) error {
-	host, port, err := net.SplitHostPort(t.GetAddress())
+	return validateHostPort(t.GetAddress())
+}
+
+// Modbus limits from the protocol.
+const (
+	maxModbusRegisters = 125
+	maxModbusBits      = 2000
+	maxModbusUnit      = 247
+)
+
+func validateModbus(s *pb.DeviceSettings) error {
+	m := s.GetModbus()
+	if m == nil {
+		return errors.New("modbus device needs its Modbus settings")
+	}
+	switch m.GetTransport() {
+	case pb.ModbusTransport_MODBUS_TRANSPORT_TCP:
+		if err := validateHostPort(m.GetAddress()); err != nil {
+			return err
+		}
+	case pb.ModbusTransport_MODBUS_TRANSPORT_RTU:
+		if s.GetSerial().GetBaudRate() == 0 {
+			return errors.New("modbus RTU device needs a baud rate")
+		}
+	default:
+		return fmt.Errorf("unknown Modbus transport %v", m.GetTransport())
+	}
+	if m.GetUnitId() > maxModbusUnit {
+		return fmt.Errorf("unit id %d: must be 0 to %d", m.GetUnitId(), maxModbusUnit)
+	}
+	if len(m.GetReads()) == 0 {
+		return errors.New("modbus device has nothing to read")
+	}
+	for _, rd := range m.GetReads() {
+		limit := uint32(maxModbusRegisters)
+		switch rd.GetTable() {
+		case pb.ModbusTable_MODBUS_TABLE_COILS, pb.ModbusTable_MODBUS_TABLE_DISCRETE_INPUTS:
+			limit = maxModbusBits
+		case pb.ModbusTable_MODBUS_TABLE_HOLDING_REGISTERS, pb.ModbusTable_MODBUS_TABLE_INPUT_REGISTERS:
+		default:
+			return fmt.Errorf("read %q: unknown table %v", rd.GetName(), rd.GetTable())
+		}
+		if rd.GetName() == "" || rd.GetCount() == 0 || rd.GetCount() > limit || rd.GetAddress()+rd.GetCount() > 65536 {
+			return fmt.Errorf("read %q: needs a name and 1 to %d values within addresses 0 to 65535", rd.GetName(), limit)
+		}
+	}
+	return nil
+}
+
+func validateHostPort(address string) error {
+	host, port, err := net.SplitHostPort(address)
 	if err != nil {
-		return fmt.Errorf("address %q: %w", t.GetAddress(), err)
+		return fmt.Errorf("address %q: %w", address, err)
 	}
 	if port == "" {
 		return errors.New("address has no port")
