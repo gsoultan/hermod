@@ -144,7 +144,7 @@ func (h *Hub) commandResult(sess *session, r *pb.CommandResult) {
 func (h *Hub) RunCommand(ctx context.Context, vhost, agentID, deviceID, name string, fields map[string]any) (CommandReply, error) {
 	as, ok := h.agentStore()
 	if !ok {
-		return CommandReply{}, errors.New("Hermod has no database that can hold agents yet")
+		return CommandReply{}, errors.New("no database that can hold agents is configured yet")
 	}
 	a, err := as.GetAgent(ctx, agentID)
 	if errors.Is(err, storage.ErrNotFound) || (err == nil && normVHost(a.VHost) != normVHost(vhost)) {

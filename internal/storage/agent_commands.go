@@ -151,7 +151,7 @@ func parseAgentTemplate(s string) ([]templatePart, error) {
 			}
 			name := strings.TrimSpace(s[i+2 : i+2+end])
 			if !agentPlaceholder.MatchString(name) {
-				return nil, fmt.Errorf("placeholder name %q: use letters, digits, _ and .", name)
+				return nil, fmt.Errorf("placeholder name %q may hold only letters, digits, underscores and dots", name)
 			}
 			if len(lit) > 0 {
 				parts = append(parts, templatePart{literal: lit})

@@ -50,11 +50,11 @@ func serveFakeModbus(conn net.Conn, writes *sync.Map) {
 	defer conn.Close()
 	for {
 		head := make([]byte, 7)
-		if _, err := readFull(conn, head); err != nil {
+		if _, err := io.ReadFull(conn, head); err != nil {
 			return
 		}
 		pdu := make([]byte, int(head[4])<<8|int(head[5])-1)
-		if _, err := readFull(conn, pdu); err != nil {
+		if _, err := io.ReadFull(conn, pdu); err != nil {
 			return
 		}
 		addr, n := int(pdu[1])<<8|int(pdu[2]), int(pdu[3])<<8|int(pdu[4])
@@ -84,18 +84,6 @@ func serveFakeModbus(conn net.Conn, writes *sync.Map) {
 		out := append(append([]byte(nil), head[:4]...), byte((len(resp)+1)>>8), byte(len(resp)+1), head[6])
 		_, _ = conn.Write(append(out, resp...))
 	}
-}
-
-func readFull(c net.Conn, b []byte) (int, error) {
-	got := 0
-	for got < len(b) {
-		n, err := c.Read(b[got:])
-		got += n
-		if err != nil {
-			return got, err
-		}
-	}
-	return got, nil
 }
 
 func modbusSettings(addr string) *pb.ModbusSettings {

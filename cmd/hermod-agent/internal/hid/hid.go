@@ -196,36 +196,32 @@ func (k *keyboard) Read(p []byte) (int, error) {
 		typ := binary.NativeEndian.Uint16(ev[timevalSize:])
 		code := binary.NativeEndian.Uint16(ev[timevalSize+2:])
 		value := int32(binary.NativeEndian.Uint32(ev[timevalSize+4:]))
-		if typ != evKey {
-			continue
-		}
-		switch code {
-		case keyLeftShift, keyRightShift:
-			if value == 1 {
-				k.shift++
-			} else if value == 0 && k.shift > 0 {
-				k.shift--
-			}
-			continue
-		}
-		if value != 1 { // only presses; not releases or auto-repeat
-			continue
-		}
-		if code == keyEnter || code == keyKPEnter {
-			k.out = append(k.out, '\n')
-			continue
-		}
-		if c, ok := keymap[code]; ok {
-			if k.shift > 0 {
-				k.out = append(k.out, c[1])
-			} else {
-				k.out = append(k.out, c[0])
-			}
+		if typ == evKey {
+			k.key(code, value)
 		}
 	}
 	n := copy(p, k.out)
 	k.out = k.out[n:]
 	return n, nil
+}
+
+// key handles one key event: value 1 is a press, 0 a release, 2 a repeat.
+func (k *keyboard) key(code uint16, value int32) {
+	switch {
+	case code == keyLeftShift || code == keyRightShift:
+		if value == 1 {
+			k.shift++
+		} else if value == 0 && k.shift > 0 {
+			k.shift--
+		}
+	case value != 1: // only presses; not releases or auto-repeat
+	case code == keyEnter || code == keyKPEnter:
+		k.out = append(k.out, '\n')
+	default:
+		if c, ok := keymap[code]; ok {
+			k.out = append(k.out, c[min(k.shift, 1)])
+		}
+	}
 }
 
 func (k *keyboard) Close() error { return k.r.Close() }

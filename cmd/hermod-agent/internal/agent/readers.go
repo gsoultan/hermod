@@ -155,26 +155,7 @@ func (r *readers) run(ctx context.Context, s *pb.DeviceSettings, cfg reader.Conf
 		cfg.Open = reader.SerialOpener(func() (string, bool) { return r.resolve(id) }, s.GetSerial())
 		reader.Run(ctx, cfg)
 	case s.GetKind() == pb.DeviceKind_DEVICE_KIND_HID:
-		raw := s.GetHid().GetMode() == pb.HidMode_HID_MODE_RAW
-		cfg.Open = func(context.Context) (io.ReadCloser, string, error) {
-			d, ok := r.resolveHID(id)
-			if !ok {
-				return nil, "", errors.New("device is not attached")
-			}
-			if raw {
-				rc, err := hid.OpenRaw(d.Hidraw)
-				return rc, d.Hidraw, err
-			}
-			rc, err := hid.OpenKeyboard(d.Event)
-			return rc, d.Event, err
-		}
-		if raw {
-			cfg.PerRead = true
-		} else {
-			// One record per scan: the text up to Enter.
-			cfg.Framing = &pb.Framing{Kind: pb.FramingKind_FRAMING_KIND_LINE, MaxRecordBytes: s.GetFraming().GetMaxRecordBytes()}
-		}
-		reader.Run(ctx, cfg)
+		r.runHID(ctx, s, cfg)
 	case s.GetKind() == pb.DeviceKind_DEVICE_KIND_UDP:
 		allow, _ := reader.ParseAllowList(s.GetUdp().GetAllowFrom()) // validated
 		var lc net.ListenConfig
@@ -196,6 +177,31 @@ func (r *readers) run(ctx context.Context, s *pb.DeviceSettings, cfg reader.Conf
 		cfg.Open = reader.TCPClientOpener(s.GetTcp().GetAddress())
 		reader.Run(ctx, cfg)
 	}
+}
+
+// runHID reads a USB HID device: as a keyboard, one record per scan (the
+// text up to Enter), or raw, one record per report.
+func (r *readers) runHID(ctx context.Context, s *pb.DeviceSettings, cfg reader.Config) {
+	id := s.GetDeviceId()
+	raw := s.GetHid().GetMode() == pb.HidMode_HID_MODE_RAW
+	cfg.Open = func(context.Context) (io.ReadCloser, string, error) {
+		d, ok := r.resolveHID(id)
+		if !ok {
+			return nil, "", errors.New("device is not attached")
+		}
+		if raw {
+			rc, err := hid.OpenRaw(d.Hidraw)
+			return rc, d.Hidraw, err
+		}
+		rc, err := hid.OpenKeyboard(d.Event)
+		return rc, d.Event, err
+	}
+	if raw {
+		cfg.PerRead = true
+	} else {
+		cfg.Framing = &pb.Framing{Kind: pb.FramingKind_FRAMING_KIND_LINE, MaxRecordBytes: s.GetFraming().GetMaxRecordBytes()}
+	}
+	reader.Run(ctx, cfg)
 }
 
 // networkDevices describes the claimed LAN devices for the device list: TCP,

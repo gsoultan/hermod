@@ -114,30 +114,12 @@ func pollOnce(ctx context.Context, open Opener, s *pb.ModbusSettings, cfg *Confi
 	if !ok {
 		return false, errors.New("the Modbus connection cannot be written to")
 	}
-	unit := byte(s.GetUnitId())
-	if unit == 0 {
-		unit = 1
-	}
-	timeout := time.Duration(s.GetTimeoutMs()) * time.Millisecond
-	if timeout <= 0 {
-		timeout = defaultModbusTimeout
-	}
-	var client *modbus.Client
-	if s.GetTransport() == pb.ModbusTransport_MODBUS_TRANSPORT_RTU {
-		client = modbus.NewRTU(rw, unit, timeout)
-	} else {
-		client = modbus.NewTCP(rw, unit, timeout)
-	}
+	client := newModbusClient(rw, s)
 	dev.set(client)
 	defer dev.set(nil)
 	cfg.status(StatusReading, nil)
 
-	every := time.Duration(s.GetPollIntervalMs()) * time.Millisecond
-	if every <= 0 {
-		every = defaultModbusPoll
-	}
-	every = max(every, minModbusPoll)
-	ticker := time.NewTicker(every)
+	ticker := time.NewTicker(pollEvery(s))
 	defer ticker.Stop()
 	polled := false
 	for {
@@ -158,6 +140,32 @@ func pollOnce(ctx context.Context, open Opener, s *pb.ModbusSettings, cfg *Confi
 		case <-ticker.C:
 		}
 	}
+}
+
+// newModbusClient speaks the device's transport over rw; unit 0 means 1.
+func newModbusClient(rw io.ReadWriter, s *pb.ModbusSettings) *modbus.Client {
+	unit := byte(s.GetUnitId())
+	if unit == 0 {
+		unit = 1
+	}
+	timeout := time.Duration(s.GetTimeoutMs()) * time.Millisecond
+	if timeout <= 0 {
+		timeout = defaultModbusTimeout
+	}
+	if s.GetTransport() == pb.ModbusTransport_MODBUS_TRANSPORT_RTU {
+		return modbus.NewRTU(rw, unit, timeout)
+	}
+	return modbus.NewTCP(rw, unit, timeout)
+}
+
+// pollEvery is the poll interval: the default when unset, never below the
+// minimum.
+func pollEvery(s *pb.ModbusSettings) time.Duration {
+	every := time.Duration(s.GetPollIntervalMs()) * time.Millisecond
+	if every <= 0 {
+		every = defaultModbusPoll
+	}
+	return max(every, minModbusPoll)
 }
 
 // poll reads every block and returns them as one JSON object, keys in the

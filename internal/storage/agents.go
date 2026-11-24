@@ -343,6 +343,13 @@ func validateAgentModbus(m *AgentModbus, serial *AgentSerial) error {
 	default:
 		return fmt.Errorf("unknown Modbus transport %q (tcp or rtu)", m.Transport)
 	}
+	if err := validateModbusTiming(m); err != nil {
+		return err
+	}
+	return validateModbusReads(m.Reads)
+}
+
+func validateModbusTiming(m *AgentModbus) error {
 	switch {
 	case m.UnitID < 0 || m.UnitID > maxModbusUnit:
 		return fmt.Errorf("the unit id must be 0 to %d", maxModbusUnit)
@@ -353,8 +360,12 @@ func validateAgentModbus(m *AgentModbus, serial *AgentSerial) error {
 	case len(m.Reads) == 0 || len(m.Reads) > maxModbusReads:
 		return fmt.Errorf("a Modbus device needs 1 to %d reads", maxModbusReads)
 	}
+	return nil
+}
+
+func validateModbusReads(reads []AgentModbusRead) error {
 	names := map[string]bool{}
-	for _, r := range m.Reads {
+	for _, r := range reads {
 		limit, ok := modbusTables[r.Table]
 		switch {
 		case r.Name == "" || len(r.Name) > maxAgentNameLen:

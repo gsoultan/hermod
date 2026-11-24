@@ -133,24 +133,37 @@ func (u *Updater) Apply(ctx context.Context, tag string) error {
 		return err
 	}
 
-	dir := filepath.Dir(u.Exe)
-	archive, err := os.CreateTemp(dir, ".hermod-agent-download-*")
+	archive, err := download(ctx, client, folder+url.PathEscape(name), filepath.Dir(u.Exe), want)
+	if archive != "" {
+		defer func() { _ = os.Remove(archive) }()
+	}
 	if err != nil {
 		return err
 	}
-	defer func() { _ = os.Remove(archive.Name()) }()
+	return u.install(ctx, archive, tag)
+}
+
+// download saves rawURL into a temporary file in dir and checks its SHA-256
+// is want. It returns the file's name, to be removed, even on failure.
+func download(ctx context.Context, client *http.Client, rawURL, dir, want string) (string, error) {
+	archive, err := os.CreateTemp(dir, ".hermod-agent-download-*")
+	if err != nil {
+		return "", err
+	}
 	h := sha256.New()
-	err = fetch(ctx, client, folder+url.PathEscape(name), maxArchive, io.MultiWriter(archive, h))
+	err = fetch(ctx, client, rawURL, maxArchive, io.MultiWriter(archive, h))
 	if cerr := archive.Close(); err == nil {
 		err = cerr
 	}
-	if err != nil {
-		return err
+	if err == nil && hex.EncodeToString(h.Sum(nil)) != want {
+		err = ErrChecksum
 	}
-	if hex.EncodeToString(h.Sum(nil)) != want {
-		return ErrChecksum
-	}
+	return archive.Name(), err
+}
 
+// install extracts the binary from archive next to Exe, checks it runs and
+// reports tag, and swaps it in.
+func (u *Updater) install(ctx context.Context, archive, tag string) error {
 	binName := "hermod-agent"
 	if u.GOOS == "windows" {
 		binName += ".exe"
@@ -160,7 +173,7 @@ func (u *Updater) Apply(ctx context.Context, tag string) error {
 	if err != nil {
 		return err
 	}
-	err = extract(archive.Name(), binName, out)
+	err = extract(archive, binName, out)
 	if cerr := out.Close(); err == nil {
 		err = cerr
 	}
@@ -232,27 +245,35 @@ func extract(archive, name string, dst io.Writer) error {
 		return err
 	}
 	if magic == [2]byte{'P', 'K'} {
-		st, err := f.Stat()
-		if err != nil {
-			return err
-		}
-		zr, err := zip.NewReader(f, st.Size())
-		if err != nil {
-			return err
-		}
-		for _, zf := range zr.File {
-			if path.Clean(zf.Name) != name || zf.FileInfo().IsDir() {
-				continue
-			}
-			rc, err := zf.Open()
-			if err != nil {
-				return err
-			}
-			defer func() { _ = rc.Close() }()
-			return copyLimited(dst, rc, name)
-		}
-		return fmt.Errorf("the archive has no %s", name)
+		return extractZip(f, name, dst)
 	}
+	return extractTarGz(f, name, dst)
+}
+
+func extractZip(f *os.File, name string, dst io.Writer) error {
+	st, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	zr, err := zip.NewReader(f, st.Size())
+	if err != nil {
+		return err
+	}
+	for _, zf := range zr.File {
+		if path.Clean(zf.Name) != name || zf.FileInfo().IsDir() {
+			continue
+		}
+		rc, err := zf.Open()
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rc.Close() }()
+		return copyLimited(dst, rc, name)
+	}
+	return fmt.Errorf("the archive has no %s", name)
+}
+
+func extractTarGz(f io.Reader, name string, dst io.Writer) error {
 	gz, err := gzip.NewReader(f)
 	if err != nil {
 		return fmt.Errorf("the archive is neither zip nor gzip: %w", err)

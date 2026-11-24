@@ -22,6 +22,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"slices"
 	"sync"
 	"time"
 )
@@ -299,7 +300,7 @@ func (c *Client) doRTU(pdu []byte, deadline time.Time) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	whole := append(head, tail...)
+	whole := slices.Concat(head, tail)
 	n := len(whole)
 	if crc16(whole[:n-2]) != binary.LittleEndian.Uint16(whole[n-2:]) {
 		return nil, errors.New("modbus: answer failed its CRC check")

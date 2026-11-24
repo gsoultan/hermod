@@ -105,7 +105,7 @@ func (l *Link) Send(ctx context.Context, payload []byte, replyTimeout time.Durat
 		l.waiting = reply
 	}
 	l.mu.Unlock()
-	clear := func() {
+	forget := func() {
 		l.mu.Lock()
 		if l.waiting == reply {
 			l.waiting = nil
@@ -114,7 +114,7 @@ func (l *Link) Send(ctx context.Context, payload []byte, replyTimeout time.Durat
 	}
 
 	if err := write(w, payload); err != nil {
-		clear()
+		forget()
 		// A partial write may have reached the device.
 		return nil, &WrittenError{Err: fmt.Errorf("write: %w", err)}
 	}
@@ -127,10 +127,10 @@ func (l *Link) Send(ctx context.Context, payload []byte, replyTimeout time.Durat
 	case r := <-reply:
 		return r, nil
 	case <-timer.C:
-		clear()
+		forget()
 		return nil, &WrittenError{Err: fmt.Errorf("no reply within %s", replyTimeout)}
 	case <-ctx.Done():
-		clear()
+		forget()
 		return nil, &WrittenError{Err: ctx.Err()}
 	}
 }
