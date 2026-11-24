@@ -30,7 +30,8 @@ func settingsList(devices []storage.AgentDevice) *pb.DeviceSettingsList {
 func deviceSettings(d storage.AgentDevice) *pb.DeviceSettings {
 	s := &pb.DeviceSettings{
 		DeviceId: d.DeviceID, Kind: deviceKind(d.Kind), Name: d.Name, Enabled: d.Enabled,
-		Framing: framing(d.Framing),
+		AllowCommands: d.AllowCommands,
+		Framing:       framing(d.Framing),
 	}
 	if d.Serial != nil {
 		s.Serial = &pb.SerialSettings{
