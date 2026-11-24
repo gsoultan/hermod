@@ -27,6 +27,8 @@ import (
 	"time"
 
 	advisorhttp "github.com/gsoultan/hermod/internal/advisor/transport/http"
+	"github.com/gsoultan/hermod/internal/agenthub"
+	agenthttp "github.com/gsoultan/hermod/internal/agenthub/transport/http"
 	"github.com/gsoultan/hermod/internal/ai"
 	aibudgethttp "github.com/gsoultan/hermod/internal/aibudget/transport/http"
 	"github.com/gsoultan/hermod/internal/api/handlers"
@@ -63,6 +65,7 @@ import (
 	builderhttp "github.com/gsoultan/hermod/internal/workflow/builder/transport/http"
 	workflowhttp "github.com/gsoultan/hermod/internal/workflow/transport/http"
 	wshttp "github.com/gsoultan/hermod/internal/ws/transport/http"
+	agentpb "github.com/gsoultan/hermod/pkg/agent/proto"
 	grpcsource "github.com/gsoultan/hermod/pkg/comm/source/grpc"
 	"github.com/gsoultan/hermod/pkg/comm/source/grpc/proto"
 	"github.com/gsoultan/hermod/pkg/infra/filestorage"
@@ -234,6 +237,7 @@ func (s *Server) Routes() http.Handler {
 	proposalH := selfhealhttp.NewProposalHandler(s.Handler)
 	mlH := mlhttp.NewHandler(s.Handler)
 	aiBudgetH := aibudgethttp.NewHandler(s.Handler)
+	agentH := agenthttp.NewHandler(s.Handler, agenthub.Default)
 	deadLetterH := deadletterhttp.NewHandler(s.Handler)
 	lineageH := lineagehttp.NewHandler(s.Handler)
 	if s.environments == nil {
@@ -282,6 +286,7 @@ func (s *Server) Routes() http.Handler {
 	proposalH.RegisterProposalRoutes(mux)
 	mlH.RegisterRoutes(mux)
 	aiBudgetH.RegisterRoutes(mux)
+	agentH.RegisterRoutes(mux)
 	lineageH.RegisterRoutes(mux)
 	environmentH.RegisterRoutes(mux)
 	updatesH.RegisterRoutes(mux)
@@ -498,6 +503,11 @@ func (s *Server) newGRPCServer() *googlegrpc.Server {
 	// later is the one holding the API keys.
 	proto.RegisterSourceServiceServer(s.GrpcServer, &grpcsource.Server{StorageFunc: s.currentStorage})
 	mlproto.RegisterInferenceServiceServer(s.GrpcServer, &mlgrpc.Server{ServiceFunc: s.mlService})
+	// hermod-agent connects here. Its token is checked against the store
+	// of the moment, as the API keys above are, and what it reads goes to
+	// the Agent sources of the workflows running in this process.
+	agenthub.Default.SetStore(func() any { return s.currentStorage() })
+	agentpb.RegisterAgentServiceServer(s.GrpcServer, agenthub.Default)
 	return s.GrpcServer
 }
 

@@ -7,9 +7,10 @@ on its own disk, and sends the readings to a Hermod server. A reading leaves
 the agent's disk only after the server confirms delivery, so a network outage
 or a server restart loses nothing.
 
-> **Status:** the agent program is built. The server side (the Agents page,
-> claiming devices and the Agent source for workflows) is the next change, so
-> the agent has nothing to connect to yet.
+> **Status:** the agent and Hermod's side of it (the agent service, the REST
+> API and the Agent source) are built. The Agents page in the UI is the next
+> change; until then agents are added and their devices claimed through the
+> API below.
 
 ## What it reads
 
@@ -25,7 +26,8 @@ MQTT source.
 Each device's byte stream is cut into records by a framing rule: one record per
 line (LF, CR or CRLF), a delimiter, a fixed length, start and end bytes (such
 as STX and ETX), a length prefix, or a quiet gap. A record longer than the
-limit (64 KiB by default) is dropped and counted rather than held in memory.
+limit (64 KiB by default, at most 1 MiB) is dropped and counted rather than
+held in memory.
 
 ## Running it
 
@@ -33,6 +35,12 @@ limit (64 KiB by default) is dropped and counted rather than held in memory.
 export HERMOD_AGENT_TOKEN=...        # or -token-file /etc/hermod-agent/token
 hermod-agent -server hermod.example.com:9443
 ```
+
+The agent connects to Hermod's gRPC port (50051 unless `-grpc-port` says
+otherwise). That port serves plain gRPC, and the agent requires TLS to anything
+but localhost, so put a TLS terminator in front of it (a load balancer, an
+ingress or a reverse proxy that passes HTTP/2 through) and point `-server` at
+that.
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
@@ -66,6 +74,70 @@ When the spool reaches its size limit, the oldest readings are deleted and
 counted as dropped, and the count is reported to the server. The agent keeps
 the last device settings the server sent, so after a restart it reads its
 devices even while the server is unreachable.
+
+## Adding an agent and claiming devices
+
+An agent belongs to one vhost. An Editor of the vhost adds it, and is shown
+its token once (these calls go to Hermod's API as a signed-in user, like the
+UI's):
+
+```sh
+curl -X POST https://hermod.example.com/api/vhosts/plant/agents -d '{"name":"Line 1 Pi"}'
+# {"agent":{"id":"…",…},"live":{…},"token":"hag_…"}
+```
+
+Only a hash of the token is stored. `POST /api/agents/{id}/token` issues a new
+one, which revokes the old one and disconnects the agent;
+`DELETE /api/agents/{id}` removes the agent.
+
+`GET /api/agents/{id}` shows what the agent last reported: its host, version,
+the ports it found (`status.ports`), its spool, and whether it is connected to
+this Hermod now (`live`). To claim devices, save their settings:
+
+```sh
+curl -X PUT https://hermod.example.com/api/agents/$ID -d '{
+  "name": "Line 1 Pi",
+  "devices": [
+    {"device_id": "usb:0403:6001:A1", "kind": "serial", "name": "scale", "enabled": true,
+     "serial": {"baud_rate": 9600, "parity": "none", "stop_bits": "1"},
+     "framing": {"kind": "line"}},
+    {"device_id": "tcp:plc", "kind": "tcp", "name": "plc", "enabled": true,
+     "tcp": {"address": "10.0.0.5:4001", "mode": "client"},
+     "framing": {"kind": "start_end", "start_hex": "02", "end_hex": "03"}}
+  ]}'
+```
+
+A serial device's `device_id` is one the agent reported; a TCP device's is any
+id you choose. Framing kinds are `line`, `delimiter` (`delimiter_hex`),
+`fixed_length` (`length`), `start_end` (`start_hex`, `end_hex`),
+`length_prefix` (`prefix_size` 1, 2 or 4) and `idle_gap` (`idle_ms`); bytes are
+written in hex. Settings the agent would refuse are refused when they are
+saved. A connected agent gets them at once.
+
+## Reading devices in a workflow
+
+The Agent source (`type: agent`) reads an agent of the workflow's vhost:
+
+| Config | Meaning |
+| --- | --- |
+| `agent_id` | The agent (required) |
+| `devices` | Comma-separated device ids to read; all of the agent's devices when empty |
+| `format` | How a record's bytes appear: `text` (default; hex when they are not UTF-8), `json`, `hex` or `base64` |
+
+Each message is a JSON object: `agent_id`, `device_id`, `device` (its name),
+`seq`, `received_at`, `port`, and the record under `text`, `data` (json),
+`hex` or `base64`. A record that is not valid JSON in `json` format keeps its
+text and adds `decode_error`. The message id is `<agent id>:<seq>` and its
+table is the device's name.
+
+Hermod acknowledges a record to the agent only when every workflow reading its
+device has finished with it, so it stays in the agent's spool until then. A
+workflow that stops with records in hand ends the agent's stream, and the agent
+sends them again. A record no running workflow reads is acknowledged and
+counted in `live.unrouted`.
+
+The agent and the workflows that read it meet in one Hermod process: run the
+workflows on the Hermod the agent connects to.
 
 ## Building
 
