@@ -34,6 +34,27 @@ phases; the design doc is the Claude Doc "Hermod Device Agent: design".
 - `agent` — wires it; caches server settings to `settings.pb` so devices keep
   reading while the server is down. Batches spool writes (256 or 20 ms).
 
+## Platforms and service
+
+- `service.go` uses github.com/kardianos/service (already a module dep; the
+  guard allows non-Hermod imports). `-service install|uninstall|start|stop|
+  restart|status`. Install needs `-token-file` and writes absolute paths
+  (`serviceArgs`). When started by a service manager (`!service.Interactive()`)
+  `runAsService` hands start/stop to it; `program.Stop` waits up to 20 s for
+  the agent to close its spool. Windows logs go to the Event Log
+  (`eventLogWriter`); launchd gets `LogOutput` (macOS only, it would take
+  systemd's log out of the journal); systemd-only `Dependencies` (they are
+  service names on Windows/OpenRC).
+- kardianos has no OpenBSD backend: `-service` fails there, the agent runs in
+  the foreground. FreeBSD's rc.d script runs `daemon(8)` without `-o`, so its
+  output is not kept.
+- `defaultDataDir(goos, getenv)`: Windows `%ProgramData%\hermod-agent`, macOS
+  `/Library/Application Support/hermod-agent`, else `/var/lib/hermod-agent`.
+- Release: `.goreleaser.yaml` build id `hermod-agent` (21 targets, CGO off),
+  own archive (zip on Windows), excluded from the hermod archives/nfpms via
+  `ids`. CI job `agent-platforms` builds the same matrix. NetBSD excluded
+  (go.bug.st/serial does not build). goreleaser has no freebsd/riscv64.
+
 ## Rules
 
 - `guard_test.go` fails if the binary links any Hermod package other than

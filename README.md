@@ -116,6 +116,10 @@ A Helm chart, Linux packages, building from source and `go get` are covered in
 [Installing Hermod](docs/install.md). See [CHANGELOG.md](CHANGELOG.md) for what changed
 in each release.
 
+To read serial and LAN devices on another machine, install `hermod-agent` there. It runs as
+a service on Windows, Linux and macOS workstations, edge servers and the Raspberry Pi; each
+release attaches a build per platform. See [hermod-agent](docs/hermod-agent.md#platforms).
+
 ---
 
 ## Development Quick Start

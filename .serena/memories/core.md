@@ -321,6 +321,9 @@ find a claim that outruns the code, fix the claim.
   its own packages and `pkg/agent/proto` (guard test). Hermod side:
   `internal/agenthub` (service, ack ledger, REST), `agents` table/collection,
   Agent source `pkg/comm/source/agent`. UI not built yet.
+  its own packages and `pkg/agent/proto` (guard test). Runs as a service on
+  Windows, Linux, macOS and FreeBSD (`-service install`); released for 21
+  OS/arch targets, built in CI job `agent-platforms`. UI is not built yet.
 
 ### Gates
 
