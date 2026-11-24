@@ -945,6 +945,9 @@ func (s *mongoStorage) DeleteVHost(ctx context.Context, id string) error {
 		if err := s.DeleteAIBudgets(ctx, vhost.Name); err != nil {
 			return err
 		}
+		if err := s.DeleteAgents(ctx, vhost.Name); err != nil {
+			return err
+		}
 	}
 	coll := s.db.Collection("vhosts")
 	_, err = coll.DeleteOne(ctx, bson.M{"_id": id})
