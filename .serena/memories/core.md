@@ -25,6 +25,8 @@ find a claim that outruns the code, fix the claim.
 
 ### Memories
 
+- [RabbitMQ sink: queue or exchange](rabbitmq_sink_exchanges.md) — exchange types,
+  bound queue, mandatory+confirmed publishes, the channel-closed reconnect, form gate.
 - [What a saved workflow node may hold](workflow_node_hygiene.md) — `nodeclean`
   drops connection copies and editor state, moves typed step credentials to
   `WF_…` vhost secrets, and sweeps old rows at start-up; the UI mirror.

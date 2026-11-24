@@ -24,7 +24,7 @@ function kindIcon(kind: string) {
   switch (kind) {
     case 'workflow': return <IconSubtask size={16} />
     case 'table': case 'database': case 'collection': return <IconTable size={16} />
-    case 'topic': case 'stream': case 'queue': case 'subject': case 'channel': return <IconMessages size={16} />
+    case 'topic': case 'stream': case 'queue': case 'exchange': case 'subject': case 'channel': return <IconMessages size={16} />
     case 'index': return <IconSearch size={16} />
     case 'file': case 'object': case 'sheet': return <IconFile size={16} />
     case 'endpoint': case 'entity': case 'process': return <IconWorld size={16} />
