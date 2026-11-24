@@ -147,6 +147,19 @@ func startFake(t *testing.T, f *fakeServer) func(context.Context, string) (net.C
 	return func(ctx context.Context, _ string) (net.Conn, error) { return ln.DialContext(ctx) }
 }
 
+// runUntilTestEnds runs the agent's stream for the rest of the test and waits
+// for it to return before the spool is closed and its directory removed.
+// Left running, it could still write an acknowledgement into the spool after
+// the test ended, and the temporary directory's cleanup failed with
+// "directory not empty".
+func runUntilTestEnds(t *testing.T, cfg Config) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() { defer close(done); _ = Run(ctx, cfg) }()
+	t.Cleanup(func() { cancel(); <-done })
+}
+
 func openSpool(t *testing.T) *spool.Spool {
 	t.Helper()
 	s, err := spool.Open(t.TempDir(), spool.Options{})
@@ -184,9 +197,7 @@ func TestDeliversRecordsAndDeletesThemOnAck(t *testing.T) {
 	f := newFake()
 	s := openSpool(t)
 	appendN(t, s, 3)
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	go func() { _ = Run(ctx, baseConfig(startFake(t, f), s)) }()
+	runUntilTestEnds(t, baseConfig(startFake(t, f), s))
 
 	f.waitFor(t, func() bool { return len(f.received) == 3 })
 	appendN(t, s, 2)
@@ -219,9 +230,7 @@ func TestResendsUnacknowledgedRecordsAfterReconnect(t *testing.T) {
 	f.dropAfter = 4
 	s := openSpool(t)
 	appendN(t, s, 4)
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	go func() { _ = Run(ctx, baseConfig(startFake(t, f), s)) }()
+	runUntilTestEnds(t, baseConfig(startFake(t, f), s))
 
 	f.waitFor(t, func() bool { return f.streams >= 2 && len(f.received) >= 8 })
 	f.mu.Lock()
@@ -239,9 +248,7 @@ func TestWelcomeAcknowledgesWhatTheServerAlreadyHas(t *testing.T) {
 	f.acked = 2
 	s := openSpool(t)
 	appendN(t, s, 3)
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	go func() { _ = Run(ctx, baseConfig(startFake(t, f), s)) }()
+	runUntilTestEnds(t, baseConfig(startFake(t, f), s))
 
 	f.waitFor(t, func() bool { return len(f.received) >= 1 })
 	f.mu.Lock()
@@ -258,9 +265,7 @@ func TestSettingsReachTheAgent(t *testing.T) {
 	got := make(chan *pb.DeviceSettingsList, 1)
 	cfg := baseConfig(startFake(t, f), s)
 	cfg.OnSettings = func(l *pb.DeviceSettingsList) { got <- l }
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	go func() { _ = Run(ctx, cfg) }()
+	runUntilTestEnds(t, cfg)
 	select {
 	case l := <-got:
 		if l.GetDevices()[0].GetDeviceId() != "usb:1:2:3" {
@@ -280,9 +285,7 @@ func TestStopsAtTheWindowUntilAcknowledged(t *testing.T) {
 	appendN(t, s, 10)
 	cfg := baseConfig(startFake(t, f), s)
 	cfg.Window, cfg.BatchSize = 4, 2
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	go func() { _ = Run(ctx, cfg) }()
+	runUntilTestEnds(t, cfg)
 	f.waitFor(t, func() bool { return len(f.received) >= 4 })
 	time.Sleep(50 * time.Millisecond)
 	f.mu.Lock()
@@ -305,9 +308,7 @@ func TestDeviceChangesAreSent(t *testing.T) {
 	}
 	changed := make(chan struct{}, 1)
 	cfg.DevicesChanged = changed
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	go func() { _ = Run(ctx, cfg) }()
+	runUntilTestEnds(t, cfg)
 	f.waitFor(t, func() bool { return len(f.devices) == 1 })
 	mu.Lock()
 	list = []*pb.Device{{DeviceId: "a"}, {DeviceId: "b"}}
