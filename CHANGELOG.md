@@ -7,6 +7,20 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — hermod-agent runs as a service on every desktop and edge platform
+
+`hermod-agent -service install` sets the agent up as a Windows service, a systemd unit (Linux
+workstations, edge servers, the Raspberry Pi), a launchd daemon on macOS or an rc.d script on
+FreeBSD. It starts at boot and restarts after a crash. Stopping it lets the agent close its
+spool, so nothing read is lost. Install needs `-token-file`, since a service cannot read the
+installing shell's `$HERMOD_AGENT_TOKEN`. On macOS the data folder now defaults to
+`/Library/Application Support/hermod-agent`; on a Windows service the log goes to the Event Log.
+
+Each release attaches `hermod-agent` for Linux (x86-64, ARM64, ARMv7, ARMv6, x86, RISC-V),
+Windows (x64, ARM64, x86), macOS (Apple Silicon, Intel), FreeBSD and OpenBSD. CI builds every
+one of them on each change. NetBSD is not supported: the serial-port library does not build
+there.
+
 ### Added — check a DB Lookup's query against the table's indexes, from the Tuning tab
 
 The Tuning tab has a **Lookup queries and indexes** section. **Check lookup queries** plans
