@@ -63,6 +63,10 @@ type AgentDevice struct {
 	Serial  *AgentSerial `json:"serial,omitempty"`
 	TCP     *AgentTCP    `json:"tcp,omitempty"`
 	Framing AgentFraming `json:"framing"`
+	// AllowCommands lets workflows send this device the Commands saved for
+	// it. Off, nothing is written to the device, whatever is saved.
+	AllowCommands bool           `json:"allow_commands,omitempty"`
+	Commands      []AgentCommand `json:"commands,omitempty"`
 }
 
 // AgentSerial is a serial port's line settings. Parity is none, odd, even,
@@ -215,7 +219,10 @@ func validateAgentDevice(d AgentDevice) error {
 	default:
 		return fmt.Errorf("unknown device kind %q (serial or tcp)", d.Kind)
 	}
-	return validateAgentFraming(d.Framing)
+	if err := validateAgentFraming(d.Framing); err != nil {
+		return err
+	}
+	return validateAgentCommands(d.Commands)
 }
 
 func validateAgentSerial(s *AgentSerial) error {
