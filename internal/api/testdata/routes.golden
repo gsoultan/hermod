@@ -157,6 +157,7 @@ GET /streams/sse
 PATCH /api/environments/peers/{id}
 PATCH /api/workflows/{id}/stats
 PATCH /api/workflows/{id}/status
+POST /api/agents/{id}/devices/{device}/commands/{name}
 POST /api/agents/{id}/token
 POST /api/ai/analyze-error
 POST /api/ai/analyze-schema

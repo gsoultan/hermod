@@ -14,13 +14,17 @@
 package http
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
+	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/agenthub"
 	"github.com/gsoultan/hermod/internal/api/handlers"
 	"github.com/gsoultan/hermod/internal/storage"
@@ -50,6 +54,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("PUT /api/agents/{id}", h.EditorOnly(h.UpdateAgent))
 	mux.Handle("POST /api/agents/{id}/token", h.EditorOnly(h.ReplaceToken))
 	mux.Handle("DELETE /api/agents/{id}", h.EditorOnly(h.DeleteAgent))
+	mux.Handle("POST /api/agents/{id}/devices/{device}/commands/{name}", h.EditorOnly(h.RunCommand))
 }
 
 // agentView is an agent as the API shows it: what is stored, and whether it
@@ -279,6 +284,56 @@ func (h *Handler) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 	h.hub.Disconnect(a.ID)
 	h.audit(r, "delete", "Deleted agent "+a.Name, a)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// commandResponse is what a command run from the API did. The reply is
+// given as text when it is valid UTF-8, and always as hex.
+type commandResponse struct {
+	Replied  bool   `json:"replied"`
+	Reply    string `json:"reply,omitempty"`
+	ReplyHex string `json:"reply_hex,omitempty"`
+}
+
+// RunCommand sends a device a command saved on it, to try it out. The body
+// may give the fields its placeholders take: {"fields":{"target":12.5}}.
+// Every attempt is audited, whatever its outcome.
+func (h *Handler) RunCommand(w http.ResponseWriter, r *http.Request) {
+	a, _, ok := h.agentAccess(w, r, true)
+	if !ok {
+		return
+	}
+	var req struct {
+		Fields map[string]any `json:"fields"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxAgentBody)).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		h.JsonError(w, "the request body must be the command's fields", http.StatusBadRequest)
+		return
+	}
+	device, name := r.PathValue("device"), r.PathValue("name")
+	res, err := h.hub.RunCommand(r.Context(), a.VHost, a.ID, device, name, req.Fields)
+	outcome := "ok"
+	if err != nil {
+		outcome = err.Error()
+	}
+	h.RecordAuditLog(r, "INFO", "Ran command "+name+" on device "+device+" of agent "+a.Name, "command", a.ID, "agent", "",
+		map[string]any{"vhost": a.VHost, "name": a.Name, "device": device, "command": name, "outcome": outcome})
+	var ce *agenthub.CommandError
+	switch {
+	case err == nil:
+		out := commandResponse{Replied: res.Replied, ReplyHex: hex.EncodeToString(res.Reply)}
+		if utf8.Valid(res.Reply) {
+			out.Reply = string(res.Reply)
+		}
+		writeJSON(w, http.StatusOK, out)
+	case errors.Is(err, agenthub.ErrAgentOffline) && !errors.As(err, &ce):
+		h.JsonError(w, "the agent is not connected to this Hermod", http.StatusConflict)
+	case errors.As(err, &ce):
+		h.JsonError(w, ce.Error(), http.StatusBadGateway)
+	case errors.Is(err, hermod.ErrPermanent):
+		h.JsonError(w, err.Error(), http.StatusBadRequest)
+	default:
+		h.JsonError(w, "Failed to run the command", http.StatusInternalServerError)
+	}
 }
 
 // audit records a change to an agent. The payload names the agent, its vhost

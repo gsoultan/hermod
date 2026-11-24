@@ -27,3 +27,15 @@ func TestAgentSourceIsBuiltFromItsConfig(t *testing.T) {
 		t.Fatal("an agent source with no agent was built")
 	}
 }
+
+func TestAgentSinkIsBuiltFromItsConfig(t *testing.T) {
+	snk, err := CreateSink(SinkConfig{ID: "k1", Type: "agent", VHost: "plant",
+		Config: hermod.StringMap{"agent_id": "agt1", "device_id": "usb:1:2:3", "command": "tare"}})
+	if err != nil {
+		t.Fatalf("CreateSink: %v", err)
+	}
+	_ = snk.Close()
+	if _, err := CreateSink(SinkConfig{ID: "k2", Type: "agent", Config: hermod.StringMap{"agent_id": "agt1"}}); err == nil {
+		t.Fatal("an agent sink with no device or command was built")
+	}
+}

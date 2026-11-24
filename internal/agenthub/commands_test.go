@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/storage"
 	pb "github.com/gsoultan/hermod/pkg/agent/proto"
 )
@@ -118,5 +119,61 @@ func TestSettingsCarryAllowCommands(t *testing.T) {
 	defer a.mu.Unlock()
 	if !a.settings[0].GetDevices()[0].GetAllowCommands() || a.settings[0].GetDevices()[1].GetAllowCommands() {
 		t.Fatalf("settings = %v", a.settings[0])
+	}
+}
+
+func allowWeigh(f *fixture) {
+	_ = f.store.update("agt1", func(a *storage.Agent) {
+		a.Devices[0].AllowCommands = true
+		a.Devices[0].Commands = []storage.AgentCommand{
+			{Name: "tare", Payload: `T\r\n`},
+			{Name: "set", Payload: `S {{target}}\r\n`, ReplyTimeoutMS: 500},
+		}
+	})
+}
+
+func TestRunCommandRendersTheSavedTemplate(t *testing.T) {
+	f := newFixture(t)
+	allowWeigh(f)
+	a := f.connectAnswer(func(c *pb.Command) *pb.CommandResult {
+		return &pb.CommandResult{CommandId: c.GetCommandId(), Status: pb.CommandStatus_COMMAND_STATUS_REPLIED, Reply: []byte("OK"), Written: true}
+	})
+	res, err := f.hub.RunCommand(t.Context(), "plant", "agt1", "dev-a", "set", map[string]any{"target": 12.5})
+	if err != nil || string(res.Reply) != "OK" {
+		t.Fatalf("RunCommand = %+v, %v", res, err)
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if c := a.commands[0]; string(c.GetPayload()) != "S 12.5\r\n" || c.GetReplyTimeoutMs() != 500 {
+		t.Fatalf("command = %v", c)
+	}
+}
+
+// Only what the device's settings allow is ever sent, and nothing to an
+// agent of another vhost. Each refusal is permanent: retrying cannot fix it.
+func TestRunCommandRefusesWhatIsNotAllowed(t *testing.T) {
+	f := newFixture(t)
+	allowWeigh(f)
+	if _, err := f.hub.RunCommand(t.Context(), "plant", "agt1", "dev-a", "tare", nil); !errors.Is(err, ErrAgentOffline) || !errors.Is(err, hermod.ErrPermanent) {
+		t.Errorf("offline: err = %v", err)
+	}
+	f.connectAnswer(func(c *pb.Command) *pb.CommandResult {
+		t.Errorf("a refused command reached the agent: %v", c)
+		return nil
+	})
+	cases := []struct{ vhost, device, name string }{
+		{"other", "dev-a", "tare"},
+		{"plant", "dev-b", "tare"},   // commands not allowed on dev-b
+		{"plant", "dev-a", "reboot"}, // not a saved template
+		{"plant", "nope", "tare"},
+	}
+	for _, c := range cases {
+		_, err := f.hub.RunCommand(t.Context(), c.vhost, "agt1", c.device, c.name, nil)
+		if err == nil || !errors.Is(err, hermod.ErrPermanent) {
+			t.Errorf("%v: err = %v", c, err)
+		}
+	}
+	if _, err := f.hub.RunCommand(t.Context(), "plant", "agt1", "dev-a", "set", map[string]any{"target": "1\r\nT"}); !errors.Is(err, hermod.ErrPermanent) {
+		t.Errorf("a value with a line ending: err = %v", err)
 	}
 }

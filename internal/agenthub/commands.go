@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/storage"
 	pb "github.com/gsoultan/hermod/pkg/agent/proto"
 )
 
@@ -128,4 +130,47 @@ func (h *Hub) commandResult(sess *session, r *pb.CommandResult) {
 		delete(sess.waiters, r.GetCommandId())
 		w <- r
 	}
+}
+
+// RunCommand sends the agent's device the command saved under name, filled
+// from fields. The agent is read from the store each time, so a template or
+// allow_commands turned off takes effect at once. vhost is the caller's; an
+// agent of another vhost is treated as not there.
+//
+// A refusal that sending again cannot fix (no such agent, device or
+// command, commands not allowed, a field that cannot fill the template, an
+// agent not connected, or a command that may have reached the device) wraps
+// hermod.ErrPermanent.
+func (h *Hub) RunCommand(ctx context.Context, vhost, agentID, deviceID, name string, fields map[string]any) (CommandReply, error) {
+	as, ok := h.agentStore()
+	if !ok {
+		return CommandReply{}, errors.New("Hermod has no database that can hold agents yet")
+	}
+	a, err := as.GetAgent(ctx, agentID)
+	if errors.Is(err, storage.ErrNotFound) || (err == nil && normVHost(a.VHost) != normVHost(vhost)) {
+		return CommandReply{}, fmt.Errorf("%w: no agent %q", hermod.ErrPermanent, agentID)
+	}
+	if err != nil {
+		return CommandReply{}, fmt.Errorf("read agent %q: %w", agentID, err)
+	}
+	_, cmd, err := a.FindCommand(deviceID, name)
+	if err != nil {
+		return CommandReply{}, fmt.Errorf("%w: %w", hermod.ErrPermanent, err)
+	}
+	payload, err := storage.RenderAgentCommand(cmd, fields)
+	if err != nil {
+		return CommandReply{}, fmt.Errorf("%w: command %q: %w", hermod.ErrPermanent, name, err)
+	}
+	reply, err := h.SendCommand(ctx, agentID, deviceID, payload, time.Duration(cmd.ReplyTimeoutMS)*time.Millisecond)
+	var ce *CommandError
+	switch {
+	case errors.As(err, &ce) && ce.Written:
+		// Sending it again could repeat it on the device.
+		return reply, fmt.Errorf("%w: %w", hermod.ErrPermanent, err)
+	case errors.Is(err, ErrAgentOffline):
+		// Not retried, so a command never reaches a device long after the
+		// event that asked for it.
+		return reply, fmt.Errorf("%w: agent %q: %w", hermod.ErrPermanent, agentID, err)
+	}
+	return reply, err
 }
