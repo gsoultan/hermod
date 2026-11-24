@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"sync"
@@ -21,6 +22,7 @@ import (
 	"time"
 
 	"github.com/gsoultan/hermod/cmd/hermod-agent/internal/framing"
+	"github.com/gsoultan/hermod/cmd/hermod-agent/internal/hid"
 	"github.com/gsoultan/hermod/cmd/hermod-agent/internal/reader"
 	pb "github.com/gsoultan/hermod/pkg/agent/proto"
 	"google.golang.org/protobuf/proto"
@@ -32,12 +34,14 @@ type emitFunc func(deviceID string, raw []byte, port string, at time.Time)
 // readers runs one reader per enabled, claimed device and restarts a reader
 // when its settings change.
 type readers struct {
-	ctx      context.Context
-	log      *slog.Logger
-	emit     emitFunc
-	resolve  func(deviceID string) (string, bool)
-	oversize *atomic.Uint64
-	changed  func()
+	ctx     context.Context
+	log     *slog.Logger
+	emit    emitFunc
+	resolve func(deviceID string) (string, bool)
+	// resolveHID finds a HID device's nodes; set before the first apply.
+	resolveHID func(deviceID string) (hid.Device, bool)
+	oversize   *atomic.Uint64
+	changed    func()
 
 	mu      sync.Mutex
 	running map[string]*running
@@ -49,6 +53,8 @@ type running struct {
 	done     chan struct{}
 	status   atomic.Int32
 	port     atomic.Value // string
+	link     *reader.Link
+	modbus   *reader.ModbusDevice // set for a Modbus device
 }
 
 func newReaders(ctx context.Context, log *slog.Logger, emit emitFunc, resolve func(string) (string, bool), oversize *atomic.Uint64, changed func()) *readers {
@@ -108,12 +114,16 @@ func (r *readers) stopAll() {
 
 func (r *readers) start(s *pb.DeviceSettings) *running {
 	ctx, cancel := context.WithCancel(r.ctx)
-	run := &running{settings: proto.CloneOf(s), cancel: cancel, done: make(chan struct{})}
+	run := &running{settings: proto.CloneOf(s), cancel: cancel, done: make(chan struct{}), link: reader.NewLink()}
+	if s.GetKind() == pb.DeviceKind_DEVICE_KIND_MODBUS {
+		run.modbus = reader.NewModbusDevice()
+	}
 	run.port.Store("")
 	id := s.GetDeviceId()
 	cfg := reader.Config{
 		Framing:  s.GetFraming(),
 		Oversize: r.oversize,
+		Link:     run.link,
 		Emit: func(raw []byte, port string, at time.Time) {
 			r.emit(id, raw, port, at)
 		},
@@ -126,17 +136,35 @@ func (r *readers) start(s *pb.DeviceSettings) *running {
 	}
 	go func() {
 		defer close(run.done)
-		r.run(ctx, s, cfg)
+		r.run(ctx, s, cfg, run)
 	}()
 	return run
 }
 
-func (r *readers) run(ctx context.Context, s *pb.DeviceSettings, cfg reader.Config) {
+func (r *readers) run(ctx context.Context, s *pb.DeviceSettings, cfg reader.Config, run *running) {
 	id := s.GetDeviceId()
 	switch {
+	case s.GetKind() == pb.DeviceKind_DEVICE_KIND_MODBUS:
+		m := s.GetModbus()
+		open := reader.TCPClientOpener(m.GetAddress())
+		if m.GetTransport() == pb.ModbusTransport_MODBUS_TRANSPORT_RTU {
+			open = reader.SerialOpener(func() (string, bool) { return r.resolve(id) }, s.GetSerial())
+		}
+		reader.RunModbus(ctx, open, m, cfg, run.modbus)
 	case s.GetKind() == pb.DeviceKind_DEVICE_KIND_SERIAL:
 		cfg.Open = reader.SerialOpener(func() (string, bool) { return r.resolve(id) }, s.GetSerial())
 		reader.Run(ctx, cfg)
+	case s.GetKind() == pb.DeviceKind_DEVICE_KIND_HID:
+		r.runHID(ctx, s, cfg)
+	case s.GetKind() == pb.DeviceKind_DEVICE_KIND_UDP:
+		allow, _ := reader.ParseAllowList(s.GetUdp().GetAllowFrom()) // validated
+		var lc net.ListenConfig
+		pc, err := lc.ListenPacket(ctx, "udp", s.GetUdp().GetAddress())
+		if err != nil {
+			cfg.OnStatus(reader.StatusDisconnected, err)
+			return
+		}
+		reader.RunUDP(ctx, pc, allow, cfg)
 	case s.GetTcp().GetMode() == pb.TcpMode_TCP_MODE_LISTEN:
 		var lc net.ListenConfig
 		ln, err := lc.Listen(ctx, "tcp", s.GetTcp().GetAddress())
@@ -151,20 +179,54 @@ func (r *readers) run(ctx context.Context, s *pb.DeviceSettings, cfg reader.Conf
 	}
 }
 
-// tcpDevices describes the claimed TCP devices for the device list. A TCP
-// device is present while its reader is connected.
-func (r *readers) tcpDevices() []*pb.Device {
+// runHID reads a USB HID device: as a keyboard, one record per scan (the
+// text up to Enter), or raw, one record per report.
+func (r *readers) runHID(ctx context.Context, s *pb.DeviceSettings, cfg reader.Config) {
+	id := s.GetDeviceId()
+	raw := s.GetHid().GetMode() == pb.HidMode_HID_MODE_RAW
+	cfg.Open = func(context.Context) (io.ReadCloser, string, error) {
+		d, ok := r.resolveHID(id)
+		if !ok {
+			return nil, "", errors.New("device is not attached")
+		}
+		if raw {
+			rc, err := hid.OpenRaw(d.Hidraw)
+			return rc, d.Hidraw, err
+		}
+		rc, err := hid.OpenKeyboard(d.Event)
+		return rc, d.Event, err
+	}
+	if raw {
+		cfg.PerRead = true
+	} else {
+		cfg.Framing = &pb.Framing{Kind: pb.FramingKind_FRAMING_KIND_LINE, MaxRecordBytes: s.GetFraming().GetMaxRecordBytes()}
+	}
+	reader.Run(ctx, cfg)
+}
+
+// networkDevices describes the claimed LAN devices for the device list: TCP,
+// UDP and Modbus TCP. One is present while its reader is reading.
+func (r *readers) networkDevices() []*pb.Device {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	var out []*pb.Device
 	for id, run := range r.running {
-		if run.settings.GetKind() != pb.DeviceKind_DEVICE_KIND_TCP {
+		s := run.settings
+		var port string
+		switch {
+		case s.GetKind() == pb.DeviceKind_DEVICE_KIND_TCP:
+			port = s.GetTcp().GetAddress()
+		case s.GetKind() == pb.DeviceKind_DEVICE_KIND_UDP:
+			port = s.GetUdp().GetAddress()
+		case s.GetKind() == pb.DeviceKind_DEVICE_KIND_MODBUS && s.GetModbus().GetTransport() == pb.ModbusTransport_MODBUS_TRANSPORT_TCP:
+			port = s.GetModbus().GetAddress()
+		default:
 			continue
 		}
 		out = append(out, &pb.Device{
 			DeviceId: id,
-			Kind:     pb.DeviceKind_DEVICE_KIND_TCP,
-			Port:     run.settings.GetTcp().GetAddress(),
+			Kind:     s.GetKind(),
+			Port:     port,
 			StableId: true,
 			Present:  reader.Status(run.status.Load()) == reader.StatusReading,
 		})
@@ -192,15 +254,80 @@ func validate(s *pb.DeviceSettings) error {
 		return nil
 	case pb.DeviceKind_DEVICE_KIND_TCP:
 		return validateTCP(s.GetTcp())
+	case pb.DeviceKind_DEVICE_KIND_UDP:
+		if s.GetUdp() == nil {
+			return errors.New("UDP device needs an address")
+		}
+		if _, err := reader.ParseAllowList(s.GetUdp().GetAllowFrom()); err != nil {
+			return err
+		}
+		return validateHostPort(s.GetUdp().GetAddress())
+	case pb.DeviceKind_DEVICE_KIND_MODBUS:
+		return validateModbus(s)
+	case pb.DeviceKind_DEVICE_KIND_HID:
+		if s.GetHid() == nil {
+			return errors.New("HID device needs its HID settings")
+		}
+		return nil
 	default:
 		return fmt.Errorf("unknown device kind %v", s.GetKind())
 	}
 }
 
 func validateTCP(t *pb.TcpSettings) error {
-	host, port, err := net.SplitHostPort(t.GetAddress())
+	return validateHostPort(t.GetAddress())
+}
+
+// Modbus limits from the protocol.
+const (
+	maxModbusRegisters = 125
+	maxModbusBits      = 2000
+	maxModbusUnit      = 247
+)
+
+func validateModbus(s *pb.DeviceSettings) error {
+	m := s.GetModbus()
+	if m == nil {
+		return errors.New("modbus device needs its Modbus settings")
+	}
+	switch m.GetTransport() {
+	case pb.ModbusTransport_MODBUS_TRANSPORT_TCP:
+		if err := validateHostPort(m.GetAddress()); err != nil {
+			return err
+		}
+	case pb.ModbusTransport_MODBUS_TRANSPORT_RTU:
+		if s.GetSerial().GetBaudRate() == 0 {
+			return errors.New("modbus RTU device needs a baud rate")
+		}
+	default:
+		return fmt.Errorf("unknown Modbus transport %v", m.GetTransport())
+	}
+	if m.GetUnitId() > maxModbusUnit {
+		return fmt.Errorf("unit id %d: must be 0 to %d", m.GetUnitId(), maxModbusUnit)
+	}
+	if len(m.GetReads()) == 0 {
+		return errors.New("modbus device has nothing to read")
+	}
+	for _, rd := range m.GetReads() {
+		limit := uint32(maxModbusRegisters)
+		switch rd.GetTable() {
+		case pb.ModbusTable_MODBUS_TABLE_COILS, pb.ModbusTable_MODBUS_TABLE_DISCRETE_INPUTS:
+			limit = maxModbusBits
+		case pb.ModbusTable_MODBUS_TABLE_HOLDING_REGISTERS, pb.ModbusTable_MODBUS_TABLE_INPUT_REGISTERS:
+		default:
+			return fmt.Errorf("read %q: unknown table %v", rd.GetName(), rd.GetTable())
+		}
+		if rd.GetName() == "" || rd.GetCount() == 0 || rd.GetCount() > limit || rd.GetAddress()+rd.GetCount() > 65536 {
+			return fmt.Errorf("read %q: needs a name and 1 to %d values within addresses 0 to 65535", rd.GetName(), limit)
+		}
+	}
+	return nil
+}
+
+func validateHostPort(address string) error {
+	host, port, err := net.SplitHostPort(address)
 	if err != nil {
-		return fmt.Errorf("address %q: %w", t.GetAddress(), err)
+		return fmt.Errorf("address %q: %w", address, err)
 	}
 	if port == "" {
 		return errors.New("address has no port")

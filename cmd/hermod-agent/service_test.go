@@ -148,3 +148,39 @@ func TestServiceStopReportsAnAgentFailure(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestInstalledServiceKeepsDiscovery(t *testing.T) {
+	f, err := parseFlags([]string{"-server", "h:1", "-token-file", "/t", "-service", "install",
+		"-mdns-services", "", "-scan-subnet", "192.168.1.0/24", "-discover-interval", "10m"}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args, err := serviceArgs(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(args, " ")
+	for _, want := range []string{"-mdns-services= ", "-scan-subnet 192.168.1.0/24", "-discover-interval 10m0s"} {
+		if !strings.Contains(joined+" ", want) {
+			t.Fatalf("args = %q, missing %q", args, want)
+		}
+	}
+}
+
+func TestInstalledServiceKeepsAllowUpdate(t *testing.T) {
+	f, err := parseFlags([]string{"-server", "h:1", "-token-file", "/t", "-service", "install", "-allow-update"}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args, err := serviceArgs(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(args, "-allow-update") {
+		t.Fatalf("args = %q", args)
+	}
+	f, _ = parseFlags([]string{"-server", "h:1", "-token-file", "/t", "-service", "install"}, &bytes.Buffer{})
+	if args, _ := serviceArgs(f); slices.Contains(args, "-allow-update") {
+		t.Fatal("updates were turned on without being asked for")
+	}
+}

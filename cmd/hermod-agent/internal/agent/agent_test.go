@@ -31,18 +31,44 @@ type server struct {
 	pb.UnimplementedAgentServiceServer
 	settings *pb.DeviceSettingsList
 
+	// commands are sent to the agent as the test pushes them.
+	commands chan *pb.Command
+	// update, when set, is offered after the welcome.
+	update string
+
 	mu      sync.Mutex
 	records []*pb.Record
 	devices []*pb.Device
+	results []*pb.CommandResult
+	hello   *pb.Hello
 }
 
 func (s *server) Connect(st grpc.BidiStreamingServer[pb.ConnectRequest, pb.ConnectResponse]) error {
-	if _, err := st.Recv(); err != nil {
+	first, err := st.Recv()
+	if err != nil {
 		return err
 	}
+	s.mu.Lock()
+	s.hello = first.GetHello()
+	s.mu.Unlock()
 	_ = st.Send(&pb.ConnectResponse{Body: &pb.ConnectResponse_Welcome{Welcome: &pb.Welcome{AgentId: "a1"}}})
+	if s.update != "" {
+		_ = st.Send(&pb.ConnectResponse{Body: &pb.ConnectResponse_Update{Update: &pb.Update{Version: s.update}}})
+	}
 	if s.settings != nil {
 		_ = st.Send(&pb.ConnectResponse{Body: &pb.ConnectResponse_Settings{Settings: s.settings}})
+	}
+	if s.commands != nil {
+		go func() {
+			for {
+				select {
+				case c := <-s.commands:
+					_ = st.Send(&pb.ConnectResponse{Body: &pb.ConnectResponse_Command{Command: c}})
+				case <-st.Context().Done():
+					return
+				}
+			}
+		}()
 	}
 	for {
 		m, err := st.Recv()
@@ -52,6 +78,9 @@ func (s *server) Connect(st grpc.BidiStreamingServer[pb.ConnectRequest, pb.Conne
 		s.mu.Lock()
 		if d := m.GetDevices(); d != nil {
 			s.devices = d.GetDevices()
+		}
+		if r := m.GetCommandResult(); r != nil {
+			s.results = append(s.results, r)
 		}
 		recs := m.GetRecords().GetRecords()
 		s.records = append(s.records, recs...)
@@ -208,16 +237,83 @@ func TestInvalidSettingsAreSkippedNotFatal(t *testing.T) {
 		{DeviceId: "t", Kind: pb.DeviceKind_DEVICE_KIND_TCP, Tcp: &pb.TcpSettings{Address: "no-port"}},
 		{DeviceId: "f", Kind: pb.DeviceKind_DEVICE_KIND_TCP, Tcp: &pb.TcpSettings{Address: "h:1"}, Framing: &pb.Framing{Kind: pb.FramingKind_FRAMING_KIND_DELIMITER}},
 		{DeviceId: "k", Kind: pb.DeviceKind(42)},
+		{DeviceId: "u", Kind: pb.DeviceKind_DEVICE_KIND_UDP},
+		{DeviceId: "u", Kind: pb.DeviceKind_DEVICE_KIND_UDP, Udp: &pb.UdpSettings{Address: ":5005"}},
+		{DeviceId: "u", Kind: pb.DeviceKind_DEVICE_KIND_UDP, Udp: &pb.UdpSettings{Address: "127.0.0.1:5005", AllowFrom: []string{"nope"}}},
+		{DeviceId: "m", Kind: pb.DeviceKind_DEVICE_KIND_MODBUS},
+		{DeviceId: "m", Kind: pb.DeviceKind_DEVICE_KIND_MODBUS, Modbus: &pb.ModbusSettings{Transport: pb.ModbusTransport_MODBUS_TRANSPORT_TCP, Address: "h:502"}},
+		{DeviceId: "m", Kind: pb.DeviceKind_DEVICE_KIND_MODBUS, Modbus: &pb.ModbusSettings{Transport: pb.ModbusTransport_MODBUS_TRANSPORT_RTU,
+			Reads: []*pb.ModbusRead{{Name: "a", Table: pb.ModbusTable_MODBUS_TABLE_COILS, Count: 1}}}},
+		{DeviceId: "m", Kind: pb.DeviceKind_DEVICE_KIND_MODBUS, Modbus: &pb.ModbusSettings{Transport: pb.ModbusTransport_MODBUS_TRANSPORT_TCP, Address: "h:502",
+			Reads: []*pb.ModbusRead{{Name: "a", Table: pb.ModbusTable_MODBUS_TABLE_HOLDING_REGISTERS, Count: 126}}}},
+		{DeviceId: "m", Kind: pb.DeviceKind_DEVICE_KIND_MODBUS, Modbus: &pb.ModbusSettings{Transport: pb.ModbusTransport_MODBUS_TRANSPORT_TCP, Address: "h:502",
+			UnitId: 300, Reads: []*pb.ModbusRead{{Name: "a", Table: pb.ModbusTable_MODBUS_TABLE_COILS, Count: 1}}}},
+		{DeviceId: "h", Kind: pb.DeviceKind_DEVICE_KIND_HID},
 	}
 	for _, s := range bad {
 		if err := validate(s); err == nil {
 			t.Errorf("validate(%v) accepted", s)
 		}
 	}
-	good := &pb.DeviceSettings{DeviceId: "ok", Kind: pb.DeviceKind_DEVICE_KIND_SERIAL, Serial: &pb.SerialSettings{BaudRate: 9600}}
-	if err := validate(good); err != nil {
-		t.Fatalf("validate(good) = %v", err)
+	for _, good := range []*pb.DeviceSettings{
+		{DeviceId: "ok", Kind: pb.DeviceKind_DEVICE_KIND_SERIAL, Serial: &pb.SerialSettings{BaudRate: 9600}},
+		{DeviceId: "u", Kind: pb.DeviceKind_DEVICE_KIND_UDP, Udp: &pb.UdpSettings{Address: "127.0.0.1:5005", AllowFrom: []string{"10.0.0.0/8"}}},
+		{DeviceId: "m", Kind: pb.DeviceKind_DEVICE_KIND_MODBUS, Serial: &pb.SerialSettings{BaudRate: 19200},
+			Modbus: &pb.ModbusSettings{Transport: pb.ModbusTransport_MODBUS_TRANSPORT_RTU,
+				Reads: []*pb.ModbusRead{{Name: "a", Table: pb.ModbusTable_MODBUS_TABLE_INPUT_REGISTERS, Count: 125}}}},
+		{DeviceId: "h", Kind: pb.DeviceKind_DEVICE_KIND_HID, Hid: &pb.HidSettings{}},
+	} {
+		if err := validate(good); err != nil {
+			t.Fatalf("validate(%v) = %v", good, err)
+		}
 	}
+}
+
+// A UDP device: each datagram from an allowed sender reaches the server as
+// one record.
+func TestDatagramsFromAUDPDeviceReachTheServer(t *testing.T) {
+	var lc net.ListenConfig
+	probe, err := lc.ListenPacket(t.Context(), "udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := probe.LocalAddr().String()
+	_ = probe.Close()
+	srv := &server{settings: &pb.DeviceSettingsList{Devices: []*pb.DeviceSettings{{
+		DeviceId: "udp-sensors", Kind: pb.DeviceKind_DEVICE_KIND_UDP, Enabled: true,
+		Udp: &pb.UdpSettings{Address: addr, AllowFrom: []string{"127.0.0.0/8"}},
+	}}}}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	// Made here, not in the goroutine, so their cleanups run after the agent stops.
+	opt := options(t.TempDir(), serve(t, srv))
+	go func() { done <- Run(ctx, opt) }()
+	t.Cleanup(func() { cancel(); <-done })
+
+	var d net.Dialer
+	conn, err := d.DialContext(t.Context(), "udp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	eventually(t, "a datagram recorded", func() bool {
+		_, _ = conn.Write([]byte("t=21.5"))
+		r, _ := srv.snapshot()
+		return len(r) > 0
+	})
+	recs, _ := srv.snapshot()
+	if string(recs[0].GetRaw()) != "t=21.5" || recs[0].GetDeviceId() != "udp-sensors" {
+		t.Fatalf("record = %v", recs[0])
+	}
+	eventually(t, "the UDP device in the device list", func() bool {
+		_, devs := srv.snapshot()
+		for _, d := range devs {
+			if d.GetDeviceId() == "udp-sensors" && d.GetKind() == pb.DeviceKind_DEVICE_KIND_UDP && d.GetPresent() {
+				return true
+			}
+		}
+		return false
+	})
 }
 
 // Changed settings restart a reader; unchanged ones leave it running.

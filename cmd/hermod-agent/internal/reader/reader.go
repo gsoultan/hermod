@@ -59,6 +59,13 @@ type Config struct {
 	// Oversize, when set, counts records dropped for exceeding the framing's
 	// size limit.
 	Oversize *atomic.Uint64
+	// Link, when set, lets commands be written to the device while it is
+	// open, and receives every framed record as a possible reply.
+	Link *Link
+	// PerRead makes each read one record, without framing, for a source
+	// that returns one message per read such as a hidraw node. The record
+	// size limit still applies.
+	PerRead bool
 	// MinBackoff and MaxBackoff bound the wait between attempts to open the
 	// device. Defaults 1 s and 30 s.
 	MinBackoff, MaxBackoff time.Duration
@@ -122,6 +129,9 @@ type chunk struct {
 // for any io.Reader, whatever its own timeout support.
 func readConn(ctx context.Context, rc io.ReadCloser, port string, fr framing.Framer, cfg *Config) (bool, error) {
 	defer func() { _ = rc.Close() }()
+	if w, ok := rc.(io.Writer); ok && cfg.Link != nil {
+		defer cfg.Link.attach(w)()
+	}
 	chunks := make(chan chunk)
 	stop := make(chan struct{})
 	defer close(stop)
@@ -146,6 +156,16 @@ func readConn(ctx context.Context, rc io.ReadCloser, port string, fr framing.Fra
 				return gotData, c.err
 			}
 			gotData = true
+			if cfg.PerRead {
+				if len(c.b) > recordLimit(cfg) {
+					if cfg.Oversize != nil {
+						cfg.Oversize.Add(1)
+					}
+					continue
+				}
+				emitAll(cfg, [][]byte{c.b}, port)
+				continue
+			}
 			emitAll(cfg, fr.Feed(c.b), port)
 			if idle > 0 {
 				timer = time.After(idle)
@@ -179,6 +199,14 @@ func pump(r io.Reader, out chan<- chunk, stop <-chan struct{}) {
 	}
 }
 
+// recordLimit is the framing's record size limit, or the default.
+func recordLimit(cfg *Config) int {
+	if n := int(cfg.Framing.GetMaxRecordBytes()); n > 0 {
+		return n
+	}
+	return framing.DefaultMaxRecordBytes
+}
+
 func emitAll(cfg *Config, frames [][]byte, port string) {
 	if len(frames) == 0 {
 		return
@@ -186,5 +214,8 @@ func emitAll(cfg *Config, frames [][]byte, port string) {
 	now := time.Now()
 	for _, f := range frames {
 		cfg.Emit(f, port, now)
+		if cfg.Link != nil {
+			cfg.Link.deliver(f)
+		}
 	}
 }

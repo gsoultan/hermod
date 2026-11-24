@@ -37,6 +37,7 @@ message ConnectRequest {
     DeviceList devices = 2;
     RecordBatch records = 3;
     Heartbeat heartbeat = 4;
+    CommandResult command_result = 5;
   }
 }
 
@@ -46,6 +47,8 @@ message ConnectResponse {
     Welcome welcome = 1;
     Ack ack = 2;
     DeviceSettingsList settings = 3;
+    Command command = 4;
+    Update update = 5;
   }
 }
 
@@ -62,6 +65,19 @@ message Hello {
   // highest the server has acknowledged, as the agent last saw them.
   uint64 last_seq = 5;
   uint64 acked_seq = 6;
+  // True when the agent was started with -allow-update and will replace
+  // itself with a newer release when the server offers one.
+  bool accepts_updates = 7;
+}
+
+// Update offers the agent a newer release, by version only. The agent builds
+// the download address itself, from the project's releases on GitHub, and
+// checks the archive against the release's published checksums.txt, so the
+// server cannot point it at any other file. An agent ignores an offer of its
+// own version or an older one.
+message Update {
+  // A release tag, for example "v1.9.0".
+  string version = 1;
 }
 
 // Welcome answers Hello.
@@ -81,6 +97,15 @@ enum DeviceKind {
   DEVICE_KIND_SERIAL = 1;
   // A device on the LAN that sends raw bytes over TCP.
   DEVICE_KIND_TCP = 2;
+  // Datagrams on a LAN port: broadcast sensors, syslog-style devices. Each
+  // datagram is one record.
+  DEVICE_KIND_UDP = 3;
+  // A Modbus RTU or TCP device whose registers the agent polls. Each poll is
+  // one record.
+  DEVICE_KIND_MODBUS = 4;
+  // A USB HID device such as a barcode scanner in keyboard mode, read
+  // directly so its input does not reach the desktop.
+  DEVICE_KIND_HID = 5;
 }
 
 // Device is one device the agent can see.
@@ -104,6 +129,13 @@ message Device {
   bool stable_id = 8;
   // True while the device is attached or reachable.
   bool present = 9;
+  // How a LAN device was found when the agent found it itself: "mdns" or
+  // "scan". Empty for a port the operating system lists and for a device a
+  // user added by address.
+  string discovered_by = 10;
+  // The mDNS service type, for example "_hermod._tcp", when discovered_by is
+  // "mdns".
+  string service = 11;
 }
 
 // DeviceList is everything the agent can see right now. Each one replaces the
@@ -149,6 +181,75 @@ enum TcpMode {
   TCP_MODE_CLIENT = 1;
   // The device connects to the agent, which listens at address.
   TCP_MODE_LISTEN = 2;
+}
+
+// UdpSettings receive a LAN device's datagrams.
+message UdpSettings {
+  // host:port to listen on. An empty host is refused, as for TCP.
+  string address = 1;
+  // When set, only datagrams from these addresses or CIDR ranges are kept;
+  // the rest are dropped.
+  repeated string allow_from = 2;
+}
+
+enum ModbusTransport {
+  MODBUS_TRANSPORT_UNSPECIFIED = 0;
+  // Modbus TCP to address.
+  MODBUS_TRANSPORT_TCP = 1;
+  // Modbus RTU on the serial port of the device, with its serial settings.
+  MODBUS_TRANSPORT_RTU = 2;
+}
+
+enum ModbusTable {
+  MODBUS_TABLE_UNSPECIFIED = 0;
+  MODBUS_TABLE_COILS = 1;
+  MODBUS_TABLE_DISCRETE_INPUTS = 2;
+  MODBUS_TABLE_HOLDING_REGISTERS = 3;
+  MODBUS_TABLE_INPUT_REGISTERS = 4;
+}
+
+// ModbusRead is one block read on every poll.
+message ModbusRead {
+  // The key the values are recorded under.
+  string name = 1;
+  ModbusTable table = 2;
+  // The zero-based address of the first coil or register.
+  uint32 address = 3;
+  // How many: 1 to 125 registers, or 1 to 2000 coils or inputs.
+  uint32 count = 4;
+}
+
+// ModbusSettings poll a register map. Each poll is one record, a JSON object
+// with each read's name and its values: register values as numbers 0 to
+// 65535, coils and inputs as true or false. Scaling and decoding happen in
+// the workflow.
+message ModbusSettings {
+  ModbusTransport transport = 1;
+  // host:port for TCP. RTU uses the device's serial settings and its USB
+  // identity, as a serial device does.
+  string address = 2;
+  // The unit (slave) id, 0 to 247. Zero means 1.
+  uint32 unit_id = 3;
+  // How often to poll. Zero means 1000; at least 100.
+  uint32 poll_interval_ms = 4;
+  // How long to wait for each answer. Zero means 1000.
+  uint32 timeout_ms = 5;
+  repeated ModbusRead reads = 6;
+}
+
+enum HidMode {
+  HID_MODE_UNSPECIFIED = 0;
+  // Key presses turned into text, one record per Enter: what a barcode
+  // scanner in keyboard mode types. Unspecified means this.
+  HID_MODE_KEYBOARD = 1;
+  // Each HID input report as it comes, one record per report.
+  HID_MODE_RAW = 2;
+}
+
+// HidSettings read a USB HID device. The device is found by its device_id,
+// "hid:<vid>:<pid>:<serial>", as the agent reports it.
+message HidSettings {
+  HidMode mode = 1;
 }
 
 // TcpSettings reach a LAN device.
@@ -207,6 +308,13 @@ message DeviceSettings {
   Framing framing = 6;
   // False stops the reader without forgetting the settings.
   bool enabled = 7;
+  // True lets the server send this device commands. The agent refuses a
+  // command for a device without it, whatever the server says.
+  bool allow_commands = 8;
+  UdpSettings udp = 9;
+  // For RTU, serial holds the port settings.
+  ModbusSettings modbus = 10;
+  HidSettings hid = 11;
 }
 
 // DeviceSettingsList is every claimed device for this agent. Each one replaces
@@ -259,4 +367,42 @@ message Heartbeat {
   uint64 spool_dropped = 5;
   // Records dropped because they were longer than max_record_bytes.
   uint64 oversize_dropped = 6;
+}
+
+// Command asks the agent to write to one of its devices. It never runs
+// anything. For a serial or TCP device the payload is written as it is. For a
+// Modbus device it is one write, as text: "coil <address> <0|1>..." or
+// "holding <address> <value>...", with values 0 to 65535 written from
+// address on.
+message Command {
+  // Chosen by the server; the result carries it back.
+  string command_id = 1;
+  string device_id = 2;
+  // The bytes to write, at most 64 KiB.
+  bytes payload = 3;
+  // When above zero, the agent waits up to this long, at most 60000, for
+  // the next record the device sends and returns it as the reply. That
+  // record is also spooled as an ordinary reading.
+  uint32 reply_timeout_ms = 4;
+}
+
+enum CommandStatus {
+  COMMAND_STATUS_UNSPECIFIED = 0;
+  // The bytes were written and no reply was asked for.
+  COMMAND_STATUS_WRITTEN = 1;
+  // The bytes were written and the device replied in time.
+  COMMAND_STATUS_REPLIED = 2;
+  // Nothing was written, the write failed, or no reply came in time; error
+  // says which.
+  COMMAND_STATUS_FAILED = 3;
+}
+
+message CommandResult {
+  string command_id = 1;
+  CommandStatus status = 2;
+  bytes reply = 3;
+  string error = 4;
+  // False when the failure came before anything reached the device, so the
+  // command is safe to send again.
+  bool written = 5;
 }

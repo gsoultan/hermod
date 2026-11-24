@@ -167,9 +167,17 @@ type agent struct {
 	welcome  *pb.Welcome
 	err      error
 	changed  chan struct{}
+	commands []*pb.Command
+	updates  []string
+	// answer, when set, answers each command the hub sends.
+	answer func(*pb.Command) *pb.CommandResult
 }
 
 func (f *fixture) connectWith(token string, hello *pb.Hello) (*agent, error) {
+	return f.connectAnswering(token, hello, nil)
+}
+
+func (f *fixture) connectAnswering(token string, hello *pb.Hello, answer func(*pb.Command) *pb.CommandResult) (*agent, error) {
 	ctx, cancel := context.WithCancel(f.t.Context())
 	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+token)
 	st, err := pb.NewAgentServiceClient(f.conn).Connect(ctx)
@@ -177,7 +185,7 @@ func (f *fixture) connectWith(token string, hello *pb.Hello) (*agent, error) {
 		cancel()
 		return nil, err
 	}
-	a := &agent{t: f.t, stream: st, cancel: cancel, changed: make(chan struct{}, 1000)}
+	a := &agent{t: f.t, stream: st, cancel: cancel, changed: make(chan struct{}, 1000), answer: answer}
 	f.t.Cleanup(cancel)
 	// A Send to a stream the server already ended says only io.EOF; the
 	// status comes from Recv.
@@ -215,6 +223,15 @@ func (a *agent) recv() {
 			a.acked = b.Ack.GetUpToSeq()
 		case *pb.ConnectResponse_Settings:
 			a.settings = append(a.settings, b.Settings)
+		case *pb.ConnectResponse_Update:
+			a.updates = append(a.updates, b.Update.GetVersion())
+		case *pb.ConnectResponse_Command:
+			a.commands = append(a.commands, b.Command)
+			if a.answer != nil {
+				if r := a.answer(b.Command); r != nil {
+					_ = a.stream.Send(&pb.ConnectRequest{Body: &pb.ConnectRequest_CommandResult{CommandResult: r}})
+				}
+			}
 		}
 		a.mu.Unlock()
 		a.poke()

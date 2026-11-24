@@ -272,3 +272,20 @@ func TestSerialOpenerFailsWhenTheDeviceIsGone(t *testing.T) {
 		t.Fatal("opened a device that is not attached")
 	}
 }
+
+// With PerRead, each read is one record, as a hidraw node returns one report
+// per read; framing does not apply.
+func TestRunPerReadRecordsEachRead(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	conns := make(chan net.Conn, 1)
+	c := newCollected()
+	go Run(ctx, fastBackoff(Config{Open: pipeOpener(conns), Emit: c.emit, PerRead: true}))
+	w := <-conns
+	_, _ = w.Write([]byte{0x02, 0x00, 0x1e})
+	_, _ = w.Write([]byte("\n\n"))
+	got := c.wait(t, 2)
+	if got[0] != "\x02\x00\x1e" || got[1] != "\n\n" {
+		t.Fatalf("frames = %q", got)
+	}
+}

@@ -38,6 +38,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/selfupdate"
 	"github.com/gsoultan/hermod/internal/storage"
 	pb "github.com/gsoultan/hermod/pkg/agent/proto"
 )
@@ -68,6 +69,9 @@ type Hub struct {
 
 	mu     sync.Mutex
 	agents map[string]*agentState
+	// release is this Hermod's release tag, offered to agents that accept
+	// updates and run an older one; empty offers nothing.
+	release string
 }
 
 // agentState is what the hub knows of one agent, connected or not.
@@ -90,6 +94,12 @@ type session struct {
 	wake     chan struct{} // an ack or new settings to send
 	settings *pb.DeviceSettingsList
 	sentAck  uint64
+	done     <-chan struct{} // closed when the stream ends
+
+	// outbox holds commands not yet sent; waiters, the callers of
+	// SendCommand by command id. Both are guarded by Hub.mu.
+	outbox  []*pb.Command
+	waiters map[string]chan *pb.CommandResult
 }
 
 func (s *session) poke() {
@@ -131,6 +141,25 @@ func (h *Hub) SetStore(store func() any) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.store = store
+}
+
+// SetAgentRelease sets the release offered to agents: this Hermod's version.
+// A development build ("dev") offers nothing.
+func (h *Hub) SetAgentRelease(version string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.release = selfupdate.Canonical(version)
+}
+
+// offer is the release to offer an agent that said hello, or "".
+func (h *Hub) offer(hello *pb.Hello) string {
+	h.mu.Lock()
+	release := h.release
+	h.mu.Unlock()
+	if release == "" || !hello.GetAcceptsUpdates() || !selfupdate.IsNewer(release, hello.GetVersion()) {
+		return ""
+	}
+	return release
 }
 
 // SetLogger sets the hub's logger.
@@ -238,7 +267,10 @@ func (h *Hub) Connect(stream grpc.BidiStreamingServer[pb.ConnectRequest, pb.Conn
 
 	sctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
-	sess := &session{cancel: cancel, wake: make(chan struct{}, 1), settings: settingsList(a.Devices)}
+	sess := &session{
+		cancel: cancel, wake: make(chan struct{}, 1), settings: settingsList(a.Devices), done: sctx.Done(),
+		waiters: map[string]chan *pb.CommandResult{},
+	}
 	acked := h.attach(a, hello, sess)
 	defer h.detach(a.ID, sess)
 
@@ -246,9 +278,16 @@ func (h *Hub) Connect(stream grpc.BidiStreamingServer[pb.ConnectRequest, pb.Conn
 	if err := stream.Send(&pb.ConnectResponse{Body: &pb.ConnectResponse_Welcome{Welcome: welcome}}); err != nil {
 		return err
 	}
+	// Before sendLoop starts, so this goroutine is the only sender.
+	if v := h.offer(hello); v != "" {
+		if err := stream.Send(&pb.ConnectResponse{Body: &pb.ConnectResponse_Update{Update: &pb.Update{Version: v}}}); err != nil {
+			return err
+		}
+	}
 	sess.poke()
 	h.report(ctx, a.ID, func(s *storage.AgentStatus) {
 		s.Hostname, s.OS, s.Arch, s.Version = hello.GetHostname(), hello.GetOs(), hello.GetArch(), hello.GetVersion()
+		s.AcceptsUpdates = hello.GetAcceptsUpdates()
 	})
 
 	go h.sendLoop(sctx, stream, a.ID, sess)
@@ -367,7 +406,7 @@ func (h *Hub) report(ctx context.Context, id string, change func(*storage.AgentS
 	}
 }
 
-// sendLoop owns the stream's sending side: settings and acks.
+// sendLoop owns the stream's sending side: settings, commands and acks.
 func (h *Hub) sendLoop(ctx context.Context, stream grpc.BidiStreamingServer[pb.ConnectRequest, pb.ConnectResponse], id string, sess *session) {
 	for {
 		select {
@@ -375,9 +414,16 @@ func (h *Hub) sendLoop(ctx context.Context, stream grpc.BidiStreamingServer[pb.C
 			return
 		case <-sess.wake:
 		}
-		settings, ack := h.pending(id, sess)
+		settings, ack, cmds := h.pending(id, sess)
 		if settings != nil {
 			if err := stream.Send(&pb.ConnectResponse{Body: &pb.ConnectResponse_Settings{Settings: settings}}); err != nil {
+				sess.cancel(err)
+				return
+			}
+		}
+		// After the settings, so a device just allowed commands has them.
+		for _, c := range cmds {
+			if err := stream.Send(&pb.ConnectResponse{Body: &pb.ConnectResponse_Command{Command: c}}); err != nil {
 				sess.cancel(err)
 				return
 			}
@@ -392,17 +438,17 @@ func (h *Hub) sendLoop(ctx context.Context, stream grpc.BidiStreamingServer[pb.C
 }
 
 // pending takes what sess has to send.
-func (h *Hub) pending(id string, sess *session) (*pb.DeviceSettingsList, *pb.Ack) {
+func (h *Hub) pending(id string, sess *session) (*pb.DeviceSettingsList, *pb.Ack, []*pb.Command) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	settings := sess.settings
-	sess.settings = nil
+	settings, cmds := sess.settings, sess.outbox
+	sess.settings, sess.outbox = nil, nil
 	st, ok := h.agents[id]
 	if !ok || st.sess != sess || st.ledger.acked == sess.sentAck {
-		return settings, nil
+		return settings, nil, cmds
 	}
 	sess.sentAck = st.ledger.acked
-	return settings, &pb.Ack{UpToSeq: st.ledger.acked}
+	return settings, &pb.Ack{UpToSeq: st.ledger.acked}, cmds
 }
 
 // recvLoop handles what the agent sends until the stream ends, and returns
@@ -421,6 +467,8 @@ func (h *Hub) recvLoop(ctx context.Context, stream grpc.BidiStreamingServer[pb.C
 		case *pb.ConnectRequest_Devices:
 			found := ports(b.Devices.GetDevices())
 			h.report(ctx, id, func(s *storage.AgentStatus) { s.Ports = found })
+		case *pb.ConnectRequest_CommandResult:
+			h.commandResult(sess, b.CommandResult)
 		case *pb.ConnectRequest_Heartbeat:
 			spool := spoolOf(b.Heartbeat)
 			h.report(ctx, id, func(s *storage.AgentStatus) { s.Spool = spool })

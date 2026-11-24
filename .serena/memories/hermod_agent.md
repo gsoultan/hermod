@@ -94,8 +94,47 @@ phases; the design doc is the Claude Doc "Hermod Device Agent: design".
 - `cmd/hermod-agent/internal/agent/hermod_e2e_test.go` runs the real agent
   against the real hub, SQL store and source.
 
+## Phase 2 (branch feat/hermod-agent-commands)
+
+- Commands. Proto: `ConnectResponse.command`, `ConnectRequest.command_result`,
+  `DeviceSettings.allow_commands`. Agent `agent/commands.go` re-checks
+  allow_commands itself; `reader.Link` serialises commands per device, writes
+  to the open connection (5 s deadline) and takes the next framed record as
+  the reply. `WrittenError` = may have reached the device. Modbus devices
+  write through `reader.ModbusDevice` ("holding <addr> <v>..." /
+  "coil <addr> <on|off>...", `modbus.ParseWrite`).
+  Hermod: `storage.AgentCommand` templates (text escapes \r \n \t \\ \xHH,
+  `{{field}}` placeholders, control chars in values refused; or hex),
+  `Agent.FindCommand`, `RenderAgentCommand`. `Hub.SendCommand` (offline =
+  `ErrAgentOffline` at once; `CommandError{Written}`), `Hub.RunCommand`
+  (reloads agent from store, vhost check, wraps hermod.ErrPermanent for
+  refusals, offline and possibly-written). Sink `pkg/comm/sink/agent`
+  (`type: agent`, agent_id/device_id/command). REST
+  `POST /api/agents/{id}/devices/{device}/commands/{name}` (Editor, audited
+  action `command`; 409 offline, 400 refused, 502 device failure).
+- Kinds: `udp` (`reader.RunUDP`, datagram = record, port = sender,
+  `allow_from`), `modbus` (`internal/modbus` own client, TCP MBAP + RTU CRC16
+  over go.bug.st/serial; `reader.RunModbus` polls, JSON record in read order,
+  exception skips a poll, other errors reconnect), `hid` (Linux only:
+  `internal/hid` sysfs listing, evdev keyboard + EVIOCGRAB 0x40044590, US
+  keymap, record per Enter; raw = hidraw, `reader.Config.PerRead`).
+- Discovery `internal/discover`: mDNS `Browse` from an ephemeral port
+  (legacy unicast answers), `Scan` IPv4 port 502, max 4096 hosts, 32 workers.
+  Agent flags `-mdns-services` (default `_hermod._tcp,_modbus._tcp`),
+  `-scan-subnet` (opt-in), `-discover-interval` (5m, min 1m). Found devices
+  have `discovered_by` mdns|scan; ids `mdns:<inst>.<svc>`, `modbus:<ip>:<port>`.
+- Self-update `internal/update`: `Update{version}` only; agent builds
+  `<base>/<tag>/hermod-agent_<ver>_<os>_<arch>[v<goarm>].{tar.gz|zip}`,
+  checks checksums.txt, runs `-version`, renames (keeps `.old`). Opt-in
+  `-allow-update` (Hello.accepts_updates). `agent.ErrRestart` -> main
+  `restartSelf`: Unix syscall.Exec (exe path captured at start), Windows
+  service exit 3 (SCM recovery), console starts new process. Hermod offers
+  `version.Version` via `Hub.SetAgentRelease` when newer than the agent's.
+- Branch merges #431's branch (feat/hermod-agent-platforms) and is based on
+  #430's; that merge garbled core.md's hermod-agent entry, fixed here.
+
 ## Not built yet
 
 UI (Agents tab in Settings, agent page, claim device with Listen, Agent
-source form), Listen (live frames), commands to devices (Agent device sink,
-phase 2), packages and service units, `pkg/agent/proto` in CI buf breaking.
+source and Agent device sink forms), Listen (live frames), HID on Windows and
+macOS, Bluetooth LE, OPC UA, SNMP (phase 3).

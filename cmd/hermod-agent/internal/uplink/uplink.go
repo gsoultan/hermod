@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/gsoultan/hermod/cmd/hermod-agent/internal/spool"
@@ -48,6 +49,13 @@ type Config struct {
 	DevicesChanged <-chan struct{}
 	// OnSettings receives the claimed devices' settings.
 	OnSettings func(*pb.DeviceSettingsList)
+	// OnCommand carries out a command from the server and returns its
+	// result. It runs on its own goroutine, at most maxCommands at once, and
+	// must return when ctx ends. Without it every command fails.
+	OnCommand func(ctx context.Context, c *pb.Command) *pb.CommandResult
+	// OnUpdate receives an offer of a release, by version. It must not
+	// block the stream; nil ignores offers.
+	OnUpdate func(version string)
 	// Heartbeat adds to the spool figures the uplink fills in itself; it may
 	// be nil.
 	Heartbeat      func(*pb.Heartbeat)
@@ -87,6 +95,10 @@ func (c *Config) defaults() {
 		c.MaxBackoff = 30 * time.Second
 	}
 }
+
+// maxCommands is how many commands may run at once. A command beyond it
+// fails at once rather than queueing, so it never reaches a device late.
+const maxCommands = 16
 
 // Run keeps the connection up until ctx ends.
 func Run(ctx context.Context, cfg Config) error {
@@ -149,16 +161,19 @@ func session(ctx context.Context, client pb.AgentServiceClient, cfg *Config) (bo
 	acks := make(chan struct{}, 1)
 	errc := make(chan error, 1)
 	received := make(chan struct{})
+	cmds := newCommands(ctx, cfg.OnCommand)
 	go func() {
 		defer close(received)
-		errc <- receive(st, cfg, acks)
+		errc <- receive(st, cfg, acks, cmds)
 	}()
-	err = send(ctx, st, cfg, acks, errc)
+	err = send(ctx, st, cfg, acks, errc, cmds.results)
 	// The receiver acknowledges into the spool. It has to be finished before
 	// the session returns, or it could write to a spool its owner has
-	// already closed.
+	// already closed. Commands still running are cancelled; the server has
+	// already failed them with the stream.
 	cancel()
 	<-received
+	cmds.wait()
 	return true, err
 }
 
@@ -198,7 +213,7 @@ func sendDevices(st stream, cfg *Config) error {
 }
 
 // receive handles what the server sends until the stream ends.
-func receive(st stream, cfg *Config, acks chan<- struct{}) error {
+func receive(st stream, cfg *Config, acks chan<- struct{}, cmds *commands) error {
 	for {
 		m, err := st.Recv()
 		if err != nil {
@@ -217,13 +232,19 @@ func receive(st stream, cfg *Config, acks chan<- struct{}) error {
 			if cfg.OnSettings != nil {
 				cfg.OnSettings(b.Settings)
 			}
+		case *pb.ConnectResponse_Command:
+			cmds.start(b.Command)
+		case *pb.ConnectResponse_Update:
+			if cfg.OnUpdate != nil {
+				cfg.OnUpdate(b.Update.GetVersion())
+			}
 		}
 	}
 }
 
 // send streams records in order, never more than Window ahead of the last
 // acknowledgement, and reports devices and heartbeats as they come due.
-func send(ctx context.Context, st stream, cfg *Config, acks <-chan struct{}, errc <-chan error) error {
+func send(ctx context.Context, st stream, cfg *Config, acks <-chan struct{}, errc <-chan error, results <-chan *pb.CommandResult) error {
 	cursor := cfg.Spool.Stats().AckedSeq
 	beat := time.NewTicker(cfg.HeartbeatEvery)
 	defer beat.Stop()
@@ -250,6 +271,10 @@ func send(ctx context.Context, st stream, cfg *Config, acks <-chan struct{}, err
 		case <-acks:
 		case <-cfg.DevicesChanged:
 			if err := sendDevices(st, cfg); err != nil {
+				return err
+			}
+		case r := <-results:
+			if err := st.Send(&pb.ConnectRequest{Body: &pb.ConnectRequest_CommandResult{CommandResult: r}}); err != nil {
 				return err
 			}
 		case <-beat.C:
@@ -306,3 +331,56 @@ func heartbeat(cfg *Config) *pb.Heartbeat {
 	}
 	return hb
 }
+
+// commands runs the server's commands for one session.
+type commands struct {
+	ctx     context.Context
+	handle  func(context.Context, *pb.Command) *pb.CommandResult
+	slots   chan struct{}
+	results chan *pb.CommandResult
+	wg      sync.WaitGroup
+}
+
+func newCommands(ctx context.Context, handle func(context.Context, *pb.Command) *pb.CommandResult) *commands {
+	return &commands{
+		ctx:     ctx,
+		handle:  handle,
+		slots:   make(chan struct{}, maxCommands),
+		results: make(chan *pb.CommandResult, maxCommands),
+	}
+}
+
+func failed(c *pb.Command, msg string) *pb.CommandResult {
+	return &pb.CommandResult{CommandId: c.GetCommandId(), Status: pb.CommandStatus_COMMAND_STATUS_FAILED, Error: msg}
+}
+
+func (c *commands) start(cmd *pb.Command) {
+	if c.handle == nil {
+		c.reply(failed(cmd, "this agent does not accept commands"))
+		return
+	}
+	select {
+	case c.slots <- struct{}{}:
+	default:
+		c.reply(failed(cmd, "agent busy: too many commands at once"))
+		return
+	}
+	c.wg.Go(func() {
+		defer func() { <-c.slots }()
+		r := c.handle(c.ctx, cmd)
+		if r == nil {
+			r = failed(cmd, "no result")
+		}
+		r.CommandId = cmd.GetCommandId()
+		c.reply(r)
+	})
+}
+
+func (c *commands) reply(r *pb.CommandResult) {
+	select {
+	case c.results <- r:
+	case <-c.ctx.Done():
+	}
+}
+
+func (c *commands) wait() { c.wg.Wait() }

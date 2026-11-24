@@ -44,6 +44,9 @@ type fakeServer struct {
 	streams   int
 	changed   chan struct{}
 	onBatch   func(records int)
+	commands  []*pb.Command // sent after the welcome
+	results   []*pb.CommandResult
+	update    string // offered after the welcome when set
 }
 
 func newFake() *fakeServer { return &fakeServer{autoAck: true, changed: make(chan struct{}, 1000)} }
@@ -70,12 +73,20 @@ func (f *fakeServer) Connect(stream grpc.BidiStreamingServer[pb.ConnectRequest, 
 	f.hellos = append(f.hellos, first.GetHello())
 	welcome := &pb.Welcome{AgentId: "agent-1", AckedSeq: f.acked}
 	settings := f.settings
+	commands := f.commands
+	update := f.update
 	f.mu.Unlock()
 	if err := stream.Send(&pb.ConnectResponse{Body: &pb.ConnectResponse_Welcome{Welcome: welcome}}); err != nil {
 		return err
 	}
 	if settings != nil {
 		_ = stream.Send(&pb.ConnectResponse{Body: &pb.ConnectResponse_Settings{Settings: settings}})
+	}
+	for _, c := range commands {
+		_ = stream.Send(&pb.ConnectResponse{Body: &pb.ConnectResponse_Command{Command: c}})
+	}
+	if update != "" {
+		_ = stream.Send(&pb.ConnectResponse{Body: &pb.ConnectResponse_Update{Update: &pb.Update{Version: update}}})
 	}
 	for {
 		m, err := stream.Recv()
@@ -97,6 +108,8 @@ func (f *fakeServer) handle(stream grpc.BidiStreamingServer[pb.ConnectRequest, p
 		f.devices = append(f.devices, b.Devices.GetDevices())
 	case *pb.ConnectRequest_Heartbeat:
 		f.beats++
+	case *pb.ConnectRequest_CommandResult:
+		f.results = append(f.results, b.CommandResult)
 	case *pb.ConnectRequest_Records:
 		if f.onBatch != nil {
 			f.onBatch(len(b.Records.GetRecords()))
@@ -368,5 +381,60 @@ func TestBatchesStopAtTheByteLimit(t *testing.T) {
 	defer mu.Unlock()
 	if want := []int{2, 2, 1, 1}; !reflect.DeepEqual(sizes, want) {
 		t.Fatalf("batch sizes = %v, want %v", sizes, want)
+	}
+}
+
+func TestCommandsAreAnsweredOnTheStream(t *testing.T) {
+	f := newFake()
+	f.commands = []*pb.Command{
+		{CommandId: "c1", DeviceId: "dev", Payload: []byte("T")},
+		{CommandId: "c2", DeviceId: "dev", Payload: []byte("W")},
+	}
+	s := openSpool(t)
+	cfg := baseConfig(startFake(t, f), s)
+	cfg.OnCommand = func(_ context.Context, c *pb.Command) *pb.CommandResult {
+		return &pb.CommandResult{CommandId: c.GetCommandId(), Status: pb.CommandStatus_COMMAND_STATUS_REPLIED, Reply: append([]byte("re:"), c.GetPayload()...)}
+	}
+	runUntilTestEnds(t, cfg)
+	f.waitFor(t, func() bool { return len(f.results) == 2 })
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	got := map[string]string{}
+	for _, r := range f.results {
+		got[r.GetCommandId()] = string(r.GetReply())
+	}
+	if got["c1"] != "re:T" || got["c2"] != "re:W" {
+		t.Fatalf("results = %v", got)
+	}
+}
+
+// An agent built without command support says so rather than leaving the
+// server waiting for a result that will never come.
+func TestCommandsFailWithoutAHandler(t *testing.T) {
+	f := newFake()
+	f.commands = []*pb.Command{{CommandId: "c1", DeviceId: "dev", Payload: []byte("T")}}
+	runUntilTestEnds(t, baseConfig(startFake(t, f), openSpool(t)))
+	f.waitFor(t, func() bool { return len(f.results) == 1 })
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if r := f.results[0]; r.GetStatus() != pb.CommandStatus_COMMAND_STATUS_FAILED || r.GetWritten() {
+		t.Fatalf("result = %v", r)
+	}
+}
+
+func TestUpdateOffersReachTheHandler(t *testing.T) {
+	f := newFake()
+	f.update = "v9.9.9"
+	got := make(chan string, 1)
+	cfg := baseConfig(startFake(t, f), openSpool(t))
+	cfg.OnUpdate = func(v string) { got <- v }
+	runUntilTestEnds(t, cfg)
+	select {
+	case v := <-got:
+		if v != "v9.9.9" {
+			t.Fatalf("offered %q", v)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the offer never arrived")
 	}
 }

@@ -33,6 +33,7 @@ import (
 	srformat "github.com/gsoultan/hermod/pkg/comm/formatter/schemaregistry"
 	"github.com/gsoultan/hermod/pkg/comm/reply"
 	"github.com/gsoultan/hermod/pkg/comm/sink"
+	agentsink "github.com/gsoultan/hermod/pkg/comm/sink/agent"
 	sinkcassandra "github.com/gsoultan/hermod/pkg/comm/sink/cassandra"
 	sinkclickhouse "github.com/gsoultan/hermod/pkg/comm/sink/clickhouse"
 	"github.com/gsoultan/hermod/pkg/comm/sink/discord"
@@ -1006,6 +1007,11 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 		return sinkredisset.New(cfg.Config, fmttr)
 	case "file":
 		return file.NewFileSink(cfg.Config["filename"], fmttr)
+	case "agent":
+		// A command saved on a hermod-agent device (internal/agenthub).
+		return agentsink.New(agenthub.Default, agentsink.Config{
+			AgentID: cfg.Config["agent_id"], DeviceID: cfg.Config["device_id"], Command: cfg.Config["command"], VHost: cfg.VHost,
+		})
 	case "kafka":
 		brokers := splitList(cfg.Config["brokers"])
 		// transactional_id makes every batch one Kafka transaction, with the

@@ -41,6 +41,15 @@ const (
 	DeviceKind_DEVICE_KIND_SERIAL DeviceKind = 1
 	// A device on the LAN that sends raw bytes over TCP.
 	DeviceKind_DEVICE_KIND_TCP DeviceKind = 2
+	// Datagrams on a LAN port: broadcast sensors, syslog-style devices. Each
+	// datagram is one record.
+	DeviceKind_DEVICE_KIND_UDP DeviceKind = 3
+	// A Modbus RTU or TCP device whose registers the agent polls. Each poll is
+	// one record.
+	DeviceKind_DEVICE_KIND_MODBUS DeviceKind = 4
+	// A USB HID device such as a barcode scanner in keyboard mode, read
+	// directly so its input does not reach the desktop.
+	DeviceKind_DEVICE_KIND_HID DeviceKind = 5
 )
 
 // Enum value maps for DeviceKind.
@@ -49,11 +58,17 @@ var (
 		0: "DEVICE_KIND_UNSPECIFIED",
 		1: "DEVICE_KIND_SERIAL",
 		2: "DEVICE_KIND_TCP",
+		3: "DEVICE_KIND_UDP",
+		4: "DEVICE_KIND_MODBUS",
+		5: "DEVICE_KIND_HID",
 	}
 	DeviceKind_value = map[string]int32{
 		"DEVICE_KIND_UNSPECIFIED": 0,
 		"DEVICE_KIND_SERIAL":      1,
 		"DEVICE_KIND_TCP":         2,
+		"DEVICE_KIND_UDP":         3,
+		"DEVICE_KIND_MODBUS":      4,
+		"DEVICE_KIND_HID":         5,
 	}
 )
 
@@ -248,6 +263,164 @@ func (TcpMode) EnumDescriptor() ([]byte, []int) {
 	return file_agent_proto_rawDescGZIP(), []int{3}
 }
 
+type ModbusTransport int32
+
+const (
+	ModbusTransport_MODBUS_TRANSPORT_UNSPECIFIED ModbusTransport = 0
+	// Modbus TCP to address.
+	ModbusTransport_MODBUS_TRANSPORT_TCP ModbusTransport = 1
+	// Modbus RTU on the serial port of the device, with its serial settings.
+	ModbusTransport_MODBUS_TRANSPORT_RTU ModbusTransport = 2
+)
+
+// Enum value maps for ModbusTransport.
+var (
+	ModbusTransport_name = map[int32]string{
+		0: "MODBUS_TRANSPORT_UNSPECIFIED",
+		1: "MODBUS_TRANSPORT_TCP",
+		2: "MODBUS_TRANSPORT_RTU",
+	}
+	ModbusTransport_value = map[string]int32{
+		"MODBUS_TRANSPORT_UNSPECIFIED": 0,
+		"MODBUS_TRANSPORT_TCP":         1,
+		"MODBUS_TRANSPORT_RTU":         2,
+	}
+)
+
+func (x ModbusTransport) Enum() *ModbusTransport {
+	p := new(ModbusTransport)
+	*p = x
+	return p
+}
+
+func (x ModbusTransport) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ModbusTransport) Descriptor() protoreflect.EnumDescriptor {
+	return file_agent_proto_enumTypes[4].Descriptor()
+}
+
+func (ModbusTransport) Type() protoreflect.EnumType {
+	return &file_agent_proto_enumTypes[4]
+}
+
+func (x ModbusTransport) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ModbusTransport.Descriptor instead.
+func (ModbusTransport) EnumDescriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{4}
+}
+
+type ModbusTable int32
+
+const (
+	ModbusTable_MODBUS_TABLE_UNSPECIFIED       ModbusTable = 0
+	ModbusTable_MODBUS_TABLE_COILS             ModbusTable = 1
+	ModbusTable_MODBUS_TABLE_DISCRETE_INPUTS   ModbusTable = 2
+	ModbusTable_MODBUS_TABLE_HOLDING_REGISTERS ModbusTable = 3
+	ModbusTable_MODBUS_TABLE_INPUT_REGISTERS   ModbusTable = 4
+)
+
+// Enum value maps for ModbusTable.
+var (
+	ModbusTable_name = map[int32]string{
+		0: "MODBUS_TABLE_UNSPECIFIED",
+		1: "MODBUS_TABLE_COILS",
+		2: "MODBUS_TABLE_DISCRETE_INPUTS",
+		3: "MODBUS_TABLE_HOLDING_REGISTERS",
+		4: "MODBUS_TABLE_INPUT_REGISTERS",
+	}
+	ModbusTable_value = map[string]int32{
+		"MODBUS_TABLE_UNSPECIFIED":       0,
+		"MODBUS_TABLE_COILS":             1,
+		"MODBUS_TABLE_DISCRETE_INPUTS":   2,
+		"MODBUS_TABLE_HOLDING_REGISTERS": 3,
+		"MODBUS_TABLE_INPUT_REGISTERS":   4,
+	}
+)
+
+func (x ModbusTable) Enum() *ModbusTable {
+	p := new(ModbusTable)
+	*p = x
+	return p
+}
+
+func (x ModbusTable) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ModbusTable) Descriptor() protoreflect.EnumDescriptor {
+	return file_agent_proto_enumTypes[5].Descriptor()
+}
+
+func (ModbusTable) Type() protoreflect.EnumType {
+	return &file_agent_proto_enumTypes[5]
+}
+
+func (x ModbusTable) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ModbusTable.Descriptor instead.
+func (ModbusTable) EnumDescriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{5}
+}
+
+type HidMode int32
+
+const (
+	HidMode_HID_MODE_UNSPECIFIED HidMode = 0
+	// Key presses turned into text, one record per Enter: what a barcode
+	// scanner in keyboard mode types. Unspecified means this.
+	HidMode_HID_MODE_KEYBOARD HidMode = 1
+	// Each HID input report as it comes, one record per report.
+	HidMode_HID_MODE_RAW HidMode = 2
+)
+
+// Enum value maps for HidMode.
+var (
+	HidMode_name = map[int32]string{
+		0: "HID_MODE_UNSPECIFIED",
+		1: "HID_MODE_KEYBOARD",
+		2: "HID_MODE_RAW",
+	}
+	HidMode_value = map[string]int32{
+		"HID_MODE_UNSPECIFIED": 0,
+		"HID_MODE_KEYBOARD":    1,
+		"HID_MODE_RAW":         2,
+	}
+)
+
+func (x HidMode) Enum() *HidMode {
+	p := new(HidMode)
+	*p = x
+	return p
+}
+
+func (x HidMode) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (HidMode) Descriptor() protoreflect.EnumDescriptor {
+	return file_agent_proto_enumTypes[6].Descriptor()
+}
+
+func (HidMode) Type() protoreflect.EnumType {
+	return &file_agent_proto_enumTypes[6]
+}
+
+func (x HidMode) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use HidMode.Descriptor instead.
+func (HidMode) EnumDescriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{6}
+}
+
 // FramingKind is how a byte stream is cut into records.
 type FramingKind int32
 
@@ -303,11 +476,11 @@ func (x FramingKind) String() string {
 }
 
 func (FramingKind) Descriptor() protoreflect.EnumDescriptor {
-	return file_agent_proto_enumTypes[4].Descriptor()
+	return file_agent_proto_enumTypes[7].Descriptor()
 }
 
 func (FramingKind) Type() protoreflect.EnumType {
-	return &file_agent_proto_enumTypes[4]
+	return &file_agent_proto_enumTypes[7]
 }
 
 func (x FramingKind) Number() protoreflect.EnumNumber {
@@ -316,7 +489,63 @@ func (x FramingKind) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use FramingKind.Descriptor instead.
 func (FramingKind) EnumDescriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{4}
+	return file_agent_proto_rawDescGZIP(), []int{7}
+}
+
+type CommandStatus int32
+
+const (
+	CommandStatus_COMMAND_STATUS_UNSPECIFIED CommandStatus = 0
+	// The bytes were written and no reply was asked for.
+	CommandStatus_COMMAND_STATUS_WRITTEN CommandStatus = 1
+	// The bytes were written and the device replied in time.
+	CommandStatus_COMMAND_STATUS_REPLIED CommandStatus = 2
+	// Nothing was written, the write failed, or no reply came in time; error
+	// says which.
+	CommandStatus_COMMAND_STATUS_FAILED CommandStatus = 3
+)
+
+// Enum value maps for CommandStatus.
+var (
+	CommandStatus_name = map[int32]string{
+		0: "COMMAND_STATUS_UNSPECIFIED",
+		1: "COMMAND_STATUS_WRITTEN",
+		2: "COMMAND_STATUS_REPLIED",
+		3: "COMMAND_STATUS_FAILED",
+	}
+	CommandStatus_value = map[string]int32{
+		"COMMAND_STATUS_UNSPECIFIED": 0,
+		"COMMAND_STATUS_WRITTEN":     1,
+		"COMMAND_STATUS_REPLIED":     2,
+		"COMMAND_STATUS_FAILED":      3,
+	}
+)
+
+func (x CommandStatus) Enum() *CommandStatus {
+	p := new(CommandStatus)
+	*p = x
+	return p
+}
+
+func (x CommandStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (CommandStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_agent_proto_enumTypes[8].Descriptor()
+}
+
+func (CommandStatus) Type() protoreflect.EnumType {
+	return &file_agent_proto_enumTypes[8]
+}
+
+func (x CommandStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use CommandStatus.Descriptor instead.
+func (CommandStatus) EnumDescriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{8}
 }
 
 // ConnectRequest is anything the agent sends.
@@ -328,6 +557,7 @@ type ConnectRequest struct {
 	//	*ConnectRequest_Devices
 	//	*ConnectRequest_Records
 	//	*ConnectRequest_Heartbeat
+	//	*ConnectRequest_CommandResult
 	Body          isConnectRequest_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -406,6 +636,15 @@ func (x *ConnectRequest) GetHeartbeat() *Heartbeat {
 	return nil
 }
 
+func (x *ConnectRequest) GetCommandResult() *CommandResult {
+	if x != nil {
+		if x, ok := x.Body.(*ConnectRequest_CommandResult); ok {
+			return x.CommandResult
+		}
+	}
+	return nil
+}
+
 type isConnectRequest_Body interface {
 	isConnectRequest_Body()
 }
@@ -426,6 +665,10 @@ type ConnectRequest_Heartbeat struct {
 	Heartbeat *Heartbeat `protobuf:"bytes,4,opt,name=heartbeat,proto3,oneof"`
 }
 
+type ConnectRequest_CommandResult struct {
+	CommandResult *CommandResult `protobuf:"bytes,5,opt,name=command_result,json=commandResult,proto3,oneof"`
+}
+
 func (*ConnectRequest_Hello) isConnectRequest_Body() {}
 
 func (*ConnectRequest_Devices) isConnectRequest_Body() {}
@@ -433,6 +676,8 @@ func (*ConnectRequest_Devices) isConnectRequest_Body() {}
 func (*ConnectRequest_Records) isConnectRequest_Body() {}
 
 func (*ConnectRequest_Heartbeat) isConnectRequest_Body() {}
+
+func (*ConnectRequest_CommandResult) isConnectRequest_Body() {}
 
 // ConnectResponse is anything the server sends.
 type ConnectResponse struct {
@@ -442,6 +687,8 @@ type ConnectResponse struct {
 	//	*ConnectResponse_Welcome
 	//	*ConnectResponse_Ack
 	//	*ConnectResponse_Settings
+	//	*ConnectResponse_Command
+	//	*ConnectResponse_Update
 	Body          isConnectResponse_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -511,6 +758,24 @@ func (x *ConnectResponse) GetSettings() *DeviceSettingsList {
 	return nil
 }
 
+func (x *ConnectResponse) GetCommand() *Command {
+	if x != nil {
+		if x, ok := x.Body.(*ConnectResponse_Command); ok {
+			return x.Command
+		}
+	}
+	return nil
+}
+
+func (x *ConnectResponse) GetUpdate() *Update {
+	if x != nil {
+		if x, ok := x.Body.(*ConnectResponse_Update); ok {
+			return x.Update
+		}
+	}
+	return nil
+}
+
 type isConnectResponse_Body interface {
 	isConnectResponse_Body()
 }
@@ -527,11 +792,23 @@ type ConnectResponse_Settings struct {
 	Settings *DeviceSettingsList `protobuf:"bytes,3,opt,name=settings,proto3,oneof"`
 }
 
+type ConnectResponse_Command struct {
+	Command *Command `protobuf:"bytes,4,opt,name=command,proto3,oneof"`
+}
+
+type ConnectResponse_Update struct {
+	Update *Update `protobuf:"bytes,5,opt,name=update,proto3,oneof"`
+}
+
 func (*ConnectResponse_Welcome) isConnectResponse_Body() {}
 
 func (*ConnectResponse_Ack) isConnectResponse_Body() {}
 
 func (*ConnectResponse_Settings) isConnectResponse_Body() {}
+
+func (*ConnectResponse_Command) isConnectResponse_Body() {}
+
+func (*ConnectResponse_Update) isConnectResponse_Body() {}
 
 // Hello is the first message on every stream.
 type Hello struct {
@@ -545,10 +822,13 @@ type Hello struct {
 	Arch string `protobuf:"bytes,4,opt,name=arch,proto3" json:"arch,omitempty"`
 	// The highest sequence number the agent has written to its spool, and the
 	// highest the server has acknowledged, as the agent last saw them.
-	LastSeq       uint64 `protobuf:"varint,5,opt,name=last_seq,json=lastSeq,proto3" json:"last_seq,omitempty"`
-	AckedSeq      uint64 `protobuf:"varint,6,opt,name=acked_seq,json=ackedSeq,proto3" json:"acked_seq,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	LastSeq  uint64 `protobuf:"varint,5,opt,name=last_seq,json=lastSeq,proto3" json:"last_seq,omitempty"`
+	AckedSeq uint64 `protobuf:"varint,6,opt,name=acked_seq,json=ackedSeq,proto3" json:"acked_seq,omitempty"`
+	// True when the agent was started with -allow-update and will replace
+	// itself with a newer release when the server offers one.
+	AcceptsUpdates bool `protobuf:"varint,7,opt,name=accepts_updates,json=acceptsUpdates,proto3" json:"accepts_updates,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Hello) Reset() {
@@ -623,6 +903,63 @@ func (x *Hello) GetAckedSeq() uint64 {
 	return 0
 }
 
+func (x *Hello) GetAcceptsUpdates() bool {
+	if x != nil {
+		return x.AcceptsUpdates
+	}
+	return false
+}
+
+// Update offers the agent a newer release, by version only. The agent builds
+// the download address itself, from the project's releases on GitHub, and
+// checks the archive against the release's published checksums.txt, so the
+// server cannot point it at any other file. An agent ignores an offer of its
+// own version or an older one.
+type Update struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// A release tag, for example "v1.9.0".
+	Version       string `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Update) Reset() {
+	*x = Update{}
+	mi := &file_agent_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Update) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Update) ProtoMessage() {}
+
+func (x *Update) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Update.ProtoReflect.Descriptor instead.
+func (*Update) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *Update) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
 // Welcome answers Hello.
 type Welcome struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -637,7 +974,7 @@ type Welcome struct {
 
 func (x *Welcome) Reset() {
 	*x = Welcome{}
-	mi := &file_agent_proto_msgTypes[3]
+	mi := &file_agent_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -649,7 +986,7 @@ func (x *Welcome) String() string {
 func (*Welcome) ProtoMessage() {}
 
 func (x *Welcome) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[3]
+	mi := &file_agent_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -662,7 +999,7 @@ func (x *Welcome) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Welcome.ProtoReflect.Descriptor instead.
 func (*Welcome) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{3}
+	return file_agent_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Welcome) GetAgentId() string {
@@ -700,14 +1037,21 @@ type Device struct {
 	// reported no USB serial number.
 	StableId bool `protobuf:"varint,8,opt,name=stable_id,json=stableId,proto3" json:"stable_id,omitempty"`
 	// True while the device is attached or reachable.
-	Present       bool `protobuf:"varint,9,opt,name=present,proto3" json:"present,omitempty"`
+	Present bool `protobuf:"varint,9,opt,name=present,proto3" json:"present,omitempty"`
+	// How a LAN device was found when the agent found it itself: "mdns" or
+	// "scan". Empty for a port the operating system lists and for a device a
+	// user added by address.
+	DiscoveredBy string `protobuf:"bytes,10,opt,name=discovered_by,json=discoveredBy,proto3" json:"discovered_by,omitempty"`
+	// The mDNS service type, for example "_hermod._tcp", when discovered_by is
+	// "mdns".
+	Service       string `protobuf:"bytes,11,opt,name=service,proto3" json:"service,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Device) Reset() {
 	*x = Device{}
-	mi := &file_agent_proto_msgTypes[4]
+	mi := &file_agent_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -719,7 +1063,7 @@ func (x *Device) String() string {
 func (*Device) ProtoMessage() {}
 
 func (x *Device) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[4]
+	mi := &file_agent_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -732,7 +1076,7 @@ func (x *Device) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Device.ProtoReflect.Descriptor instead.
 func (*Device) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{4}
+	return file_agent_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Device) GetDeviceId() string {
@@ -798,6 +1142,20 @@ func (x *Device) GetPresent() bool {
 	return false
 }
 
+func (x *Device) GetDiscoveredBy() string {
+	if x != nil {
+		return x.DiscoveredBy
+	}
+	return ""
+}
+
+func (x *Device) GetService() string {
+	if x != nil {
+		return x.Service
+	}
+	return ""
+}
+
 // DeviceList is everything the agent can see right now. Each one replaces the
 // last.
 type DeviceList struct {
@@ -809,7 +1167,7 @@ type DeviceList struct {
 
 func (x *DeviceList) Reset() {
 	*x = DeviceList{}
-	mi := &file_agent_proto_msgTypes[5]
+	mi := &file_agent_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -821,7 +1179,7 @@ func (x *DeviceList) String() string {
 func (*DeviceList) ProtoMessage() {}
 
 func (x *DeviceList) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[5]
+	mi := &file_agent_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -834,7 +1192,7 @@ func (x *DeviceList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceList.ProtoReflect.Descriptor instead.
 func (*DeviceList) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{5}
+	return file_agent_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *DeviceList) GetDevices() []*Device {
@@ -861,7 +1219,7 @@ type SerialSettings struct {
 
 func (x *SerialSettings) Reset() {
 	*x = SerialSettings{}
-	mi := &file_agent_proto_msgTypes[6]
+	mi := &file_agent_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -873,7 +1231,7 @@ func (x *SerialSettings) String() string {
 func (*SerialSettings) ProtoMessage() {}
 
 func (x *SerialSettings) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[6]
+	mi := &file_agent_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -886,7 +1244,7 @@ func (x *SerialSettings) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SerialSettings.ProtoReflect.Descriptor instead.
 func (*SerialSettings) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{6}
+	return file_agent_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *SerialSettings) GetBaudRate() uint32 {
@@ -917,6 +1275,273 @@ func (x *SerialSettings) GetStopBits() StopBits {
 	return StopBits_STOP_BITS_UNSPECIFIED
 }
 
+// UdpSettings receive a LAN device's datagrams.
+type UdpSettings struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// host:port to listen on. An empty host is refused, as for TCP.
+	Address string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
+	// When set, only datagrams from these addresses or CIDR ranges are kept;
+	// the rest are dropped.
+	AllowFrom     []string `protobuf:"bytes,2,rep,name=allow_from,json=allowFrom,proto3" json:"allow_from,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UdpSettings) Reset() {
+	*x = UdpSettings{}
+	mi := &file_agent_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UdpSettings) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UdpSettings) ProtoMessage() {}
+
+func (x *UdpSettings) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UdpSettings.ProtoReflect.Descriptor instead.
+func (*UdpSettings) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *UdpSettings) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
+func (x *UdpSettings) GetAllowFrom() []string {
+	if x != nil {
+		return x.AllowFrom
+	}
+	return nil
+}
+
+// ModbusRead is one block read on every poll.
+type ModbusRead struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The key the values are recorded under.
+	Name  string      `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Table ModbusTable `protobuf:"varint,2,opt,name=table,proto3,enum=hermod.agent.v1.ModbusTable" json:"table,omitempty"`
+	// The zero-based address of the first coil or register.
+	Address uint32 `protobuf:"varint,3,opt,name=address,proto3" json:"address,omitempty"`
+	// How many: 1 to 125 registers, or 1 to 2000 coils or inputs.
+	Count         uint32 `protobuf:"varint,4,opt,name=count,proto3" json:"count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ModbusRead) Reset() {
+	*x = ModbusRead{}
+	mi := &file_agent_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ModbusRead) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ModbusRead) ProtoMessage() {}
+
+func (x *ModbusRead) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ModbusRead.ProtoReflect.Descriptor instead.
+func (*ModbusRead) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *ModbusRead) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ModbusRead) GetTable() ModbusTable {
+	if x != nil {
+		return x.Table
+	}
+	return ModbusTable_MODBUS_TABLE_UNSPECIFIED
+}
+
+func (x *ModbusRead) GetAddress() uint32 {
+	if x != nil {
+		return x.Address
+	}
+	return 0
+}
+
+func (x *ModbusRead) GetCount() uint32 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
+
+// ModbusSettings poll a register map. Each poll is one record, a JSON object
+// with each read's name and its values: register values as numbers 0 to
+// 65535, coils and inputs as true or false. Scaling and decoding happen in
+// the workflow.
+type ModbusSettings struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Transport ModbusTransport        `protobuf:"varint,1,opt,name=transport,proto3,enum=hermod.agent.v1.ModbusTransport" json:"transport,omitempty"`
+	// host:port for TCP. RTU uses the device's serial settings and its USB
+	// identity, as a serial device does.
+	Address string `protobuf:"bytes,2,opt,name=address,proto3" json:"address,omitempty"`
+	// The unit (slave) id, 0 to 247. Zero means 1.
+	UnitId uint32 `protobuf:"varint,3,opt,name=unit_id,json=unitId,proto3" json:"unit_id,omitempty"`
+	// How often to poll. Zero means 1000; at least 100.
+	PollIntervalMs uint32 `protobuf:"varint,4,opt,name=poll_interval_ms,json=pollIntervalMs,proto3" json:"poll_interval_ms,omitempty"`
+	// How long to wait for each answer. Zero means 1000.
+	TimeoutMs     uint32        `protobuf:"varint,5,opt,name=timeout_ms,json=timeoutMs,proto3" json:"timeout_ms,omitempty"`
+	Reads         []*ModbusRead `protobuf:"bytes,6,rep,name=reads,proto3" json:"reads,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ModbusSettings) Reset() {
+	*x = ModbusSettings{}
+	mi := &file_agent_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ModbusSettings) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ModbusSettings) ProtoMessage() {}
+
+func (x *ModbusSettings) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ModbusSettings.ProtoReflect.Descriptor instead.
+func (*ModbusSettings) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ModbusSettings) GetTransport() ModbusTransport {
+	if x != nil {
+		return x.Transport
+	}
+	return ModbusTransport_MODBUS_TRANSPORT_UNSPECIFIED
+}
+
+func (x *ModbusSettings) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
+func (x *ModbusSettings) GetUnitId() uint32 {
+	if x != nil {
+		return x.UnitId
+	}
+	return 0
+}
+
+func (x *ModbusSettings) GetPollIntervalMs() uint32 {
+	if x != nil {
+		return x.PollIntervalMs
+	}
+	return 0
+}
+
+func (x *ModbusSettings) GetTimeoutMs() uint32 {
+	if x != nil {
+		return x.TimeoutMs
+	}
+	return 0
+}
+
+func (x *ModbusSettings) GetReads() []*ModbusRead {
+	if x != nil {
+		return x.Reads
+	}
+	return nil
+}
+
+// HidSettings read a USB HID device. The device is found by its device_id,
+// "hid:<vid>:<pid>:<serial>", as the agent reports it.
+type HidSettings struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Mode          HidMode                `protobuf:"varint,1,opt,name=mode,proto3,enum=hermod.agent.v1.HidMode" json:"mode,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HidSettings) Reset() {
+	*x = HidSettings{}
+	mi := &file_agent_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HidSettings) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HidSettings) ProtoMessage() {}
+
+func (x *HidSettings) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HidSettings.ProtoReflect.Descriptor instead.
+func (*HidSettings) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *HidSettings) GetMode() HidMode {
+	if x != nil {
+		return x.Mode
+	}
+	return HidMode_HID_MODE_UNSPECIFIED
+}
+
 // TcpSettings reach a LAN device.
 type TcpSettings struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -931,7 +1556,7 @@ type TcpSettings struct {
 
 func (x *TcpSettings) Reset() {
 	*x = TcpSettings{}
-	mi := &file_agent_proto_msgTypes[7]
+	mi := &file_agent_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -943,7 +1568,7 @@ func (x *TcpSettings) String() string {
 func (*TcpSettings) ProtoMessage() {}
 
 func (x *TcpSettings) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[7]
+	mi := &file_agent_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -956,7 +1581,7 @@ func (x *TcpSettings) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TcpSettings.ProtoReflect.Descriptor instead.
 func (*TcpSettings) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{7}
+	return file_agent_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *TcpSettings) GetAddress() string {
@@ -994,7 +1619,7 @@ type Framing struct {
 
 func (x *Framing) Reset() {
 	*x = Framing{}
-	mi := &file_agent_proto_msgTypes[8]
+	mi := &file_agent_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1006,7 +1631,7 @@ func (x *Framing) String() string {
 func (*Framing) ProtoMessage() {}
 
 func (x *Framing) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[8]
+	mi := &file_agent_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1019,7 +1644,7 @@ func (x *Framing) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Framing.ProtoReflect.Descriptor instead.
 func (*Framing) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{8}
+	return file_agent_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *Framing) GetKind() FramingKind {
@@ -1089,14 +1714,21 @@ type DeviceSettings struct {
 	Tcp     *TcpSettings    `protobuf:"bytes,5,opt,name=tcp,proto3" json:"tcp,omitempty"`
 	Framing *Framing        `protobuf:"bytes,6,opt,name=framing,proto3" json:"framing,omitempty"`
 	// False stops the reader without forgetting the settings.
-	Enabled       bool `protobuf:"varint,7,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	Enabled bool `protobuf:"varint,7,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	// True lets the server send this device commands. The agent refuses a
+	// command for a device without it, whatever the server says.
+	AllowCommands bool         `protobuf:"varint,8,opt,name=allow_commands,json=allowCommands,proto3" json:"allow_commands,omitempty"`
+	Udp           *UdpSettings `protobuf:"bytes,9,opt,name=udp,proto3" json:"udp,omitempty"`
+	// For RTU, serial holds the port settings.
+	Modbus        *ModbusSettings `protobuf:"bytes,10,opt,name=modbus,proto3" json:"modbus,omitempty"`
+	Hid           *HidSettings    `protobuf:"bytes,11,opt,name=hid,proto3" json:"hid,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DeviceSettings) Reset() {
 	*x = DeviceSettings{}
-	mi := &file_agent_proto_msgTypes[9]
+	mi := &file_agent_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1108,7 +1740,7 @@ func (x *DeviceSettings) String() string {
 func (*DeviceSettings) ProtoMessage() {}
 
 func (x *DeviceSettings) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[9]
+	mi := &file_agent_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1121,7 +1753,7 @@ func (x *DeviceSettings) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceSettings.ProtoReflect.Descriptor instead.
 func (*DeviceSettings) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{9}
+	return file_agent_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *DeviceSettings) GetDeviceId() string {
@@ -1173,6 +1805,34 @@ func (x *DeviceSettings) GetEnabled() bool {
 	return false
 }
 
+func (x *DeviceSettings) GetAllowCommands() bool {
+	if x != nil {
+		return x.AllowCommands
+	}
+	return false
+}
+
+func (x *DeviceSettings) GetUdp() *UdpSettings {
+	if x != nil {
+		return x.Udp
+	}
+	return nil
+}
+
+func (x *DeviceSettings) GetModbus() *ModbusSettings {
+	if x != nil {
+		return x.Modbus
+	}
+	return nil
+}
+
+func (x *DeviceSettings) GetHid() *HidSettings {
+	if x != nil {
+		return x.Hid
+	}
+	return nil
+}
+
 // DeviceSettingsList is every claimed device for this agent. Each one replaces
 // the last, so a device missing from it is no longer read.
 type DeviceSettingsList struct {
@@ -1184,7 +1844,7 @@ type DeviceSettingsList struct {
 
 func (x *DeviceSettingsList) Reset() {
 	*x = DeviceSettingsList{}
-	mi := &file_agent_proto_msgTypes[10]
+	mi := &file_agent_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1196,7 +1856,7 @@ func (x *DeviceSettingsList) String() string {
 func (*DeviceSettingsList) ProtoMessage() {}
 
 func (x *DeviceSettingsList) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[10]
+	mi := &file_agent_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1209,7 +1869,7 @@ func (x *DeviceSettingsList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceSettingsList.ProtoReflect.Descriptor instead.
 func (*DeviceSettingsList) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{10}
+	return file_agent_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *DeviceSettingsList) GetDevices() []*DeviceSettings {
@@ -1240,7 +1900,7 @@ type Record struct {
 
 func (x *Record) Reset() {
 	*x = Record{}
-	mi := &file_agent_proto_msgTypes[11]
+	mi := &file_agent_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1252,7 +1912,7 @@ func (x *Record) String() string {
 func (*Record) ProtoMessage() {}
 
 func (x *Record) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[11]
+	mi := &file_agent_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1265,7 +1925,7 @@ func (x *Record) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Record.ProtoReflect.Descriptor instead.
 func (*Record) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{11}
+	return file_agent_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *Record) GetSeq() uint64 {
@@ -1313,7 +1973,7 @@ type RecordBatch struct {
 
 func (x *RecordBatch) Reset() {
 	*x = RecordBatch{}
-	mi := &file_agent_proto_msgTypes[12]
+	mi := &file_agent_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1325,7 +1985,7 @@ func (x *RecordBatch) String() string {
 func (*RecordBatch) ProtoMessage() {}
 
 func (x *RecordBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[12]
+	mi := &file_agent_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1338,7 +1998,7 @@ func (x *RecordBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecordBatch.ProtoReflect.Descriptor instead.
 func (*RecordBatch) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{12}
+	return file_agent_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *RecordBatch) GetRecords() []*Record {
@@ -1359,7 +2019,7 @@ type Ack struct {
 
 func (x *Ack) Reset() {
 	*x = Ack{}
-	mi := &file_agent_proto_msgTypes[13]
+	mi := &file_agent_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1371,7 +2031,7 @@ func (x *Ack) String() string {
 func (*Ack) ProtoMessage() {}
 
 func (x *Ack) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[13]
+	mi := &file_agent_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1384,7 +2044,7 @@ func (x *Ack) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Ack.ProtoReflect.Descriptor instead.
 func (*Ack) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{13}
+	return file_agent_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *Ack) GetUpToSeq() uint64 {
@@ -1418,7 +2078,7 @@ type Heartbeat struct {
 
 func (x *Heartbeat) Reset() {
 	*x = Heartbeat{}
-	mi := &file_agent_proto_msgTypes[14]
+	mi := &file_agent_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1430,7 +2090,7 @@ func (x *Heartbeat) String() string {
 func (*Heartbeat) ProtoMessage() {}
 
 func (x *Heartbeat) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[14]
+	mi := &file_agent_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1443,7 +2103,7 @@ func (x *Heartbeat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Heartbeat.ProtoReflect.Descriptor instead.
 func (*Heartbeat) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{14}
+	return file_agent_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *Heartbeat) GetClockUnixMs() int64 {
@@ -1488,32 +2148,194 @@ func (x *Heartbeat) GetOversizeDropped() uint64 {
 	return 0
 }
 
+// Command asks the agent to write to one of its devices. It never runs
+// anything. For a serial or TCP device the payload is written as it is. For a
+// Modbus device it is one write, as text: "coil <address> <0|1>..." or
+// "holding <address> <value>...", with values 0 to 65535 written from
+// address on.
+type Command struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Chosen by the server; the result carries it back.
+	CommandId string `protobuf:"bytes,1,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
+	DeviceId  string `protobuf:"bytes,2,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	// The bytes to write, at most 64 KiB.
+	Payload []byte `protobuf:"bytes,3,opt,name=payload,proto3" json:"payload,omitempty"`
+	// When above zero, the agent waits up to this long, at most 60000, for
+	// the next record the device sends and returns it as the reply. That
+	// record is also spooled as an ordinary reading.
+	ReplyTimeoutMs uint32 `protobuf:"varint,4,opt,name=reply_timeout_ms,json=replyTimeoutMs,proto3" json:"reply_timeout_ms,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *Command) Reset() {
+	*x = Command{}
+	mi := &file_agent_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Command) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Command) ProtoMessage() {}
+
+func (x *Command) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Command.ProtoReflect.Descriptor instead.
+func (*Command) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *Command) GetCommandId() string {
+	if x != nil {
+		return x.CommandId
+	}
+	return ""
+}
+
+func (x *Command) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+func (x *Command) GetPayload() []byte {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *Command) GetReplyTimeoutMs() uint32 {
+	if x != nil {
+		return x.ReplyTimeoutMs
+	}
+	return 0
+}
+
+type CommandResult struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	CommandId string                 `protobuf:"bytes,1,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
+	Status    CommandStatus          `protobuf:"varint,2,opt,name=status,proto3,enum=hermod.agent.v1.CommandStatus" json:"status,omitempty"`
+	Reply     []byte                 `protobuf:"bytes,3,opt,name=reply,proto3" json:"reply,omitempty"`
+	Error     string                 `protobuf:"bytes,4,opt,name=error,proto3" json:"error,omitempty"`
+	// False when the failure came before anything reached the device, so the
+	// command is safe to send again.
+	Written       bool `protobuf:"varint,5,opt,name=written,proto3" json:"written,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CommandResult) Reset() {
+	*x = CommandResult{}
+	mi := &file_agent_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CommandResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CommandResult) ProtoMessage() {}
+
+func (x *CommandResult) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CommandResult.ProtoReflect.Descriptor instead.
+func (*CommandResult) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *CommandResult) GetCommandId() string {
+	if x != nil {
+		return x.CommandId
+	}
+	return ""
+}
+
+func (x *CommandResult) GetStatus() CommandStatus {
+	if x != nil {
+		return x.Status
+	}
+	return CommandStatus_COMMAND_STATUS_UNSPECIFIED
+}
+
+func (x *CommandResult) GetReply() []byte {
+	if x != nil {
+		return x.Reply
+	}
+	return nil
+}
+
+func (x *CommandResult) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *CommandResult) GetWritten() bool {
+	if x != nil {
+		return x.Written
+	}
+	return false
+}
+
 var File_agent_proto protoreflect.FileDescriptor
 
 const file_agent_proto_rawDesc = "" +
 	"\n" +
-	"\vagent.proto\x12\x0fhermod.agent.v1\"\xf7\x01\n" +
+	"\vagent.proto\x12\x0fhermod.agent.v1\"\xc0\x02\n" +
 	"\x0eConnectRequest\x12.\n" +
 	"\x05hello\x18\x01 \x01(\v2\x16.hermod.agent.v1.HelloH\x00R\x05hello\x127\n" +
 	"\adevices\x18\x02 \x01(\v2\x1b.hermod.agent.v1.DeviceListH\x00R\adevices\x128\n" +
 	"\arecords\x18\x03 \x01(\v2\x1c.hermod.agent.v1.RecordBatchH\x00R\arecords\x12:\n" +
-	"\theartbeat\x18\x04 \x01(\v2\x1a.hermod.agent.v1.HeartbeatH\x00R\theartbeatB\x06\n" +
-	"\x04body\"\xbc\x01\n" +
+	"\theartbeat\x18\x04 \x01(\v2\x1a.hermod.agent.v1.HeartbeatH\x00R\theartbeat\x12G\n" +
+	"\x0ecommand_result\x18\x05 \x01(\v2\x1e.hermod.agent.v1.CommandResultH\x00R\rcommandResultB\x06\n" +
+	"\x04body\"\xa5\x02\n" +
 	"\x0fConnectResponse\x124\n" +
 	"\awelcome\x18\x01 \x01(\v2\x18.hermod.agent.v1.WelcomeH\x00R\awelcome\x12(\n" +
 	"\x03ack\x18\x02 \x01(\v2\x14.hermod.agent.v1.AckH\x00R\x03ack\x12A\n" +
-	"\bsettings\x18\x03 \x01(\v2#.hermod.agent.v1.DeviceSettingsListH\x00R\bsettingsB\x06\n" +
-	"\x04body\"\x99\x01\n" +
+	"\bsettings\x18\x03 \x01(\v2#.hermod.agent.v1.DeviceSettingsListH\x00R\bsettings\x124\n" +
+	"\acommand\x18\x04 \x01(\v2\x18.hermod.agent.v1.CommandH\x00R\acommand\x121\n" +
+	"\x06update\x18\x05 \x01(\v2\x17.hermod.agent.v1.UpdateH\x00R\x06updateB\x06\n" +
+	"\x04body\"\xc2\x01\n" +
 	"\x05Hello\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\tR\aversion\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12\x0e\n" +
 	"\x02os\x18\x03 \x01(\tR\x02os\x12\x12\n" +
 	"\x04arch\x18\x04 \x01(\tR\x04arch\x12\x19\n" +
 	"\blast_seq\x18\x05 \x01(\x04R\alastSeq\x12\x1b\n" +
-	"\tacked_seq\x18\x06 \x01(\x04R\backedSeq\"A\n" +
+	"\tacked_seq\x18\x06 \x01(\x04R\backedSeq\x12'\n" +
+	"\x0faccepts_updates\x18\a \x01(\bR\x0eacceptsUpdates\"\"\n" +
+	"\x06Update\x12\x18\n" +
+	"\aversion\x18\x01 \x01(\tR\aversion\"A\n" +
 	"\aWelcome\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1b\n" +
-	"\tacked_seq\x18\x02 \x01(\x04R\backedSeq\"\x84\x02\n" +
+	"\tacked_seq\x18\x02 \x01(\x04R\backedSeq\"\xc3\x02\n" +
 	"\x06Device\x12\x1b\n" +
 	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12/\n" +
 	"\x04kind\x18\x02 \x01(\x0e2\x1b.hermod.agent.v1.DeviceKindR\x04kind\x12\x12\n" +
@@ -1523,7 +2345,10 @@ const file_agent_proto_rawDesc = "" +
 	"\rserial_number\x18\x06 \x01(\tR\fserialNumber\x12\x18\n" +
 	"\aproduct\x18\a \x01(\tR\aproduct\x12\x1b\n" +
 	"\tstable_id\x18\b \x01(\bR\bstableId\x12\x18\n" +
-	"\apresent\x18\t \x01(\bR\apresent\"?\n" +
+	"\apresent\x18\t \x01(\bR\apresent\x12#\n" +
+	"\rdiscovered_by\x18\n" +
+	" \x01(\tR\fdiscoveredBy\x12\x18\n" +
+	"\aservice\x18\v \x01(\tR\aservice\"?\n" +
 	"\n" +
 	"DeviceList\x121\n" +
 	"\adevices\x18\x01 \x03(\v2\x17.hermod.agent.v1.DeviceR\adevices\"\xb3\x01\n" +
@@ -1531,7 +2356,27 @@ const file_agent_proto_rawDesc = "" +
 	"\tbaud_rate\x18\x01 \x01(\rR\bbaudRate\x12\x1b\n" +
 	"\tdata_bits\x18\x02 \x01(\rR\bdataBits\x12/\n" +
 	"\x06parity\x18\x03 \x01(\x0e2\x17.hermod.agent.v1.ParityR\x06parity\x126\n" +
-	"\tstop_bits\x18\x04 \x01(\x0e2\x19.hermod.agent.v1.StopBitsR\bstopBits\"U\n" +
+	"\tstop_bits\x18\x04 \x01(\x0e2\x19.hermod.agent.v1.StopBitsR\bstopBits\"F\n" +
+	"\vUdpSettings\x12\x18\n" +
+	"\aaddress\x18\x01 \x01(\tR\aaddress\x12\x1d\n" +
+	"\n" +
+	"allow_from\x18\x02 \x03(\tR\tallowFrom\"\x84\x01\n" +
+	"\n" +
+	"ModbusRead\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x122\n" +
+	"\x05table\x18\x02 \x01(\x0e2\x1c.hermod.agent.v1.ModbusTableR\x05table\x12\x18\n" +
+	"\aaddress\x18\x03 \x01(\rR\aaddress\x12\x14\n" +
+	"\x05count\x18\x04 \x01(\rR\x05count\"\xff\x01\n" +
+	"\x0eModbusSettings\x12>\n" +
+	"\ttransport\x18\x01 \x01(\x0e2 .hermod.agent.v1.ModbusTransportR\ttransport\x12\x18\n" +
+	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x17\n" +
+	"\aunit_id\x18\x03 \x01(\rR\x06unitId\x12(\n" +
+	"\x10poll_interval_ms\x18\x04 \x01(\rR\x0epollIntervalMs\x12\x1d\n" +
+	"\n" +
+	"timeout_ms\x18\x05 \x01(\rR\ttimeoutMs\x121\n" +
+	"\x05reads\x18\x06 \x03(\v2\x1b.hermod.agent.v1.ModbusReadR\x05reads\";\n" +
+	"\vHidSettings\x12,\n" +
+	"\x04mode\x18\x01 \x01(\x0e2\x18.hermod.agent.v1.HidModeR\x04mode\"U\n" +
 	"\vTcpSettings\x12\x18\n" +
 	"\aaddress\x18\x01 \x01(\tR\aaddress\x12,\n" +
 	"\x04mode\x18\x02 \x01(\x0e2\x18.hermod.agent.v1.TcpModeR\x04mode\"\x93\x02\n" +
@@ -1545,7 +2390,7 @@ const file_agent_proto_rawDesc = "" +
 	"\vprefix_size\x18\x06 \x01(\rR\n" +
 	"prefixSize\x12\x17\n" +
 	"\aidle_ms\x18\a \x01(\rR\x06idleMs\x12(\n" +
-	"\x10max_record_bytes\x18\b \x01(\rR\x0emaxRecordBytes\"\xa9\x02\n" +
+	"\x10max_record_bytes\x18\b \x01(\rR\x0emaxRecordBytes\"\xe9\x03\n" +
 	"\x0eDeviceSettings\x12\x1b\n" +
 	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12/\n" +
 	"\x04kind\x18\x02 \x01(\x0e2\x1b.hermod.agent.v1.DeviceKindR\x04kind\x12\x12\n" +
@@ -1553,7 +2398,12 @@ const file_agent_proto_rawDesc = "" +
 	"\x06serial\x18\x04 \x01(\v2\x1f.hermod.agent.v1.SerialSettingsR\x06serial\x12.\n" +
 	"\x03tcp\x18\x05 \x01(\v2\x1c.hermod.agent.v1.TcpSettingsR\x03tcp\x122\n" +
 	"\aframing\x18\x06 \x01(\v2\x18.hermod.agent.v1.FramingR\aframing\x12\x18\n" +
-	"\aenabled\x18\a \x01(\bR\aenabled\"O\n" +
+	"\aenabled\x18\a \x01(\bR\aenabled\x12%\n" +
+	"\x0eallow_commands\x18\b \x01(\bR\rallowCommands\x12.\n" +
+	"\x03udp\x18\t \x01(\v2\x1c.hermod.agent.v1.UdpSettingsR\x03udp\x127\n" +
+	"\x06modbus\x18\n" +
+	" \x01(\v2\x1f.hermod.agent.v1.ModbusSettingsR\x06modbus\x12.\n" +
+	"\x03hid\x18\v \x01(\v2\x1c.hermod.agent.v1.HidSettingsR\x03hid\"O\n" +
 	"\x12DeviceSettingsList\x129\n" +
 	"\adevices\x18\x01 \x03(\v2\x1f.hermod.agent.v1.DeviceSettingsR\adevices\"\x90\x01\n" +
 	"\x06Record\x12\x10\n" +
@@ -1573,12 +2423,28 @@ const file_agent_proto_rawDesc = "" +
 	"spoolBytes\x12/\n" +
 	"\x14spool_oldest_unix_ms\x18\x04 \x01(\x03R\x11spoolOldestUnixMs\x12#\n" +
 	"\rspool_dropped\x18\x05 \x01(\x04R\fspoolDropped\x12)\n" +
-	"\x10oversize_dropped\x18\x06 \x01(\x04R\x0foversizeDropped*V\n" +
+	"\x10oversize_dropped\x18\x06 \x01(\x04R\x0foversizeDropped\"\x89\x01\n" +
+	"\aCommand\x12\x1d\n" +
+	"\n" +
+	"command_id\x18\x01 \x01(\tR\tcommandId\x12\x1b\n" +
+	"\tdevice_id\x18\x02 \x01(\tR\bdeviceId\x12\x18\n" +
+	"\apayload\x18\x03 \x01(\fR\apayload\x12(\n" +
+	"\x10reply_timeout_ms\x18\x04 \x01(\rR\x0ereplyTimeoutMs\"\xac\x01\n" +
+	"\rCommandResult\x12\x1d\n" +
+	"\n" +
+	"command_id\x18\x01 \x01(\tR\tcommandId\x126\n" +
+	"\x06status\x18\x02 \x01(\x0e2\x1e.hermod.agent.v1.CommandStatusR\x06status\x12\x14\n" +
+	"\x05reply\x18\x03 \x01(\fR\x05reply\x12\x14\n" +
+	"\x05error\x18\x04 \x01(\tR\x05error\x12\x18\n" +
+	"\awritten\x18\x05 \x01(\bR\awritten*\x98\x01\n" +
 	"\n" +
 	"DeviceKind\x12\x1b\n" +
 	"\x17DEVICE_KIND_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12DEVICE_KIND_SERIAL\x10\x01\x12\x13\n" +
-	"\x0fDEVICE_KIND_TCP\x10\x02*u\n" +
+	"\x0fDEVICE_KIND_TCP\x10\x02\x12\x13\n" +
+	"\x0fDEVICE_KIND_UDP\x10\x03\x12\x16\n" +
+	"\x12DEVICE_KIND_MODBUS\x10\x04\x12\x13\n" +
+	"\x0fDEVICE_KIND_HID\x10\x05*u\n" +
 	"\x06Parity\x12\x16\n" +
 	"\x12PARITY_UNSPECIFIED\x10\x00\x12\x0f\n" +
 	"\vPARITY_NONE\x10\x01\x12\x0e\n" +
@@ -1595,7 +2461,21 @@ const file_agent_proto_rawDesc = "" +
 	"\aTcpMode\x12\x18\n" +
 	"\x14TCP_MODE_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fTCP_MODE_CLIENT\x10\x01\x12\x13\n" +
-	"\x0fTCP_MODE_LISTEN\x10\x02*\xd4\x01\n" +
+	"\x0fTCP_MODE_LISTEN\x10\x02*g\n" +
+	"\x0fModbusTransport\x12 \n" +
+	"\x1cMODBUS_TRANSPORT_UNSPECIFIED\x10\x00\x12\x18\n" +
+	"\x14MODBUS_TRANSPORT_TCP\x10\x01\x12\x18\n" +
+	"\x14MODBUS_TRANSPORT_RTU\x10\x02*\xab\x01\n" +
+	"\vModbusTable\x12\x1c\n" +
+	"\x18MODBUS_TABLE_UNSPECIFIED\x10\x00\x12\x16\n" +
+	"\x12MODBUS_TABLE_COILS\x10\x01\x12 \n" +
+	"\x1cMODBUS_TABLE_DISCRETE_INPUTS\x10\x02\x12\"\n" +
+	"\x1eMODBUS_TABLE_HOLDING_REGISTERS\x10\x03\x12 \n" +
+	"\x1cMODBUS_TABLE_INPUT_REGISTERS\x10\x04*L\n" +
+	"\aHidMode\x12\x18\n" +
+	"\x14HID_MODE_UNSPECIFIED\x10\x00\x12\x15\n" +
+	"\x11HID_MODE_KEYBOARD\x10\x01\x12\x10\n" +
+	"\fHID_MODE_RAW\x10\x02*\xd4\x01\n" +
 	"\vFramingKind\x12\x1c\n" +
 	"\x18FRAMING_KIND_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11FRAMING_KIND_LINE\x10\x01\x12\x1a\n" +
@@ -1603,7 +2483,12 @@ const file_agent_proto_rawDesc = "" +
 	"\x19FRAMING_KIND_FIXED_LENGTH\x10\x03\x12\x1a\n" +
 	"\x16FRAMING_KIND_START_END\x10\x04\x12\x1e\n" +
 	"\x1aFRAMING_KIND_LENGTH_PREFIX\x10\x05\x12\x19\n" +
-	"\x15FRAMING_KIND_IDLE_GAP\x10\x062`\n" +
+	"\x15FRAMING_KIND_IDLE_GAP\x10\x06*\x82\x01\n" +
+	"\rCommandStatus\x12\x1e\n" +
+	"\x1aCOMMAND_STATUS_UNSPECIFIED\x10\x00\x12\x1a\n" +
+	"\x16COMMAND_STATUS_WRITTEN\x10\x01\x12\x1a\n" +
+	"\x16COMMAND_STATUS_REPLIED\x10\x02\x12\x19\n" +
+	"\x15COMMAND_STATUS_FAILED\x10\x032`\n" +
 	"\fAgentService\x12P\n" +
 	"\aConnect\x12\x1f.hermod.agent.v1.ConnectRequest\x1a .hermod.agent.v1.ConnectResponse(\x010\x01B,Z*github.com/gsoultan/hermod/pkg/agent/protob\x06proto3"
 
@@ -1619,57 +2504,79 @@ func file_agent_proto_rawDescGZIP() []byte {
 	return file_agent_proto_rawDescData
 }
 
-var file_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
+var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_agent_proto_goTypes = []any{
 	(DeviceKind)(0),            // 0: hermod.agent.v1.DeviceKind
 	(Parity)(0),                // 1: hermod.agent.v1.Parity
 	(StopBits)(0),              // 2: hermod.agent.v1.StopBits
 	(TcpMode)(0),               // 3: hermod.agent.v1.TcpMode
-	(FramingKind)(0),           // 4: hermod.agent.v1.FramingKind
-	(*ConnectRequest)(nil),     // 5: hermod.agent.v1.ConnectRequest
-	(*ConnectResponse)(nil),    // 6: hermod.agent.v1.ConnectResponse
-	(*Hello)(nil),              // 7: hermod.agent.v1.Hello
-	(*Welcome)(nil),            // 8: hermod.agent.v1.Welcome
-	(*Device)(nil),             // 9: hermod.agent.v1.Device
-	(*DeviceList)(nil),         // 10: hermod.agent.v1.DeviceList
-	(*SerialSettings)(nil),     // 11: hermod.agent.v1.SerialSettings
-	(*TcpSettings)(nil),        // 12: hermod.agent.v1.TcpSettings
-	(*Framing)(nil),            // 13: hermod.agent.v1.Framing
-	(*DeviceSettings)(nil),     // 14: hermod.agent.v1.DeviceSettings
-	(*DeviceSettingsList)(nil), // 15: hermod.agent.v1.DeviceSettingsList
-	(*Record)(nil),             // 16: hermod.agent.v1.Record
-	(*RecordBatch)(nil),        // 17: hermod.agent.v1.RecordBatch
-	(*Ack)(nil),                // 18: hermod.agent.v1.Ack
-	(*Heartbeat)(nil),          // 19: hermod.agent.v1.Heartbeat
+	(ModbusTransport)(0),       // 4: hermod.agent.v1.ModbusTransport
+	(ModbusTable)(0),           // 5: hermod.agent.v1.ModbusTable
+	(HidMode)(0),               // 6: hermod.agent.v1.HidMode
+	(FramingKind)(0),           // 7: hermod.agent.v1.FramingKind
+	(CommandStatus)(0),         // 8: hermod.agent.v1.CommandStatus
+	(*ConnectRequest)(nil),     // 9: hermod.agent.v1.ConnectRequest
+	(*ConnectResponse)(nil),    // 10: hermod.agent.v1.ConnectResponse
+	(*Hello)(nil),              // 11: hermod.agent.v1.Hello
+	(*Update)(nil),             // 12: hermod.agent.v1.Update
+	(*Welcome)(nil),            // 13: hermod.agent.v1.Welcome
+	(*Device)(nil),             // 14: hermod.agent.v1.Device
+	(*DeviceList)(nil),         // 15: hermod.agent.v1.DeviceList
+	(*SerialSettings)(nil),     // 16: hermod.agent.v1.SerialSettings
+	(*UdpSettings)(nil),        // 17: hermod.agent.v1.UdpSettings
+	(*ModbusRead)(nil),         // 18: hermod.agent.v1.ModbusRead
+	(*ModbusSettings)(nil),     // 19: hermod.agent.v1.ModbusSettings
+	(*HidSettings)(nil),        // 20: hermod.agent.v1.HidSettings
+	(*TcpSettings)(nil),        // 21: hermod.agent.v1.TcpSettings
+	(*Framing)(nil),            // 22: hermod.agent.v1.Framing
+	(*DeviceSettings)(nil),     // 23: hermod.agent.v1.DeviceSettings
+	(*DeviceSettingsList)(nil), // 24: hermod.agent.v1.DeviceSettingsList
+	(*Record)(nil),             // 25: hermod.agent.v1.Record
+	(*RecordBatch)(nil),        // 26: hermod.agent.v1.RecordBatch
+	(*Ack)(nil),                // 27: hermod.agent.v1.Ack
+	(*Heartbeat)(nil),          // 28: hermod.agent.v1.Heartbeat
+	(*Command)(nil),            // 29: hermod.agent.v1.Command
+	(*CommandResult)(nil),      // 30: hermod.agent.v1.CommandResult
 }
 var file_agent_proto_depIdxs = []int32{
-	7,  // 0: hermod.agent.v1.ConnectRequest.hello:type_name -> hermod.agent.v1.Hello
-	10, // 1: hermod.agent.v1.ConnectRequest.devices:type_name -> hermod.agent.v1.DeviceList
-	17, // 2: hermod.agent.v1.ConnectRequest.records:type_name -> hermod.agent.v1.RecordBatch
-	19, // 3: hermod.agent.v1.ConnectRequest.heartbeat:type_name -> hermod.agent.v1.Heartbeat
-	8,  // 4: hermod.agent.v1.ConnectResponse.welcome:type_name -> hermod.agent.v1.Welcome
-	18, // 5: hermod.agent.v1.ConnectResponse.ack:type_name -> hermod.agent.v1.Ack
-	15, // 6: hermod.agent.v1.ConnectResponse.settings:type_name -> hermod.agent.v1.DeviceSettingsList
-	0,  // 7: hermod.agent.v1.Device.kind:type_name -> hermod.agent.v1.DeviceKind
-	9,  // 8: hermod.agent.v1.DeviceList.devices:type_name -> hermod.agent.v1.Device
-	1,  // 9: hermod.agent.v1.SerialSettings.parity:type_name -> hermod.agent.v1.Parity
-	2,  // 10: hermod.agent.v1.SerialSettings.stop_bits:type_name -> hermod.agent.v1.StopBits
-	3,  // 11: hermod.agent.v1.TcpSettings.mode:type_name -> hermod.agent.v1.TcpMode
-	4,  // 12: hermod.agent.v1.Framing.kind:type_name -> hermod.agent.v1.FramingKind
-	0,  // 13: hermod.agent.v1.DeviceSettings.kind:type_name -> hermod.agent.v1.DeviceKind
-	11, // 14: hermod.agent.v1.DeviceSettings.serial:type_name -> hermod.agent.v1.SerialSettings
-	12, // 15: hermod.agent.v1.DeviceSettings.tcp:type_name -> hermod.agent.v1.TcpSettings
-	13, // 16: hermod.agent.v1.DeviceSettings.framing:type_name -> hermod.agent.v1.Framing
-	14, // 17: hermod.agent.v1.DeviceSettingsList.devices:type_name -> hermod.agent.v1.DeviceSettings
-	16, // 18: hermod.agent.v1.RecordBatch.records:type_name -> hermod.agent.v1.Record
-	5,  // 19: hermod.agent.v1.AgentService.Connect:input_type -> hermod.agent.v1.ConnectRequest
-	6,  // 20: hermod.agent.v1.AgentService.Connect:output_type -> hermod.agent.v1.ConnectResponse
-	20, // [20:21] is the sub-list for method output_type
-	19, // [19:20] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	11, // 0: hermod.agent.v1.ConnectRequest.hello:type_name -> hermod.agent.v1.Hello
+	15, // 1: hermod.agent.v1.ConnectRequest.devices:type_name -> hermod.agent.v1.DeviceList
+	26, // 2: hermod.agent.v1.ConnectRequest.records:type_name -> hermod.agent.v1.RecordBatch
+	28, // 3: hermod.agent.v1.ConnectRequest.heartbeat:type_name -> hermod.agent.v1.Heartbeat
+	30, // 4: hermod.agent.v1.ConnectRequest.command_result:type_name -> hermod.agent.v1.CommandResult
+	13, // 5: hermod.agent.v1.ConnectResponse.welcome:type_name -> hermod.agent.v1.Welcome
+	27, // 6: hermod.agent.v1.ConnectResponse.ack:type_name -> hermod.agent.v1.Ack
+	24, // 7: hermod.agent.v1.ConnectResponse.settings:type_name -> hermod.agent.v1.DeviceSettingsList
+	29, // 8: hermod.agent.v1.ConnectResponse.command:type_name -> hermod.agent.v1.Command
+	12, // 9: hermod.agent.v1.ConnectResponse.update:type_name -> hermod.agent.v1.Update
+	0,  // 10: hermod.agent.v1.Device.kind:type_name -> hermod.agent.v1.DeviceKind
+	14, // 11: hermod.agent.v1.DeviceList.devices:type_name -> hermod.agent.v1.Device
+	1,  // 12: hermod.agent.v1.SerialSettings.parity:type_name -> hermod.agent.v1.Parity
+	2,  // 13: hermod.agent.v1.SerialSettings.stop_bits:type_name -> hermod.agent.v1.StopBits
+	5,  // 14: hermod.agent.v1.ModbusRead.table:type_name -> hermod.agent.v1.ModbusTable
+	4,  // 15: hermod.agent.v1.ModbusSettings.transport:type_name -> hermod.agent.v1.ModbusTransport
+	18, // 16: hermod.agent.v1.ModbusSettings.reads:type_name -> hermod.agent.v1.ModbusRead
+	6,  // 17: hermod.agent.v1.HidSettings.mode:type_name -> hermod.agent.v1.HidMode
+	3,  // 18: hermod.agent.v1.TcpSettings.mode:type_name -> hermod.agent.v1.TcpMode
+	7,  // 19: hermod.agent.v1.Framing.kind:type_name -> hermod.agent.v1.FramingKind
+	0,  // 20: hermod.agent.v1.DeviceSettings.kind:type_name -> hermod.agent.v1.DeviceKind
+	16, // 21: hermod.agent.v1.DeviceSettings.serial:type_name -> hermod.agent.v1.SerialSettings
+	21, // 22: hermod.agent.v1.DeviceSettings.tcp:type_name -> hermod.agent.v1.TcpSettings
+	22, // 23: hermod.agent.v1.DeviceSettings.framing:type_name -> hermod.agent.v1.Framing
+	17, // 24: hermod.agent.v1.DeviceSettings.udp:type_name -> hermod.agent.v1.UdpSettings
+	19, // 25: hermod.agent.v1.DeviceSettings.modbus:type_name -> hermod.agent.v1.ModbusSettings
+	20, // 26: hermod.agent.v1.DeviceSettings.hid:type_name -> hermod.agent.v1.HidSettings
+	23, // 27: hermod.agent.v1.DeviceSettingsList.devices:type_name -> hermod.agent.v1.DeviceSettings
+	25, // 28: hermod.agent.v1.RecordBatch.records:type_name -> hermod.agent.v1.Record
+	8,  // 29: hermod.agent.v1.CommandResult.status:type_name -> hermod.agent.v1.CommandStatus
+	9,  // 30: hermod.agent.v1.AgentService.Connect:input_type -> hermod.agent.v1.ConnectRequest
+	10, // 31: hermod.agent.v1.AgentService.Connect:output_type -> hermod.agent.v1.ConnectResponse
+	31, // [31:32] is the sub-list for method output_type
+	30, // [30:31] is the sub-list for method input_type
+	30, // [30:30] is the sub-list for extension type_name
+	30, // [30:30] is the sub-list for extension extendee
+	0,  // [0:30] is the sub-list for field type_name
 }
 
 func init() { file_agent_proto_init() }
@@ -1682,19 +2589,22 @@ func file_agent_proto_init() {
 		(*ConnectRequest_Devices)(nil),
 		(*ConnectRequest_Records)(nil),
 		(*ConnectRequest_Heartbeat)(nil),
+		(*ConnectRequest_CommandResult)(nil),
 	}
 	file_agent_proto_msgTypes[1].OneofWrappers = []any{
 		(*ConnectResponse_Welcome)(nil),
 		(*ConnectResponse_Ack)(nil),
 		(*ConnectResponse_Settings)(nil),
+		(*ConnectResponse_Command)(nil),
+		(*ConnectResponse_Update)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_proto_rawDesc), len(file_agent_proto_rawDesc)),
-			NumEnums:      5,
-			NumMessages:   15,
+			NumEnums:      9,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

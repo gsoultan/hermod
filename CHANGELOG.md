@@ -7,6 +7,30 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — hermod-agent sends commands, reads UDP, Modbus and USB HID, finds LAN devices and updates itself
+
+A workflow can send a device a command with the new **Agent device sink** (`type: agent`). Only
+commands saved on a device with `allow_commands` on are sent, and the agent checks that itself.
+A text template fills `{{field}}` placeholders from the message and refuses values with control
+characters; a hex template is bytes. The agent returns written, the device's reply within
+`reply_timeout_ms`, or the error. A command for an agent that is not connected fails at once and
+is not kept, and one that may already have reached the device is not retried. An Approval node
+before the sink gates each command on a person. Editors can try a saved command with
+`POST /api/agents/{id}/devices/{device}/commands/{name}`, audited with action `command`.
+
+The agent reads three more kinds of device. **UDP**: each datagram is a record, tagged with its
+sender, optionally only from listed addresses. **Modbus RTU and TCP**: a register map polled on an
+interval, each poll a JSON record; commands write holding registers or coils. **USB HID** on
+Linux: a barcode scanner in keyboard mode is grabbed so scans do not type into the desktop, one
+record per Enter, or raw reports.
+
+The agent looks for devices announcing themselves over mDNS (`-mdns-services`), and with
+`-scan-subnet` for Modbus TCP on port 502 across ranges of at most 4096 addresses. What it finds
+is listed for a user to add; nothing is read until they do.
+
+An agent started with `-allow-update` is offered Hermod's own release when it runs an older one.
+It downloads that release from GitHub for its own platform, checks it against the release's
+`checksums.txt` and that it runs as the offered version, swaps it in, and restarts.
 ### Added — the RabbitMQ sink publishes to an exchange: direct, topic, fanout or headers
 
 The RabbitMQ queue sink (now **RabbitMQ Queue / Exchange**) asks where each record goes: **a
@@ -51,6 +75,7 @@ a range on a hash-only column, and conditions no index serves. It shows the
 `CREATE INDEX CONCURRENTLY` statement that would fix each one, to copy and run. The check runs in
 a read-only transaction with a 5 second limit, refuses a query with more than one statement,
 works through PgBouncer, and takes an editor (`POST /api/workflows/{id}/insights/lookup-plans`).
+
 ### Added — hermod-agent reads serial and LAN devices into workflows
 
 `hermod-agent` is a separate program for the machine next to the hardware (Linux, Raspberry Pi

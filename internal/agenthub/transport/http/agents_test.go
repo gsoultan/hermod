@@ -218,3 +218,46 @@ func TestAgentAccess(t *testing.T) {
 		})
 	}
 }
+
+// An Editor can try a saved command from the API. Only saved commands on a
+// device that allows them run; the attempt is audited.
+func TestAnEditorRunsASavedCommand(t *testing.T) {
+	h, store := newAPI(t)
+	out := create(t, h, editorA, "plant", "Line 1")
+	id := map[string]string{"id": out.Agent.ID}
+	body := `{"name":"Line 1","devices":[{"device_id":"tcp:scale","kind":"tcp","name":"scale","enabled":true,
+		"tcp":{"address":"10.0.0.9:4001","mode":"client"},"framing":{"kind":"line"},
+		"allow_commands":true,"commands":[{"name":"tare","payload":"T\\r\\n"}]}]}`
+	if w := call(h.UpdateAgent, editorA, http.MethodPut, id, body); w.Code != http.StatusOK {
+		t.Fatalf("PUT = %d %s", w.Code, w.Body)
+	}
+	saved, _ := store.GetAgent(t.Context(), out.Agent.ID)
+	if !saved.Devices[0].AllowCommands || saved.Devices[0].Commands[0].Payload != `T\r\n` {
+		t.Fatalf("stored = %+v", saved.Devices[0])
+	}
+	run := func(user *storage.User, name string) *httptest.ResponseRecorder {
+		return call(h.RunCommand, user, http.MethodPost,
+			map[string]string{"id": out.Agent.ID, "device": "tcp:scale", "name": name}, `{"fields":{}}`)
+	}
+	if w := run(editorA, "tare"); w.Code != http.StatusConflict {
+		t.Fatalf("offline agent: %d %s", w.Code, w.Body)
+	}
+	if w := run(editorA, "reboot"); w.Code != http.StatusBadRequest {
+		t.Fatalf("unknown command: %d %s", w.Code, w.Body)
+	}
+	if w := run(viewerA, "tare"); w.Code != http.StatusForbidden {
+		t.Fatalf("viewer: %d %s", w.Code, w.Body)
+	}
+	if w := run(editorB, "tare"); w.Code != http.StatusNotFound {
+		t.Fatalf("other vhost: %d %s", w.Code, w.Body)
+	}
+	var tried []string
+	for _, a := range store.audits {
+		if a.Action == "command" {
+			tried = append(tried, a.Payload)
+		}
+	}
+	if len(tried) != 2 || !strings.Contains(tried[0], `"command":"tare"`) || !strings.Contains(tried[1], `"command":"reboot"`) {
+		t.Fatalf("command audits = %q", tried)
+	}
+}
