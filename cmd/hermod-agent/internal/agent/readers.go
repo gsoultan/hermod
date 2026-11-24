@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"sync"
@@ -21,6 +22,7 @@ import (
 	"time"
 
 	"github.com/gsoultan/hermod/cmd/hermod-agent/internal/framing"
+	"github.com/gsoultan/hermod/cmd/hermod-agent/internal/hid"
 	"github.com/gsoultan/hermod/cmd/hermod-agent/internal/reader"
 	pb "github.com/gsoultan/hermod/pkg/agent/proto"
 	"google.golang.org/protobuf/proto"
@@ -32,12 +34,14 @@ type emitFunc func(deviceID string, raw []byte, port string, at time.Time)
 // readers runs one reader per enabled, claimed device and restarts a reader
 // when its settings change.
 type readers struct {
-	ctx      context.Context
-	log      *slog.Logger
-	emit     emitFunc
-	resolve  func(deviceID string) (string, bool)
-	oversize *atomic.Uint64
-	changed  func()
+	ctx     context.Context
+	log     *slog.Logger
+	emit    emitFunc
+	resolve func(deviceID string) (string, bool)
+	// resolveHID finds a HID device's nodes; set before the first apply.
+	resolveHID func(deviceID string) (hid.Device, bool)
+	oversize   *atomic.Uint64
+	changed    func()
 
 	mu      sync.Mutex
 	running map[string]*running
@@ -149,6 +153,27 @@ func (r *readers) run(ctx context.Context, s *pb.DeviceSettings, cfg reader.Conf
 		reader.RunModbus(ctx, open, m, cfg, run.modbus)
 	case s.GetKind() == pb.DeviceKind_DEVICE_KIND_SERIAL:
 		cfg.Open = reader.SerialOpener(func() (string, bool) { return r.resolve(id) }, s.GetSerial())
+		reader.Run(ctx, cfg)
+	case s.GetKind() == pb.DeviceKind_DEVICE_KIND_HID:
+		raw := s.GetHid().GetMode() == pb.HidMode_HID_MODE_RAW
+		cfg.Open = func(context.Context) (io.ReadCloser, string, error) {
+			d, ok := r.resolveHID(id)
+			if !ok {
+				return nil, "", errors.New("device is not attached")
+			}
+			if raw {
+				rc, err := hid.OpenRaw(d.Hidraw)
+				return rc, d.Hidraw, err
+			}
+			rc, err := hid.OpenKeyboard(d.Event)
+			return rc, d.Event, err
+		}
+		if raw {
+			cfg.PerRead = true
+		} else {
+			// One record per scan: the text up to Enter.
+			cfg.Framing = &pb.Framing{Kind: pb.FramingKind_FRAMING_KIND_LINE, MaxRecordBytes: s.GetFraming().GetMaxRecordBytes()}
+		}
 		reader.Run(ctx, cfg)
 	case s.GetKind() == pb.DeviceKind_DEVICE_KIND_UDP:
 		allow, _ := reader.ParseAllowList(s.GetUdp().GetAllowFrom()) // validated

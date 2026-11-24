@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/gsoultan/hermod/cmd/hermod-agent/internal/detect"
+	"github.com/gsoultan/hermod/cmd/hermod-agent/internal/hid"
 	"github.com/gsoultan/hermod/cmd/hermod-agent/internal/spool"
 	"github.com/gsoultan/hermod/cmd/hermod-agent/internal/uplink"
 	pb "github.com/gsoultan/hermod/pkg/agent/proto"
@@ -53,6 +54,8 @@ type Options struct {
 	ScanInterval time.Duration
 	// Lister lists serial ports; default the operating system's.
 	Lister detect.Lister
+	// HIDLister lists USB HID devices; default the system's (Linux only).
+	HIDLister func() ([]hid.Device, error)
 	// MDNSServices are the mDNS service types to look for, such as
 	// "_modbus._tcp"; none turns mDNS discovery off. MDNSAddress is where
 	// queries go, default the mDNS group (tests point it elsewhere).
@@ -81,6 +84,9 @@ func Run(ctx context.Context, opt Options) error {
 	if opt.ScanInterval <= 0 {
 		opt.ScanInterval = 2 * time.Second
 	}
+	if opt.HIDLister == nil {
+		opt.HIDLister = func() ([]hid.Device, error) { return hid.List("/sys", "/dev") }
+	}
 	if err := os.MkdirAll(opt.DataDir, 0o700); err != nil {
 		return err
 	}
@@ -95,6 +101,7 @@ func Run(ctx context.Context, opt Options) error {
 	wg.Go(func() { a.batch.run(ctx) })
 	wg.Go(func() { a.watcher.Run(ctx) })
 	wg.Go(func() { a.discovery.run(ctx) })
+	wg.Go(func() { a.hids.run(ctx) })
 	if cached, err := loadSettings(opt.DataDir); err != nil {
 		opt.Log.Warn("cached device settings unreadable; waiting for the server", "err", err)
 	} else if cached != nil {
@@ -113,6 +120,7 @@ type agent struct {
 	watcher   *detect.Watcher
 	readers   *readers
 	discovery *discovery
+	hids      *hidWatcher
 	oversize  atomic.Uint64
 	changed   chan struct{}
 }
@@ -123,7 +131,9 @@ func newAgent(ctx context.Context, opt Options, sp *spool.Spool) *agent {
 	emit := func(deviceID string, raw []byte, port string, at time.Time) {
 		a.batch.add(ctx, spool.Record{DeviceID: deviceID, Port: port, ReceivedAt: at.UnixNano(), Raw: raw})
 	}
+	a.hids = newHIDWatcher(opt.HIDLister, opt.ScanInterval, opt.Log, a.devicesChanged)
 	a.readers = newReaders(ctx, opt.Log, emit, a.watcher.Resolve, &a.oversize, a.devicesChanged)
+	a.readers.resolveHID = a.hids.resolve
 	a.discovery = newDiscovery(opt, a.devicesChanged)
 	return a
 }
@@ -142,6 +152,7 @@ func (a *agent) devices() []*pb.Device {
 		claimed[d.GetPort()] = true
 	}
 	out := append(detect.Convert(a.watcher.Devices()), network...)
+	out = append(out, a.hids.pbDevices()...)
 	// A found device already claimed by its address is listed once.
 	for _, d := range a.discovery.devices() {
 		if !claimed[d.GetPort()] {

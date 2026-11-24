@@ -16,8 +16,6 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-
-	"github.com/gsoultan/hermod/cmd/hermod-agent/internal/framing"
 )
 
 // AllowList is the senders a UDP device keeps datagrams from. Nil keeps all.
@@ -61,10 +59,7 @@ func RunUDP(ctx context.Context, pc net.PacketConn, allow AllowList, cfg Config)
 	stop := context.AfterFunc(ctx, func() { _ = pc.Close() })
 	defer stop()
 	defer func() { _ = pc.Close() }()
-	limit := framing.DefaultMaxRecordBytes
-	if n := int(cfg.Framing.GetMaxRecordBytes()); n > 0 {
-		limit = n
-	}
+	limit := recordLimit(&cfg)
 	cfg.status(StatusReading, nil)
 	buf := make([]byte, 64<<10)
 	for {
