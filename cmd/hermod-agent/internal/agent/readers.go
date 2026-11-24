@@ -50,6 +50,7 @@ type running struct {
 	status   atomic.Int32
 	port     atomic.Value // string
 	link     *reader.Link
+	modbus   *reader.ModbusDevice // set for a Modbus device
 }
 
 func newReaders(ctx context.Context, log *slog.Logger, emit emitFunc, resolve func(string) (string, bool), oversize *atomic.Uint64, changed func()) *readers {
@@ -110,6 +111,9 @@ func (r *readers) stopAll() {
 func (r *readers) start(s *pb.DeviceSettings) *running {
 	ctx, cancel := context.WithCancel(r.ctx)
 	run := &running{settings: proto.CloneOf(s), cancel: cancel, done: make(chan struct{}), link: reader.NewLink()}
+	if s.GetKind() == pb.DeviceKind_DEVICE_KIND_MODBUS {
+		run.modbus = reader.NewModbusDevice()
+	}
 	run.port.Store("")
 	id := s.GetDeviceId()
 	cfg := reader.Config{
@@ -128,14 +132,21 @@ func (r *readers) start(s *pb.DeviceSettings) *running {
 	}
 	go func() {
 		defer close(run.done)
-		r.run(ctx, s, cfg)
+		r.run(ctx, s, cfg, run)
 	}()
 	return run
 }
 
-func (r *readers) run(ctx context.Context, s *pb.DeviceSettings, cfg reader.Config) {
+func (r *readers) run(ctx context.Context, s *pb.DeviceSettings, cfg reader.Config, run *running) {
 	id := s.GetDeviceId()
 	switch {
+	case s.GetKind() == pb.DeviceKind_DEVICE_KIND_MODBUS:
+		m := s.GetModbus()
+		open := reader.TCPClientOpener(m.GetAddress())
+		if m.GetTransport() == pb.ModbusTransport_MODBUS_TRANSPORT_RTU {
+			open = reader.SerialOpener(func() (string, bool) { return r.resolve(id) }, s.GetSerial())
+		}
+		reader.RunModbus(ctx, open, m, cfg, run.modbus)
 	case s.GetKind() == pb.DeviceKind_DEVICE_KIND_SERIAL:
 		cfg.Open = reader.SerialOpener(func() (string, bool) { return r.resolve(id) }, s.GetSerial())
 		reader.Run(ctx, cfg)

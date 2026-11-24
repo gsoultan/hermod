@@ -45,6 +45,17 @@ func (r *readers) command(ctx context.Context, c *pb.Command) *pb.CommandResult 
 	case len(c.GetPayload()) > maxCommandBytes:
 		return fail("the command is larger than 64 KiB", false)
 	}
+	if run.modbus != nil {
+		// A register or coil write; the device's echo is its answer.
+		if err := run.modbus.Write(ctx, c.GetPayload()); err != nil {
+			var we *reader.WrittenError
+			written := errors.As(err, &we)
+			r.log.Warn("command failed", "device", c.GetDeviceId(), "command", c.GetCommandId(), "written", written, "err", err)
+			return fail(err.Error(), written)
+		}
+		r.log.Info("command written", "device", c.GetDeviceId(), "command", c.GetCommandId())
+		return &pb.CommandResult{CommandId: c.GetCommandId(), Status: pb.CommandStatus_COMMAND_STATUS_WRITTEN, Written: true}
+	}
 	wait := min(time.Duration(c.GetReplyTimeoutMs())*time.Millisecond, maxReplyWait)
 	reply, err := run.link.Send(ctx, c.GetPayload(), wait)
 	if err != nil {
