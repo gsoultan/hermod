@@ -213,6 +213,17 @@ func memberAssets(snk storage.Sink, c cfgMap, sinks map[string]storage.Sink, see
 
 // sinkReaders are the sink types whose keys differ from their source's.
 var sinkReaders = map[string]reader{
+	// A RabbitMQ sink may publish to an exchange, and bind a queue to it. The
+	// queue is the asset a rabbitmq_queue source reads.
+	"rabbitmq_queue": func(typ string, c cfgMap) []asset {
+		out := sharedReaders[typ](typ, c)
+		if ex := c.get("exchange"); ex != "" {
+			if loc, ok := connLocator(c, true); ok {
+				out = append(one(KindExchange, "rabbitmq", loc, ex), out...)
+			}
+		}
+		return out
+	},
 	"clickhouse": func(_ string, c cfgMap) []asset {
 		loc := joinPath(strings.ToLower(c.get("addr")), c.get("database"))
 		return oneIf(loc != "" && c.get("table") != "", KindTable, "clickhouse", loc, c.get("table"))

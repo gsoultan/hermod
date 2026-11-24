@@ -128,6 +128,31 @@ const SOURCE_REQUIREMENTS: Record<string, RequiredField[]> = {
   ],
 };
 
+/**
+ * The RabbitMQ sink publishes to a queue, or to an exchange whose type decides
+ * what else it needs (pkg/comm/sink/rabbitmq/queue_settings.go). The form sets
+ * exchange_type as soon as the user picks an exchange, so an exchange still
+ * waiting for its name asks for that, not for a queue.
+ */
+const usesExchange = (c: Record<string, unknown>) => Boolean(String(c.exchange ?? '').trim() || String(c.exchange_type ?? '').trim());
+const exchangeType = (c: Record<string, unknown>) => String(c.exchange_type ?? '').trim().toLowerCase() || 'direct';
+const routesByKey = (c: Record<string, unknown>) => usesExchange(c) && ['direct', 'topic'].includes(exchangeType(c));
+const rabbitmqSinkRequirements: RequiredField[] = [
+  { key: 'host', aliases: URL_KEYS, label: 'Host', example: 'rabbit.example.com' },
+  { key: 'queue_name', label: 'Queue name', example: 'hermod-queue', when: (c) => !usesExchange(c) },
+  { key: 'exchange', label: 'Exchange name', example: 'hermod-events', when: usesExchange },
+  { key: 'routing_key', label: 'Routing key', example: 'orders.created', when: routesByKey },
+  { key: 'headers', label: 'Headers', example: 'region=eu', when: (c) => usesExchange(c) && exchangeType(c) === 'headers' },
+  // A routing key that changes per record cannot also say which records the
+  // bound queue receives; the sink refuses to start without a binding key.
+  {
+    key: 'binding_key',
+    label: 'Binding key',
+    example: 'orders.#',
+    when: (c) => routesByKey(c) && String(c.queue_name ?? '').trim() !== '' && String(c.routing_key ?? '').includes('{{'),
+  },
+];
+
 const SINK_REQUIREMENTS: Record<string, RequiredField[]> = {
   // db_path is the key the form wrote before it was fixed; sinks saved then
   // still open their file (BuildConnectionString reads both).
@@ -164,10 +189,7 @@ const SINK_REQUIREMENTS: Record<string, RequiredField[]> = {
     { key: 'host', aliases: URL_KEYS, label: 'Host', example: 'rabbit.example.com' },
     { key: 'stream_name', label: 'Stream name', example: 'hermod-stream' },
   ],
-  rabbitmq_queue: [
-    { key: 'host', aliases: URL_KEYS, label: 'Host', example: 'rabbit.example.com' },
-    { key: 'queue_name', label: 'Queue name', example: 'hermod-queue' },
-  ],
+  rabbitmq_queue: rabbitmqSinkRequirements,
   // Gated on `addresses`, which is what ElasticsearchSinkConfig writes and what
   // the factory splits on. It used to demand `url`, a key neither side has, so
   // Next could never enable for an elasticsearch sink.

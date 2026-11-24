@@ -41,6 +41,7 @@ const (
 	KindSubject    = "subject"
 	KindStream     = "stream"
 	KindQueue      = "queue"
+	KindExchange   = "exchange"
 	KindIndex      = "index"
 	KindObject     = "object"
 	KindFile       = "file"

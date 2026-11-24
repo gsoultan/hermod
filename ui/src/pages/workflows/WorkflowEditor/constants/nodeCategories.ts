@@ -258,7 +258,7 @@ export const NODE_CATEGORIES = [
       { type: 'sink', refId: 'new', label: 'Kafka', subType: 'kafka', icon: IconCircles, color: 'teal', description: 'Publish to Kafka topics' },
       { type: 'sink', refId: 'new', label: 'NATS', subType: 'nats', icon: IconCircles, color: 'teal', description: 'Publish to NATS JetStream' },
       { type: 'sink', refId: 'new', label: 'RabbitMQ Stream', subType: 'rabbitmq', icon: IconCircles, color: 'teal', description: 'Publish to RMQ Stream' },
-      { type: 'sink', refId: 'new', label: 'RabbitMQ Queue', subType: 'rabbitmq_queue', icon: IconCircles, color: 'teal', description: 'Publish to AMQP queues' },
+      { type: 'sink', refId: 'new', label: 'RabbitMQ Queue / Exchange', subType: 'rabbitmq_queue', icon: IconCircles, color: 'teal', description: 'Publish to an AMQP queue or exchange (direct, topic, fanout, headers)' },
       { type: 'sink', refId: 'new', label: 'Redis Stream', subType: 'redis', icon: IconCircles, color: 'teal', description: 'Publish to Redis Streams' },
       { type: 'sink', refId: 'new', label: 'Redis Set', subType: 'redis_set', icon: IconBolt, color: 'teal', description: 'Write each record to a Redis key' },
       { type: 'sink', refId: 'new', label: 'Google Pub/Sub', subType: 'pubsub', icon: IconCircles, color: 'teal', description: 'Publish to GCP Pub/Sub' },

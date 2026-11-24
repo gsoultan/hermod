@@ -125,11 +125,16 @@ describe('a sink form writes the keys its type is gated on', () => {
     if (importPaths.has(m[2])) componentFor.set(m[1], m[2])
   }
 
+  // A form's own text plus that of the sibling modules it imports: the
+  // RabbitMQ sink's queue and exchange fields live in RabbitMQRouteFields.
   const sourceOf = (type: string): string | undefined => {
     const component = componentFor.get(type)
     const spec = component && importPaths.get(component)
     if (!spec) return undefined
-    return byBasename.get(spec.slice(spec.lastIndexOf('/') + 1))
+    const own = byBasename.get(spec.slice(spec.lastIndexOf('/') + 1))
+    if (own === undefined) return undefined
+    const siblings = [...own.matchAll(/from '\.\/(\w+)'/g)].map((m) => byBasename.get(m[1]) ?? '')
+    return [own, ...siblings].join('\n')
   }
 
   it.each(SINK_TYPES.map((t) => [t.value] as const))('%s', (type) => {
