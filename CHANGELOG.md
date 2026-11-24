@@ -31,6 +31,25 @@ is listed for a user to add; nothing is read until they do.
 An agent started with `-allow-update` is offered Hermod's own release when it runs an older one.
 It downloads that release from GitHub for its own platform, checks it against the release's
 `checksums.txt` and that it runs as the offered version, swaps it in, and restarts.
+### Added — the RabbitMQ sink publishes to an exchange: direct, topic, fanout or headers
+
+The RabbitMQ queue sink (now **RabbitMQ Queue / Exchange**) asks where each record goes: **a
+queue**, as before, or **an exchange**. For an exchange the form offers the four built-in types,
+each with a line on how it routes, and shows only the fields that type uses: a routing key for
+direct and topic (a template such as `orders.{{.operation}}` sets it per record), headers and
+all/any matching for headers, nothing for fanout. A queue is optional with an exchange. When one
+is named, Hermod creates it and binds it with a binding key (topic wildcards `*` and `#` go
+here), the routing key by default, or binding headers. A summary under the fields says where a
+record will go. The exchange is created as durable unless **Create the exchange** is off, in which
+case Hermod only checks it exists; the built-in `amq.*` exchanges are never declared.
+
+Every publish is now mandatory and confirmed by the broker. A record no queue received, such as
+one sent to an exchange with nothing bound, is a failed write instead of a silent loss. An
+exchange or queue that already exists with another type or settings is named in the error. The
+sink also recovers when RabbitMQ closes its channel but not the connection (a publish to an
+exchange deleted since); before, every later write failed with "channel/connection is not open".
+Sinks saved before this keep publishing straight to their queue. Lineage shows the exchange, and
+the bound queue joins the sink to the workflow that reads it.
 
 ### Added — hermod-agent runs as a service on every desktop and edge platform
 

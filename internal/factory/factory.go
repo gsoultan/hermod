@@ -996,7 +996,11 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 	case "rabbitmq":
 		return sinkrabbitmq.NewRabbitMQStreamSink(BuildConnectionString(cfg.Config, cfg.Type), cfg.Config["stream_name"], fmttr)
 	case "rabbitmq_queue":
-		return sinkrabbitmq.NewRabbitMQQueueSink(BuildConnectionString(cfg.Config, cfg.Type), cfg.Config["queue_name"], fmttr)
+		settings, err := sinkrabbitmq.ParseQueueSinkSettings(func(k string) string { return cfg.Config[k] })
+		if err != nil {
+			return nil, err
+		}
+		return sinkrabbitmq.NewRabbitMQQueueSinkWithSettings(BuildConnectionString(cfg.Config, cfg.Type), settings, fmttr)
 	case "redis":
 		return sinkredis.New(cfg.Config, fmttr)
 	case "redis_set":

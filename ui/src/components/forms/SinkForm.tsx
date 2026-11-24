@@ -74,7 +74,7 @@ export const SINK_TYPES = [
   { value: 'mqtt', label: 'MQTT' , group: 'Messaging & Streams' },
   { value: 'nats', label: 'NATS' , group: 'Messaging & Streams' },
   { value: 'rabbitmq', label: 'RabbitMQ Stream' , group: 'Messaging & Streams' },
-  { value: 'rabbitmq_queue', label: 'RabbitMQ Queue' , group: 'Messaging & Streams' },
+  { value: 'rabbitmq_queue', label: 'RabbitMQ Queue / Exchange' , group: 'Messaging & Streams' },
   { value: 'redis', label: 'Redis Stream' , group: 'Messaging & Streams' },
   { value: 'redis_set', label: 'Redis Set (key/value)' , group: 'Messaging & Streams' },
   { value: 'pubsub', label: 'Google Pub/Sub' , group: 'Messaging & Streams' },

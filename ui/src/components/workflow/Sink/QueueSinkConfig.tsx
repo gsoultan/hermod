@@ -1,6 +1,7 @@
 import { Checkbox, Select, Switch, Textarea, Alert } from '@mantine/core';
 import { PasswordInput, TextInput } from '@/components/shared/ReferenceInputs';
 import { FormRow } from '@/components/common/FormRow';
+import { RabbitMQRouteFields } from './RabbitMQRouteFields';
 
 interface QueueSinkConfigProps {
   type: string;
@@ -225,8 +226,8 @@ export function QueueSinkConfig({ type, config, updateConfig }: QueueSinkConfigP
               mih={80}
             />
           </FormRow>
-          <TextInput label="Queue Name" placeholder="hermod-queue" value={config.queue_name || ''} onChange={(e) => updateConfig('queue_name', e.target.value)} required />
           <Checkbox label="Use SSL/TLS" checked={config.use_ssl === 'true'} onChange={(e) => updateConfig('use_ssl', e.currentTarget.checked ? 'true' : 'false')} mt="xs" />
+          <RabbitMQRouteFields config={config} updateConfig={updateConfig} />
         </>
       );
     case 'redis':

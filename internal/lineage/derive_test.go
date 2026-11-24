@@ -323,6 +323,12 @@ func TestDeriveSinkAssets(t *testing.T) {
 		{"smtp recipients are not exposed", "smtp", hermod.StringMap{"host": "smtp", "to": "a@example.com"},
 			[]string{"connector:smtp://sink/snk"}},
 		{"stdout", "stdout", hermod.StringMap{}, []string{"connector:stdout://sink/snk"}},
+		{"rabbitmq exchange with nothing bound", "rabbitmq_queue", hermod.StringMap{"host": "mq", "port": "5672", "exchange": "events", "exchange_type": "fanout"},
+			[]string{"exchange:rabbitmq://mq:5672/events"}},
+		// The bound queue is what a rabbitmq_queue source reads, so lineage
+		// joins the two workflows through it.
+		{"rabbitmq exchange with a bound queue", "rabbitmq_queue", hermod.StringMap{"host": "mq", "port": "5672", "exchange": "events", "exchange_type": "topic", "routing_key": "a.b", "queue_name": "q1"},
+			[]string{"exchange:rabbitmq://mq:5672/events", "queue:rabbitmq://mq:5672/q1"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
