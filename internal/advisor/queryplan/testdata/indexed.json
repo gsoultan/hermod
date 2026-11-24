@@ -1,0 +1,20 @@
+[
+  {
+    "Plan": {
+      "Node Type": "Index Scan",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Scan Direction": "Forward",
+      "Index Name": "so_doc",
+      "Relation Name": "sales_orders",
+      "Schema": "public",
+      "Alias": "sales_orders",
+      "Startup Cost": 0.29,
+      "Total Cost": 8.31,
+      "Plan Rows": 1,
+      "Plan Width": 16,
+      "Output": ["id"],
+      "Index Cond": "(sales_orders.doc_no = $1)"
+    }
+  }
+]

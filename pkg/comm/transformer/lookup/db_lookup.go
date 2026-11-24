@@ -539,142 +539,10 @@ func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface 
 		return nil, fmt.Errorf("db_lookup: %w", err)
 	}
 
-	// Quote table and columns safely
-	quotedTable, err := sqlutil.QuoteIdent(driver, table)
-	if err != nil {
-		return nil, fmt.Errorf("invalid table name: %w", err)
+	query, args, empty, err := tableLookupQuery(driver, table, keyColumn, keyVal, whereClause, valueColumn, clause)
+	if err != nil || empty {
+		return nil, err
 	}
-
-	selectList := "*"
-	if valueColumn != "" && valueColumn != "*" {
-		cols := strings.Split(valueColumn, ",")
-		qcols := make([]string, 0, len(cols))
-		for _, c := range cols {
-			c = strings.TrimSpace(c)
-			qc, qerr := sqlutil.QuoteIdent(driver, c)
-			if qerr != nil {
-				return nil, fmt.Errorf("invalid column in valueColumn: %w", qerr)
-			}
-			qcols = append(qcols, qc)
-		}
-		selectList = strings.Join(qcols, ", ")
-	}
-
-	var whereParts []string
-	var args []any
-	nextIdx := 1
-	batchMode := false
-
-	if whereClause != "" {
-		// Safe subset parser: support AND-separated expressions
-		parts := core.SplitSQLConditions(whereClause)
-		for _, part := range parts {
-			p := strings.TrimSpace(part)
-			if p == "" {
-				continue
-			}
-			kv := strings.SplitN(p, "=", 2)
-			if len(kv) != 2 {
-				return nil, fmt.Errorf("unsupported whereClause fragment: %q", p)
-			}
-			col := strings.TrimSpace(kv[0])
-			rhs := strings.TrimSpace(kv[1])
-			qcol, qerr := sqlutil.QuoteIdent(driver, col)
-			if qerr != nil {
-				return nil, fmt.Errorf("invalid column in whereClause: %w", qerr)
-			}
-			var val any
-			if strings.HasPrefix(rhs, "{{") && strings.HasSuffix(rhs, "}}") && strings.Count(rhs, "{{") == 1 {
-				// Single token template: preserve original type and handle nil correctly for SQL
-				//
-				// Read through clause.value, so the same paths queryTemplate
-				// answers work here: after./before., the virtual fields, meta.,
-				// and a column holding JSON text. bindingDigest renders this
-				// clause through the same resolver, which is what keeps the
-				// cache key describing the query that actually runs.
-				token := strings.TrimSpace(rhs[2 : len(rhs)-2])
-				token = strings.TrimPrefix(token, ".")
-				val = clause.value(token)
-			} else if strings.Contains(rhs, "{{") {
-				// Evaluate template into a value string and trim any surrounding quotes
-				s := clause.render(rhs)
-				if strings.HasPrefix(s, "'") && strings.HasSuffix(s, "'") && len(s) >= 2 {
-					s = strings.Trim(s, "'")
-				} else if strings.HasPrefix(s, "\"") && strings.HasSuffix(s, "\"") && len(s) >= 2 {
-					s = strings.Trim(s, "\"")
-				}
-				val = s
-			} else if strings.HasPrefix(rhs, "'") && strings.HasSuffix(rhs, "'") {
-				val = strings.Trim(rhs, "'")
-			} else if strings.HasPrefix(rhs, "\"") && strings.HasSuffix(rhs, "\"") {
-				val = strings.Trim(rhs, "\"")
-			} else {
-				// Treat as raw token (number/bool/null)
-				if strings.EqualFold(rhs, "NULL") {
-					val = nil
-				} else if i, err := strconv.ParseInt(rhs, 10, 64); err == nil {
-					val = i
-				} else if f, err := strconv.ParseFloat(rhs, 64); err == nil {
-					val = f
-				} else if b, err := strconv.ParseBool(rhs); err == nil {
-					val = b
-				} else {
-					val = rhs
-				}
-			}
-			// A list value means membership, not equality. Binding it to a
-			// single "=" placeholder was both the wrong operator and an
-			// argument no driver can encode.
-			if arr, ok := asSlice(val); ok {
-				if len(arr) == 0 {
-					return nil, nil
-				}
-				phs := make([]string, 0, len(arr))
-				for range arr {
-					phs = append(phs, sqlutil.Placeholder(driver, nextIdx))
-					nextIdx++
-				}
-				whereParts = append(whereParts, fmt.Sprintf("%s IN (%s)", qcol, strings.Join(phs, ", ")))
-				args = append(args, arr...)
-				batchMode = true
-				continue
-			}
-			ph := sqlutil.Placeholder(driver, nextIdx)
-			nextIdx++
-			whereParts = append(whereParts, fmt.Sprintf("%s = %s", qcol, ph))
-			args = append(args, val)
-		}
-		if len(whereParts) == 0 {
-			return nil, errors.New("invalid whereClause: no conditions parsed")
-		}
-	} else if keyColumn != "" {
-		qkey, qerr := sqlutil.QuoteIdent(driver, keyColumn)
-		if qerr != nil {
-			return nil, fmt.Errorf("invalid keyColumn: %w", qerr)
-		}
-		// Support batch lookup for slice/array keyVal -> IN (...)
-		if arr, ok := asSlice(keyVal); ok {
-			if len(arr) == 0 {
-				return nil, nil
-			}
-			var phs []string
-			for range arr {
-				phs = append(phs, sqlutil.Placeholder(driver, nextIdx))
-				nextIdx++
-			}
-			whereParts = append(whereParts, fmt.Sprintf("%s IN (%s)", qkey, strings.Join(phs, ", ")))
-			args = append(args, arr...)
-			batchMode = true
-		} else {
-			ph := sqlutil.Placeholder(driver, nextIdx)
-			whereParts = append(whereParts, fmt.Sprintf("%s = %s", qkey, ph))
-			args = append(args, keyVal)
-		}
-	} else {
-		return nil, errors.New("either whereClause or keyColumn must be provided for db_lookup")
-	}
-
-	query := buildLookupQuery(driver, selectList, quotedTable, whereParts, batchMode)
 
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -1040,4 +908,170 @@ func warnUnresolvedPaths(ctx context.Context, paths []string) {
 	nodeID, _ := ctx.Value(hermod.NodeIDKey).(string)
 	logger.Warn("db_lookup: template path(s) resolved to nothing on this message and were bound as NULL",
 		"paths", strings.Join(paths, ", "), "node_id", nodeID)
+}
+
+// tableLookupQuery builds a table-mode lookup's statement and its arguments,
+// exactly as lookupSQL runs it. empty reports a key list with nothing in it,
+// for which there is no statement to run and nothing to find.
+//
+// It is apart from lookupSQL so the query-plan check (LookupStatement) plans
+// the statement a running lookup sends, not a reconstruction of it.
+func tableLookupQuery(driver, table, keyColumn string, keyVal any, whereClause, valueColumn string, clause clauseResolver) (query string, args []any, empty bool, err error) {
+	// Quote table and columns safely
+	quotedTable, err := sqlutil.QuoteIdent(driver, table)
+	if err != nil {
+		return "", nil, false, fmt.Errorf("invalid table name: %w", err)
+	}
+	selectList, err := lookupSelectList(driver, valueColumn)
+	if err != nil {
+		return "", nil, false, err
+	}
+
+	w := &lookupWhere{driver: driver, next: 1}
+	switch {
+	case whereClause != "":
+		ok, werr := w.addClause(whereClause, clause)
+		if werr != nil || !ok {
+			return "", nil, !ok && werr == nil, werr
+		}
+	case keyColumn != "":
+		qkey, qerr := sqlutil.QuoteIdent(driver, keyColumn)
+		if qerr != nil {
+			return "", nil, false, fmt.Errorf("invalid keyColumn: %w", qerr)
+		}
+		if !w.add(qkey, keyVal) {
+			return "", nil, true, nil
+		}
+	default:
+		return "", nil, false, errors.New("either whereClause or keyColumn must be provided for db_lookup")
+	}
+
+	return buildLookupQuery(driver, selectList, quotedTable, w.parts, w.batch), w.args, false, nil
+}
+
+// lookupSelectList quotes valueColumn's comma-separated columns; "" and "*"
+// select every column.
+func lookupSelectList(driver, valueColumn string) (string, error) {
+	if valueColumn == "" || valueColumn == "*" {
+		return "*", nil
+	}
+	cols := strings.Split(valueColumn, ",")
+	qcols := make([]string, 0, len(cols))
+	for _, c := range cols {
+		qc, err := sqlutil.QuoteIdent(driver, strings.TrimSpace(c))
+		if err != nil {
+			return "", fmt.Errorf("invalid column in valueColumn: %w", err)
+		}
+		qcols = append(qcols, qc)
+	}
+	return strings.Join(qcols, ", "), nil
+}
+
+// lookupWhere collects a table-mode lookup's conditions and their arguments.
+type lookupWhere struct {
+	driver string
+	next   int
+	parts  []string
+	args   []any
+	batch  bool
+}
+
+// add compares a quoted column with val. A list value means membership, not
+// equality: binding it to a single "=" placeholder was both the wrong
+// operator and an argument no driver can encode. False means the list is
+// empty, so there is nothing to find.
+func (w *lookupWhere) add(qcol string, val any) bool {
+	if arr, ok := asSlice(val); ok {
+		if len(arr) == 0 {
+			return false
+		}
+		phs := make([]string, 0, len(arr))
+		for range arr {
+			phs = append(phs, sqlutil.Placeholder(w.driver, w.next))
+			w.next++
+		}
+		w.parts = append(w.parts, fmt.Sprintf("%s IN (%s)", qcol, strings.Join(phs, ", ")))
+		w.args = append(w.args, arr...)
+		w.batch = true
+		return true
+	}
+	w.parts = append(w.parts, fmt.Sprintf("%s = %s", qcol, sqlutil.Placeholder(w.driver, w.next)))
+	w.next++
+	w.args = append(w.args, val)
+	return true
+}
+
+// addClause adds a whereClause's AND-separated "column = value" conditions.
+// False with no error means a list value was empty: nothing to find.
+func (w *lookupWhere) addClause(whereClause string, clause clauseResolver) (bool, error) {
+	// Safe subset parser: support AND-separated expressions
+	for _, part := range core.SplitSQLConditions(whereClause) {
+		p := strings.TrimSpace(part)
+		if p == "" {
+			continue
+		}
+		kv := strings.SplitN(p, "=", 2)
+		if len(kv) != 2 {
+			return false, fmt.Errorf("unsupported whereClause fragment: %q", p)
+		}
+		qcol, err := sqlutil.QuoteIdent(w.driver, strings.TrimSpace(kv[0]))
+		if err != nil {
+			return false, fmt.Errorf("invalid column in whereClause: %w", err)
+		}
+		if !w.add(qcol, whereValue(strings.TrimSpace(kv[1]), clause)) {
+			return false, nil
+		}
+	}
+	if len(w.parts) == 0 {
+		return false, errors.New("invalid whereClause: no conditions parsed")
+	}
+	return true, nil
+}
+
+// whereValue reads the right side of a whereClause condition.
+func whereValue(rhs string, clause clauseResolver) any {
+	switch {
+	case strings.HasPrefix(rhs, "{{") && strings.HasSuffix(rhs, "}}") && strings.Count(rhs, "{{") == 1:
+		// Single token template: preserve original type and handle nil correctly for SQL
+		//
+		// Read through clause.value, so the same paths queryTemplate
+		// answers work here: after./before., the virtual fields, meta.,
+		// and a column holding JSON text. bindingDigest renders this
+		// clause through the same resolver, which is what keeps the
+		// cache key describing the query that actually runs.
+		token := strings.TrimSpace(rhs[2 : len(rhs)-2])
+		return clause.value(strings.TrimPrefix(token, "."))
+	case strings.Contains(rhs, "{{"):
+		// Evaluate template into a value string and trim any surrounding quotes
+		s := clause.render(rhs)
+		switch {
+		case len(s) >= 2 && strings.HasPrefix(s, "'") && strings.HasSuffix(s, "'"):
+			s = strings.Trim(s, "'")
+		case len(s) >= 2 && strings.HasPrefix(s, "\"") && strings.HasSuffix(s, "\""):
+			s = strings.Trim(s, "\"")
+		}
+		return s
+	case strings.HasPrefix(rhs, "'") && strings.HasSuffix(rhs, "'"):
+		return strings.Trim(rhs, "'")
+	case strings.HasPrefix(rhs, "\"") && strings.HasSuffix(rhs, "\""):
+		return strings.Trim(rhs, "\"")
+	}
+	return rawWhereToken(rhs)
+}
+
+// rawWhereToken reads an unquoted value: null, a number, a bool, or the text.
+func rawWhereToken(rhs string) any {
+	if strings.EqualFold(rhs, "NULL") {
+		return nil
+	}
+	if i, err := strconv.ParseInt(rhs, 10, 64); err == nil {
+		return i
+	}
+	if f, err := strconv.ParseFloat(rhs, 64); err == nil {
+		return f
+	}
+	if b, err := strconv.ParseBool(rhs); err == nil {
+		return b
+	}
+	return rhs
 }

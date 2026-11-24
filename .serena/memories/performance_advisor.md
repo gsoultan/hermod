@@ -81,3 +81,8 @@ spent budget. Audit action `AI_EXPLAIN_INSIGHTS`.
 
 - History is not persisted: a server restart empties every window.
 - No `buf`/Playwright/govulncheck run locally for these PRs; CI covers them.
+
+## Lookup query plans
+
+The DB Lookup query-plan and index check lives in `internal/advisor/queryplan`; see the
+`lookup_query_plan_check` memory.

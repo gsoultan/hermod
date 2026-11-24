@@ -68,3 +68,54 @@ export function useInsights(workflowId: string, enabled: boolean) {
     refetchInterval: INSIGHTS_REFRESH_MS,
   })
 }
+
+export type LookupPlanSeverity = 'ok' | 'info' | 'warn'
+
+export interface LookupPlanFinding {
+  rule: string
+  severity: LookupPlanSeverity
+  /** The table it is about, as schema.name. */
+  table?: string
+  title: string
+  detail: string
+  /** SQL for a person to review and run. Hermod never runs it. */
+  proposal?: string
+}
+
+export interface LookupPlanIndex {
+  name: string
+  method: string
+  keys: string[]
+  unique?: boolean
+  definition?: string
+}
+
+export interface LookupPlanTable {
+  schema: string
+  name: string
+  /** The catalog's estimate; -1 when the table was never analyzed. */
+  rows: number
+  indexes: LookupPlanIndex[]
+}
+
+export interface LookupPlanNode {
+  node_id: string
+  label?: string
+  source?: string
+  /** The statement planned, with $n where message values go. */
+  sql?: string
+  scans: unknown[] | null
+  tables: LookupPlanTable[] | null
+  findings: LookupPlanFinding[] | null
+  /** Why the node could not be checked. */
+  error?: string
+}
+
+/**
+ * Plans each DB Lookup step's query on its source and reads it against the
+ * tables' indexes. The server only plans, in a read-only transaction: nothing
+ * runs and nothing changes. It connects to the flow's sources, so it takes an editor.
+ */
+export function checkLookupPlans(workflowId: string): Promise<{ nodes: LookupPlanNode[] }> {
+  return requestJson<{ nodes: LookupPlanNode[] }>(`/api/workflows/${encodeURIComponent(workflowId)}/insights/lookup-plans`, { method: 'POST' })
+}

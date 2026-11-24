@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/gsoultan/hermod/internal/advisor"
+	"github.com/gsoultan/hermod/internal/advisor/queryplan"
 	"github.com/gsoultan/hermod/internal/api/handlers"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/llm"
@@ -37,6 +38,8 @@ type InsightsHandler struct {
 	// and the explainer the environment configures.
 	report    func(ctx context.Context, id string) advisor.Report
 	explainer func() *advisor.Explainer
+	// lookupChecks is set by tests; nil checks against the registry's sources.
+	lookupChecks func(ctx context.Context, wf storage.Workflow) []queryplan.NodeCheck
 
 	envOnce      sync.Once
 	envExplainer *advisor.Explainer
@@ -51,10 +54,12 @@ func NewInsightsHandler(h *handlers.Handler) *InsightsHandler {
 
 // RegisterInsightsRoutes registers the endpoints. Reading the report changes
 // nothing, so access to the workflow's vhost is enough. An explanation
-// spends the vhost's AI budget, so it takes an editor.
+// spends the vhost's AI budget, and a lookup plan check connects to the
+// flow's source databases, so both take an editor.
 func (h *InsightsHandler) RegisterInsightsRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/workflows/{id}/insights", h.GetInsights)
 	mux.Handle("POST /api/workflows/{id}/insights/explain", h.EditorOnly(h.Explain))
+	mux.Handle("POST /api/workflows/{id}/insights/lookup-plans", h.EditorOnly(h.LookupPlans))
 }
 
 // ai returns the explainer, or nil when AI explanations are off.
@@ -157,4 +162,35 @@ func (h *InsightsHandler) Explain(w http.ResponseWriter, r *http.Request) {
 	})
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(got)
+}
+
+// lookupPlansView is the answer to a lookup plan check.
+type lookupPlansView struct {
+	Nodes []queryplan.NodeCheck `json:"nodes"`
+}
+
+// LookupPlans answers POST /api/workflows/{id}/insights/lookup-plans: each DB
+// Lookup node's query planned on its source, read against the indexes of the
+// tables it touches, with the indexes that would serve it better. Nothing is
+// run or changed: the query is only planned, in a read-only transaction, and
+// the proposed SQL is for a person to review and run.
+func (h *InsightsHandler) LookupPlans(w http.ResponseWriter, r *http.Request) {
+	wf, ok := h.workflow(w, r)
+	if !ok {
+		return
+	}
+	var nodes []queryplan.NodeCheck
+	if h.lookupChecks != nil {
+		nodes = h.lookupChecks(r.Context(), wf)
+	} else {
+		nodes = queryplan.CheckLookups(r.Context(), wf, h.Registry)
+	}
+	if nodes == nil {
+		nodes = []queryplan.NodeCheck{}
+	}
+	h.RecordAuditLog(r, "INFO", "Checked a flow's lookup query plans", "LOOKUP_PLAN_CHECK", wf.ID, "", "", map[string]any{
+		"nodes": len(nodes),
+	})
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(lookupPlansView{Nodes: nodes})
 }

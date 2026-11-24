@@ -49,6 +49,7 @@ import { RunWithInputModal } from './executions/RunWithInputModal';
 import { ProposalsPanel } from './proposals/ProposalsPanel';
 import { TuningMetrics } from './tuning/TuningMetrics';
 import { Recommendations } from './tuning/Recommendations';
+import { LookupPlans } from './tuning/LookupPlans';
 import { useInsights } from '@/lib/insights';
 import { ReleaseDialog } from '../environments/ReleaseDialog';
 import { useInstance } from '@/lib/environments';
@@ -777,6 +778,12 @@ export function WorkflowDetailPage() {
                     <Title order={4} mb="xs">Recommendations</Title>
                     <Text size="sm" c="dimmed" mb="md">What Hermod would change to make this flow faster or steadier, read from its recent readings. Nothing changes on its own.</Text>
                     <Recommendations workflowId={id} canApply={canEdit} report={insights.data} isLoading={insights.isLoading} error={insights.error as Error | null} />
+                  </Box>
+                  <Divider />
+                  <Box>
+                    <Title order={4} mb="xs">Lookup queries and indexes</Title>
+                    <Text size="sm" c="dimmed" mb="md">Hermod plans each DB Lookup step&apos;s query on its source, without running it, and says which index it uses, of what type, and which would serve it better. Nothing changes on its own.</Text>
+                    <LookupPlans workflowId={id} canCheck={canEdit} />
                   </Box>
                   <Divider />
                   {/* Proposals and Optimization were two tabs; both are Hermod suggesting how the flow could run better, so they are one. */}
