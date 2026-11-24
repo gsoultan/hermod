@@ -49,13 +49,30 @@ func TestLdflagsPathMatchesModulePath(t *testing.T) {
 			continue
 		}
 		for _, m := range matches {
-			if got := m[1]; got != want {
+			got := m[1]
+			if file, ok := mainPackageStamps[got]; ok {
+				// A main package's -X path is "main", not its import path.
+				// It still resolves only if the variable is declared there.
+				src, err := os.ReadFile(filepath.Join(root, file))
+				if err != nil || !regexp.MustCompile(`(?m)^var version\s`).Match(src) {
+					t.Errorf("%s: -X targets %q, but %s declares no var version", name, got, file)
+				}
+				continue
+			}
+			if got != want {
 				t.Errorf("%s: -X targets %q, but the module path in go.mod makes it %q.\n"+
 					"The linker ignores an -X it cannot resolve, so this build would "+
 					"succeed and ship a binary reporting the default version.", name, got, want)
 			}
 		}
 	}
+}
+
+// mainPackageStamps are -X targets in a separate program's main package, with
+// the file that must declare the variable. hermod-agent shares no package with
+// the server, internal/version included, so it carries its own.
+var mainPackageStamps = map[string]string{
+	"main.version": "cmd/hermod-agent/main.go",
 }
 
 func modulePathFrom(t *testing.T, gomod string) string {

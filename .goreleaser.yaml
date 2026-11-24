@@ -52,8 +52,59 @@ builds:
     ldflags:
       - -s -w -X "github.com/gsoultan/hermod/internal/version.Version={{.Tag}} (Enterprise Edition)"
 
+  # hermod-agent runs next to the hardware, on whatever that machine is:
+  # Windows, Linux and macOS workstations, edge servers and the Raspberry Pi.
+  # Every target here is built in CI as well (the "hermod-agent platforms"
+  # job), so none of them can break unnoticed between releases. NetBSD is
+  # left out because the serial library does not build there.
+  #
+  # CGO_ENABLED=0 keeps each binary self-contained. On macOS that costs only
+  # the USB vendor and product IDs in the port list; ports are still found
+  # and read.
+  - id: hermod-agent
+    main: ./cmd/hermod-agent
+    binary: hermod-agent
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+      - freebsd
+      - openbsd
+    goarch:
+      - amd64
+      - arm64
+      - arm
+      - "386"
+      - riscv64
+    goarm:
+      - "6"
+      - "7"
+    ignore:
+      - goos: windows
+        goarch: arm
+      - goos: windows
+        goarch: riscv64
+      - goos: darwin
+        goarch: "386"
+      - goos: darwin
+        goarch: arm
+      - goos: darwin
+        goarch: riscv64
+      - goos: openbsd
+        goarch: riscv64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Tag}}
+
 archives:
-  - formats:
+  - ids:
+      - hermod
+      - hermod-edge
+      - hermodctl
+    formats:
       - tar.gz
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
@@ -61,8 +112,26 @@ archives:
       - README.md
       - docs/*.md
 
+  - id: hermod-agent
+    ids:
+      - hermod-agent
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "hermod-agent_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
+    files:
+      - LICENSE
+      - docs/hermod-agent.md
+
 nfpms:
-  - file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  - ids:
+      - hermod
+      - hermod-edge
+      - hermodctl
+    file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     homepage: https://github.com/gsoultan/hermod
     maintainer: Hermod Team <support@hermod.io>
     description: Enterprise-Grade Data Integration & Streaming Platform
