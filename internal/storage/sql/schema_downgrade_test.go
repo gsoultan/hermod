@@ -40,7 +40,17 @@ import (
 // is computed from the DDL itself, so changing the schema fails this test and
 // forces the question to be asked out loud.
 //
-// Last moved by: adding the ml_blobs table, the built-in ML engine's datasets
+// Last moved by: adding the agents table, the hermod-agent installations that
+// read serial and network devices for a vhost. currentSchemaVersion was left
+// alone deliberately, as for ai_budgets below: it is a standalone table no
+// earlier code path reads or writes, and nothing existing changed shape. A
+// rollback costs the feature: the previous release has no agent service, so
+// agents cannot connect and keep what they read in their own spools until the
+// newer binary returns. Its DeleteVHost leaves a deleted vhost's agents for a
+// later vhost of the same name; a row holds a token hash, never a token, and
+// the agents it names can be deleted from the newer binary.
+//
+// The note before that: adding the ml_blobs table, the built-in ML engine's datasets
 // and model versions, chunked. currentSchemaVersion was left alone
 // deliberately, for the reasons the ml_scripts note below gives: it is a
 // standalone table no earlier code path reads or writes, and nothing existing
@@ -245,7 +255,7 @@ import (
 // a misread. The same change added workflows.dead_letter_key_fields, which an
 // older binary neither selects nor writes: its UPDATE leaves the column as it
 // was, so a rollback keeps the setting for when the newer binary returns.
-const knownSchemaFingerprint = "5c3479b4161ded325e5f45645f0e37260836bf68b68c1cd705ce372be527c7c5"
+const knownSchemaFingerprint = "226651e40a2af19f9cf9aeb36a5b12ae9a20eefd2a0b9a60043a3ddab2b74aec"
 
 func TestSchemaVersionIsReconsideredWhenTheSchemaChanges(t *testing.T) {
 	if got := SchemaFingerprint(); got != knownSchemaFingerprint {

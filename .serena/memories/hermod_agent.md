@@ -28,7 +28,9 @@ phases; the design doc is the Claude Doc "Hermod Device Agent: design".
   macOS, so `ports_plain.go` lists names only there; Linux and Windows are full.
 - `uplink` — resends from the last acked seq after any reconnect; Welcome's
   acked_seq acknowledges what the server already has; Window (4096) caps
-  unacknowledged records in flight. Plaintext only to loopback.
+  unacknowledged records in flight; MaxBatchBytes (1 MiB) caps a batch's
+  payload, because Hermod refuses gRPC messages over 4 MiB. Framing refuses
+  a record limit over 1 MiB. Plaintext only to loopback.
 - `agent` — wires it; caches server settings to `settings.pb` so devices keep
   reading while the server is down. Batches spool writes (256 or 20 ms).
 
@@ -62,8 +64,38 @@ phases; the design doc is the Claude Doc "Hermod Device Agent: design".
 - Decoding (fields from raw bytes) belongs on the server side, so a fix does
   not need an agent upgrade; the agent ships raw frames.
 
+## Hermod side
+
+- `internal/storage/agents.go` — `Agent` (vhost, name, token hash, claimed
+  `Devices` settings, reported `Status`), `ValidateAgentDevices` (mirrors what
+  the agent refuses), tokens `hag_<agent id>_<32 random bytes b64url>` stored
+  as SHA-256 hex, `AgentStore` (optional, type-asserted). SQL table `agents`
+  (devices/status JSON columns; in vhost rename + delete), Mongo collection
+  `agents`. `ErrAgentsUnsupported`.
+- `internal/agenthub` — `Hub` implements `AgentService.Connect`; `Default` is
+  the process hub, registered on the gRPC server in `internal/api/server.go`
+  with the current store. Per-agent `ledger` (survives reconnects): acks are
+  cumulative, so the ack moves only when every subscription waiting on a
+  record has called `Done`. Resends (seq <= highest accepted) are skipped;
+  Hello.last_seq below highest = wiped spool -> ledger reset. A
+  `Subscription` closed while holding records resets the ledger and ends the
+  stream (codes.Aborted) so the agent resends. Records with no subscriber are
+  acked and counted (`Live().Unrouted`). Subscriptions match on vhost
+  ("" = "default") and device ids.
+- `internal/agenthub/transport/http` — `/api/vhosts/{vhost}/agents` (GET,
+  POST -> token once), `/api/agents/{id}` (GET, PUT name+devices -> pushes
+  settings, DELETE), `/api/agents/{id}/token` (POST, revokes + disconnects).
+  Audited with entity type `agent`.
+- `pkg/comm/source/agent` — Agent source (`type: agent`, config `agent_id`,
+  `devices`, `format` text|json|hex|base64). Subscribes on first Read; Ack
+  reads `agent_seq` metadata. Message id `<agent>:<seq>`, table = device name.
+- Limitation: agent and its workflows must be in the same process; the gRPC
+  port is plaintext, so production needs a TLS terminator in front.
+- `cmd/hermod-agent/internal/agent/hermod_e2e_test.go` runs the real agent
+  against the real hub, SQL store and source.
+
 ## Not built yet
 
-Server side (agent service, Agent source with real acks, storage), UI (Agents
-tab in Settings, agent page, claim device with Listen), commands to devices
-(Agent device sink, phase 2), packages and service units.
+UI (Agents tab in Settings, agent page, claim device with Listen, Agent
+source form), Listen (live frames), commands to devices (Agent device sink,
+phase 2), packages and service units, `pkg/agent/proto` in CI buf breaking.

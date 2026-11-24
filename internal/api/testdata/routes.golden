@@ -9,6 +9,7 @@
 /debug/pprof/symbol
 /debug/pprof/trace
 /metrics
+DELETE /api/agents/{id}
 DELETE /api/environments/links/{id}
 DELETE /api/environments/peer/self
 DELETE /api/environments/peers/{id}
@@ -30,6 +31,7 @@ DELETE /api/vhosts/{vhost}/secrets/{name}
 DELETE /api/workers/{id}
 DELETE /api/workflows/{id}
 DELETE /api/workspaces/{id}
+GET /api/agents/{id}
 GET /api/approvals
 GET /api/approvals/{id}
 GET /api/auth/callback
@@ -91,6 +93,7 @@ GET /api/version
 GET /api/vhosts
 GET /api/vhosts/
 GET /api/vhosts/{id}
+GET /api/vhosts/{vhost}/agents
 GET /api/vhosts/{vhost}/ai/budget
 GET /api/vhosts/{vhost}/lineage
 GET /api/vhosts/{vhost}/lineage/impact
@@ -154,6 +157,7 @@ GET /streams/sse
 PATCH /api/environments/peers/{id}
 PATCH /api/workflows/{id}/stats
 PATCH /api/workflows/{id}/status
+POST /api/agents/{id}/token
 POST /api/ai/analyze-error
 POST /api/ai/analyze-schema
 POST /api/ai/analyze-workflow/{id}
@@ -255,6 +259,7 @@ POST /api/users
 POST /api/utils/token
 POST /api/vhosts
 POST /api/vhosts/
+POST /api/vhosts/{vhost}/agents
 POST /api/vhosts/{vhost}/ml/datasets/{name}/mimir
 POST /api/vhosts/{vhost}/ml/datasets/{name}/query
 POST /api/vhosts/{vhost}/ml/jobs/{id}/cancel
@@ -298,6 +303,7 @@ POST /api/workflows/{id}/run
 POST /api/workflows/{id}/test
 POST /api/workflows/{id}/toggle
 POST /api/workspaces
+PUT /api/agents/{id}
 PUT /api/config/crypto
 PUT /api/config/observability
 PUT /api/config/secrets

@@ -44,6 +44,7 @@ Hermod is built for mission-critical enterprise data workloads, providing robust
 - **SSO & OpenID Connect (OIDC)**: Support for centralized identity providers like **Okta**, **Auth0**, and **Azure AD** for platform-wide authentication and RBAC.
 - **AI automation**: Prompt, extract, classify, embed and retrieve with Claude, ChatGPT, Gemini, DeepSeek, Ollama or any OpenAI-compatible model; an **AI Agent** node whose writes wait for human approval; an **MCP server** so Claude and other MCP clients can run Hermod workflows; run history with replay. See [AI automation](docs/ai-automation.md).
 - **Data lineage & impact**: One graph of the tables, topics, files, endpoints and ML models each vhost's workflows read and write, built from their saved configuration. Pick a source to see every workflow and asset downstream of it — what breaks if it changes. Scoped to the vhosts you may see. See [Data lineage](docs/lineage.md).
+- **hermod-agent for devices**: A small separate program for a Raspberry Pi, an industrial PC or a Windows PC that reads serial devices (RS-232, USB-serial, ESP32 and Arduino boards) and devices on the LAN, keeps every reading on its own disk, and deletes it only after the workflows reading it in Hermod have finished with it. Agents are added per vhost with a revocable token, and a workflow reads them with the **Agent** source. See [hermod-agent](docs/hermod-agent.md).
 - **Vector Database Sinks**: Built-in support for **Pinecone**, **Milvus**, and **pgvector** to power enterprise AI knowledge bases and RAG pipelines.
 - **Hermod CLI (`hermodctl`)**: A powerful terminal-based tool for workflow linting, secret management, and real-time remote monitoring.
 - **Global Schema Registry**: Enforce data contracts with built-in JSON Schema, Avro, and Protobuf support. Automatically tracks schema versions and ensures backward compatibility.
@@ -160,6 +161,7 @@ The README is the overview. Each topic has its own page under [`docs/`](docs/):
 - [AI automation](docs/ai-automation.md): The language-model nodes, the agent, retrieval, the MCP server and the workflow builder.
 - [Machine learning](docs/ml.md): Training models on your data, connecting models served by mimir-server, KServe, Triton, MLServer or MLflow, and calling them from workflows, REST and gRPC.
 - [Expression functions](docs/expression-functions.md): The functions you can call in expressions, conditions and templates.
+- [hermod-agent](docs/hermod-agent.md): The agent that reads serial and LAN devices next to the hardware, adding agents and claiming devices, and the Agent source.
 - [Structural nodes](docs/structural-nodes.md): Nodes that reshape a record, parse text inside it, enrich it from a file, or do geometry on it.
 
 Also at the top level: [BENCHMARKS.md](BENCHMARKS.md), [RUNBOOK.md](RUNBOOK.md),

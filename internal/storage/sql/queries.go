@@ -48,6 +48,7 @@ const (
 	QueryInitMLJobResultsTable       = "InitMLJobResultsTable"
 	QueryInitAIBudgetsTable          = "InitAIBudgetsTable"
 	QueryInitAIUsageTable            = "InitAIUsageTable"
+	QueryInitAgentsTable             = "InitAgentsTable"
 	QueryInitDeadLettersTable        = "InitDeadLettersTable"
 	QueryInitWorkersTable            = "InitWorkersTable"
 	QueryInitLogsTable               = "InitLogsTable"
@@ -155,6 +156,15 @@ const (
 	QueryInsertAIBudget          = "InsertAIBudget"
 	QueryUpdateAIBudget          = "UpdateAIBudget"
 	QueryDeleteAIBudget          = "DeleteAIBudget"
+	QueryInsertAgent             = "InsertAgent"
+	QueryGetAgent                = "GetAgent"
+	QueryListAgents              = "ListAgents"
+	QueryListAllAgents           = "ListAllAgents"
+	QueryUpdateAgentDevices      = "UpdateAgentDevices"
+	QueryUpdateAgentStatus       = "UpdateAgentStatus"
+	QueryUpdateAgentToken        = "UpdateAgentToken"
+	QueryDeleteAgent             = "DeleteAgent"
+	QueryDeleteAgentsOfVHost     = "DeleteAgentsOfVHost"
 	QueryAddAIUsage              = "AddAIUsage"
 	QueryInsertAIUsage           = "InsertAIUsage"
 	QueryGetAIUsage              = "GetAIUsage"
@@ -560,6 +570,21 @@ var commonQueries = map[string]string{
 			vhost TEXT PRIMARY KEY,
 			spec TEXT,
 			updated_by TEXT,
+			updated_at TIMESTAMP
+		)`,
+	// One row per hermod-agent installation. devices (the claimed devices'
+	// settings) and status (what the agent last reported) are JSON, as
+	// ai_budgets keeps a budget, so a new setting is not a schema change.
+	// token_hash is the SHA-256 of the agent's token; the token is never kept.
+	QueryInitAgentsTable: `CREATE TABLE IF NOT EXISTS agents (
+			id TEXT PRIMARY KEY,
+			vhost TEXT,
+			name TEXT,
+			token_hash TEXT,
+			devices TEXT,
+			status TEXT,
+			created_by TEXT,
+			created_at TIMESTAMP,
 			updated_at TIMESTAMP
 		)`,
 	// One row per vhost, month and workflow; workflow_id is empty for the
@@ -1000,6 +1025,15 @@ var commonQueries = map[string]string{
 	QueryInsertAIBudget:          "INSERT INTO ai_budgets (vhost, spec, updated_by, updated_at) VALUES (?, ?, ?, ?)",
 	QueryUpdateAIBudget:          "UPDATE ai_budgets SET spec = ?, updated_by = ?, updated_at = ? WHERE vhost = ?",
 	QueryDeleteAIBudget:          "DELETE FROM ai_budgets WHERE vhost = ?",
+	QueryInsertAgent:             "INSERT INTO agents (id, vhost, name, token_hash, devices, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryGetAgent:                "SELECT id, vhost, name, token_hash, devices, status, created_by, created_at, updated_at FROM agents WHERE id = ?",
+	QueryListAgents:              "SELECT id, vhost, name, token_hash, devices, status, created_by, created_at, updated_at FROM agents WHERE vhost = ? ORDER BY name, id",
+	QueryListAllAgents:           "SELECT id, vhost, name, token_hash, devices, status, created_by, created_at, updated_at FROM agents ORDER BY vhost, name, id",
+	QueryUpdateAgentDevices:      "UPDATE agents SET name = ?, devices = ?, updated_at = ? WHERE id = ?",
+	QueryUpdateAgentStatus:       "UPDATE agents SET status = ? WHERE id = ?",
+	QueryUpdateAgentToken:        "UPDATE agents SET token_hash = ?, updated_at = ? WHERE id = ?",
+	QueryDeleteAgent:             "DELETE FROM agents WHERE id = ?",
+	QueryDeleteAgentsOfVHost:     "DELETE FROM agents WHERE vhost = ?",
 	QueryAddAIUsage:              "UPDATE ai_usage SET calls = calls + 1, input_tokens = input_tokens + ?, output_tokens = output_tokens + ?, cost_micros = cost_micros + ?, updated_at = ? WHERE id = ?",
 	QueryInsertAIUsage:           "INSERT INTO ai_usage (id, vhost, period, workflow_id, calls, input_tokens, output_tokens, cost_micros, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)",
 	QueryGetAIUsage:              "SELECT calls, input_tokens, output_tokens, cost_micros, tokens_warned_at, cost_warned_at, updated_at FROM ai_usage WHERE id = ?",

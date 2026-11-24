@@ -26,6 +26,7 @@ import (
 	"github.com/gsoultan/gsmail"
 	gsmailSmtp "github.com/gsoultan/gsmail/smtp"
 	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/agenthub"
 	"github.com/gsoultan/hermod/internal/config"
 	"github.com/gsoultan/hermod/pkg/comm/eventstore"
 	jsonfmt "github.com/gsoultan/hermod/pkg/comm/formatter/json"
@@ -79,6 +80,7 @@ import (
 	"github.com/gsoultan/hermod/pkg/comm/sink/twitter"
 	sinkws "github.com/gsoultan/hermod/pkg/comm/sink/websocket"
 	"github.com/gsoultan/hermod/pkg/comm/source"
+	agentsource "github.com/gsoultan/hermod/pkg/comm/source/agent"
 	sourcecassandra "github.com/gsoultan/hermod/pkg/comm/source/cassandra"
 	sourceclickhouse "github.com/gsoultan/hermod/pkg/comm/source/clickhouse"
 	"github.com/gsoultan/hermod/pkg/comm/source/cron"
@@ -496,6 +498,13 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 		src = sourcegraphql.NewGraphQLSource(cfg.Config["path"])
 	case "grpc":
 		src = grpcsource.NewGrpcSource(cfg.Config["path"])
+	case "agent":
+		// The devices of a hermod-agent connected to this process
+		// (internal/agenthub).
+		src, err = agentsource.New(agenthub.Default, agentsource.Config{
+			AgentID: cfg.Config["agent_id"], Devices: agentsource.ParseDevices(cfg.Config["devices"]),
+			Format: cfg.Config["format"], VHost: cfg.VHost,
+		})
 	case "form":
 		src = sourceform.NewFormSource(cfg.Config["path"], nil) // Storage will be injected by Registry
 	case "cron":
