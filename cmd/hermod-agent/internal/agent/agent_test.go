@@ -285,7 +285,9 @@ func TestDatagramsFromAUDPDeviceReachTheServer(t *testing.T) {
 	}}}}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
-	go func() { done <- Run(ctx, options(t.TempDir(), serve(t, srv))) }()
+	// Made here, not in the goroutine, so their cleanups run after the agent stops.
+	opt := options(t.TempDir(), serve(t, srv))
+	go func() { done <- Run(ctx, opt) }()
 	t.Cleanup(func() { cancel(); <-done })
 
 	var d net.Dialer
