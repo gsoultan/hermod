@@ -40,7 +40,7 @@ func TestClientIP(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := httptest.NewRequest("POST", "/api/login", nil)
+			r := httptest.NewRequestWithContext(t.Context(), "POST", "/api/login", nil)
 			r.RemoteAddr = tt.remote
 			if tt.xff != "" {
 				r.Header.Set("X-Forwarded-For", tt.xff)

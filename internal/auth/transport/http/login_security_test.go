@@ -170,7 +170,7 @@ func TestAdminPasswordResetLiftsLoginLockout(t *testing.T) {
 
 	login := func(password string) int {
 		body := strings.NewReader(`{"username":"alice","password":"` + password + `"}`)
-		req := httptest.NewRequest(http.MethodPost, "/api/login", body)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/login", body)
 		req.RemoteAddr = "203.0.113.77:5555"
 		w := httptest.NewRecorder()
 		h.Login(w, req)
@@ -185,7 +185,7 @@ func TestAdminPasswordResetLiftsLoginLockout(t *testing.T) {
 	}
 
 	admin := &storage.User{ID: "admin", Username: "root", Role: storage.RoleAdministrator}
-	req := httptest.NewRequest(http.MethodPut, "/api/users/u1/password", strings.NewReader(`{"password":"new-password"}`))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/api/users/u1/password", strings.NewReader(`{"password":"new-password"}`))
 	req.SetPathValue("id", "u1")
 	req = req.WithContext(context.WithValue(req.Context(), handlers.UserContextKey, admin))
 	w := httptest.NewRecorder()
@@ -207,7 +207,7 @@ func TestLoginLockoutIgnoresForgedForwardedFor(t *testing.T) {
 	h := &AuthHandler{Handler: &handlers.Handler{Storage: store, LogStorage: store}}
 
 	for i := range handlers.MaxLoginAttempts + 1 {
-		req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"username":"alice","password":"wrong"}`))
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/login", strings.NewReader(`{"username":"alice","password":"wrong"}`))
 		req.RemoteAddr = "203.0.113.77:5555"
 		req.Header.Set("X-Forwarded-For", "198.51.100."+strconv.Itoa(i+1))
 		w := httptest.NewRecorder()
