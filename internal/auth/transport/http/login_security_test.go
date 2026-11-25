@@ -15,11 +15,13 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/gsoultan/hermod/internal/api/handlers"
 	"github.com/gsoultan/hermod/internal/storage"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // lockoutMockStorage always reports the user as not found and accepts audit logs.
@@ -151,5 +153,67 @@ func TestSanitizeDBError(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// An admin who resets a locked-out user's password must also lift the lockout;
+// otherwise the user still has to wait out the full lockout with the new
+// password in hand, and the only other way back in is restarting the server.
+func TestAdminPasswordResetLiftsLoginLockout(t *testing.T) {
+	withDBConfig(t)
+	t.Setenv("HERMOD_JWT_SECRET", "testsecret")
+
+	hash, _ := bcrypt.GenerateFromPassword([]byte("old-password"), bcrypt.MinCost)
+	ms := newTwoFAMockStorage()
+	ms.upsert(storage.User{ID: "u1", Username: "alice", Password: string(hash), Role: storage.RoleEditor})
+	h := &AuthHandler{Handler: &handlers.Handler{Storage: ms, LogStorage: ms}}
+
+	login := func(password string) int {
+		body := strings.NewReader(`{"username":"alice","password":"` + password + `"}`)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/login", body)
+		req.RemoteAddr = "203.0.113.77:5555"
+		w := httptest.NewRecorder()
+		h.Login(w, req)
+		return w.Code
+	}
+
+	for range handlers.MaxLoginAttempts {
+		login("wrong")
+	}
+	if code := login("old-password"); code != http.StatusTooManyRequests {
+		t.Fatalf("precondition: expected lockout, got %d", code)
+	}
+
+	admin := &storage.User{ID: "admin", Username: "root", Role: storage.RoleAdministrator}
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/api/users/u1/password", strings.NewReader(`{"password":"new-password"}`))
+	req.SetPathValue("id", "u1")
+	req = req.WithContext(context.WithValue(req.Context(), handlers.UserContextKey, admin))
+	w := httptest.NewRecorder()
+	h.ChangeUserPassword(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("password change: got %d: %s", w.Code, w.Body.String())
+	}
+
+	if code := login("new-password"); code != http.StatusOK {
+		t.Fatalf("login with the new password after an admin reset: got %d, want %d", code, http.StatusOK)
+	}
+}
+
+// A request straight from the internet must not pick its own lockout key by
+// sending X-Forwarded-For; otherwise the limit is bypassed by changing the
+// header on every attempt.
+func TestLoginLockoutIgnoresForgedForwardedFor(t *testing.T) {
+	store := &lockoutMockStorage{}
+	h := &AuthHandler{Handler: &handlers.Handler{Storage: store, LogStorage: store}}
+
+	for i := range handlers.MaxLoginAttempts + 1 {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/login", strings.NewReader(`{"username":"alice","password":"wrong"}`))
+		req.RemoteAddr = "203.0.113.77:5555"
+		req.Header.Set("X-Forwarded-For", "198.51.100."+strconv.Itoa(i+1))
+		w := httptest.NewRecorder()
+		h.Login(w, req)
+		if i == handlers.MaxLoginAttempts && w.Code != http.StatusTooManyRequests {
+			t.Fatalf("attempt %d with a fresh forged X-Forwarded-For: got %d, want %d", i+1, w.Code, http.StatusTooManyRequests)
+		}
 	}
 }

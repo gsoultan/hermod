@@ -11,32 +11,17 @@
 package http
 
 import (
-	"net"
 	"net/http"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/gsoultan/hermod/internal/api/handlers"
 )
 
-// clientIP extracts the best-effort client IP from the request, honoring the
-// X-Forwarded-For header when present (e.g. behind a reverse proxy).
-func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		return strings.TrimSpace(strings.Split(xff, ",")[0])
-	}
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil || ip == "" {
-		return r.RemoteAddr
-	}
-	return ip
-}
-
 // loginAttemptKey builds a stable key combining the username and client IP so
 // that lockouts are scoped per account and origin.
 func loginAttemptKey(username string, r *http.Request) string {
-	return strings.ToLower(strings.TrimSpace(username)) + "|" + clientIP(r)
+	return handlers.LoginAttemptUser(username) + "|" + handlers.ClientIP(r)
 }
 
 // CheckLoginLockout reports whether the given key is currently locked out and,

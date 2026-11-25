@@ -7,6 +7,16 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — an admin password reset now lifts a login lockout, and a forged X-Forwarded-For no longer bypasses it
+
+After 5 failed logins a username is locked out for 15 minutes on that client IP. Setting a new
+password for the user under **Users** now clears that lockout on every IP (audited), so the user
+can sign in with the new password at once instead of waiting or restarting the server. The client
+IP used for the lockout and the form rate limit now honours `X-Forwarded-For` only when the
+connection comes from a loopback or private address, and takes the rightmost public hop. Before,
+the first value was trusted from anyone, so a client could send a new header on every attempt and
+never be locked out.
+
 ### Added — hermod-agent sends commands, reads UDP, Modbus and USB HID, finds LAN devices and updates itself
 
 A workflow can send a device a command with the new **Agent device sink** (`type: agent`). Only

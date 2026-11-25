@@ -705,6 +705,13 @@ func (h *AuthHandler) ChangeUserPassword(w http.ResponseWriter, r *http.Request)
 	// for.
 	h.revokeSessionsOf(r, id, "update", "Password changed for "+user.Username)
 
+	// A new password is how an administrator lets a locked-out user back in, so
+	// it lifts the lockout too. Without this the user waits out the full
+	// lockout with the new password in hand, or the server has to be restarted.
+	if n := h.ClearLoginLockout(user.Username); n > 0 {
+		h.RecordAuditLog(r, "INFO", "Login lockout cleared for "+user.Username+" after password change", "update", id, "user", "", nil)
+	}
+
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "password updated"})
 }
