@@ -19,9 +19,11 @@ Audit logs are stored in the primary database (SQL or MongoDB) and can be viewed
 Hermod hardens the login flow to defend against brute-force attacks and information disclosure:
 
 - **Login Lockout**: After **5 consecutive failed login attempts** for a given username/IP combination, that combination is temporarily locked out for **15 minutes**. Locked requests receive an HTTP `429 Too Many Requests` response with a `Retry-After` header, and the event is recorded in the audit log. A successful login immediately clears the failure counter, and stale counters reset automatically after 15 minutes of inactivity.
+- **Getting a locked-out user back in**: the counters live in the server's memory only, so they clear when the lockout expires, when Hermod restarts, or when an administrator sets a new password for the user under **Users** (this lifts the lockout for that username on every IP and is recorded in the audit log).
+- **Client IP behind a proxy**: `X-Forwarded-For` is honoured only when the direct connection comes from a loopback or private address (a reverse proxy in front of Hermod). Hermod then takes the rightmost public address in the header, since anything to its left was supplied by the client. A client reaching Hermod directly cannot choose its own lockout key by sending the header.
 - **Sanitized Database Errors**: When Hermod cannot connect to its database, error messages returned to API/UI clients are sanitized to strip database host/IP addresses and ports (e.g. `dial tcp 10.0.0.5:5432: connection refused`). This prevents leaking internal infrastructure details during setup, connectivity tests, and login. Internal database errors during login are surfaced only as a generic `internal server error`.
 
-These protections apply automatically and require no configuration. The relevant thresholds are defined as constants (`MaxLoginAttempts`, `LoginLockoutDuration`) in `internal/api/handlers/login_security.go`.
+These protections apply automatically and require no configuration. The relevant thresholds are defined as constants (`MaxLoginAttempts`, `LoginLockoutDuration`) in `internal/api/handlers/common.go`; the client IP rule is `ClientIP` in `internal/api/handlers/client_ip.go`.
 
 ### Two-Factor Authentication (2FA)
 

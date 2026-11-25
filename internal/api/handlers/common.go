@@ -949,14 +949,7 @@ func (h *Handler) IsRateLimited(r *http.Request, sourceID string, limit int) boo
 		return false
 	}
 
-	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
-	if ip == "" {
-		ip = r.RemoteAddr
-	}
-	// Use X-Forwarded-For if behind a proxy
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		ip = strings.Split(xff, ",")[0]
-	}
+	ip := ClientIP(r)
 
 	key := fmt.Sprintf("%s:%s:%s", sourceID, ip, time.Now().Format("2006-01-02:15"))
 
