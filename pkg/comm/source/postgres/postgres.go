@@ -70,12 +70,16 @@ func buildReplicationAppName(host, slotName string, pid int, sessionID string) s
 		host = "unknown"
 	}
 	// Format: hermod-cdc-<host>-<slot>-<pid>-<session>
-	// sessionID is typically a short UUID fragment to keep it under 63 chars.
-	name := fmt.Sprintf("%s%s-%s-%d-%s", replicationAppNamePrefix, host, slotName, pid, sessionID)
-	if len(name) > maxAppNameLen {
-		name = name[:maxAppNameLen]
+	// When that is too long, the host and slot are cut and the PID and session
+	// are kept: they are what tells two sources on one slot apart. Cutting them
+	// gave both the same name, each took the other's walsender for its own
+	// orphan, and they terminated each other's stream in a loop.
+	head := fmt.Sprintf("%s%s-%s", replicationAppNamePrefix, host, slotName)
+	tail := fmt.Sprintf("-%d-%s", pid, sessionID)
+	if len(head)+len(tail) > maxAppNameLen {
+		head = head[:max(0, maxAppNameLen-len(tail))]
 	}
-	return name
+	return head + tail
 }
 
 // hostnameOrUnknown returns the OS hostname, falling back to a constant when it
