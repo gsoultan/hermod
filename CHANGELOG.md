@@ -7,6 +7,15 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — a load test for many workflows on shared databases
+
+`internal/test/scale` measures what each running workflow costs while idle, and what happens to
+delivery when thousands of workflows share the same source and sink databases: success rate,
+delay percentiles, peak connections, goroutines and heap. It runs against a real PostgreSQL (or
+PgBouncer) when `HERMOD_SCALE_DSN` is set, and CI runs a small version of both. The first numbers
+are in BENCHMARKS.md: an idle workflow costs 139 goroutines, and on one worker the delay grows
+from 0.5 s at 1,000 workflows to 13 s at 3,000 while the database is far from its limit.
+
 ### Added — Telegram setup that finds the chat for you
 
 The Telegram sink and the Telegram alerts under **Settings → Connectivity** now set up in three

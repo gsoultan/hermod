@@ -412,6 +412,57 @@ refuses the batch if any later row disagrees.
 
 Snowflake is the one still writing row by row — see below.
 
+## Many workflows on shared sources and sinks
+
+`internal/test/scale` measures what the scaling plan is about: what one more workflow costs, and
+what happens to delivery when thousands of workflows share the same databases. Both tests skip under
+`-short`.
+
+```bash
+# No database needed: what an idle workflow costs.
+HERMOD_SCALE_IDLE_STEPS=1000,10000 go test -count=1 -run ScaleIdleFootprint -timeout 20m ./internal/test/scale/
+
+# Real PostgreSQL (or PgBouncer in front of it): success rate, delay and connections.
+HERMOD_SCALE_DSN='postgres://postgres@127.0.0.1:5432/postgres?sslmode=disable' \
+HERMOD_SCALE_STEPS=1000,3000 HERMOD_SCALE_DURATION=30s HERMOD_SCALE_DRAIN=60s \
+go test -count=1 -run ScaleSharedDatabase -timeout 25m ./internal/test/scale/
+```
+
+`HERMOD_SCALE_REPORT_DIR` saves each run as JSON for comparison.
+
+### Baseline, 2026-11-27
+
+4-vCPU Xeon 2.3 GHz, 15 GiB, PostgreSQL 16.15 on the same host, `max_connections=300`, no PgBouncer.
+
+**Idle workflows** (a source with nothing to read, one sink):
+
+| Workflows | Goroutines each | Heap each | Heap total |
+| ---: | ---: | ---: | ---: |
+| 10,000 | 139 | 172 KiB | 1.6 GiB |
+
+128 of the 139 goroutines are the message workers `runBufferToSink` starts for every engine whether
+or not a message ever arrives (`pkg/engine/runner.go`), each with its own keyed queue. At this
+cost a million idle workflows would need about 139 million goroutines and 165 GiB of heap on one
+worker, so this is the first thing the plan changes.
+
+**Shared database**: N workflows over 10 source tables and 10 sink tables of one database, each
+source table receiving 5 rows a second for 30 s, every second workflow running a DB Lookup, polling
+every 1 s:
+
+| Workflows | Delivered | Delay p50 | p95 | p99 | Peak connections | Goroutines | Heap |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1,000 | 100% of 150,000 | 0.5 s | 1.0 s | 1.0 s | 80 | 140,023 | 227 MiB |
+| 3,000 | 100% of 450,000 | 12.9 s | 22.4 s | 23.4 s | 100 | 612,453 | 1.1 GiB |
+
+Every row arrived, but between 1,000 and 3,000 workflows the delay grows 25-fold while the
+database is far from its connection limit (100 of 300). The four cores are what ran out: during the
+3,000 run Hermod used about 230% CPU and PostgreSQL 100-145%. In Hermod's CPU profile message
+processing is about 15% of the time; most of the rest is the runtime scheduling, allocating stacks
+and channels for, and collecting after, 200 goroutines a workflow. So at this size the cost of
+running each workflow is what limits delivery, ahead of the database. One worker process shares one
+pool per connection string, so the connection count here is one worker's; several workers each open
+their own, which is what the per-database budget addresses.
+
 ## Not yet measured
 
 Named explicitly so nothing here is mistaken for full coverage:
