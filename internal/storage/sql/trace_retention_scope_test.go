@@ -242,3 +242,41 @@ func TestPartitionFloorIsBlockedByAWorkflowThatKeepsEverything(t *testing.T) {
 
 var _ = fmt.Sprint
 var _ = context.Background
+
+// The orphan sweep reads the workflow list first and the trace tables later.
+// A workflow created in between is absent from the list but already writing
+// traces, and the sweep took it for a deleted one: it removed every step the
+// workflow had written so far, and only steps written after the delete
+// survived. Seen as a manual run whose trace held its sink step and lost its
+// source and transformation steps, on a registry whose first sweep started as
+// the workflow was saved.
+//
+// What the list cannot vouch for is anything written after it was read, so
+// only traces older than that are reclaimed. A workflow that really is gone
+// loses the rest on the next sweep.
+func TestPurgeMessageTracesSparesTracesWrittenAfterTheWorkflowListWasRead(t *testing.T) {
+	s, db := newTraceStorage(t)
+	listedAt := time.Now().UTC()
+
+	seedTrace(t, s, "wf_gone", "old", listedAt.Add(-time.Hour))
+	seedTrace(t, s, "wf_new", "m1", listedAt.Add(time.Second)) // created after the list
+
+	if err := s.PurgeMessageTraces(t.Context(), storage.TraceRetention{
+		Keep:           map[string]time.Time{},
+		Live:           map[string]struct{}{},
+		LiveIsComplete: true,
+		ListedAt:       listedAt,
+	}); err != nil {
+		t.Fatalf("PurgeMessageTraces: %v", err)
+	}
+
+	if got := stepCount(t, db, "wf_new"); got != 1 {
+		t.Errorf("a workflow created after the list was read lost its trace steps: %d left, want 1", got)
+	}
+	if got := parentCount(t, db, "wf_new"); got != 1 {
+		t.Errorf("a workflow created after the list was read lost its trace row: %d left, want 1", got)
+	}
+	if got := stepCount(t, db, "wf_gone"); got != 0 {
+		t.Errorf("a deleted workflow kept %d trace steps older than the list", got)
+	}
+}

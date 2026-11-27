@@ -636,6 +636,9 @@ func (r *Registry) purgeRetention() {
 	r.purgeMLPredictionLogs(ctx, store, logStore)
 	r.purgeDeadLetters(ctx, store)
 
+	// Taken before the read: a workflow created after this moment may be
+	// missing from the list, so its traces must not be swept as an orphan's.
+	listedAt := time.Now()
 	workflows, total, err := store.ListWorkflows(ctx, storage.CommonFilter{Limit: workflowPageForRetention})
 	if err != nil {
 		return
@@ -653,6 +656,7 @@ func (r *Registry) purgeRetention() {
 		// page must not have everything past the first page mistaken for
 		// deleted workflows and swept.
 		LiveIsComplete: len(workflows) == total,
+		ListedAt:       listedAt,
 	}
 	if !traces.LiveIsComplete {
 		r.logger.Warn("Registry: more workflows than one retention page, so traces of "+

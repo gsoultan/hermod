@@ -498,7 +498,7 @@ func (s *pebbleStorage) PurgeMessageTraces(ctx context.Context, retention storag
 		// Traces of a workflow that no longer exists are unreachable and
 		// nothing else reclaims them — but only act when the caller could
 		// see every workflow.
-		if retention.LiveIsComplete {
+		if retention.LiveIsComplete && writtenBefore(trace.CreatedAt, retention) {
 			if _, alive := retention.Live[trace.WorkflowID]; !alive {
 				if err := batch.Delete(iter.Key(), pebble.Sync); err != nil {
 					return err
@@ -507,6 +507,14 @@ func (s *pebbleStorage) PurgeMessageTraces(ctx context.Context, retention storag
 		}
 	}
 	return batch.Commit(pebble.Sync)
+}
+
+// writtenBefore reports whether a trace predates the sweep's workflow list,
+// so an absent workflow can be trusted to be a deleted one rather than one
+// created since.
+func writtenBefore(at time.Time, retention storage.TraceRetention) bool {
+	cutoff, bounded := retention.OrphanCutoff()
+	return !bounded || at.Before(cutoff)
 }
 
 func (s *pebbleStorage) DeleteWorkflowMessageTraces(ctx context.Context, workflowID string) error {
