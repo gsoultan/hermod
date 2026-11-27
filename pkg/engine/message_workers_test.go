@@ -98,6 +98,34 @@ func TestMessageWorkersGrowUnderLoadUpToTheLimit(t *testing.T) {
 	}
 }
 
+// A burst must get a worker per message, up to the limit. The pool used to
+// decide from a count of idle workers that each worker lowered only after it
+// had taken a message, so in a burst two messages could both see the same
+// idle worker: the second waited in the shared queue while no worker was
+// started for it. Behind a sink that never returns, the engine ran 92 of its
+// 128 permitted writes instead of 128, and the sink read 72% full instead of
+// 100% (TestSinkBufferFillReadsAStuckSinkAsFull).
+func TestMessageWorkersGiveABurstAWorkerEach(t *testing.T) {
+	for range 50 {
+		release := make(chan struct{})
+		var busy atomic.Int32
+		w, started, wg := startedWorkers(t, 16, func(hermod.Message) {
+			busy.Add(1)
+			<-release
+		})
+		for range 16 {
+			send(w, unkeyed())
+		}
+		waitFor(t, func() bool { return busy.Load() == 16 })
+		if n := started.Load(); n != 16 {
+			t.Fatalf("a burst of 16 started %d workers, want 16", n)
+		}
+		close(release)
+		w.close()
+		wg.Wait()
+	}
+}
+
 // Messages with one ordering key go to one worker, in order, whichever worker
 // that is and however many others are running.
 func TestMessageWorkersKeepOrderPerKey(t *testing.T) {

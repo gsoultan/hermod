@@ -49,7 +49,8 @@ type messageWorkers struct {
 	// next is where the search for an unstarted worker resumes, so growing
 	// the pool is linear in the limit overall rather than per worker.
 	next int
-	// idle counts workers waiting for a message right now.
+	// idle counts workers waiting for a message, less those already reserved
+	// for a message on the shared queue (claimIdle).
 	idle atomic.Int32
 
 	spawn  func(work func())
@@ -76,10 +77,36 @@ func (w *messageWorkers) queueFor(m hermod.Message) chan<- hermod.Message {
 		w.ensure(idx)
 		return w.keyed[idx]
 	}
-	if w.idle.Load() == 0 && w.started < w.limit {
-		w.ensure(w.nextUnstarted())
+	if w.claimIdle() || w.started == w.limit {
+		return w.shared
 	}
+	// No worker is free: start one for this message. It counts itself idle
+	// when it starts; the message already queued for it is spoken for, so
+	// take that back now.
+	w.idle.Add(-1)
+	w.ensure(w.nextUnstarted())
 	return w.shared
+}
+
+// claimIdle reserves one idle worker for a message about to go on the shared
+// queue, and reports whether there was one.
+//
+// The reservation is taken here, by the dispatcher, not by the worker when it
+// receives. Taken by the worker, it lagged: in a burst every message saw the
+// same worker still counted idle, so none of them started another, and all but
+// one waited in the shared queue behind a worker that was about to be busy.
+// idle may go below zero -- a worker reserved here can still be taken by its
+// own keyed queue first -- which only means the next message starts a worker.
+func (w *messageWorkers) claimIdle() bool {
+	for {
+		n := w.idle.Load()
+		if n <= 0 {
+			return false
+		}
+		if w.idle.CompareAndSwap(n, n-1) {
+			return true
+		}
+	}
 }
 
 // ensure starts worker idx unless it is already running.
@@ -127,8 +154,10 @@ func (w *messageWorkers) work(own chan hermod.Message) {
 				continue
 			}
 		case m, ok = <-pool:
-			w.idle.Add(-1)
+			// Not counted out here: the dispatcher reserved this worker when
+			// it queued the message (claimIdle). A close was not reserved.
 			if !ok {
+				w.idle.Add(-1)
 				pool = nil
 				continue
 			}
