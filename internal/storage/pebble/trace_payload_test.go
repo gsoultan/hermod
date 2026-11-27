@@ -236,3 +236,23 @@ func writeRawTrace(t *testing.T, s storage.Storage, wf, msg string, data []byte)
 		t.Fatalf("writing a legacy trace: %v", err)
 	}
 }
+
+// See TestPurgeMessageTracesSparesTracesWrittenAfterTheWorkflowListWasRead in
+// internal/storage/sql: a workflow created after the sweep read its list must
+// not have its first traces deleted as an orphan's.
+func TestPebblePurgeSparesTracesWrittenAfterTheWorkflowListWasRead(t *testing.T) {
+	s := newTracePebble(t)
+	listedAt := time.Now().Add(-time.Second)
+	recordTrace(t, s, "wf_new", "m1", map[string]any{"a": 1})
+
+	if err := s.PurgeMessageTraces(context.Background(), storage.TraceRetention{
+		Live:           map[string]struct{}{},
+		LiveIsComplete: true,
+		ListedAt:       listedAt,
+	}); err != nil {
+		t.Fatalf("PurgeMessageTraces: %v", err)
+	}
+	if _, err := s.GetMessageTrace(context.Background(), "wf_new", "m1"); err != nil {
+		t.Errorf("a workflow created after the list was read lost its trace: %v", err)
+	}
+}

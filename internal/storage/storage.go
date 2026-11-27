@@ -785,6 +785,20 @@ type TraceRetention struct {
 	// look like a deleted one and have its traces swept. When this is false
 	// the orphan sweep is skipped and everything else still runs.
 	LiveIsComplete bool
+
+	// ListedAt is when Live was read. Zero means unknown.
+	//
+	// Live cannot vouch for a workflow created after it was read: such a
+	// workflow is absent from it and may already be writing traces. So the
+	// orphan sweep reclaims only traces older than this, and a workflow that
+	// really is gone loses the rest on the next sweep.
+	ListedAt time.Time
+}
+
+// OrphanCutoff is the moment before which the traces of a workflow absent
+// from Live are reclaimed: ListedAt, or no bound at all when it is unknown.
+func (r TraceRetention) OrphanCutoff() (time.Time, bool) {
+	return r.ListedAt, !r.ListedAt.IsZero()
 }
 
 // PartitionFloor is the oldest moment no live workflow needs any more, and

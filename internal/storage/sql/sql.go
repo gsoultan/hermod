@@ -2600,12 +2600,22 @@ func (s *sqlStorage) purgeOrphanTraces(ctx context.Context, retention storage.Tr
 	if !ok {
 		return nil
 	}
+	cutoff, bounded := retention.OrphanCutoff()
 	for _, workflowID := range gone {
-		if err := s.DeleteWorkflowMessageTraces(ctx, workflowID); err != nil {
+		if err := s.purgeOrphan(ctx, workflowID, cutoff, bounded); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// purgeOrphan removes a workflow's traces that are older than cutoff, or all
+// of them when the sweep could not say when it read the workflow list.
+func (s *sqlStorage) purgeOrphan(ctx context.Context, workflowID string, cutoff time.Time, bounded bool) error {
+	if !bounded {
+		return s.DeleteWorkflowMessageTraces(ctx, workflowID)
+	}
+	return s.purgeWorkflowTraces(ctx, workflowID, cutoff)
 }
 
 // traceWorkflowIDs lists the workflows that still have traces stored.

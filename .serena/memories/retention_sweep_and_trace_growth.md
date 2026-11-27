@@ -210,6 +210,16 @@ never inferred from the map being non-empty — an empty `Live` legitimately mea
 "no workflows exist". When false the orphan step is skipped and logged; the rest
 still runs.
 
+**The second trap: a workflow created after the list was read.** It is absent
+from `Live` but may already be writing traces, and the sweep used to delete
+everything it had written so far. `purgeRetention` stamps
+`TraceRetention.ListedAt` just before `ListWorkflows`, and every store reclaims an
+orphan's traces only when older than that (`OrphanCutoff()`; zero means
+unbounded, the old behaviour). A really deleted workflow loses the rest next
+sweep. Found as a flaky `TestRunWorkflowOnceDeliversAndTraces`: the registry's
+first sweep starts with it, so a manual run right after saving lost its source
+and transformation steps and kept only the sink step.
+
 Orphan candidates come from `message_traces` (one row per message), not from
 `message_trace_steps` (one per node per message). A trace written before the
 parent table existed has no row there and stays invisible to the sweep — the

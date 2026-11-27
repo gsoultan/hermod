@@ -1643,11 +1643,25 @@ func (s *mongoStorage) PurgeMessageTraces(ctx context.Context, retention storage
 		return nil
 	}
 	for _, workflowID := range gone {
-		if err := s.DeleteWorkflowMessageTraces(ctx, workflowID); err != nil {
+		if err := s.purgeOrphanTraces(ctx, workflowID, retention); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// purgeOrphanTraces removes a workflow's traces older than the moment the
+// sweep read its workflow list, or all of them when that moment is unknown.
+func (s *mongoStorage) purgeOrphanTraces(ctx context.Context, workflowID string, retention storage.TraceRetention) error {
+	cutoff, bounded := retention.OrphanCutoff()
+	if !bounded {
+		return s.DeleteWorkflowMessageTraces(ctx, workflowID)
+	}
+	_, err := s.db.Collection("message_traces").DeleteMany(ctx, bson.M{
+		"workflow_id": workflowID,
+		"created_at":  bson.M{"$lt": cutoff},
+	})
+	return err
 }
 
 func (s *mongoStorage) DeleteWorkflowMessageTraces(ctx context.Context, workflowID string) error {

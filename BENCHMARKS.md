@@ -445,6 +445,12 @@ or not a message ever arrives (`pkg/engine/runner.go`), each with its own keyed 
 cost a million idle workflows would need about 139 million goroutines and 165 GiB of heap on one
 worker, so this is the first thing the plan changes.
 
+**After message workers start on demand** (`pkg/engine/message_workers.go`), same test:
+
+| Workflows | Goroutines each | Heap each | Heap total |
+| ---: | ---: | ---: | ---: |
+| 10,000 | 11 | 49 KiB | 493 MiB |
+
 **Shared database**: N workflows over 10 source tables and 10 sink tables of one database, each
 source table receiving 5 rows a second for 30 s, every second workflow running a DB Lookup, polling
 every 1 s:
@@ -453,6 +459,11 @@ every 1 s:
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1,000 | 100% of 150,000 | 0.5 s | 1.0 s | 1.0 s | 80 | 140,023 | 227 MiB |
 | 3,000 | 100% of 450,000 | 12.9 s | 22.4 s | 23.4 s | 100 | 612,453 | 1.1 GiB |
+
+With message workers on demand, 1,000 workflows hold 15,798 goroutines instead of 140,023 and half
+the heap (116 MiB), with the same delivery and delay. At 3,000 the four cores are still saturated
+(448,018 goroutines under load, delay p50 15 s): workers grow back under traffic, and the
+per-workflow goroutines that remain are what the shared task pool replaces.
 
 Every row arrived, but between 1,000 and 3,000 workflows the delay grows 25-fold while the
 database is far from its connection limit (100 of 300). The four cores are what ran out: during the

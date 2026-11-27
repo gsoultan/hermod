@@ -759,48 +759,15 @@ func (r *Runner) runBufferToSink(ctx context.Context, sinkWg *sync.WaitGroup) {
 		// would hold up everything behind it on that worker while others idle.
 		// Measured, routing unkeyed traffic round-robin instead of sharing cost
 		// ~40% (165k -> 97k msgs/s), so unkeyed traffic keeps the shared queue.
-		shared := make(chan hermod.Message, numWorkers)
-		keyed := make([]chan hermod.Message, numWorkers)
-		for i := range keyed {
-			keyed[i] = make(chan hermod.Message, keyedQueueDepth)
-		}
-
-		// Start persistent worker pool for message processing
-		for i := range numWorkers {
-			own := keyed[i]
-			r.wg.Go(func() {
-				mine, pool := own, shared
-				// A worker leaves when its queues are closed, not when ctx is
-				// cancelled. The handler below races that cancellation and can
-				// queue a message after it; a worker that had already left
-				// would never count it out of inFlightWg, and Start waits on
-				// that before closing the sink channels, so the engine never
-				// stopped. Consume returns once ctx is cancelled and the queues
-				// are closed right after, so the workers still leave promptly,
-				// having handed on everything that was queued.
-				for mine != nil || pool != nil {
-					var m hermod.Message
-					var ok bool
-					select {
-					case m, ok = <-mine:
-						if !ok {
-							// A closed channel is always ready; nil never is.
-							mine = nil
-							continue
-						}
-					case m, ok = <-pool:
-						if !ok {
-							pool = nil
-							continue
-						}
-					}
-					r.processMessage(ctx, m)
-					// Slot released inside processMessage or by Done()
-					r.engine.inFlightWg.Done()
-					<-r.engine.inFlightSem
-				}
-			})
-		}
+		//
+		// The workers start as messages arrive (see messageWorkers): an engine
+		// that never receives one holds none of them.
+		workers := newMessageWorkers(numWorkers, r.wg.Go, func(m hermod.Message) {
+			r.processMessage(ctx, m)
+			// Slot released inside processMessage or by Done()
+			r.engine.inFlightWg.Done()
+			<-r.engine.inFlightSem
+		})
 
 		err := consumer.Consume(ctx, func(drainCtx context.Context, m hermod.Message) error {
 			// Acquire inflight slot to maintain backpressure from buffer to workers
@@ -810,10 +777,7 @@ func (r *Runner) runBufferToSink(ctx context.Context, sinkWg *sync.WaitGroup) {
 				return drainCtx.Err()
 			}
 
-			queue := shared
-			if idx := keyedWorkerFor(m, numWorkers); idx >= 0 {
-				queue = keyed[idx]
-			}
+			queue := workers.queueFor(m)
 
 			r.engine.inFlightWg.Add(1)
 			select {
@@ -825,10 +789,7 @@ func (r *Runner) runBufferToSink(ctx context.Context, sinkWg *sync.WaitGroup) {
 				return drainCtx.Err()
 			}
 		})
-		close(shared)
-		for _, q := range keyed {
-			close(q)
-		}
+		workers.close()
 
 		if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			r.engine.logger.Error("Buffer-to-Sink consumer error", "workflow_id", r.engine.workflowID, "error", err)

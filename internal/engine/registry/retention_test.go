@@ -235,3 +235,23 @@ func TestPurgeRetention_RefusesToClaimACompleteListItDoesNotHave(t *testing.T) {
 		t.Error("an incomplete list also stopped the workflows it could see from being trimmed")
 	}
 }
+
+// The sweep has to say when it read the workflow list, so the store can spare
+// traces written after it: a workflow created in between is absent from the
+// list and would otherwise have its first traces deleted as an orphan's.
+func TestPurgeRetention_SaysWhenItReadTheWorkflowList(t *testing.T) {
+	store := &retentionStorage{workflows: []storage.Workflow{{ID: "wf-1"}}}
+	reg := newRetentionRegistry(t, store)
+
+	before := time.Now()
+	reg.purgeRetention()
+
+	policies := store.tracePolicies()
+	if len(policies) != 1 {
+		t.Fatalf("got %d sweeps, want 1", len(policies))
+	}
+	if policies[0].ListedAt.Before(before) {
+		t.Errorf("ListedAt = %v, want the moment the list was read (at or after %v)",
+			policies[0].ListedAt, before)
+	}
+}

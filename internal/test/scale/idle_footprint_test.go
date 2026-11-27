@@ -54,18 +54,16 @@ type idleFootprint struct {
 
 // idleBudget is what one idle workflow may cost before this test fails.
 //
-// Today's numbers, measured on 10,000 idle workflows, are 139 goroutines and
-// about 172 KiB of heap each. 128 of those goroutines are the message workers
-// runBufferToSink starts for every engine whether or not a message ever
-// arrives (pkg/engine/runner.go), each with its own keyed queue. At that cost a
-// million idle workflows would need 139 million goroutines and about 165 GiB of
-// heap on one worker, so this is where the scaling plan's "an idle workflow
-// costs almost nothing" phase starts. The budget is the measurement with
-// headroom, so it catches a regression now and is lowered by the change that
-// fixes it.
+// Measured on 10,000 idle workflows: 11 goroutines and about 49 KiB of heap
+// each. It was 139 goroutines and 172 KiB until the message workers started on
+// demand (pkg/engine/message_workers.go); 128 of those goroutines were workers
+// no message had ever needed. What is left is per-engine machinery that runs on
+// timers -- status, checkpoints, two stall watchers, the source loop, the sink
+// writer -- which the next step of the plan moves onto one scheduler per
+// worker. The budget is the measurement with headroom.
 const (
-	idleGoroutineBudget = 150
-	idleHeapBudget      = 224 << 10 // bytes
+	idleGoroutineBudget = 16
+	idleHeapBudget      = 64 << 10 // bytes
 )
 
 // TestScaleIdleFootprint starts N workflows whose sources have nothing to read

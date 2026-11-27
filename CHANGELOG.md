@@ -7,6 +7,22 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Changed — an idle workflow costs 11 goroutines instead of 139
+
+Each running workflow used to start 128 message workers as it started, whether or not a message
+ever arrived. They now start as messages arrive: a message with an ordering key still always goes to
+the one worker that owns its key, so per-row order is unchanged, and a message without one starts
+another worker only when none is free. Measured on 10,000 idle workflows: 139 → 11 goroutines and
+172 → 49 KiB each; 1,000 busy workflows hold 16k goroutines instead of 140k.
+
+### Fixed — a workflow saved while the retention sweep ran lost its first traces
+
+The hourly sweep that reclaims the traces of deleted workflows reads the workflow list first and the
+traces later. A workflow created in between was missing from the list, so the traces it had already
+written were deleted as a deleted workflow's: a manual run made right after saving could show only
+its last step. The sweep now records when it read the list and only reclaims traces older than that,
+on SQL, MongoDB and Pebble; a workflow that really was deleted loses the rest on the next sweep.
+
 ### Changed — scheduled workflows run one at a time and know their last successful run
 
 A cron source used to fire on every tick, whether or not the last run had finished. When a run took
