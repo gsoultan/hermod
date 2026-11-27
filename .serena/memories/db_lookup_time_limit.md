@@ -20,10 +20,14 @@ so tests can shorten it). A bad value fails before any query is sent.
   traversal still treats it as an interruption (redelivered, not dead-lettered).
 - **Execute SQL vs DB Lookup:** separate transformers (`advanced/execute_sql.go` has a
   `timeout` with no default); both get pools from the same registry cache.
-- **Pooler safety:** pgx statement caching is only turned off when the source DSN is
-  marked as a pooler (`pgbouncer=true` / `pool_mode=`, auto-set on port 6432 by
-  `internal/factory`). PgBouncer on another port needs the flag on the source.
-- Tests: `db_lookup_timeout_test.go` (hanging database/sql driver),
+- **Pooler safety and pool size:** see [`registry_sql_pool.md`](registry_sql_pool.md). The
+  pool is the registry's database/sql one, not pgxutil's shared pgxpool; it now detects
+  PgBouncer itself and honours `pool_max_conns`.
+- **Where the wait was:** `poolUse` (timeout.go) reads the pool's InUse/MaxOpen *before* the
+  query and appends "all N of Hermod's connections ... were busy" (queued in Hermod, invisible
+  to SHOW POOLS) or "M of N ... so the wait was in the database or PgBouncer". Skipped in a
+  preview (sandbox connection, not the pool).
+- Tests: `db_lookup_timeout_test.go` (hanging database/sql driver), `db_lookup_pool_wait_test.go`,
   `db_lookup_timeout_integration_test.go` (`-tags=integration`, `POSTGRES_DSN` and
   optional `PGBOUNCER_DSN` with `default_pool_size = 1`: lock wait direct and via
   PgBouncer, and PgBouncer pool exhausted). UI: `dbLookupTimeLimit.test.tsx`.

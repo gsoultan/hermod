@@ -102,6 +102,9 @@ find a claim that outruns the code, fix the claim.
 - [Many workflows on one PostgreSQL source](shared_postgres_source_pool.md) — one
   shared pool per DSN per worker, poll releases its connection before delivering,
   first-poll jitter, PgBouncer/proxy detection by server port, CDC tried through PgBouncer.
+- [The registry's database/sql pool](registry_sql_pool.md) — DB Lookup / Execute SQL use a
+  second, separate pool (20 or `pool_max_conns`); `pool_*` keys must be stripped before pgx
+  sends them to the server; own PgBouncer probe; ping at most every 30s.
 - [Postgres sink and polling](postgres_sink_and_polling_updates.md) — singleflight
   connection dedup, non-CDC polling, PgBouncer compatibility.
 - [Postgres source: stop inside a transaction](postgres_source_stop_inside_transaction.md) —

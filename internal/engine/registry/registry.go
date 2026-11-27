@@ -56,12 +56,10 @@ import (
 	"github.com/gsoultan/hermod/pkg/engine/config"
 	"github.com/gsoultan/hermod/pkg/engine/telemetry"
 	"github.com/gsoultan/hermod/pkg/infra/evaluator"
-	"github.com/gsoultan/hermod/pkg/infra/pgxutil"
 	"github.com/gsoultan/hermod/pkg/infra/schema"
 	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
 	"github.com/gsoultan/hermod/pkg/ml/worker"
 	"github.com/gsoultan/hermod/pkg/security/secrets"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/microsoft/go-mssqldb"
 	_ "github.com/sijms/go-ora/v2"
@@ -1104,47 +1102,6 @@ func getConfigString(config map[string]any, key string) string {
 	return ""
 }
 
-// openSQLDB builds a *sql.DB for the given canonical driver. For Postgres
-// (the pgx stdlib driver) it parses the DSN through pgxutil so that the custom
-// pgbouncer/pool_mode markers are stripped and, when a pooler is detected, the
-// connection is switched to the simple/exec protocol with the prepared-statement
-// and description caches disabled (mandatory for PgBouncer transaction/statement
-// pooling). All other drivers fall back to the standard sql.Open behaviour.
-func openSQLDB(driverName, connStr string) (*sql.DB, error) {
-	if driverName == "pgx" {
-		cfg, err := pgPoolConnConfig(connStr)
-		if err != nil {
-			return nil, err
-		}
-		return stdlib.OpenDB(*cfg), nil
-	}
-	return sql.Open(driverName, connStr)
-}
-
-// pgPoolConnConfig is the pgx config openSQLDB opens a Postgres pool with.
-func pgPoolConnConfig(connStr string) (*pgx.ConnConfig, error) {
-	cfg, _, err := pgxutil.ParseConfig(connStr)
-	if err != nil {
-		return nil, fmt.Errorf("parse postgres connection config: %w", err)
-	}
-	// Without connect_timeout in the DSN, pgx bounds neither the dial nor the
-	// startup exchange after it except by the caller's context, which for the
-	// registry's own callers has no deadline: a server that accepts the TCP
-	// connection and never answers holds the caller for good.
-	if cfg.ConnectTimeout == 0 {
-		cfg.ConnectTimeout = pgConnectTimeout
-	}
-	return cfg, nil
-}
-
-// pooledDB is a cached connection pool together with the source it was opened
-// for, so a source's older pools can be identified and closed when its
-// connection details change.
-type pooledDB struct {
-	sourceID string
-	db       *sql.DB
-}
-
 // dbPoolKey identifies a pooled connection by both the source it belongs to and
 // the connection details it was opened with.
 //
@@ -1227,15 +1184,23 @@ func (r *Registry) cachedPool(ctx context.Context, poolKey string) (*sql.DB, err
 		return nil, nil
 	}
 
+	if entry.recentlyChecked() {
+		return entry.db, nil
+	}
+
 	// Ping outside the lock to avoid blocking other sources during network I/O
 	err := pingPool(ctx, entry.db)
 	if err == nil {
+		entry.markChecked()
 		return entry.db, nil
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, fmt.Errorf("checking the database connection: %w", ctxErr)
 	}
 	if pingTimedOut(err) {
+		// Busy, not wrong: pinging it again on the next message would only
+		// queue that message behind the same connections.
+		entry.markChecked()
 		return entry.db, nil
 	}
 	return nil, nil
@@ -1312,15 +1277,15 @@ func (r *Registry) openPool(src storage.Source, poolKey string) (*sql.DB, error)
 		return nil, fmt.Errorf("unsupported source type for generic sql: %s", sourceType)
 	}
 
-	newDB, err := openSQLDB(driverName, connStr)
+	var newDB *sql.DB
+	if driverName == "pgx" {
+		newDB, err = openPostgresPool(r.pingCtx(), connStr)
+	} else {
+		newDB, err = openSQLDB(driverName, connStr)
+	}
 	if err != nil {
 		return nil, err
 	}
-
-	// Configure pool with conservative, performant defaults
-	newDB.SetMaxOpenConns(20)
-	newDB.SetMaxIdleConns(10)
-	newDB.SetConnMaxIdleTime(60 * time.Second)
 
 	r.dbPoolMu.Lock()
 	// A source holds at most one pool. Pools opened for its previous
@@ -1332,7 +1297,7 @@ func (r *Registry) openPool(src storage.Source, poolKey string) (*sql.DB, error)
 			delete(r.dbPool, key)
 		}
 	}
-	r.dbPool[poolKey] = pooledDB{sourceID: src.ID, db: newDB}
+	r.dbPool[poolKey] = newPooledDB(src.ID, newDB)
 	r.dbPoolMu.Unlock()
 
 	return newDB, nil

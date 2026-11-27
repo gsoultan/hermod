@@ -264,7 +264,7 @@ func (p *Pooler) Get(ctx context.Context, connString string) (*pgxpool.Pool, err
 		}
 
 		pooled := declaredPooled
-		if !declaresPooler(connString) {
+		if !DeclaresPooler(connString) {
 			pool, pooled, err = p.detectProxy(ctx, pool, cleaned)
 			if err != nil {
 				return nil, err

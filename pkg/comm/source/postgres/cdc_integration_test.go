@@ -59,6 +59,8 @@ type cdcFixture struct {
 	slot   string
 	pub    string
 	source *PostgresSource
+	// member names the workflow the source reads for, on a shared slot.
+	member string
 
 	// msgs carries everything the reader goroutine has pulled off the stream.
 	// A single long-lived reader is essential: Read is what drives the
@@ -174,6 +176,7 @@ func (f *cdcFixture) start(t *testing.T, ctx context.Context, persistent bool) {
 
 	f.source = NewPostgresSource(f.dsn, f.slot, f.pub, []string{f.table}, true, "", time.Second)
 	f.source.SetPersistentSlot(persistent)
+	f.source.SetSharedSlotMember(f.member)
 	f.msgs = make(chan hermod.Message, 256)
 
 	readCtx, cancel := context.WithCancel(ctx)

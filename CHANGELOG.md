@@ -42,6 +42,25 @@ upgraded to a supergroup gets a button that switches to its new ID. The chat lis
 pending updates without confirming them, so nothing else reading the bot loses messages; a bot
 whose updates go to a webhook (a Telegram chat source) says so and leaves the ID to be typed.
 
+### Fixed — DB Lookup no longer times out queued behind its own connection pool
+
+DB Lookup, Execute SQL and the other per-message SQL steps do not use the source's shared pool
+from the fix below; they have a pool of their own per source and worker, and three things in it
+made lookups give up with "no answer from the database within 30s" under many workflows:
+
+- It was capped at 20 connections whatever the source said. It now takes its size from the
+  source's **Max connections** (`pool_max_conns`), and still defaults to 20.
+- Setting **Max connections** broke it outright: `pool_max_conns` was sent to the server as a
+  startup parameter, and PostgreSQL and PgBouncer both refuse the connection for it.
+- It pinged the database before every lookup, so each lookup took a connection twice and made
+  two round trips. A pool that answered in the last 30 seconds is no longer pinged again.
+
+It also gets the PgBouncer detection the shared pool got: through a PgBouncer the connection
+string does not name, it no longer uses server-side prepared statements, which transaction
+pooling breaks ("prepared statement ... already exists"). A lookup that runs out of time now
+says where it waited: queued in Hermod with every connection busy, or in the database or
+PgBouncer.
+
 ### Fixed — many workflows on one PostgreSQL source no longer time out waiting for a connection
 
 All workflows on one PostgreSQL source share one connection pool per worker, and a polling
@@ -55,6 +74,17 @@ Hermod now detects PgBouncer, or any proxy, by comparing the port it dialled wit
 own, and switches that pool off server-side prepared statements; `pgbouncer=true` is no longer
 needed. A CDC source through PgBouncer is tried instead of refused, since PgBouncer 1.23 and
 later pass replication through; an older one gets an error that says so.
+
+### Fixed — CDC workflows on one replication slot share its stream instead of fighting over it
+
+A replication slot admits one reader, so a second CDC workflow on the same slot (the default
+slot name is shared) waited for good and never got a change; with a long slot name the two even
+terminated each other's stream in a loop, because the connection name that tells them apart was
+cut off. Workflows on one slot in a worker now share one replication stream: each gets the changes
+on its own tables, the publication covers all of their tables, and the slot is confirmed only
+past changes every workflow acknowledged. A workflow that stops is held for, up to 24 hours, and
+gets what it missed when it starts again. A CDC source whose slot does not exist yet is also no
+longer reported as not ready ("cannot scan NULL into *bool").
 
 ### Fixed — an admin password reset now lifts a login lockout, and a forged X-Forwarded-For no longer bypasses it
 
