@@ -161,6 +161,7 @@ find a claim that outruns the code, fix the claim.
   `hermod.Busy` with Retry-After) and the engine waits it out: no retries spent,
   no breaker, no stall restart, sink shows `waiting`. Steps too, through the
   `hermod.BusyWaiter` the engine puts in the context.
+  no breaker, no stall restart, sink shows `waiting`.
 - [Permanent refusals](permanent_refusals.md) — wrap `hermod.ErrPermanent` and the
   retry decorator, the engine's retry loop and the circuit breaker all skip it;
   without a dead-letter sink the backoff wait is kept so redelivery cannot spin.
