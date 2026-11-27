@@ -138,7 +138,7 @@ func TestGetOrOpenDBByID_BoundsThePingAndKeepsThePool(t *testing.T) {
 
 // A pool opened without connect_timeout gets one; one that names its own keeps it.
 func TestPgPoolConnConfig_BoundsTheConnect(t *testing.T) {
-	cfg, err := pgPoolConnConfig("postgres://u:p@127.0.0.1:5432/db?sslmode=disable")
+	cfg, _, err := pgPoolConnConfig("postgres://u:p@127.0.0.1:5432/db?sslmode=disable")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestPgPoolConnConfig_BoundsTheConnect(t *testing.T) {
 		t.Errorf("ConnectTimeout = %s with none in the DSN, want %s", cfg.ConnectTimeout, pgConnectTimeout)
 	}
 
-	cfg, err = pgPoolConnConfig("postgres://u:p@127.0.0.1:5432/db?sslmode=disable&connect_timeout=3")
+	cfg, _, err = pgPoolConnConfig("postgres://u:p@127.0.0.1:5432/db?sslmode=disable&connect_timeout=3")
 	if err != nil {
 		t.Fatal(err)
 	}

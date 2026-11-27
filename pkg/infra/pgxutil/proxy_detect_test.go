@@ -55,8 +55,8 @@ func TestExplicitPoolerMarkerSkipsDetection(t *testing.T) {
 		"host=db port=5432 dbname=app pgbouncer=true": true,
 		"host=db port=5432 dbname=app":                false,
 	} {
-		if got := declaresPooler(dsn); got != want {
-			t.Errorf("declaresPooler(%q) = %v, want %v", dsn, got, want)
+		if got := DeclaresPooler(dsn); got != want {
+			t.Errorf("DeclaresPooler(%q) = %v, want %v", dsn, got, want)
 		}
 	}
 }

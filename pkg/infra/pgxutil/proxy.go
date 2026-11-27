@@ -21,13 +21,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// proxyProbeTimeout bounds the one query that asks the server its port.
-const proxyProbeTimeout = 5 * time.Second
+// ProxyProbeTimeout bounds the one query that asks the server its port.
+const ProxyProbeTimeout = 5 * time.Second
 
-// declaresPooler reports whether connString says for itself whether it goes
+// DeclaresPooler reports whether connString says for itself whether it goes
 // through a pooler, with pgbouncer=... or pool_mode=..., whatever the value.
 // Detection never overrides what the operator wrote.
-func declaresPooler(connString string) bool {
+func DeclaresPooler(connString string) bool {
 	if strings.Contains(connString, "://") {
 		u, err := url.Parse(connString)
 		if err != nil {
@@ -68,7 +68,7 @@ func behindProxy(dialled net.Addr, serverPort int) bool {
 // query uses the simple protocol, so it is safe to run through transaction
 // pooling before the answer is known.
 func probeProxy(ctx context.Context, pool *pgxpool.Pool) (bool, error) {
-	ctx, cancel := context.WithTimeout(ctx, proxyProbeTimeout)
+	ctx, cancel := context.WithTimeout(ctx, ProxyProbeTimeout)
 	defer cancel()
 
 	conn, err := pool.Acquire(ctx)
@@ -77,9 +77,15 @@ func probeProxy(ctx context.Context, pool *pgxpool.Pool) (bool, error) {
 	}
 	defer conn.Release()
 
+	return ProbeConn(ctx, conn.Conn())
+}
+
+// ProbeConn is the proxy check on one connection, for a caller that holds a
+// *pgx.Conn outside a pgxpool (the registry's database/sql pools).
+func ProbeConn(ctx context.Context, conn *pgx.Conn) (bool, error) {
 	var port int
 	if err := conn.QueryRow(ctx, "SELECT current_setting('port')::int", pgx.QueryExecModeSimpleProtocol).Scan(&port); err != nil {
 		return false, err
 	}
-	return behindProxy(conn.Conn().PgConn().Conn().RemoteAddr(), port), nil
+	return behindProxy(conn.PgConn().Conn().RemoteAddr(), port), nil
 }

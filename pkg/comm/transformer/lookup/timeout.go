@@ -12,12 +12,14 @@ package lookup
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/gsoultan/hermod/pkg/comm/transformer/core"
+	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
 )
 
 // defaultDBLookupTimeout is how long one lookup may wait on its database when
@@ -68,4 +70,39 @@ func lookupTimeoutError(parent context.Context, timeout time.Duration, err error
 	return fmt.Errorf("db_lookup: no answer from the database within %s; "+
 		"raise the step's time limit if the query is legitimately slow, "+
 		"or check for clients waiting on the pool (PgBouncer: SHOW POOLS, cl_waiting): %w", timeout, err)
+}
+
+// poolUse is how busy the source's pool was when a lookup asked it for a
+// connection.
+//
+// A lookup that runs out of time has waited in one of two places: in Hermod,
+// queued for one of the source's pooled connections, or in the database or
+// PgBouncer after it got one. Only the second shows in SHOW POOLS, so an error
+// that pointed at cl_waiting alone sent operators looking in the wrong place
+// whenever it was the first. The counters are read before the query, because
+// once it has failed its own connection is back in the pool.
+type poolUse struct{ inUse, max int }
+
+// A preview runs on its own transaction's connection, not the pool, so it gets
+// no note.
+func poolUseOf(ctx context.Context, db *sql.DB) poolUse {
+	if db == nil || sqlutil.Sandboxed(ctx) {
+		return poolUse{}
+	}
+	st := db.Stats()
+	return poolUse{inUse: st.InUse, max: st.MaxOpenConnections}
+}
+
+// explain adds where the wait was to a lookup that ran out of time; any other
+// error, or a pool with no limit, is returned as it is.
+func (u poolUse) explain(err error) error {
+	if u.max <= 0 || !errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	if u.inUse >= u.max {
+		return fmt.Errorf("when the lookup asked, all %d of Hermod's connections to this source were busy, "+
+			"so it queued inside Hermod: raise Max connections on the source, or turn on batching: %w", u.max, err)
+	}
+	return fmt.Errorf("when the lookup asked, %d of Hermod's %d connections to this source were busy, "+
+		"so the wait was in the database or PgBouncer: %w", u.inUse, u.max, err)
 }
