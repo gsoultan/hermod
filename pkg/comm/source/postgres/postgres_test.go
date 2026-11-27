@@ -349,6 +349,29 @@ func TestBuildReplicationAppName(t *testing.T) {
 	}
 }
 
+// Two sources on one slot in one process used to get the same
+// application_name once the slot name was long: cutting the name to 63
+// characters cut off the PID and session that tell them apart. Each then took
+// the other's walsender for its own orphan and terminated it, and the two
+// killed each other's stream in a loop. The PID and session must survive the
+// cut, so only the host and slot are shortened.
+func TestBuildReplicationAppNameKeepsPIDAndSessionWhenCut(t *testing.T) {
+	slot := "slot_" + strings.Repeat("s", 60)
+	a := buildReplicationAppName("host1", slot, 1234, "sessaaaa")
+	b := buildReplicationAppName("host1", slot, 1234, "sessbbbb")
+	if a == b {
+		t.Fatalf("two sessions on one slot share the name %q", a)
+	}
+	for _, got := range []string{a, b} {
+		if len(got) > maxAppNameLen {
+			t.Errorf("len(%q) = %d; want at most %d", got, len(got), maxAppNameLen)
+		}
+		if !strings.HasSuffix(got, "-1234-sessaaaa") && !strings.HasSuffix(got, "-1234-sessbbbb") {
+			t.Errorf("%q lost its PID and session", got)
+		}
+	}
+}
+
 // TestIsOwnOrphanLocked verifies that only a live holder advertising our own
 // instance-unique application_name (and not our current connection) is treated
 // as reclaimable; a foreign consumer or an empty/mismatched name is never.

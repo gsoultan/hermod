@@ -34,5 +34,30 @@ finds the pool busy waits for a connection.
   used** (`pgbouncer=true` or `false`) turns detection off.
 - **CDC through PgBouncer** works with PgBouncer 1.23 and later, which passes a
   replication connection to the server unpooled. An older PgBouncer refuses it, and
-  Hermod says so: upgrade it, or give the CDC source a direct connection string. Each CDC
-  workflow still holds its own replication connection and slot.
+  Hermod says so: upgrade it, or give the CDC source a direct connection string.
+
+### Many CDC workflows on one slot
+
+A replication slot admits one reader, PostgreSQL allows ten slots and ten walsenders by
+default, and every slot decodes the whole WAL again. So CDC workflows on one database that
+name the **same slot** (the default, `hermod_slot`, does) share one replication stream in
+each Hermod worker:
+
+- One replication connection reads the slot and hands each workflow the changes on its own
+  tables. The publication covers every table any of those workflows follows; a workflow
+  joining with new tables widens it.
+- The slot is confirmed past a change only once every workflow it went to has acknowledged
+  it.
+- **A workflow that stops does not lose changes.** While it is stopped, the slot is held
+  where it stopped. When it starts again the stream replays from there, and each workflow
+  skips the transactions it already acknowledged, so only the returning workflow gets what
+  it missed. The server keeps WAL while the slot is held, so the hold ends after 24 hours: a
+  workflow stopped longer than that, or deleted, resumes at the current position and misses
+  what happened meanwhile (the live log says so).
+- After a **worker restart** every workflow resumes from the slot's confirmed position, the
+  earliest any of them needed, so a workflow that was ahead may get some changes twice.
+- Workflows on one slot must use the same publication. An initial load runs only for the
+  workflow that creates the slot.
+
+A workflow that needs a position of its own names its own slot; it then gets a replication
+connection of its own, as before.

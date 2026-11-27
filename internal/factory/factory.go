@@ -195,6 +195,9 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 		// existing workflow re-read its source tables the first time a slot was
 		// recreated, which is the opposite of what an upgrade should do.
 		pgSrc.SetInitialLoad(cfg.Config["initial_load"] == "true")
+		// Workflows on one slot share its stream; this is how the stream
+		// knows a workflow again when it stops and starts.
+		pgSrc.SetSharedSlotMember(cfg.WorkflowID)
 		src = pgSrc
 	case "mssql":
 		autoEnable := cfg.Config["auto_enable_cdc"] != "false"

@@ -68,11 +68,12 @@ func (r *Registry) buildWorkflowSources(ctx context.Context, wf storage.Workflow
 		}
 
 		srcCfg := factory.SourceConfig{
-			ID:     dbSrc.ID,
-			Type:   dbSrc.Type,
-			VHost:  dbSrc.VHost,
-			Config: dbSrc.Config,
-			State:  dbSrc.State,
+			ID:         dbSrc.ID,
+			Type:       dbSrc.Type,
+			VHost:      dbSrc.VHost,
+			Config:     dbSrc.Config,
+			State:      dbSrc.State,
+			WorkflowID: wf.ID,
 		}
 
 		if val, ok := dbSrc.Config["reconnect_intervals"]; ok && val != "" {
