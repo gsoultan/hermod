@@ -163,6 +163,12 @@ func (s *RetrySink) Write(ctx context.Context, msg hermod.Message) error {
 			// charges for — an FCM send to a dead token — repeats the call.
 			return fmt.Errorf("sink refused the message: %w", err)
 		}
+		if errors.Is(err, hermod.ErrBusy) {
+			// Up, but no room. The engine waits that out without spending
+			// retries (pkg/engine/busy.go); asking again here, sooner than it
+			// could help, only spends the destination's slack.
+			return err
+		}
 		lastErr = err
 		if s.logger != nil {
 			s.logger.Warn("Sink write error, retrying", "attempt", i+1, "error", err)
@@ -216,6 +222,9 @@ func (s *RetrySink) WriteBatch(ctx context.Context, msgs []hermod.Message) error
 		}
 		if errors.Is(err, hermod.ErrPermanent) {
 			return fmt.Errorf("sink refused the batch: %w", err)
+		}
+		if errors.Is(err, hermod.ErrBusy) {
+			return err
 		}
 		lastErr = err
 		if s.logger != nil {

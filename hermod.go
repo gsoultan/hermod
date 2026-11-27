@@ -30,7 +30,45 @@ var (
 	// nothing about the sink's health. A sink reports it by wrapping it with
 	// %w, or with an error type whose Is method matches it.
 	ErrPermanent = errors.New("permanent failure")
+
+	// ErrBusy marks a failure that says the destination is up but has no room
+	// right now: a pool with no free connection, too many clients, a rate
+	// limit, a 429 or a 503. Waiting fixes it, and nothing else does.
+	//
+	// The engine waits it out: it does not count against the retry budget or
+	// the circuit breaker, and the sink shows "waiting" rather than an error.
+	// A sink reports it by wrapping it with %w, or with Busy when the
+	// destination said how long to wait.
+	ErrBusy = errors.New("busy")
 )
+
+// Busy is a busy answer that says how long to wait, such as a 429 or 503
+// with Retry-After. It matches ErrBusy.
+type Busy struct {
+	Err        error
+	RetryAfter time.Duration
+}
+
+func (b *Busy) Error() string {
+	if b.Err == nil {
+		return ErrBusy.Error()
+	}
+	return b.Err.Error()
+}
+
+func (b *Busy) Unwrap() error { return b.Err }
+
+// Is matches ErrBusy.
+func (b *Busy) Is(target error) bool { return target == ErrBusy }
+
+// RetryAfter is how long a busy answer asked to be left alone, when it said.
+func RetryAfter(err error) (time.Duration, bool) {
+	var b *Busy
+	if errors.As(err, &b) && b.RetryAfter > 0 {
+		return b.RetryAfter, true
+	}
+	return 0, false
+}
 
 // Operation defines the type of CDC operation.
 type Operation string
