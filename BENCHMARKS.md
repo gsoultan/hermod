@@ -455,9 +455,12 @@ every 1 s:
 | 3,000 | 100% of 450,000 | 12.9 s | 22.4 s | 23.4 s | 100 | 612,453 | 1.1 GiB |
 
 Every row arrived, but between 1,000 and 3,000 workflows the delay grows 25-fold while the
-database is nowhere near its limit (100 of 300 connections). The worker, not the database, is the
-bottleneck at this size: 200 goroutines a workflow under load. One worker process shares one pool
-per connection string, so the connection count here is one worker's; several workers each open
+database is far from its connection limit (100 of 300). The four cores are what ran out: during the
+3,000 run Hermod used about 230% CPU and PostgreSQL 100-145%. In Hermod's CPU profile message
+processing is about 15% of the time; most of the rest is the runtime scheduling, allocating stacks
+and channels for, and collecting after, 200 goroutines a workflow. So at this size the cost of
+running each workflow is what limits delivery, ahead of the database. One worker process shares one
+pool per connection string, so the connection count here is one worker's; several workers each open
 their own, which is what the per-database budget addresses.
 
 ## Not yet measured

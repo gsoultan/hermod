@@ -35,4 +35,7 @@ Traps found building it:
 Baseline (2026-11-27, 4 vCPU): an idle workflow is 139 goroutines and ~172 KiB,
 128 of them `runBufferToSink`'s per-engine message workers. 1,000 -> 3,000
 workflows on one database took delay p50 0.5 s -> 12.9 s at 100 of 300
-connections: the worker, not the database, is the bottleneck at that size.
+connections. The 4 cores saturated (Hermod ~230%, Postgres 100-145%); in
+Hermod's profile message processing was ~15% and the rest mostly runtime cost
+of ~200 goroutines per workflow. Hermod and the database share the host in this
+test, so read CPU split, not just connections, before blaming either.
