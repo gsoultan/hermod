@@ -160,7 +160,9 @@ func (t *ExecuteSQLTransformer) run(ctx context.Context, registry dbByID, msg he
 
 	res, err := db.ExecContext(ctx, sqlText, args...)
 	if err != nil {
-		return msg, fmt.Errorf("failed to execute SQL: %w", err)
+		// A server with no room refuses before running anything, so that
+		// one answer is busy and is waited out; see sqlutil.MarkBusy.
+		return msg, fmt.Errorf("failed to execute SQL: %w", sqlutil.MarkBusy(err))
 	}
 
 	// Optionally store affected rows
@@ -179,7 +181,7 @@ func (t *ExecuteSQLTransformer) run(ctx context.Context, registry dbByID, msg he
 func (t *ExecuteSQLTransformer) queryInto(ctx context.Context, db sqlutil.Querier, msg hermod.Message, config map[string]any, resultField, sqlText string, args []any) error {
 	rows, err := db.QueryContext(ctx, sqlText, args...)
 	if err != nil {
-		return fmt.Errorf("failed to execute SQL: %w", err)
+		return fmt.Errorf("failed to execute SQL: %w", sqlutil.MarkBusy(err))
 	}
 	defer func() { _ = rows.Close() }()
 

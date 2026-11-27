@@ -547,7 +547,7 @@ func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface 
 	use := poolUseOf(ctx, pool)
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute lookup query: %w", use.explain(err))
+		return nil, fmt.Errorf("failed to execute lookup query: %w", use.explain(sqlutil.MarkBusy(err)))
 	}
 	defer rows.Close()
 
@@ -780,7 +780,7 @@ func (t *DBLookupTransformer) lookupSQLWithTemplate(ctx context.Context, registr
 	use := poolUseOf(ctx, pool)
 	rows, err := db.QueryContext(ctx, sqlText, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute lookup query: %w", use.explain(err))
+		return nil, fmt.Errorf("failed to execute lookup query: %w", use.explain(sqlutil.MarkBusy(err)))
 	}
 	defer rows.Close()
 
