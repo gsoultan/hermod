@@ -7,6 +7,14 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Changed — an idle workflow costs 11 goroutines instead of 139
+
+Each running workflow used to start 128 message workers as it started, whether or not a message
+ever arrived. They now start as messages arrive: a message with an ordering key still always goes to
+the one worker that owns its key, so per-row order is unchanged, and a message without one starts
+another worker only when none is free. Measured on 10,000 idle workflows: 139 → 11 goroutines and
+172 → 49 KiB each; 1,000 busy workflows hold 16k goroutines instead of 140k.
+
 ### Added — a load test for many workflows on shared databases
 
 `internal/test/scale` measures what each running workflow costs while idle, and what happens to
