@@ -25,6 +25,9 @@ find a claim that outruns the code, fix the claim.
 
 ### Memories
 
+- [Scale load tests](scale_load_tests.md) — `internal/test/scale`: idle cost per
+  workflow and thousands of workflows on one real database; the import trap that
+  turns steps into silent pass-throughs; today's baseline.
 - [RabbitMQ sink: queue or exchange](rabbitmq_sink_exchanges.md) — exchange types,
   bound queue, mandatory+confirmed publishes, the channel-closed reconnect, form gate.
 - [What a saved workflow node may hold](workflow_node_hygiene.md) — `nodeclean`
