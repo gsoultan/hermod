@@ -21,6 +21,17 @@ own, and switches that pool off server-side prepared statements; `pgbouncer=true
 needed. A CDC source through PgBouncer is tried instead of refused, since PgBouncer 1.23 and
 later pass replication through; an older one gets an error that says so.
 
+### Fixed — CDC workflows on one replication slot share its stream instead of fighting over it
+
+A replication slot admits one reader, so a second CDC workflow on the same slot (the default
+slot name is shared) waited for good and never got a change; with a long slot name the two even
+terminated each other's stream in a loop, because the connection name that tells them apart was
+cut off. Workflows on one slot in a worker now share one replication stream: each gets the changes
+on its own tables, the publication covers all of their tables, and the slot is confirmed only
+past changes every workflow acknowledged. A workflow that stops is held for, up to 24 hours, and
+gets what it missed when it starts again. A CDC source whose slot does not exist yet is also no
+longer reported as not ready ("cannot scan NULL into *bool").
+
 ### Fixed — an admin password reset now lifts a login lockout, and a forged X-Forwarded-For no longer bypasses it
 
 After 5 failed logins a username is locked out for 15 minutes on that client IP. Setting a new

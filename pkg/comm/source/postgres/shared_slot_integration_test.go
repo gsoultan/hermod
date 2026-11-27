@@ -131,3 +131,18 @@ func TestCDCWorkflowBackOnASharedSlotGetsWhatItMissed(t *testing.T) {
 		t.Errorf("the running workflow got %d changes again during the replay", len(again))
 	}
 }
+
+// A workflow is ready to start on a slot this worker already streams for
+// another workflow: it will join that stream. The readiness check took any
+// active holder but the source itself for a competing consumer, and turned
+// every workflow after the first away.
+func TestCDCSourceIsReadyOnASlotThisWorkerAlreadyStreams(t *testing.T) {
+	first := newCDCFixture(t)
+	first.start(t, t.Context(), false)
+
+	second := NewPostgresSource(first.dsn, first.slot, first.pub, []string{first.table}, true, "", time.Second)
+	t.Cleanup(func() { _ = second.Close() })
+	if err := second.IsReady(t.Context()); err != nil {
+		t.Fatalf("IsReady on a slot this worker streams = %v, want nil", err)
+	}
+}

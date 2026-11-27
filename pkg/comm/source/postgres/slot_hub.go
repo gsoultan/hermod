@@ -113,6 +113,22 @@ func (r *hubRegistry) join(ctx context.Context, key, publication string, tables 
 	return sub, err
 }
 
+// streamName is the application_name the hub for key streams under, or ""
+// when this process has no hub for it. A slot held under that name is this
+// worker's own stream, which a workflow joins rather than competes with.
+func (r *hubRegistry) streamName(key string) string {
+	r.mu.Lock()
+	h := r.hubs[key]
+	r.mu.Unlock()
+	if h == nil {
+		return ""
+	}
+	if stream, ok := h.stream.(*PostgresSource); ok {
+		return stream.appName
+	}
+	return ""
+}
+
 // leave removes a workflow, and closes its hub when it was the last one.
 func (r *hubRegistry) leave(sub *hubSubscription) {
 	r.mu.Lock()

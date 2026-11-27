@@ -2474,7 +2474,7 @@ func (p *PostgresSource) IsReady(ctx context.Context) error {
 		if slotAppName != nil {
 			appName = *slotAppName
 		}
-		if appName != p.appName {
+		if appName != p.appName && appName != slotHubs.streamName(hubKey(p.connString, p.slotName)) {
 			pid := "unknown"
 			if slotPID != nil {
 				pid = fmt.Sprintf("%d", *slotPID)
