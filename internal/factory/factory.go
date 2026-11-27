@@ -1509,7 +1509,13 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 		}
 		return s, nil
 	case "telegram":
-		return telegram.NewTelegramSink(chatBotToken(cfg.Config), cfg.Config["chat_id"], fmttr), nil
+		s := telegram.NewTelegramSink(chatBotToken(cfg.Config), cfg.Config["chat_id"], fmttr)
+		// A topic of a forum group; empty posts in General. A topic that is
+		// not a number is refused at save rather than on the first message.
+		if err := s.SetMessageThreadID(cfg.Config["message_thread_id"]); err != nil {
+			return nil, err
+		}
+		return s, nil
 	case "discord":
 		return discord.NewDiscordSink(
 			cfg.Config["webhook_url"],

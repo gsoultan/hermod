@@ -44,8 +44,13 @@ func (c *captureTelegram) start(t *testing.T) {
 			<-c.block
 		}
 		raw, _ := io.ReadAll(r.Body)
-		var parsed map[string]string
-		_ = json.Unmarshal(raw, &parsed)
+		// Decoded loosely: message_thread_id is a number on the wire.
+		var loose map[string]any
+		_ = json.Unmarshal(raw, &loose)
+		parsed := make(map[string]string, len(loose))
+		for k, v := range loose {
+			parsed[k] = fmt.Sprint(v)
+		}
 
 		c.mu.Lock()
 		c.body = parsed
@@ -78,6 +83,34 @@ func testSettings() NotificationSettings {
 	return NotificationSettings{
 		TelegramToken:  "123:ABC",
 		TelegramChatID: "-1001",
+	}
+}
+
+// A forum group posts to General unless a message names a topic, and the
+// settings had nowhere to name one, so alerts could only go to General.
+func TestSendTelegramPostsIntoTheConfiguredTopic(t *testing.T) {
+	tg := &captureTelegram{}
+	tg.start(t)
+
+	ns := testSettings()
+	ns.TelegramTopicID = "7"
+	if err := ns.SendTelegram(t.Context(), "Workflow Error", "boom", storage.Workflow{Name: "wf"}); err != nil {
+		t.Fatalf("SendTelegram: %v", err)
+	}
+	if got := tg.sent()["message_thread_id"]; got != "7" {
+		t.Fatalf("message_thread_id = %q, want 7", got)
+	}
+}
+
+func TestSendTelegramWithoutATopicNamesNone(t *testing.T) {
+	tg := &captureTelegram{}
+	tg.start(t)
+
+	if err := testSettings().SendTelegram(t.Context(), "Workflow Error", "boom", storage.Workflow{Name: "wf"}); err != nil {
+		t.Fatalf("SendTelegram: %v", err)
+	}
+	if _, ok := tg.sent()["message_thread_id"]; ok {
+		t.Fatal("a topic was sent that nobody configured")
 	}
 }
 

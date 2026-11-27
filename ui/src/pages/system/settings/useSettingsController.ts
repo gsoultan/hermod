@@ -98,6 +98,7 @@ export function useSettingsController() {
     default_email: '',
     telegram_token: '',
     telegram_chat_id: '',
+    telegram_message_thread_id: '',
     slack_webhook: '',
     discord_webhook: '',
     webhook_url: '',

@@ -1,8 +1,11 @@
 import { Alert, Textarea } from '@mantine/core';
 import { TextInput } from '@/components/shared/ReferenceInputs';
+import { TelegramChatSetup } from './TelegramChatSetup';
 
 interface NotificationSinkConfigProps {
   type: string;
+  /** The vhost whose secrets the settings may reference. */
+  vhost?: string;
   config: any;
   updateConfig: (key: string, value: string) => void;
 }
@@ -15,26 +18,28 @@ interface NotificationSinkConfigProps {
  * the one that is reached. The three types below are what the sink picker sends
  * here.
  */
-export function NotificationSinkConfig({ type, config, updateConfig }: NotificationSinkConfigProps) {
+export function NotificationSinkConfig({ type, vhost, config, updateConfig }: NotificationSinkConfigProps) {
   switch (type) {
     case 'telegram':
       return (
         <>
-          <TextInput
-            label="Bot Token"
-            placeholder="123456:ABC-DEF..."
-            value={config.bot_token || ''}
-            onChange={(e) => updateConfig('bot_token', e.target.value)}
-            required
-            description="From @BotFather."
-          />
-          <TextInput
-            label="Chat ID"
-            placeholder="-100123456789"
-            value={config.chat_id || ''}
-            onChange={(e) => updateConfig('chat_id', e.target.value)}
-            required
-            description="The chat, channel or group the bot posts to."
+          <TelegramChatSetup
+            vhost={vhost}
+            token={config.bot_token || ''}
+            tokenField={
+              <TextInput
+                label="Bot Token"
+                placeholder="123456789:AAH..."
+                value={config.bot_token || ''}
+                onChange={(e) => updateConfig('bot_token', e.target.value)}
+                required
+                description="Treat it like a password: anyone with it can post as the bot."
+              />
+            }
+            chatId={config.chat_id || ''}
+            onChatIdChange={(v) => updateConfig('chat_id', v)}
+            topicId={config.message_thread_id || ''}
+            onTopicIdChange={(v) => updateConfig('message_thread_id', v)}
           />
           <Textarea
             label="Template"

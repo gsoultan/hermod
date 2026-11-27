@@ -7,6 +7,24 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — Telegram setup that finds the chat for you
+
+The Telegram sink and the Telegram alerts under **Settings → Connectivity** now set up in three
+steps instead of two bare fields. **Create a bot** links to @BotFather and checks the token
+(**Check bot** names the bot). **Choose who gets the messages** has a Person / Group / Channel
+switch, says what to do in Telegram for each, with one-tap links that open the bot to press Start
+or add it to a group or, as an administrator that can post, to a channel, and **Find my chats**
+lists the people, groups and channels the bot has seen so you pick one instead of hunting for a
+chat ID. A group with topics lists its topics, and the sink and alerts can now post into one
+(`message_thread_id`; empty posts in General). **Check it works** sends a real test message and
+names the chat it reached.
+
+Refusals say how to fix them, in the editor and in a failed run: a person who never pressed Start,
+a bot not in the group or not an admin of the channel, a removed topic, a rejected token. A group
+upgraded to a supergroup gets a button that switches to its new ID. The chat list reads the bot's
+pending updates without confirming them, so nothing else reading the bot loses messages; a bot
+whose updates go to a webhook (a Telegram chat source) says so and leaves the ID to be typed.
+
 ### Fixed — many workflows on one PostgreSQL source no longer time out waiting for a connection
 
 All workflows on one PostgreSQL source share one connection pool per worker, and a polling

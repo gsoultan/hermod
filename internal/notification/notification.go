@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"html"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -55,6 +57,9 @@ type NotificationSettings struct {
 
 	TelegramToken  string `json:"telegram_token"`
 	TelegramChatID string `json:"telegram_chat_id"`
+	// TelegramTopicID is the topic of a forum group to post in. Empty posts
+	// in General.
+	TelegramTopicID string `json:"telegram_message_thread_id"`
 
 	SlackWebhook   string `json:"slack_webhook"`
 	DiscordWebhook string `json:"discord_webhook"`
@@ -541,11 +546,15 @@ func (ns NotificationSettings) SendTelegram(ctx context.Context, title, message 
 // sendTelegramHTML sends text, already HTML-escaped, to the configured chat.
 func (ns NotificationSettings) sendTelegramHTML(ctx context.Context, text string) error {
 	apiURL := fmt.Sprintf("%s/bot%s/sendMessage", telegramAPIBase, ns.TelegramToken)
-	body, _ := json.Marshal(map[string]string{
+	payload := map[string]any{
 		"chat_id":    ns.TelegramChatID,
 		"text":       text,
 		"parse_mode": "HTML",
-	})
+	}
+	if topic, err := strconv.ParseInt(strings.TrimSpace(ns.TelegramTopicID), 10, 64); err == nil && topic > 0 {
+		payload["message_thread_id"] = topic
+	}
+	body, _ := json.Marshal(payload)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewBuffer(body))
 	if err != nil {
