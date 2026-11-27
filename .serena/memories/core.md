@@ -191,6 +191,9 @@ find a claim that outruns the code, fix the claim.
 - [The FCM sink](fcm_sink.md) — FCM's one-destination and 4096-byte rules, why
   batching is opt-in when there is no idempotency key, and the `option.WithEndpoint`
   seam that makes the wire format assertable.
+- [Telegram setup](telegram_setup.md) — the guided form shared by the sink and alert
+  settings, the chat-finder and test-send routes, why getUpdates never takes an offset, and
+  why setup errors answer 400 rather than 401.
 - [The gRPC source](grpc_source_ingress.md) — one fixed service and no user
   `.proto`, keys read from the current store per publish and an unknown path
   refused, and the open bug where Test Connection takes the path from a running

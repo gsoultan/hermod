@@ -57,3 +57,36 @@ func TestCreateSink_TelegramBuilds(t *testing.T) {
 	}
 	_ = snk.Close()
 }
+
+// The form's topic picker writes message_thread_id. A value that is not a
+// topic number would otherwise fail every message, so it is refused at save.
+func TestCreateSink_TelegramRefusesATopicThatIsNotANumber(t *testing.T) {
+	_, err := createSinkBase(SinkConfig{
+		ID:   "telegram-1",
+		Type: "telegram",
+		Config: hermod.StringMap{
+			"bot_token":         "123456:ABC",
+			"chat_id":           "-100123456789",
+			"message_thread_id": "alerts",
+		},
+	})
+	if err == nil {
+		t.Fatal("a topic of \"alerts\" was accepted")
+	}
+}
+
+func TestCreateSink_TelegramTakesATopic(t *testing.T) {
+	snk, err := createSinkBase(SinkConfig{
+		ID:   "telegram-1",
+		Type: "telegram",
+		Config: hermod.StringMap{
+			"bot_token":         "123456:ABC",
+			"chat_id":           "-100123456789",
+			"message_thread_id": "7",
+		},
+	})
+	if err != nil {
+		t.Fatalf("building the sink failed: %v", err)
+	}
+	_ = snk.Close()
+}

@@ -11,13 +11,8 @@
 package telegram
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
-
-	"github.com/gsoultan/hermod/pkg/infra/httpclient"
 
 	"github.com/gsoultan/hermod"
 )
@@ -26,6 +21,7 @@ import (
 type TelegramSink struct {
 	token     string
 	chatID    string
+	threadID  int64
 	formatter hermod.Formatter
 	baseURL   string
 }
@@ -36,8 +32,19 @@ func NewTelegramSink(token, chatID string, formatter hermod.Formatter) *Telegram
 		token:     token,
 		chatID:    chatID,
 		formatter: formatter,
-		baseURL:   "https://api.telegram.org",
+		baseURL:   DefaultBaseURL,
 	}
+}
+
+// SetMessageThreadID makes the sink post into one topic of a forum group.
+// Without it a message lands in the group's General topic. Empty clears it.
+func (s *TelegramSink) SetMessageThreadID(topicID string) error {
+	id, err := parseThreadID(topicID)
+	if err != nil {
+		return err
+	}
+	s.threadID = id
+	return nil
 }
 
 // Write sends a message to Telegram.
@@ -58,33 +65,17 @@ func (s *TelegramSink) Write(ctx context.Context, msg hermod.Message) error {
 		return fmt.Errorf("failed to format message: %w", err)
 	}
 
-	text := string(data)
-	apiURL := fmt.Sprintf("%s/bot%s/sendMessage", s.baseURL, s.token)
-	body, _ := json.Marshal(map[string]string{
+	body := map[string]any{
 		"chat_id":    s.chatID,
-		"text":       text,
+		"text":       string(data),
 		"parse_mode": "Markdown",
-	})
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewBuffer(body))
-	if err != nil {
-		return httpclient.RedactURLError(err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := httpclient.DataClient.Do(req)
-	if err != nil {
-		return httpclient.RedactURLError(err)
+	if s.threadID != 0 {
+		body["message_thread_id"] = s.threadID
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		var result map[string]any
-		_ = json.NewDecoder(resp.Body).Decode(&result)
-		return fmt.Errorf("telegram api returned status: %d, error: %v", resp.StatusCode, result["description"])
-	}
-
-	return nil
+	// The refusal carries the fix ("the person must press Start"), so a
+	// failed run says what to do, not only Telegram's two words.
+	return callAPI(ctx, s.baseURL, s.token, "sendMessage", body, nil)
 }
 
 func (s *TelegramSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
@@ -106,19 +97,8 @@ func (s *TelegramSink) WriteBatch(ctx context.Context, msgs []hermod.Message) er
 
 // Ping checks the connection to Telegram API.
 func (s *TelegramSink) Ping(ctx context.Context) error {
-	apiURL := fmt.Sprintf("%s/bot%s/getMe", s.baseURL, s.token)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
-	if err != nil {
-		return httpclient.RedactURLError(err)
-	}
-	resp, err := httpclient.DataClient.Do(req)
-	if err != nil {
-		return httpclient.RedactURLError(err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("invalid telegram token or connection error: %d", resp.StatusCode)
+	if err := callAPI(ctx, s.baseURL, s.token, "getMe", nil, nil); err != nil {
+		return fmt.Errorf("invalid telegram token or connection error: %w", err)
 	}
 	return nil
 }

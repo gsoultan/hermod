@@ -48,6 +48,8 @@ func (h *SinkHandler) RegisterSinkRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/sinks/smtp/validate", h.EditorOnly(h.ValidateEmail))
 	mux.Handle("POST /api/sinks/fcm/preview", h.EditorOnly(h.PreviewFcmMessage))
 	mux.Handle("POST /api/sinks/fcm/test-send", h.EditorOnly(h.SendFcmTestMessage))
+	mux.Handle("POST /api/sinks/telegram/chats", h.EditorOnly(h.FindTelegramChats))
+	mux.Handle("POST /api/sinks/telegram/test-send", h.EditorOnly(h.SendTelegramTestMessage))
 	mux.Handle("POST /api/sinks/txsql/test", h.EditorOnly(h.TestTxSQLSink))
 	mux.Handle("POST /api/sinks/txsql/compile", h.EditorOnly(h.CompileTxSQLSink))
 	mux.Handle("DELETE /api/sinks/{id}", h.EditorOnly(h.DeleteSink))

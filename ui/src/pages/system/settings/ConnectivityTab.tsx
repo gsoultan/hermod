@@ -2,6 +2,7 @@ import { Button, Checkbox, Code, Group, NumberInput, Paper, PasswordInput, Simpl
 import { IconBrandDiscord, IconBrandSlack, IconBrandTelegram, IconMail, IconMailForward, IconWebhook } from '@tabler/icons-react';
 
 import type { SettingsController } from './useSettingsController';
+import { TelegramChatSetup } from '@/components/workflow/Sink/TelegramChatSetup';
 
 /** The "connectivity" tab of Settings. State lives in useSettingsController. */
 export function ConnectivityTab({ ctx }: { ctx: SettingsController }) {
@@ -146,17 +147,24 @@ export function ConnectivityTab({ ctx }: { ctx: SettingsController }) {
                 <Title order={4}>Telegram</Title>
               </Group>
               <Stack gap="md">
-                <PasswordInput
-                  label="Bot Token"
-                  placeholder="123456789:ABCDEF..."
-                  value={notifSettings.telegram_token}
-                  onChange={(e) => setNotifSettings({ ...notifSettings, telegram_token: e.target.value })}
-                />
-                <TextInput
-                  label="Default Chat ID"
-                  placeholder="-100123456789"
-                  value={notifSettings.telegram_chat_id}
-                  onChange={(e) => setNotifSettings({ ...notifSettings, telegram_chat_id: e.target.value })}
+                <TelegramChatSetup
+                  token={notifSettings.telegram_token || ''}
+                  tokenField={
+                    <PasswordInput
+                      label="Bot Token"
+                      placeholder="123456789:AAH..."
+                      value={notifSettings.telegram_token}
+                      onChange={(e) => setNotifSettings({ ...notifSettings, telegram_token: e.target.value })}
+                    />
+                  }
+                  chatLabel="Default Chat ID"
+                  chatId={notifSettings.telegram_chat_id || ''}
+                  // Functional updates: picking a chat writes the chat and clears
+                  // the topic in one go, and a copy of this render's settings
+                  // in the second write would put back the old chat ID.
+                  onChatIdChange={(v) => setNotifSettings((s) => ({ ...s, telegram_chat_id: v }))}
+                  topicId={notifSettings.telegram_message_thread_id || ''}
+                  onTopicIdChange={(v) => setNotifSettings((s) => ({ ...s, telegram_message_thread_id: v }))}
                 />
                 <Checkbox
                   label="Send every dead-lettered message to Telegram"
