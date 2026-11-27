@@ -157,6 +157,9 @@ find a claim that outruns the code, fix the claim.
 - [Push sources hold a path](push_source_path_registry.md) — gRPC, webhook,
   GraphQL and form share `sourcebuf.PathRegistry`; a source built while another
   holds the path waits and takes over on its first Read, so a probe takes nothing.
+- [Scheduled runs](scheduled_runs.md) — cron runs one at a time, carries
+  `{{meta.last_success_at}}` (moves only on success, kept in source state);
+  every source wrapper must pass `hermod.RunFinisher` on.
 - [Busy is not failed](busy_is_not_failed.md) — wrap `hermod.ErrBusy` (or
   `hermod.Busy` with Retry-After) and the engine waits it out: no retries spent,
   no breaker, no stall restart, sink shows `waiting`. Steps too, through the

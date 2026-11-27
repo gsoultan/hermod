@@ -512,7 +512,15 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 	case "form":
 		src = sourceform.NewFormSource(cfg.Config["path"], nil) // Storage will be injected by Registry
 	case "cron":
-		src = cron.NewCronSource(cfg.Config["schedule"], cfg.Config["payload"])
+		cs := cron.NewCronSource(cfg.Config["schedule"], cfg.Config["payload"])
+		if v := strings.TrimSpace(cfg.Config["max_run_duration"]); v != "" {
+			d, perr := time.ParseDuration(v)
+			if perr != nil || d <= 0 {
+				return nil, fmt.Errorf("cron: max_run_duration %q is not a positive duration such as %q", v, "1h")
+			}
+			cs.SetMaxRunDuration(d)
+		}
+		src = cs
 	case "sap":
 		sapCfg := sourcesap.SourceConfig{
 			Host:         cfg.Config["host"],

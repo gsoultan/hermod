@@ -44,6 +44,9 @@ var exempt = map[string]string{
 	"googleanalytics": "lastFetch records when the source last polled, not what it consumed: " +
 		"it gates the poll interval and appears in the message id, and nothing filters the " +
 		"API query by it. Advancing it on read loses nothing.",
+	"cron": "lastSuccess is moved only by RunFinished(msg, true), which the engine calls once " +
+		"the run's whole workflow has finished; Read never touches it. A firing carries no " +
+		"data of its own to acknowledge, so a no-op Ack loses nothing.",
 }
 
 // bodyIsTrivial reports whether fn does nothing but return nil.

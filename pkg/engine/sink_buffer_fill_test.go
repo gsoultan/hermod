@@ -93,7 +93,17 @@ func TestSinkBufferFillOfAKeepingUpSinkStaysLow(t *testing.T) {
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline) && eng.GetStatus().ProcessedCount < 200; {
 		time.Sleep(10 * time.Millisecond)
 	}
+	// A message counts as processed when its write is answered, a moment
+	// before the writer stops counting its batch as held (the deferred
+	// decrement in flush). Reading in that moment saw one message of 128 --
+	// 0.8% -- on a busy CI machine. So the reading is given a second to
+	// settle; a sink that really kept messages back still reads above zero
+	// at the end of it.
 	got := eng.GetStatus().SinkBufferFill["s1"]
+	for deadline := time.Now().Add(time.Second); got != 0 && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+		got = eng.GetStatus().SinkBufferFill["s1"]
+	}
 	cancel()
 	<-done
 	if got != 0 {
