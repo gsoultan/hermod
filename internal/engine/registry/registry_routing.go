@@ -229,6 +229,21 @@ func (m *multiSource) Ack(ctx context.Context, msg hermod.Message) error {
 	return nil
 }
 
+// RunFinished passes on how a run ended to the source node that read it, when
+// that source wants to know (hermod.RunFinisher).
+func (m *multiSource) RunFinished(msg hermod.Message, ok bool) {
+	nodeID, _ := hermod.MetadataValue(msg, "_source_node_id")
+	for _, s := range m.sources {
+		if s.nodeID != nodeID {
+			continue
+		}
+		if f, isFinisher := s.source.(hermod.RunFinisher); isFinisher {
+			f.RunFinished(msg, ok)
+		}
+		return
+	}
+}
+
 func (m *multiSource) GetState() map[string]string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -319,6 +334,34 @@ func (s *statefulSource) Ack(ctx context.Context, msg hermod.Message) error {
 	}
 	return nil
 }
+
+// RunFinished passes on how a run ended, and saves the state at once: a run
+// that succeeded is what moves a cron source's "last successful run", and
+// saved only on the next Ack it would come back one run behind after a
+// restart.
+func (s *statefulSource) RunFinished(msg hermod.Message, ok bool) {
+	f, isFinisher := s.Source.(hermod.RunFinisher)
+	if !isFinisher {
+		return
+	}
+	f.RunFinished(msg, ok)
+	st, stateful := s.Source.(hermod.Stateful)
+	if !stateful || s.registry == nil || s.registry.storage == nil {
+		return
+	}
+	state := st.GetState()
+	if len(state) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), runStateSaveTimeout)
+	defer cancel()
+	if err := s.registry.storage.UpdateSourceState(ctx, s.sourceID, state); err != nil && s.registry.logger != nil {
+		s.registry.logger.Error("Failed to persist source state after a run", "source_id", s.sourceID, "error", err)
+	}
+}
+
+// runStateSaveTimeout bounds saving a source's state after a run.
+const runStateSaveTimeout = 10 * time.Second
 
 func (s *statefulSource) GetState() map[string]string {
 	if st, ok := s.Source.(hermod.Stateful); ok {

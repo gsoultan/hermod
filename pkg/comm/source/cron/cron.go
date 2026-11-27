@@ -12,12 +12,11 @@ package cron
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"sync"
+	"time"
 
-	"github.com/google/uuid"
 	"github.com/gsoultan/hermod"
-	"github.com/gsoultan/hermod/pkg/comm/message"
 	"github.com/robfig/cron/v3"
 )
 
@@ -28,6 +27,14 @@ type CronSource struct {
 	cron     *cron.Cron
 	ch       chan hermod.Message
 	entryID  cron.EntryID
+
+	// One run at a time (runs.go). mu guards the rest.
+	mu          sync.Mutex
+	running     string // id of the run in progress, empty when none
+	scheduledAt map[string]time.Time
+	skipped     int
+	lastSuccess time.Time
+	maxRun      time.Duration
 }
 
 // NewCronSource creates a new CronSource.
@@ -37,6 +44,7 @@ func NewCronSource(schedule, payload string) *CronSource {
 		Payload:  payload,
 		cron:     cron.New(),
 		ch:       make(chan hermod.Message, 10),
+		maxRun:   defaultMaxRunDuration,
 	}
 }
 
@@ -44,28 +52,7 @@ func NewCronSource(schedule, payload string) *CronSource {
 func (s *CronSource) Read(ctx context.Context) (hermod.Message, error) {
 	if s.entryID == 0 {
 		var err error
-		s.entryID, err = s.cron.AddFunc(s.Schedule, func() {
-			msg := message.AcquireMessage()
-			// One id per firing. Traces, runs and idempotency keys are all
-			// keyed by message id; "cron_<entry>" was the same for every
-			// firing, so every run a schedule made became one trace.
-			msg.SetID("cron_" + uuid.NewString())
-			msg.SetOperation(hermod.OpSnapshot)
-			msg.SetTable("cron")
-
-			if s.Payload != "" {
-				var data map[string]any
-				if err := json.Unmarshal([]byte(s.Payload), &data); err == nil {
-					msg.SetAfter([]byte(s.Payload))
-				}
-			}
-
-			select {
-			case s.ch <- msg:
-			default:
-				message.ReleaseMessage(msg)
-			}
-		})
+		s.entryID, err = s.cron.AddFunc(s.Schedule, func() { s.fire(time.Now()) })
 		if err != nil {
 			return nil, fmt.Errorf("failed to schedule cron: %w", err)
 		}

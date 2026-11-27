@@ -193,6 +193,19 @@ type ColumnInfo struct {
 	Default    string `json:"default"`
 }
 
+// RunFinisher is an optional interface for a source that needs to know when
+// the engine has finished with a message it read, whatever became of it: ok is
+// true when the message was delivered, or the workflow ran and had nothing to
+// deliver, and false when it failed or was parked in the dead letter.
+//
+// It is not Ack. Ack means "do not hand this over again", and the engine also
+// calls it after parking a message; a failed message that was not parked is
+// not acknowledged at all. A scheduled source needs to hear about every
+// message, and to tell success from the rest.
+type RunFinisher interface {
+	RunFinished(msg Message, ok bool)
+}
+
 // Stateful defines an optional interface for sources and sinks that have persistent state.
 type Stateful interface {
 	GetState() map[string]string

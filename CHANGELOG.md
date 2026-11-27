@@ -7,6 +7,26 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Changed — scheduled workflows run one at a time and know their last successful run
+
+A cron source used to fire on every tick, whether or not the last run had finished. When a run took
+longer than the interval, the next one overlapped it. The two fought over the same rows and
+connections, each ran slower than the last, and every run ended in a timeout. Now:
+
+- **One run at a time.** A tick that comes while the last run is still going is skipped, and the next
+  run carries `skipped_ticks`. If the engine never reports back on a run, the schedule stops waiting
+  after **Longest a run may take** (`max_run_duration`, default `1h`) and treats it as failed.
+- **The last successful run.** Each run carries `{{meta.last_success_at}}`: when the last run that
+  succeeded was due (RFC 3339, UTC; empty before the first). It moves only when a run succeeds, and it
+  is saved with the source's state, so it survives a restart. A query that reads "changed since then"
+  instead of a fixed window such as `now() - interval '1 day'` does less work on every run, and loses
+  nothing when runs fail for a while:
+  `"LastUpdated" >= COALESCE(NULLIF({{meta.last_success_at}}, '')::timestamptz, now() - interval '1 day')`.
+  Each run also carries `{{meta.scheduled_at}}`.
+
+Sources hear how each run ended through the new optional `hermod.RunFinisher` interface. It isn't
+`Ack`: `Ack` is skipped for a failure that wasn't parked, and is sent for one that was.
+
 ### Added — Telegram setup that finds the chat for you
 
 The Telegram sink and the Telegram alerts under **Settings → Connectivity** now set up in three

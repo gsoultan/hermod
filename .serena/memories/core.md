@@ -154,6 +154,9 @@ find a claim that outruns the code, fix the claim.
 - [Push sources hold a path](push_source_path_registry.md) — gRPC, webhook,
   GraphQL and form share `sourcebuf.PathRegistry`; a source built while another
   holds the path waits and takes over on its first Read, so a probe takes nothing.
+- [Scheduled runs](scheduled_runs.md) — cron runs one at a time, carries
+  `{{meta.last_success_at}}` (moves only on success, kept in source state);
+  every source wrapper must pass `hermod.RunFinisher` on.
 - [Permanent refusals](permanent_refusals.md) — wrap `hermod.ErrPermanent` and the
   retry decorator, the engine's retry loop and the circuit breaker all skip it;
   without a dead-letter sink the backoff wait is kept so redelivery cannot spin.
