@@ -25,6 +25,9 @@ type SourceConfig struct {
 	Config             hermod.StringMap `json:"config"`
 	State              hermod.StringMap `json:"state"`
 	ReconnectIntervals []time.Duration  `json:"-"`
+	// WorkflowID is the workflow the source reads for, when there is one.
+	// Sources that share a stream among workflows tell them apart by it.
+	WorkflowID string `json:"-"`
 }
 
 type SinkConfig struct {

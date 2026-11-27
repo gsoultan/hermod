@@ -109,8 +109,26 @@ type PostgresSource struct {
 	// hubOwned marks the PostgresSource a hub streams through: it holds the
 	// replication connection itself instead of joining a hub.
 	hubOwned bool
-	pool     *pgxpool.Pool // Shared connection pool for metadata
-	replConn *pgx.Conn     // Replication connection for streaming
+	// member names the workflow on a shared slot. See SetSharedSlotMember.
+	member hubMember
+	// hold caps the position confirmed to the slot while holding, so the
+	// slot can replay to a workflow that stopped. Guarded by mu. See slotHub.
+	hold    pglogrepl.LSN
+	holding bool
+	// rewindFrom caps the confirmed position too, from a rewind until the
+	// stream has reconnected and the slot's replay has started there.
+	rewindFrom pglogrepl.LSN
+	rewinding  bool
+	rewindGen  uint64
+	// rewindConn ends the current replication connection, so streamLoop
+	// reconnects and the slot replays from its confirmed position. Guarded
+	// by mu.
+	rewindConn context.CancelFunc
+	// txnCommitLSN is the commit position of the transaction being received,
+	// from its Begin. Belongs to the stream goroutine.
+	txnCommitLSN pglogrepl.LSN
+	pool         *pgxpool.Pool // Shared connection pool for metadata
+	replConn     *pgx.Conn     // Replication connection for streaming
 
 	// initialLoad asks for the rows already in the watched tables to be carried
 	// across before streaming begins. Off by default: turning it on for an
@@ -735,6 +753,9 @@ func (p *PostgresSource) streamLoop(ctx context.Context) {
 
 	backoff := time.Second
 	for ctx.Err() == nil {
+		p.mu.Lock()
+		gen := p.rewindGen
+		p.mu.Unlock()
 		conn, err := p.acquireStreamConn(ctx)
 		if err != nil {
 			backoff = p.waitStreamBackoff(ctx, err, backoff)
@@ -742,7 +763,21 @@ func (p *PostgresSource) streamLoop(ctx context.Context) {
 		}
 		backoff = time.Second
 
-		err = p.consumeStream(ctx, conn)
+		connCtx, endConn := p.streamStarted(ctx, gen)
+		err = p.consumeStream(connCtx, conn)
+		p.mu.Lock()
+		p.rewindConn = nil
+		p.mu.Unlock()
+		rewound := connCtx.Err() != nil && ctx.Err() == nil
+		endConn()
+		if rewound {
+			// A workflow on the shared slot came back: confirm what is
+			// acknowledged, then reconnect so the slot replays from there.
+			p.log("INFO", "Replaying the replication slot for a workflow that is starting again", "slot", p.slotName)
+			p.confirmFinalPosition(conn)
+			p.closeReplConn()
+			continue
+		}
 
 		// Only a shutdown retires the source. Anything else reconnects.
 		//
@@ -1292,6 +1327,7 @@ func (p *PostgresSource) handleXLogData(ctx context.Context, data []byte) error 
 	switch lm := logicalMsg.(type) {
 	case *pglogrepl.BeginMessage:
 		p.inTxn, p.txnRowDropped = true, false
+		p.txnCommitLSN = lm.FinalLSN
 		return nil
 	case *pglogrepl.CommitMessage:
 		p.inTxn = false
@@ -1314,6 +1350,10 @@ func (p *PostgresSource) handleXLogData(ctx context.Context, data []byte) error 
 
 // emit dispatches a row change and then runs the afterEmit hook, if any.
 func (p *PostgresSource) emit(ctx context.Context, lsn pglogrepl.LSN, msg hermod.Message) error {
+	if msg != nil && p.hubOwned && p.txnCommitLSN != 0 {
+		// The hub tells a replay from new changes by it.
+		msg.SetMetadata("commit_lsn", p.txnCommitLSN.String())
+	}
 	if err := p.dispatch(ctx, lsn, msg); err != nil {
 		p.txnRowDropped = true
 		return err
@@ -2312,11 +2352,67 @@ func (p *PostgresSource) Ack(ctx context.Context, msg hermod.Message) error {
 // advanceAckedLocked moves lastAckedLSN up to the acknowledgement window's
 // position and reports whether it moved. Callers must hold p.mu.
 func (p *PostgresSource) advanceAckedLocked() bool {
-	if p.acks.safe > p.lastAckedLSN {
-		p.lastAckedLSN = p.acks.safe
+	target := p.acks.safe
+	if p.holding {
+		target = min(target, p.hold)
+	}
+	if p.rewinding {
+		target = min(target, p.rewindFrom)
+	}
+	if target > p.lastAckedLSN {
+		p.lastAckedLSN = target
 		return true
 	}
 	return false
+}
+
+// confirmed is the position confirmed to the slot. See hubStream.
+func (p *PostgresSource) confirmed() pglogrepl.LSN {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.lastAckedLSN
+}
+
+// setHold caps the confirmed position at lsn, or lifts the cap. See hubStream.
+func (p *PostgresSource) setHold(lsn pglogrepl.LSN, ok bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.hold, p.holding = lsn, ok
+	p.advanceAckedLocked()
+}
+
+// rewind makes the stream reconnect, which replays from the slot's confirmed
+// position. See hubStream.
+func (p *PostgresSource) rewind(from pglogrepl.LSN) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.rewinding {
+		from = min(from, p.rewindFrom)
+	}
+	p.rewindFrom, p.rewinding = from, true
+	p.rewindGen++
+	if p.rewindConn != nil {
+		p.rewindConn()
+	}
+}
+
+// streamStarted is told that a replication connection is up, from rewind
+// generation gen. With no rewind asked for since gen, the slot's replay has
+// started where the rewind needed and its cap is lifted; with one asked for
+// meanwhile, the connection may have started before it, so it is ended and
+// the next one replays. It returns the cancel that ends this connection.
+func (p *PostgresSource) streamStarted(ctx context.Context, gen uint64) (context.Context, context.CancelFunc) {
+	connCtx, endConn := context.WithCancel(ctx)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.rewindGen == gen {
+		p.rewinding = false
+		p.advanceAckedLocked()
+	} else {
+		endConn()
+	}
+	p.rewindConn = endConn
+	return connCtx, endConn
 }
 
 func (p *PostgresSource) Ping(ctx context.Context) error {

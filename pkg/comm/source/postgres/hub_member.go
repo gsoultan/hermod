@@ -16,6 +16,16 @@ import (
 	"github.com/gsoultan/hermod"
 )
 
+// SetSharedSlotMember names the workflow this source reads for. Workflows on
+// a shared slot are told apart by it, so one that stops is held for and
+// replayed to when it starts again; without it, a source that stops resumes
+// where the shared stream is.
+func (p *PostgresSource) SetSharedSlotMember(workflowID string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.member = hubMember(workflowID)
+}
+
 // joinHub puts this CDC source on the hub for its slot instead of opening a
 // replication connection of its own. See slotHub.
 func (p *PostgresSource) joinHub(ctx context.Context) error {
@@ -28,7 +38,7 @@ func (p *PostgresSource) joinHub(ctx context.Context) error {
 		created = true
 		return p.newHubStream(logs)
 	}
-	sub, err := slotHubs.join(ctx, hubKey(p.connString, p.slotName), p.publicationName, tables, logger, newStream)
+	sub, err := slotHubs.join(ctx, hubKey(p.connString, p.slotName), p.publicationName, tables, logger, newStream, p.member)
 	if err != nil {
 		p.log("ERROR", "PostgresSource initialization failed",
 			"slot", p.slotName, "publication", p.publicationName, "error", err)

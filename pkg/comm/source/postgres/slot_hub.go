@@ -22,6 +22,7 @@ import (
 
 	"github.com/gsoultan/hermod"
 	sourcebuf "github.com/gsoultan/hermod/pkg/comm/source"
+	"github.com/jackc/pglogrepl"
 )
 
 // A replication slot admits one walsender, and every slot decodes the whole
@@ -41,6 +42,35 @@ type hubStream interface {
 	Ack(ctx context.Context, msg hermod.Message) error
 	Close() error
 	setTables(ctx context.Context, tables []string) error
+	// confirmed is the position the stream has confirmed to the slot.
+	confirmed() pglogrepl.LSN
+	// setHold stops the stream confirming the slot past lsn, or with ok
+	// false lets it go on.
+	setHold(lsn pglogrepl.LSN, ok bool)
+	// rewind restarts the stream from the slot's confirmed position, and
+	// confirms nothing past from until it has.
+	rewind(from pglogrepl.LSN)
+}
+
+// hubMember names a workflow on a shared slot, so the hub knows it again
+// when it comes back. Empty for a source no workflow named.
+type hubMember string
+
+// sharedSlotHoldLimit is how long the slot is held for a workflow that
+// stopped. The server keeps WAL from the held position for that long, so a
+// workflow that is never started again, or deleted, costs disk only up to
+// this; then it resumes where the stream is.
+const sharedSlotHoldLimit = 24 * time.Hour
+
+// absence is a stopped workflow the slot is held for.
+type absence struct {
+	// safe is the commit position up to which it acknowledged every
+	// transaction it was handed: replaying it more would be duplicates.
+	safe pglogrepl.LSN
+	// freeze is where the slot was confirmed when it stopped, and must stay
+	// until it is back, so the slot can replay what it missed.
+	freeze pglogrepl.LSN
+	timer  *time.Timer
 }
 
 // hubReadErrorPause keeps a stream that keeps failing from spinning the
@@ -67,7 +97,7 @@ func hubKey(connString, slot string) string {
 // when the workflow brings new tables: that serialises joins, but keeps a hub
 // from closing under a workflow that is joining it.
 func (r *hubRegistry) join(ctx context.Context, key, publication string, tables []string, logger hermod.Logger,
-	newStream func(logs hermod.Logger) hubStream) (*hubSubscription, error) {
+	newStream func(logs hermod.Logger) hubStream, member hubMember) (*hubSubscription, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	h := r.hubs[key]
@@ -75,7 +105,7 @@ func (r *hubRegistry) join(ctx context.Context, key, publication string, tables 
 		h = newSlotHub(key, publication, tables, newStream)
 		r.hubs[key] = h
 	}
-	sub, err := h.join(ctx, publication, tables, logger)
+	sub, err := h.join(ctx, publication, tables, logger, member)
 	if err != nil && h.empty() {
 		delete(r.hubs, key)
 		h.close()
@@ -115,6 +145,10 @@ type slotHub struct {
 	// follows every table.
 	tables map[string]struct{}
 	all    bool
+	// absent holds the workflows that stopped while others went on. See
+	// absence.
+	absent    map[hubMember]*absence
+	holdLimit time.Duration
 }
 
 // fanout is one change from the stream and how many acknowledgements it
@@ -138,6 +172,8 @@ func newSlotHub(key, publication string, tables []string, newStream func(logs he
 		subs:        map[*hubSubscription]struct{}{},
 		pending:     map[string][]*fanout{},
 		tables:      map[string]struct{}{},
+		absent:      map[hubMember]*absence{},
+		holdLimit:   sharedSlotHoldLimit,
 	}
 	h.widenLocked(tables)
 	go h.run(ctx)
@@ -145,7 +181,7 @@ func newSlotHub(key, publication string, tables []string, newStream func(logs he
 }
 
 // join adds a workflow and widens the publication to its tables.
-func (h *slotHub) join(ctx context.Context, publication string, tables []string, logger hermod.Logger) (*hubSubscription, error) {
+func (h *slotHub) join(ctx context.Context, publication string, tables []string, logger hermod.Logger, member hubMember) (*hubSubscription, error) {
 	if publication != h.publication {
 		return nil, fmt.Errorf("replication slot is already streaming publication %q in this worker, not %q; "+
 			"workflows on one slot must use the same publication, or name a slot of their own", h.publication, publication)
@@ -157,8 +193,10 @@ func (h *slotHub) join(ctx context.Context, publication string, tables []string,
 		errs:        make(chan error, 1),
 		done:        make(chan struct{}),
 		outstanding: map[string]int{},
+		member:      member,
 	}
 	h.mu.Lock()
+	h.returnLocked(sub)
 	wasAll := h.all
 	added := h.widenLocked(tables)
 	widened := h.all != wasAll || len(added) > 0
@@ -181,6 +219,69 @@ func (h *slotHub) join(ctx context.Context, publication string, tables []string,
 		h.logs.add(sub, logger)
 	}
 	return sub, nil
+}
+
+// returnLocked picks up where a returning workflow left off: the stream
+// replays from the slot, held where it stopped, and every workflow skips
+// what it already acknowledged, so only this one gets what it missed.
+//
+// The rewind comes before the hold is lifted, so nothing past the held
+// position is confirmed in between, and the workflow is on the hub in the
+// same critical section, so no replayed change is dispatched without it.
+func (h *slotHub) returnLocked(sub *hubSubscription) {
+	away, ok := h.absent[sub.member]
+	if sub.member == "" || !ok {
+		return
+	}
+	away.timer.Stop()
+	delete(h.absent, sub.member)
+	sub.skip = away.safe
+	h.stream.rewind(away.freeze)
+	h.applyHoldLocked()
+}
+
+// awayLocked holds the slot for a workflow that stopped while others go on.
+func (h *slotHub) awayLocked(sub *hubSubscription) {
+	if sub.member == "" || len(h.subs) == 0 {
+		return
+	}
+	for other := range h.subs {
+		if other.member == sub.member {
+			return // the same workflow is running again already
+		}
+	}
+	away := &absence{safe: max(sub.skip, sub.window.safe), freeze: h.stream.confirmed()}
+	away.timer = time.AfterFunc(h.holdLimit, func() { h.expire(sub.member, away) })
+	h.absent[sub.member] = away
+	h.applyHoldLocked()
+}
+
+// expire lets the slot go on past a workflow that stayed away too long.
+func (h *slotHub) expire(member hubMember, away *absence) {
+	h.mu.Lock()
+	if h.absent[member] != away {
+		h.mu.Unlock()
+		return
+	}
+	delete(h.absent, member)
+	h.applyHoldLocked()
+	h.mu.Unlock()
+	h.logs.Warn("A workflow on a shared replication slot stayed stopped past the hold limit; "+
+		"the slot is no longer held for it, and when it starts again it misses the changes made meanwhile",
+		"workflow", string(member), "hold_limit", h.holdLimit.String())
+}
+
+// applyHoldLocked holds the stream at the earliest place a stopped workflow
+// needs, or releases it.
+func (h *slotHub) applyHoldLocked() {
+	var hold pglogrepl.LSN
+	held := false
+	for _, away := range h.absent {
+		if !held || away.freeze < hold {
+			hold, held = away.freeze, true
+		}
+	}
+	h.stream.setHold(hold, held)
 }
 
 // widenLocked adds tables to the union and returns the ones it added. An
@@ -235,6 +336,9 @@ func (h *slotHub) leave(sub *hubSubscription) bool {
 	close(sub.done)
 	delete(h.subs, sub)
 	h.logs.remove(sub)
+	// Before its acknowledgements are settled: settling lets the stream
+	// confirm past changes this workflow never processed.
+	h.awayLocked(sub)
 	var settled []hermod.Message
 	for lsn, n := range sub.outstanding {
 		for range n {
@@ -296,6 +400,12 @@ func (h *slotHub) ackStream(ctx context.Context, msgs ...hermod.Message) error {
 // close stops the reader and the stream. The stream's Close drops a slot
 // that is not persistent, which is right only once no workflow is left on it.
 func (h *slotHub) close() {
+	h.mu.Lock()
+	for member, away := range h.absent {
+		away.timer.Stop()
+		delete(h.absent, member)
+	}
+	h.mu.Unlock()
 	h.cancel()
 	_ = h.stream.Close()
 	<-h.done
@@ -356,10 +466,11 @@ func (h *slotHub) broadcast(err error) {
 // slot back forever.
 func (h *slotHub) dispatch(ctx context.Context, msg hermod.Message) {
 	lsn := msg.Metadata()["lsn"]
+	commit := commitOf(msg)
 	h.mu.Lock()
 	var targets []*hubSubscription
 	for sub := range h.subs {
-		if sub.match.matches(msg.Schema(), msg.Table()) {
+		if sub.match.matches(msg.Schema(), msg.Table()) && !sub.hasLocked(commit) {
 			targets = append(targets, sub)
 		}
 	}
@@ -367,6 +478,9 @@ func (h *slotHub) dispatch(ctx context.Context, msg hermod.Message) {
 		h.pending[lsn] = append(h.pending[lsn], &fanout{msg: msg, left: len(targets)})
 		for _, sub := range targets {
 			sub.outstanding[lsn]++
+			if commit != 0 {
+				sub.window.emit(commit)
+			}
 		}
 	}
 	h.mu.Unlock()
@@ -403,9 +517,36 @@ type hubSubscription struct {
 	errs  chan error
 	done  chan struct{}
 
+	member hubMember
+
 	// Guarded by hub.mu.
 	left        bool
 	outstanding map[string]int
+	// window orders this workflow's acknowledgements by transaction commit,
+	// and skip is where it left off when it last stopped: together they say
+	// which transactions it has acknowledged in full, which a replay skips.
+	window ackWindow
+	skip   pglogrepl.LSN
+}
+
+// hasLocked reports whether this workflow acknowledged every change of the
+// transaction committed at commit already. A change with no commit position
+// is never skipped.
+func (s *hubSubscription) hasLocked(commit pglogrepl.LSN) bool {
+	return commit != 0 && commit <= max(s.skip, s.window.safe)
+}
+
+// commitOf is the commit position of the transaction msg belongs to, or 0.
+func commitOf(msg hermod.Message) pglogrepl.LSN {
+	raw := msg.Metadata()["commit_lsn"]
+	if raw == "" {
+		return 0
+	}
+	lsn, err := pglogrepl.ParseLSN(raw)
+	if err != nil {
+		return 0
+	}
+	return lsn
 }
 
 // read returns the next change for this workflow.
@@ -445,6 +586,9 @@ func (s *hubSubscription) ack(ctx context.Context, msg hermod.Message) error {
 		delete(s.outstanding, lsn)
 	} else {
 		s.outstanding[lsn] = n - 1
+	}
+	if commit := commitOf(msg); commit != 0 {
+		s.window.ack(commit)
 	}
 	settled := h.settleLocked(lsn)
 	h.mu.Unlock()

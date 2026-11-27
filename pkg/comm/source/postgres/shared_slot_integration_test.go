@@ -83,3 +83,51 @@ func TestCDCWorkflowsOnOneSlotGetOnlyTheirOwnTables(t *testing.T) {
 		}
 	}
 }
+
+// A workflow on a shared slot that stops and starts again gets the changes
+// made while it was stopped, and the workflow that kept running does not get
+// them twice. Before, it rejoined at the stream's current position and never
+// saw them.
+func TestCDCWorkflowBackOnASharedSlotGetsWhatItMissed(t *testing.T) {
+	a := newCDCFixture(t)
+	a.member = "wf-a"
+	ctx := t.Context()
+	a.start(t, ctx, true)
+	b := &cdcFixture{dsn: a.dsn, db: a.db, table: a.table, slot: a.slot, pub: a.pub, member: "wf-b"}
+	b.start(t, ctx, true)
+
+	insert := func(name string) {
+		mustExec(t, a.db, fmt.Sprintf(`INSERT INTO %s (name) VALUES ('%s')`, a.table, name))
+	}
+	takeInsert := func(f *cdcFixture, who string) map[string]any {
+		t.Helper()
+		got, ok := f.collectUntil(t, 20*time.Second, func(m hermod.Message) bool { return m.Operation() == hermod.OpCreate })
+		if !ok {
+			t.Fatalf("%s got no insert; %s", who, f.why())
+		}
+		last := got[len(got)-1]
+		if err := f.source.Ack(ctx, last); err != nil {
+			t.Fatal(err)
+		}
+		return decode(t, last.After())
+	}
+
+	insert("before")
+	takeInsert(a, "the running workflow")
+	takeInsert(b, "the workflow about to stop")
+
+	b.stop()
+	insert("while stopped")
+	if row := takeInsert(a, "the running workflow"); row["name"] != "while stopped" {
+		t.Fatalf("running workflow got %v", row)
+	}
+
+	b.start(t, ctx, true)
+	t.Cleanup(b.stop)
+	if row := takeInsert(b, "the returning workflow"); row["name"] != "while stopped" {
+		t.Errorf("returning workflow got %v first, want the row inserted while it was stopped", row)
+	}
+	if again := a.collect(t, 1, 2*time.Second); len(again) != 0 {
+		t.Errorf("the running workflow got %d changes again during the replay", len(again))
+	}
+}

@@ -20,6 +20,7 @@ import (
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/message"
+	"github.com/jackc/pglogrepl"
 )
 
 // fakeStream is a hub's stream with the changes a test feeds it.
@@ -31,6 +32,49 @@ type fakeStream struct {
 	tables   [][]string
 	closed   bool
 	tableErr error
+
+	confirmedAt pglogrepl.LSN
+	hold        pglogrepl.LSN
+	holding     bool
+	rewound     int
+	rewoundFrom pglogrepl.LSN
+}
+
+func (f *fakeStream) confirmed() pglogrepl.LSN {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.confirmedAt
+}
+
+func (f *fakeStream) setConfirmed(lsn pglogrepl.LSN) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.confirmedAt = lsn
+}
+
+func (f *fakeStream) setHold(lsn pglogrepl.LSN, ok bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.hold, f.holding = lsn, ok
+}
+
+func (f *fakeStream) heldAt() (pglogrepl.LSN, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.hold, f.holding
+}
+
+func (f *fakeStream) rewind(from pglogrepl.LSN) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rewound++
+	f.rewoundFrom = from
+}
+
+func (f *fakeStream) rewinds() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.rewound
 }
 
 func newFakeStream() *fakeStream { return &fakeStream{feed: make(chan hermod.Message, 16)} }
@@ -85,7 +129,7 @@ func hubWith(t *testing.T, stream *fakeStream) (*hubRegistry, func(tables ...str
 	r := &hubRegistry{hubs: map[string]*slotHub{}}
 	join := func(tables ...string) *hubSubscription {
 		t.Helper()
-		sub, err := r.join(t.Context(), "db\x00slot", "pub", tables, nil, func(hermod.Logger) hubStream { return stream })
+		sub, err := r.join(t.Context(), "db\x00slot", "pub", tables, nil, func(hermod.Logger) hubStream { return stream }, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -179,7 +223,7 @@ func TestSlotHubAcknowledgesForAWorkflowThatLeaves(t *testing.T) {
 	stream := newFakeStream()
 	r, join := hubWith(t, stream)
 	a := join("orders")
-	b, err := r.join(t.Context(), "db\x00slot", "pub", []string{"orders"}, nil, nil)
+	b, err := r.join(t.Context(), "db\x00slot", "pub", []string{"orders"}, nil, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +265,7 @@ func TestSlotHubRefusesAWorkflowWhosePublicationCannotWiden(t *testing.T) {
 	join("orders")
 
 	stream.tableErr = errors.New("permission denied")
-	if _, err := r.join(t.Context(), "db\x00slot", "pub", []string{"users"}, nil, nil); err == nil {
+	if _, err := r.join(t.Context(), "db\x00slot", "pub", []string{"users"}, nil, nil, ""); err == nil {
 		t.Fatal("joined although the publication could not cover its tables")
 	}
 	stream.tableErr = nil
@@ -237,7 +281,7 @@ func TestSlotHubRefusesADifferentPublication(t *testing.T) {
 	stream := newFakeStream()
 	r, join := hubWith(t, stream)
 	join("orders")
-	if _, err := r.join(t.Context(), "db\x00slot", "other_pub", nil, nil, nil); err == nil {
+	if _, err := r.join(t.Context(), "db\x00slot", "other_pub", nil, nil, nil, ""); err == nil {
 		t.Fatal("a workflow with another publication joined the slot")
 	}
 }
@@ -248,11 +292,11 @@ func TestSlotHubClosesTheStreamWithTheLastWorkflow(t *testing.T) {
 	stream := newFakeStream()
 	r := &hubRegistry{hubs: map[string]*slotHub{}}
 	newStream := func(hermod.Logger) hubStream { return stream }
-	a, err := r.join(t.Context(), "k", "pub", nil, nil, newStream)
+	a, err := r.join(t.Context(), "k", "pub", nil, nil, newStream, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := r.join(t.Context(), "k", "pub", nil, nil, newStream)
+	b, err := r.join(t.Context(), "k", "pub", nil, nil, newStream, "")
 	if err != nil {
 		t.Fatal(err)
 	}
