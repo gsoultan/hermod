@@ -847,6 +847,7 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 	}
 	rs.id, rs.awaited = reply.Take(m)
 	defer rs.resolve()
+	defer r.runFinished(m, &rs)
 	defer func() {
 		if !rs.uncounted {
 			r.engine.outcomes.note(r.engine, rs.status)

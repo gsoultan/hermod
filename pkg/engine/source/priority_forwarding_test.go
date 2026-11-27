@@ -138,3 +138,38 @@ func TestPrioritySourceForwardsOptionalInterfaces(t *testing.T) {
 		}
 	})
 }
+
+// runRecordingSource hears how runs ended.
+type runRecordingSource struct {
+	priorityMockSource
+	finished map[string]bool
+}
+
+func (s *runRecordingSource) RunFinished(m hermod.Message, ok bool) bool {
+	s.finished[m.ID()] = ok
+	return true
+}
+
+// With PrioritizeDLQ on, the engine sees PrioritySource, not the workflow's
+// source. Not passing hermod.RunFinisher on would leave a cron source
+// believing its first run never ended. Each run goes to the source it came
+// from, as Ack does.
+func TestPrioritySourcePassesOnHowARunEnded(t *testing.T) {
+	primary := &runRecordingSource{finished: map[string]bool{}}
+	recovery := &runRecordingSource{finished: map[string]bool{}}
+	var src hermod.Source = NewPrioritySource(recovery, primary, discardLogger{})
+	f, ok := src.(hermod.RunFinisher)
+	if !ok {
+		t.Fatal("PrioritySource does not pass on how a run ended")
+	}
+	fromPrimary := &priorityMockMessage{id: "p1", md: map[string]string{}}
+	fromRecovery := &priorityMockMessage{id: "r1", md: map[string]string{"_hermod_source": "recovery"}}
+	f.RunFinished(fromPrimary, true)
+	f.RunFinished(fromRecovery, false)
+	if got, heard := primary.finished["p1"]; !heard || !got || len(primary.finished) != 1 {
+		t.Errorf("primary heard %v, want only p1 succeeded", primary.finished)
+	}
+	if got, heard := recovery.finished["r1"]; !heard || got || len(recovery.finished) != 1 {
+		t.Errorf("recovery heard %v, want only r1 failed", recovery.finished)
+	}
+}

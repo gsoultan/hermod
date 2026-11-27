@@ -32,6 +32,8 @@ func TestEachFiringIsItsOwnMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first firing: %v", err)
 	}
+	// One run at a time: the next tick fires once this one is over.
+	src.RunFinished(first, true)
 	second, err := src.Read(ctx)
 	if err != nil {
 		t.Fatalf("second firing: %v", err)
