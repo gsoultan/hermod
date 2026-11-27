@@ -2302,7 +2302,7 @@ func (p *PostgresSource) IsReady(ctx context.Context) error {
 		SELECT 
 			(SELECT setting FROM pg_settings WHERE name = 'wal_level'),
 			(SELECT EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = $1)),
-			(SELECT active FROM pg_replication_slots WHERE slot_name = $1),
+			COALESCE((SELECT active FROM pg_replication_slots WHERE slot_name = $1), false),
 			(SELECT active_pid FROM pg_replication_slots WHERE slot_name = $1),
 			(SELECT application_name FROM pg_stat_activity a WHERE a.pid = (SELECT active_pid FROM pg_replication_slots WHERE slot_name = $1)),
 			(SELECT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = $2))`
