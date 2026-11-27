@@ -49,7 +49,9 @@ func NewRunner(e *Engine) *Runner {
 }
 
 func (r *Runner) Start(ctx context.Context) (err error) {
-	r.ctx, r.cancel = context.WithCancel(ctx)
+	// The engine offers itself to the steps it runs, so a busy step is waited
+	// out rather than failing the message (see Engine.WaitOutBusy).
+	r.ctx, r.cancel = context.WithCancel(hermod.WithBusyWaiter(ctx, r.engine))
 
 	// Isolate the workflow: a panic in any synchronous part of the engine
 	// (e.g. the source ingestion loop) must never crash the worker process or

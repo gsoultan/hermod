@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/transformer/core"
 	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
 )
@@ -100,8 +101,11 @@ func (u poolUse) explain(err error) error {
 		return err
 	}
 	if u.inUse >= u.max {
-		return fmt.Errorf("when the lookup asked, all %d of Hermod's connections to this source were busy, "+
-			"so it queued inside Hermod: raise Max connections on the source, or turn on batching: %w", u.max, err)
+		// It never reached the database, so nothing ran: the source had no
+		// room, which is busy, and the engine waits for room rather than
+		// failing the message.
+		return &hermod.Busy{Err: fmt.Errorf("when the lookup asked, all %d of Hermod's connections to this source were busy, "+
+			"so it queued inside Hermod: raise Max connections on the source, or turn on batching: %w", u.max, err)}
 	}
 	return fmt.Errorf("when the lookup asked, %d of Hermod's %d connections to this source were busy, "+
 		"so the wait was in the database or PgBouncer: %w", u.inUse, u.max, err)

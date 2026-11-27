@@ -42,6 +42,22 @@ connections, each ran slower than the last, and every run ended in a timeout. No
 
 Sources hear how each run ended through the new optional `hermod.RunFinisher` interface. It isn't
 `Ack`: `Ack` is skipped for a failure that wasn't parked, and is sent for one that was.
+### Changed — a busy database makes a lookup or SQL step slower, never failed
+
+A `db_lookup` or `execute_sql` step whose database has no room now waits for room instead of failing
+the message, the same way a busy sink does. Two answers count as "no room":
+
+- The server refused the step with SQLSTATE `53300` (too many connections) or `57P03` (cannot
+  connect now). It sends both before running anything, so repeating a write is safe.
+- For `db_lookup` only, the step ran out of time while every one of Hermod's connections to the
+  source was in use. It queued inside Hermod and never reached the database. A lookup that had a
+  connection and was still too slow is an ordinary failure, as before.
+
+The engine waits the step out with the same backoff as a sink, and the stall watchdog doesn't count
+the wait as stuck, so the workflow isn't restarted. A preview or test run has nothing to wait on
+its behalf and reports the busy answer. Other steps can join in by returning `hermod.ErrBusy`. The
+engine offers itself to the steps it runs as a `hermod.BusyWaiter` in the context.
+
 ### Changed — a busy destination makes a flow slower, never failed
 
 A sink that answers "busy" now waits for room instead of failing. "Busy" here means a PostgreSQL

@@ -90,14 +90,41 @@ func (b *busyWaits) any() bool {
 
 // waitOutBusy runs attempt until it answers anything other than busy, and
 // returns that answer, or the context's error if the context ends first.
-// base is the sink's retry interval, where the waits start.
+// base is the sink's retry interval, where the waits start. While it waits,
+// the sink shows "waiting".
 func (e *Engine) waitOutBusy(ctx context.Context, sinkID string, base time.Duration, attempt func() error) error {
+	return e.waitOut(ctx, sinkID, base, attempt, func(waiting bool, err error) {
+		e.setSinkStatus(sinkID, sinkStatusWhenUp(waiting))
+		if waiting {
+			e.logger.Warn("Sink is busy; waiting for room rather than failing the write",
+				"workflow_id", e.workflowID, "sink_id", sinkID, "error", err)
+		}
+	})
+}
+
+// WaitOutBusy waits out a busy workflow step, such as a lookup whose database
+// has no free connection, the way a busy sink is waited out: the step is
+// slower, it is not failed, and the stall watchdog does not count the wait as
+// being stuck. The engine offers itself to the steps it runs through the
+// context (hermod.WithBusyWaiter). It implements hermod.BusyWaiter.
+func (e *Engine) WaitOutBusy(ctx context.Context, name string, attempt func() error) error {
+	return e.waitOut(ctx, name, busyBackoffFloor, attempt, func(waiting bool, err error) {
+		if waiting {
+			e.logger.Warn("Step is busy; waiting for room rather than failing the message",
+				"workflow_id", e.workflowID, "step", name, "error", err)
+		}
+	})
+}
+
+// waitOut is the loop behind both: it repeats attempt while it answers busy,
+// with backoff, and calls changed when the wait starts (true) and ends.
+func (e *Engine) waitOut(ctx context.Context, key string, base time.Duration, attempt func() error, changed func(waiting bool, err error)) error {
 	wait := max(base, busyBackoffFloor)
 	waiting := false
 	defer func() {
 		if waiting {
-			e.busy.end(sinkID)
-			e.setSinkStatus(sinkID, "running")
+			e.busy.end(key)
+			changed(false, nil)
 		}
 	}()
 	for {
@@ -108,10 +135,8 @@ func (e *Engine) waitOutBusy(ctx context.Context, sinkID string, base time.Durat
 		e.busy.answers.Add(1)
 		if !waiting {
 			waiting = true
-			e.busy.begin(sinkID)
-			e.setSinkStatus(sinkID, "waiting")
-			e.logger.Warn("Sink is busy; waiting for room rather than failing the write",
-				"workflow_id", e.workflowID, "sink_id", sinkID, "error", err)
+			e.busy.begin(key)
+			changed(true, err)
 		}
 		delay := busyDelay(err, wait)
 		wait = min(wait*2, busyBackoffCap)
@@ -140,3 +165,5 @@ func sinkStatusWhenUp(waiting bool) string {
 	}
 	return "running"
 }
+
+var _ hermod.BusyWaiter = (*Engine)(nil)
