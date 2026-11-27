@@ -208,6 +208,10 @@ func (s *PostgresSink) Write(ctx context.Context, msg hermod.Message) error {
 }
 
 func (s *PostgresSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
+	return markBusy(s.writeBatch(ctx, msgs))
+}
+
+func (s *PostgresSink) writeBatch(ctx context.Context, msgs []hermod.Message) error {
 	msgs = filterNilMessages(msgs)
 	if len(msgs) == 0 {
 		return nil

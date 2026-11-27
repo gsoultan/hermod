@@ -589,7 +589,7 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 		}
 
 		idempStart := time.Now()
-		err := snk.Write(ctx, msg)
+		err := e.waitOutBusy(ctx, sinkID, retryInterval, func() error { return snk.Write(ctx, msg) })
 		if err != nil {
 			lastErr = err
 			telemetry.SinkWriteErrors.WithLabelValues(e.workflowID, sinkID).Inc()
@@ -864,7 +864,7 @@ func (e *Engine) retryBatch(ctx context.Context, snk hermod.BatchSink, msgs []he
 	maxRetries, retryInterval := e.retrySettings(i)
 	for j := range maxRetries {
 		start := time.Now()
-		if err := snk.WriteBatch(ctx, msgs); err != nil {
+		if err := e.waitOutBusy(ctx, sinkID, retryInterval, func() error { return snk.WriteBatch(ctx, msgs) }); err != nil {
 			lastErr = err
 			telemetry.SinkWriteErrors.WithLabelValues(e.workflowID, sinkID).Add(float64(len(msgs)))
 			if errors.Is(err, hermod.ErrPermanent) {
@@ -954,7 +954,7 @@ func (e *Engine) writeEventToSink(ctx context.Context, snk hermod.BatchSink, row
 	maxRetries, retryInterval := e.retrySettings(i)
 	var lastErr error
 	for j := range maxRetries {
-		lastErr = snk.WriteBatch(ctx, rows)
+		lastErr = e.waitOutBusy(ctx, sinkID, retryInterval, func() error { return snk.WriteBatch(ctx, rows) })
 		if lastErr == nil {
 			telemetry.SinkWriteCount.WithLabelValues(e.workflowID, sinkID).Add(float64(len(rows)))
 			return nil

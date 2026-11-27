@@ -160,6 +160,9 @@ find a claim that outruns the code, fix the claim.
 - [Scheduled runs](scheduled_runs.md) — cron runs one at a time, carries
   `{{meta.last_success_at}}` (moves only on success, kept in source state);
   every source wrapper must pass `hermod.RunFinisher` on.
+- [Busy is not failed](busy_is_not_failed.md) — wrap `hermod.ErrBusy` (or
+  `hermod.Busy` with Retry-After) and the engine waits it out: no retries spent,
+  no breaker, no stall restart, sink shows `waiting`.
 - [Permanent refusals](permanent_refusals.md) — wrap `hermod.ErrPermanent` and the
   retry decorator, the engine's retry loop and the circuit breaker all skip it;
   without a dead-letter sink the backoff wait is kept so redelivery cannot spin.
