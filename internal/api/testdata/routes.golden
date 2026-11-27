@@ -238,6 +238,8 @@ POST /api/sinks/query
 POST /api/sinks/sample
 POST /api/sinks/smtp/preview
 POST /api/sinks/smtp/validate
+POST /api/sinks/telegram/chats
+POST /api/sinks/telegram/test-send
 POST /api/sinks/test
 POST /api/sinks/truncate
 POST /api/sinks/txsql/compile
