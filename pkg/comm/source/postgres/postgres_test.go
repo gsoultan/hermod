@@ -280,19 +280,20 @@ func TestPostgresSource_PooledDetection(t *testing.T) {
 	}
 }
 
-func TestPostgresSource_ReplConnRefusedWhenPooled(t *testing.T) {
+// A CDC source through PgBouncer used to be refused here before any dial,
+// though PgBouncer 1.23 and later pass replication through. It is now tried;
+// TestCDCThroughPgBouncerIsTriedNotRefused covers what an older PgBouncer says.
+func TestPostgresSource_ReplConnNotRefusedUpFrontWhenPooled(t *testing.T) {
 	p := NewPostgresSource("postgres://u:p@localhost:6432/db?pool_mode=transaction", "slot", "pub", nil, true, "", 0)
 
-	// Must fail fast (no network dial) with an actionable message instead of
-	// hanging on a replication handshake PgBouncer will never complete.
 	p.mu.Lock()
 	err := p.ensureReplConnNoLock(context.Background())
 	p.mu.Unlock()
 	if err == nil {
-		t.Fatalf("expected error for replication over a pooled connection")
+		t.Fatalf("expected an error: no replication connection has been opened")
 	}
-	if !strings.Contains(err.Error(), "PgBouncer") {
-		t.Errorf("unexpected error: %v", err)
+	if strings.Contains(err.Error(), "requires a direct") {
+		t.Errorf("a pooled connection string is still refused before trying: %v", err)
 	}
 }
 

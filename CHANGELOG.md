@@ -7,6 +7,20 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — many workflows on one PostgreSQL source no longer time out waiting for a connection
+
+All workflows on one PostgreSQL source share one connection pool per worker, and a polling
+source held its connection while the workflow accepted the rows, so a few slow workflows left
+the rest waiting until they timed out. A poll now reads its rows and gives the connection back
+before delivering them, and only advances its watermark past rows it delivered. The first poll
+waits a random part of the interval, at most 10 seconds, so workflows started together spread
+out. The source form has a **Max connections** field for the shared pool's size.
+
+Hermod now detects PgBouncer, or any proxy, by comparing the port it dialled with the server's
+own, and switches that pool off server-side prepared statements; `pgbouncer=true` is no longer
+needed. A CDC source through PgBouncer is tried instead of refused, since PgBouncer 1.23 and
+later pass replication through; an older one gets an error that says so.
+
 ### Fixed — an admin password reset now lifts a login lockout, and a forged X-Forwarded-For no longer bypasses it
 
 After 5 failed logins a username is locked out for 15 minutes on that client IP. Setting a new

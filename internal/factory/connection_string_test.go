@@ -132,3 +132,32 @@ func TestBuildConnectionStringSQLiteReadsPathAndTheOlderDBPath(t *testing.T) {
 		})
 	}
 }
+
+// The pool every workflow on one source database shares was sized only by
+// pool_max_conns inside a hand-written connection URI, which the form had no
+// field for: the form's host and port fields always got Hermod's default of
+// 50 per worker, however many workflows shared the source. The form's Max
+// connections field now reaches the pool.
+func TestBuildConnectionStringCarriesThePostgresPoolSize(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  map[string]string
+		want string
+	}{
+		{"set", map[string]string{"host": "db", "port": "5432", "pool_max_conns": "200"},
+			"postgres://db:5432/?pool_max_conns=200&sslmode=disable"},
+		{"blank keeps the default", map[string]string{"host": "db", "port": "5432", "pool_max_conns": " "},
+			"postgres://db:5432/?sslmode=disable"},
+		{"not a positive number is ignored", map[string]string{"host": "db", "port": "5432", "pool_max_conns": "0"},
+			"postgres://db:5432/?sslmode=disable"},
+		{"garbage is ignored", map[string]string{"host": "db", "port": "5432", "pool_max_conns": "lots"},
+			"postgres://db:5432/?sslmode=disable"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := factory.BuildConnectionString(tc.cfg, "postgres"); got != tc.want {
+				t.Errorf("BuildConnectionString = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

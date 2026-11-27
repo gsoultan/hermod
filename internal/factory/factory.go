@@ -1633,6 +1633,11 @@ func BuildConnectionString(cfg map[string]string, sourceType string) string {
 			if v := strings.TrimSpace(cfg["pool_mode"]); v != "" {
 				q.Set("pool_mode", v)
 			}
+			// The size of the pool every workflow on this source shares, per
+			// worker. Anything but a positive number keeps Hermod's default.
+			if n, err := strconv.Atoi(strings.TrimSpace(cfg["pool_max_conns"])); err == nil && n > 0 {
+				q.Set("pool_max_conns", strconv.Itoa(n))
+			}
 			u.RawQuery = q.Encode()
 		}
 
