@@ -89,6 +89,11 @@ type Engine struct {
 	// In-flight message tracking for draining
 	inFlightSem chan struct{}
 
+	// busy tracks writes waiting out a destination that answered busy
+	// (busy.go): how many answers there have been, which the stall watchdog
+	// counts as signs of life, and which sinks are being waited for now.
+	busy busyWaits
+
 	// traceSlots bounds the goroutines recording trace steps. Created on
 	// first use so an Engine built without NewEngine still gets one.
 	traceSlots     chan struct{}

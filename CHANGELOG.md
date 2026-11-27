@@ -15,6 +15,26 @@ the one worker that owns its key, so per-row order is unchanged, and a message w
 another worker only when none is free. Measured on 10,000 idle workflows: 139 → 11 goroutines and
 172 → 49 KiB each; 1,000 busy workflows hold 16k goroutines instead of 140k.
 
+### Changed — a busy destination makes a flow slower, never failed
+
+A sink that answers "busy" now waits for room instead of failing. "Busy" here means a PostgreSQL
+server out of connection slots (SQLSTATE `53300`, `57P03`), or an HTTP endpoint answering
+`429 Too Many Requests` or `503 Service Unavailable`. Before this, a busy answer was an ordinary
+error, which caused three problems:
+
+- It used up the sink's retries (3, 100 ms apart, by default) in a fraction of a second, so the
+  message went to the dead letter.
+- It counted towards the circuit breaker, which showed the sink as `error:circuit_breaker_open`.
+- Since nothing completed, the stall watchdog had the workflow restarted, adding a reconnect to a
+  destination with no room.
+
+Now the write backs off, from the sink's retry interval up to 30 s. It honours `Retry-After` up to
+5 minutes and tries again until it goes through. It doesn't spend retries, isn't counted by the
+breaker, and isn't treated as a stall. The sink shows `waiting` until it has room. A destination that
+doesn't answer at all is still a stall, and every other error is retried and counted as before.
+
+Sinks report it by wrapping the new `hermod.ErrBusy`, or with `hermod.Busy` when the destination
+said how long to wait.
 ### Added — a load test for many workflows on shared databases
 
 `internal/test/scale` measures what each running workflow costs while idle, and what happens to

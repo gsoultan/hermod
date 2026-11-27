@@ -100,3 +100,38 @@ func TestRetrySinkStopsOnAPermanentRefusal(t *testing.T) {
 		}
 	})
 }
+
+// A busy answer -- no free connection, 429, 503 -- goes straight up to the
+// engine, which waits it out without spending retries (pkg/engine/busy.go).
+// Retried here, three attempts 100ms apart spent a destination's slack in a
+// fraction of a second, asking a busy destination again sooner than it could
+// help, and the error read "failed after 3 retries" for something that had not
+// failed at all.
+func TestRetrySinkHandsABusyAnswerStraightUp(t *testing.T) {
+	busy := fmt.Errorf("pool has no free connection: %w", hermod.ErrBusy)
+
+	t.Run("write", func(t *testing.T) {
+		s := &scriptedSink{err: busy}
+		err := NewRetrySink(s, 3, time.Millisecond, nil).Write(context.Background(), nil)
+		if n := s.attempts(); n != 1 {
+			t.Errorf("the sink was asked %d times, want 1", n)
+		}
+		if !errors.Is(err, hermod.ErrBusy) {
+			t.Errorf("error %v no longer says the sink is busy; the engine needs that to wait", err)
+		}
+		if strings.Contains(err.Error(), "retries") {
+			t.Errorf("error %q claims retries that did not happen", err)
+		}
+	})
+
+	t.Run("batch", func(t *testing.T) {
+		s := scriptedBatchSink{&scriptedSink{err: busy}}
+		err := NewRetrySink(s, 3, time.Millisecond, nil).WriteBatch(context.Background(), []hermod.Message{nil, nil})
+		if n := s.attempts(); n != 1 {
+			t.Errorf("the batch was sent %d times, want 1", n)
+		}
+		if !errors.Is(err, hermod.ErrBusy) {
+			t.Errorf("error %v no longer says the sink is busy", err)
+		}
+	})
+}

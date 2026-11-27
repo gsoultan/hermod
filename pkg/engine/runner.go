@@ -487,7 +487,9 @@ func (r *Runner) checkHealth(interval time.Duration) {
 			}
 			allSinksOk = false
 		} else {
-			r.engine.setSinkStatus(sinkID, "running")
+			// Up and answering, but a write is waiting for it to have room
+			// (busy.go): that is what it shows until the write goes through.
+			r.engine.setSinkStatus(sinkID, sinkStatusWhenUp(r.engine.busy.on(sinkID)))
 		}
 	}
 

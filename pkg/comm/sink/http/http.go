@@ -112,11 +112,7 @@ func (s *HttpSink) Write(ctx context.Context, msg hermod.Message) error {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
-	return nil
+	return statusError(resp, "unexpected status code")
 }
 
 func (s *HttpSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
@@ -209,11 +205,7 @@ func (s *HttpSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error 
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("batch request failed with status code: %d", resp.StatusCode)
-	}
-
-	return nil
+	return statusError(resp, "batch request failed with status code")
 }
 
 func (s *HttpSink) Ping(ctx context.Context) error {
