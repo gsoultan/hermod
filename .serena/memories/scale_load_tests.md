@@ -39,3 +39,8 @@ connections. The 4 cores saturated (Hermod ~230%, Postgres 100-145%); in
 Hermod's profile message processing was ~15% and the rest mostly runtime cost
 of ~200 goroutines per workflow. Hermod and the database share the host in this
 test, so read CPU split, not just connections, before blaming either.
+
+Message workers start on demand since `pkg/engine/message_workers.go`: idle
+workflow 139 -> 11 goroutines, ~172 -> ~49 KiB. The pool only grows; it never
+shrinks after a burst. Next in the plan: one shared task pool per worker process
+with named per-database pools (Airflow-style), then shared readers/writers.
