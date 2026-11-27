@@ -70,14 +70,15 @@ func (s *PrioritySource) Ack(ctx context.Context, msg hermod.Message) error {
 
 // RunFinished passes on how a run ended to the source the message came from,
 // as Ack does, when that source wants to know (hermod.RunFinisher).
-func (s *PrioritySource) RunFinished(msg hermod.Message, ok bool) {
+func (s *PrioritySource) RunFinished(msg hermod.Message, ok bool) bool {
 	from := s.primary
 	if id, isSet := msg.Metadata()["_hermod_source"]; isSet && id == "recovery" {
 		from = s.recovery
 	}
 	if f, isFinisher := from.(hermod.RunFinisher); isFinisher {
-		f.RunFinished(msg, ok)
+		return f.RunFinished(msg, ok)
 	}
+	return false
 }
 
 func (s *PrioritySource) Ping(ctx context.Context) error {

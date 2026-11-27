@@ -22,3 +22,9 @@ schedule fires once per `max_run_duration` at best: `source.MetricsSource`
 (factory), `registry.statefulSource` (which also saves state right after),
 `registry.multiSource` (routes by `_source_node_id`), `source.PrioritySource`
 (routes by `_hermod_source`). Each has a test.
+
+`RunFinished` returns whether the source acted on it, and wrappers return
+what the inner source said. A wrapper is a `RunFinisher` whatever it wraps, so
+the type assertion alone means nothing: `statefulSource` saves state only on a
+true answer. Without that it saved every polling source's cursor after each
+message, ahead of acknowledgements in flight.

@@ -18,6 +18,7 @@ import (
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/testutil"
 	"github.com/gsoultan/hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/comm/source"
 )
 
 // finishingSource records how runs ended and keeps a state that changes when
@@ -29,13 +30,14 @@ type finishingSource struct {
 	state    map[string]string
 }
 
-func (s *finishingSource) RunFinished(m hermod.Message, ok bool) {
+func (s *finishingSource) RunFinished(m hermod.Message, ok bool) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.finished[m.ID()] = ok
 	if ok {
 		s.state = map[string]string{"last_success_at": m.ID()}
 	}
+	return true
 }
 func (s *finishingSource) GetState() map[string]string {
 	s.mu.Lock()
@@ -103,4 +105,33 @@ func TestRegistryWrappersPassOnHowARunEnded(t *testing.T) {
 			t.Fatalf("node na heard about another node's run: %v", a.finished)
 		}
 	})
+}
+
+// pollingCursorSource stands in for a polling source: it keeps a cursor as
+// state, and has nothing to do with how a run ended.
+type pollingCursorSource struct{ hermod.Source }
+
+func (pollingCursorSource) GetState() map[string]string { return map[string]string{"cursor": "42"} }
+func (pollingCursorSource) SetState(map[string]string)  {}
+
+// Only a source that acts on how a run ended has its state saved then.
+//
+// Every source is wrapped in a metrics decorator, which passes RunFinished on
+// and so looks like a RunFinisher whatever it wraps. The stateful wrapper took
+// that at face value and saved a polling source's cursor after every message:
+// one storage write per message on the hot path, and a cursor stored as soon
+// as one message finished, ahead of acknowledgements still in flight -- the
+// position the source's own checkpoints are careful not to store early.
+func TestOnlyASourceThatFinishesRunsHasItsStateSavedAfterOne(t *testing.T) {
+	store := &stateRecordingStorage{saved: map[string]map[string]string{}}
+	inner := source.NewMetricsSource(pollingCursorSource{}, "s1", "wf", nil)
+	src := &statefulSource{Source: inner, registry: NewRegistry(store), sourceID: "s1"}
+
+	m := message.AcquireMessage()
+	defer m.Release()
+	src.RunFinished(m, true)
+
+	if saved, ok := store.saved["s1"]; ok {
+		t.Fatalf("a polling source's cursor was saved after one message: %v", saved)
+	}
 }

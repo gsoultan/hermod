@@ -60,10 +60,11 @@ func (s *MetricsSource) SetState(state map[string]string) {
 
 // RunFinished passes on how a run ended to a source that wants to know
 // (hermod.RunFinisher), such as the cron source.
-func (s *MetricsSource) RunFinished(msg hermod.Message, ok bool) {
+func (s *MetricsSource) RunFinished(msg hermod.Message, ok bool) bool {
 	if f, isFinisher := s.Source.(hermod.RunFinisher); isFinisher {
-		f.RunFinished(msg, ok)
+		return f.RunFinished(msg, ok)
 	}
+	return false
 }
 
 func (s *MetricsSource) IsReady(ctx context.Context) error {

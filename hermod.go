@@ -202,8 +202,12 @@ type ColumnInfo struct {
 // calls it after parking a message; a failed message that was not parked is
 // not acknowledged at all. A scheduled source needs to hear about every
 // message, and to tell success from the rest.
+//
+// It reports whether the source acted on it. A decorator passes the call on
+// and so implements this whatever it wraps; the answer is how the layers
+// above it know that something underneath changed, such as state to save.
 type RunFinisher interface {
-	RunFinished(msg Message, ok bool)
+	RunFinished(msg Message, ok bool) bool
 }
 
 // Stateful defines an optional interface for sources and sinks that have persistent state.

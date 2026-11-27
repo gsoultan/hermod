@@ -231,17 +231,18 @@ func (m *multiSource) Ack(ctx context.Context, msg hermod.Message) error {
 
 // RunFinished passes on how a run ended to the source node that read it, when
 // that source wants to know (hermod.RunFinisher).
-func (m *multiSource) RunFinished(msg hermod.Message, ok bool) {
+func (m *multiSource) RunFinished(msg hermod.Message, ok bool) bool {
 	nodeID, _ := hermod.MetadataValue(msg, "_source_node_id")
 	for _, s := range m.sources {
 		if s.nodeID != nodeID {
 			continue
 		}
 		if f, isFinisher := s.source.(hermod.RunFinisher); isFinisher {
-			f.RunFinished(msg, ok)
+			return f.RunFinished(msg, ok)
 		}
-		return
+		return false
 	}
+	return false
 }
 
 func (m *multiSource) GetState() map[string]string {
@@ -339,25 +340,29 @@ func (s *statefulSource) Ack(ctx context.Context, msg hermod.Message) error {
 // that succeeded is what moves a cron source's "last successful run", and
 // saved only on the next Ack it would come back one run behind after a
 // restart.
-func (s *statefulSource) RunFinished(msg hermod.Message, ok bool) {
+func (s *statefulSource) RunFinished(msg hermod.Message, ok bool) bool {
 	f, isFinisher := s.Source.(hermod.RunFinisher)
-	if !isFinisher {
-		return
+	if !isFinisher || !f.RunFinished(msg, ok) {
+		// Only a source that acted on it has state to save now. A polling
+		// source's cursor is saved by its own checkpoints, which wait for
+		// acknowledgements; saving it here, after one message, would store it
+		// early and add a storage write to every message.
+		return false
 	}
-	f.RunFinished(msg, ok)
 	st, stateful := s.Source.(hermod.Stateful)
 	if !stateful || s.registry == nil || s.registry.storage == nil {
-		return
+		return true
 	}
 	state := st.GetState()
 	if len(state) == 0 {
-		return
+		return true
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), runStateSaveTimeout)
 	defer cancel()
 	if err := s.registry.storage.UpdateSourceState(ctx, s.sourceID, state); err != nil && s.registry.logger != nil {
 		s.registry.logger.Error("Failed to persist source state after a run", "source_id", s.sourceID, "error", err)
 	}
+	return true
 }
 
 // runStateSaveTimeout bounds saving a source's state after a run.

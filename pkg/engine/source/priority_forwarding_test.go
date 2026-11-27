@@ -145,7 +145,10 @@ type runRecordingSource struct {
 	finished map[string]bool
 }
 
-func (s *runRecordingSource) RunFinished(m hermod.Message, ok bool) { s.finished[m.ID()] = ok }
+func (s *runRecordingSource) RunFinished(m hermod.Message, ok bool) bool {
+	s.finished[m.ID()] = ok
+	return true
+}
 
 // With PrioritizeDLQ on, the engine sees PrioritySource, not the workflow's
 // source. Not passing hermod.RunFinisher on would leave a cron source

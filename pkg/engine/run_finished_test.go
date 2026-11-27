@@ -49,11 +49,12 @@ func (s *runReportingSource) Ack(context.Context, hermod.Message) error { return
 func (s *runReportingSource) Ping(context.Context) error                { return nil }
 func (s *runReportingSource) Close() error                              { return nil }
 
-func (s *runReportingSource) RunFinished(m hermod.Message, ok bool) {
+func (s *runReportingSource) RunFinished(m hermod.Message, ok bool) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.finished[m.ID()] = ok
 	close(s.done)
+	return true
 }
 
 type rowRefusingSink struct{}

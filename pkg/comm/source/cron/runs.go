@@ -104,17 +104,18 @@ func (s *CronSource) fire(now time.Time) {
 }
 
 // RunFinished ends the run msg belongs to, and moves the last success to when
-// it was due if it succeeded. It implements hermod.RunFinisher.
-func (s *CronSource) RunFinished(msg hermod.Message, ok bool) {
+// it was due if it succeeded. It reports false for a message that is not one
+// of its runs. It implements hermod.RunFinisher.
+func (s *CronSource) RunFinished(msg hermod.Message, ok bool) bool {
 	if msg == nil {
-		return
+		return false
 	}
 	id := msg.ID()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	due, known := s.scheduledAt[id]
 	if !known {
-		return
+		return false
 	}
 	delete(s.scheduledAt, id)
 	if s.running == id {
@@ -123,6 +124,7 @@ func (s *CronSource) RunFinished(msg hermod.Message, ok bool) {
 	if ok && due.After(s.lastSuccess) {
 		s.lastSuccess = due
 	}
+	return true
 }
 
 // GetState keeps the last success across restarts. It implements
