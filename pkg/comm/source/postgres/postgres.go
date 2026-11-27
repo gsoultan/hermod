@@ -1331,7 +1331,7 @@ func (p *PostgresSource) handleXLogData(ctx context.Context, data []byte) error 
 		return nil
 	case *pglogrepl.CommitMessage:
 		p.inTxn = false
-		return nil
+		return p.markCommitted(ctx, lm.CommitLSN)
 	case *pglogrepl.RelationMessage:
 		p.mu.Lock()
 		p.relations[lm.RelationID] = lm
@@ -1362,6 +1362,24 @@ func (p *PostgresSource) emit(ctx context.Context, lsn pglogrepl.LSN, msg hermod
 		p.afterEmit(ctx)
 	}
 	return nil
+}
+
+// markCommitted tells the hub a transaction's changes have all been handed
+// over, in order behind them, so it knows the transaction whole. It carries no
+// change and is never acknowledged, so it does not count as emitted.
+func (p *PostgresSource) markCommitted(ctx context.Context, commit pglogrepl.LSN) error {
+	if !p.hubOwned {
+		return nil
+	}
+	marker := message.AcquireMessage()
+	marker.SetMetadata(hubTxnDoneKey, commit.String())
+	select {
+	case p.msgChan <- marker:
+		return nil
+	case <-ctx.Done():
+		message.ReleaseMessage(marker)
+		return ctx.Err()
+	}
 }
 
 // dispatchBlockedWarnAfter is how long a handover to the consumer may stall

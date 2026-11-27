@@ -312,3 +312,47 @@ func TestSlotHubClosesTheStreamWithTheLastWorkflow(t *testing.T) {
 		t.Error("the empty hub is still registered")
 	}
 }
+
+// The last workflow to leave a hub must not acknowledge what it was handed and
+// never acknowledged itself. With no workflow left, the stream closes next and
+// confirms what was acknowledged, so settling for the leaver confirmed a
+// transaction the workflow never finished, and the next source on the slot
+// did not get it again: TestCloseBetweenTwoRowsOfATransactionReplaysIt failed
+// in CI with "read: context deadline exceeded".
+func TestSlotHubLastWorkflowLeavingAcknowledgesNothingItDidNot(t *testing.T) {
+	stream := newFakeStream()
+	_, join := hubWith(t, stream)
+	sub := join("orders")
+
+	stream.feed <- change("orders", "0/10")
+	stream.feed <- change("orders", "0/20")
+	first := readOne(t, sub)
+	_ = sub.ack(t.Context(), first)
+	first.Release()
+	second := readOne(t, sub) // handed over, never acknowledged
+	defer second.Release()
+
+	sub.hub.leave(sub)
+
+	if got := stream.ackedLSNs(); !slices.Equal(got, []string{"0/10"}) {
+		t.Errorf("stream acknowledged %v after the last workflow left, want [0/10]", got)
+	}
+}
+
+// A change the stream reads after the last workflow left, before the hub has
+// stopped it, belongs to the next source on the slot. Acknowledging it as a
+// change "no workflow follows" confirmed it away.
+func TestSlotHubDoesNotAcknowledgeChangesReadAfterTheLastWorkflowLeft(t *testing.T) {
+	stream := newFakeStream()
+	_, join := hubWith(t, stream)
+	sub := join("orders")
+	h := sub.hub
+	h.leave(sub)
+
+	h.dispatch(t.Context(), change("orders", "0/30"))
+	h.dispatch(t.Context(), change("users", "0/40"))
+
+	if got := stream.ackedLSNs(); len(got) != 0 {
+		t.Errorf("stream acknowledged %v with no workflow on the hub, want nothing", got)
+	}
+}

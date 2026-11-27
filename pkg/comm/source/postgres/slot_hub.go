@@ -163,7 +163,9 @@ type slotHub struct {
 	all    bool
 	// absent holds the workflows that stopped while others went on. See
 	// absence.
-	absent    map[hubMember]*absence
+	absent map[hubMember]*absence
+	// complete is the newest commit whose changes have all been dispatched.
+	complete  pglogrepl.LSN
 	holdLimit time.Duration
 }
 
@@ -266,7 +268,7 @@ func (h *slotHub) awayLocked(sub *hubSubscription) {
 			return // the same workflow is running again already
 		}
 	}
-	away := &absence{safe: max(sub.skip, sub.window.safe), freeze: h.stream.confirmed()}
+	away := &absence{safe: max(sub.skip, sub.doneLocked()), freeze: h.stream.confirmed()}
 	away.timer = time.AfterFunc(h.holdLimit, func() { h.expire(sub.member, away) })
 	h.absent[sub.member] = away
 	h.applyHoldLocked()
@@ -338,9 +340,10 @@ func (h *slotHub) empty() bool {
 }
 
 // leave removes a workflow. Changes it was handed and did not acknowledge are
-// acknowledged for it: it is gone, and holding the slot back for it would hold
-// back every other workflow and the WAL the server keeps. It reports whether
-// the hub is now empty.
+// acknowledged for it while other workflows remain: it is gone, and holding the
+// slot back for it would hold back every other workflow and the WAL the server
+// keeps. The last workflow's are not, so the slot replays them to the next
+// source. It reports whether the hub is now empty.
 func (h *slotHub) leave(sub *hubSubscription) bool {
 	h.mu.Lock()
 	if sub.left {
@@ -355,8 +358,15 @@ func (h *slotHub) leave(sub *hubSubscription) bool {
 	// Before its acknowledgements are settled: settling lets the stream
 	// confirm past changes this workflow never processed.
 	h.awayLocked(sub)
+	empty := len(h.subs) == 0
 	var settled []hermod.Message
 	for lsn, n := range sub.outstanding {
+		if empty {
+			// The stream closes next and confirms what was acknowledged:
+			// settling here would confirm changes nobody processed, and the
+			// next source on the slot would never get them.
+			break
+		}
 		for range n {
 			if msg := h.settleLocked(lsn); msg != nil {
 				settled = append(settled, msg)
@@ -364,7 +374,6 @@ func (h *slotHub) leave(sub *hubSubscription) bool {
 		}
 	}
 	clear(sub.outstanding)
-	empty := len(h.subs) == 0
 	h.mu.Unlock()
 	// Changes handed over and never read are the workflow's no longer.
 	for {
@@ -460,9 +469,30 @@ func (h *slotHub) run(ctx context.Context) {
 			continue
 		}
 		if msg != nil {
-			h.dispatch(ctx, msg)
+			h.route(ctx, msg)
 		}
 	}
+}
+
+// hubTxnDoneKey marks the stream's note that a transaction is complete: every
+// change of the one committed at its value has been handed to the hub.
+const hubTxnDoneKey = "hub_txn_done"
+
+// route takes a completion note, or dispatches a change.
+func (h *slotHub) route(ctx context.Context, msg hermod.Message) {
+	raw, ok := msg.Metadata()[hubTxnDoneKey]
+	if !ok {
+		h.dispatch(ctx, msg)
+		return
+	}
+	msg.Release()
+	commit, err := pglogrepl.ParseLSN(raw)
+	if err != nil {
+		return
+	}
+	h.mu.Lock()
+	h.complete = max(h.complete, commit)
+	h.mu.Unlock()
 }
 
 // broadcast tells every workflow the stream failed, without waiting on any.
@@ -482,27 +512,15 @@ func (h *slotHub) broadcast(err error) {
 // slot back forever.
 func (h *slotHub) dispatch(ctx context.Context, msg hermod.Message) {
 	lsn := msg.Metadata()["lsn"]
-	commit := commitOf(msg)
 	h.mu.Lock()
-	var targets []*hubSubscription
-	for sub := range h.subs {
-		if sub.match.matches(msg.Schema(), msg.Table()) && !sub.hasLocked(commit) {
-			targets = append(targets, sub)
-		}
-	}
-	if lsn != "" && len(targets) > 0 {
-		h.pending[lsn] = append(h.pending[lsn], &fanout{msg: msg, left: len(targets)})
-		for _, sub := range targets {
-			sub.outstanding[lsn]++
-			if commit != 0 {
-				sub.window.emit(commit)
-			}
-		}
-	}
+	targets := h.targetsLocked(msg, lsn)
+	unowned := len(h.subs) == 0
 	h.mu.Unlock()
 
 	if len(targets) == 0 {
-		if lsn != "" {
+		// With no workflow on the hub it is closing, and the change belongs
+		// to the next source on the slot: acknowledging it would confirm it away.
+		if lsn != "" && !unowned {
 			_ = h.stream.Ack(ctx, msg)
 		}
 		msg.Release()
@@ -525,6 +543,30 @@ func (h *slotHub) dispatch(ctx context.Context, msg hermod.Message) {
 	}
 }
 
+// targetsLocked picks the workflows msg goes to and counts it as owed by each.
+func (h *slotHub) targetsLocked(msg hermod.Message, lsn string) []*hubSubscription {
+	commit := commitOf(msg)
+	row, _ := pglogrepl.ParseLSN(lsn)
+	var targets []*hubSubscription
+	for sub := range h.subs {
+		if sub.match.matches(msg.Schema(), msg.Table()) && !sub.hasLocked(commit, row) {
+			targets = append(targets, sub)
+			sub.noteHandedLocked(commit, row)
+		}
+	}
+	if lsn == "" || len(targets) == 0 {
+		return targets
+	}
+	h.pending[lsn] = append(h.pending[lsn], &fanout{msg: msg, left: len(targets)})
+	for _, sub := range targets {
+		sub.outstanding[lsn]++
+		if commit != 0 {
+			sub.window.emit(commit)
+		}
+	}
+	return targets
+}
+
 // hubSubscription is one workflow on a shared slot.
 type hubSubscription struct {
 	hub   *slotHub
@@ -543,13 +585,48 @@ type hubSubscription struct {
 	// which transactions it has acknowledged in full, which a replay skips.
 	window ackWindow
 	skip   pglogrepl.LSN
+	// handedCommit and handedRow are the newest change it was handed.
+	handedCommit pglogrepl.LSN
+	handedRow    pglogrepl.LSN
 }
 
-// hasLocked reports whether this workflow acknowledged every change of the
-// transaction committed at commit already. A change with no commit position
-// is never skipped.
-func (s *hubSubscription) hasLocked(commit pglogrepl.LSN) bool {
-	return commit != 0 && commit <= max(s.skip, s.window.safe)
+// hasLocked reports whether this workflow has the change at row, in the
+// transaction committed at commit, already: it acknowledged that transaction
+// in full, or it is the newest one and the change is one it was handed. A
+// change with no commit position is never skipped.
+func (s *hubSubscription) hasLocked(commit, row pglogrepl.LSN) bool {
+	if commit == 0 {
+		return false
+	}
+	if commit <= max(s.skip, s.doneLocked()) {
+		return true
+	}
+	return commit == s.handedCommit && row != 0 && row <= s.handedRow
+}
+
+// noteHandedLocked records the newest change this workflow was handed. A
+// transaction's changes arrive in order, so a replay of the newest one is
+// skipped up to here and delivered from there on.
+func (s *hubSubscription) noteHandedLocked(commit, row pglogrepl.LSN) {
+	if commit == 0 {
+		return
+	}
+	if commit > s.handedCommit || (commit == s.handedCommit && row > s.handedRow) {
+		s.handedCommit, s.handedRow = commit, row
+	}
+}
+
+// doneLocked is the last commit up to which this workflow acknowledged every
+// transaction in full. The window's safe point is not quite that: acknowledging
+// the rows of the newest transaction it was handed makes it safe while the rest
+// of that transaction may not have arrived yet. A transaction is known whole
+// once the stream says it is complete (markCommitted), or a later one has
+// begun; until then the newest stays open.
+func (s *hubSubscription) doneLocked() pglogrepl.LSN {
+	if safe := s.window.safe; safe < s.window.maxEmitted || safe <= s.hub.complete {
+		return safe
+	}
+	return max(s.window.maxEmitted, 1) - 1
 }
 
 // commitOf is the commit position of the transaction msg belongs to, or 0.

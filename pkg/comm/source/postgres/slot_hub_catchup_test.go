@@ -11,10 +11,12 @@
 package postgres
 
 import (
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/comm/message"
 )
 
 // orderChange is a change on orders, in the transaction committed at commit.
@@ -55,8 +57,11 @@ func TestSlotHubReplaysToAWorkflowThatComesBack(t *testing.T) {
 	t.Cleanup(func() { r.leave(a) })
 
 	stream.feed <- orderChange("0/90", "0/100")
-	readAck(t, a).Release()
-	readAck(t, b).Release()
+	stream.feed <- orderChange("0/140", "0/150")
+	for range 2 {
+		readAck(t, a).Release()
+		readAck(t, b).Release()
+	}
 
 	stream.setConfirmed(0x100)
 	r.leave(b)
@@ -78,16 +83,22 @@ func TestSlotHubReplaysToAWorkflowThatComesBack(t *testing.T) {
 	}
 
 	// The rewound stream replays from the slot.
+	// 0/100 it acknowledged in full. 0/150 it acknowledged too, but as the
+	// newest transaction it was handed it may have had rows still to come, so
+	// it is replayed rather than skipped: a duplicate, never a loss.
 	stream.feed <- orderChange("0/90", "0/100")
+	stream.feed <- orderChange("0/140", "0/150")
 	stream.feed <- orderChange("0/190", "0/200")
 
-	got := readAck(t, b)
-	defer got.Release()
-	if lsn := got.Metadata()["commit_lsn"]; lsn != "0/200" {
-		t.Errorf("returning workflow got the change committed at %s first, want 0/200: 0/100 it had acknowledged", lsn)
+	for _, want := range []string{"0/150", "0/200"} {
+		got := readAck(t, b)
+		if lsn := got.Metadata()["commit_lsn"]; lsn != want {
+			t.Errorf("returning workflow got the change committed at %s, want %s: 0/100 it had acknowledged", lsn, want)
+		}
+		got.Release()
 	}
 	waitFor(t, "the replayed changes nobody needs to be acknowledged", func() bool {
-		return len(stream.ackedLSNs()) >= 4
+		return len(stream.ackedLSNs()) >= 6
 	})
 	if len(a.ch) != 0 {
 		t.Error("the workflow that never stopped got the replay a second time")
@@ -130,5 +141,77 @@ func TestSlotHubHoldsNothingForAnAnonymousSource(t *testing.T) {
 	r.leave(b)
 	if _, ok := stream.heldAt(); ok {
 		t.Error("slot held for a source no workflow named")
+	}
+}
+
+// A transaction is not done when its first rows are acknowledged: the rest may
+// not have reached the hub yet. Taking it for done skipped them as already
+// delivered, so a workflow that acknowledged row 1 before row 2 arrived never
+// got row 2, and the stream was acknowledged past it:
+// TestCloseBetweenTwoRowsOfATransactionReplaysIt failed in CI with "read:
+// context deadline exceeded" on the second row.
+func TestSlotHubDeliversTheRestOfATransactionWhoseFirstRowsAreAcknowledged(t *testing.T) {
+	stream := newFakeStream()
+	_, join := hubWith(t, stream)
+	sub := join("orders")
+
+	stream.feed <- orderChange("0/10", "0/30")
+	first := readOne(t, sub)
+	_ = sub.ack(t.Context(), first)
+	first.Release()
+
+	stream.feed <- orderChange("0/20", "0/30")
+	second := readOne(t, sub)
+	defer second.Release()
+	if got := second.Metadata()["lsn"]; got != "0/20" {
+		t.Fatalf("got the change at %s, want the transaction's second row at 0/20", got)
+	}
+	if got := stream.ackedLSNs(); !slices.Equal(got, []string{"0/10"}) {
+		t.Errorf("stream acknowledged %v before the second row was, want [0/10]", got)
+	}
+}
+
+// committedNote is the stream's note that the transaction committed at commit
+// has been handed over whole.
+func committedNote(commit string) hermod.Message {
+	m := message.AcquireMessage()
+	m.SetMetadata(hubTxnDoneKey, commit)
+	return m
+}
+
+// Once the stream says a transaction is complete, a workflow that acknowledged
+// all of it does not get it again when it comes back; without the note the
+// hub cannot tell the newest transaction is whole, and replays it.
+func TestSlotHubSkipsACompleteTransactionForAWorkflowThatComesBack(t *testing.T) {
+	stream := newFakeStream()
+	r := &hubRegistry{hubs: map[string]*slotHub{}}
+	a := joinAs(t, r, stream, "wf-a", "orders")
+	b := joinAs(t, r, stream, "wf-b", "orders")
+	t.Cleanup(func() { r.leave(a) })
+
+	stream.feed <- orderChange("0/90", "0/100")
+	stream.feed <- committedNote("0/100")
+	readAck(t, a).Release()
+	readAck(t, b).Release()
+	waitFor(t, "the completion note", func() bool {
+		a.hub.mu.Lock()
+		defer a.hub.mu.Unlock()
+		return a.hub.complete == 0x100
+	})
+	stream.setConfirmed(0x100)
+	r.leave(b)
+
+	b = joinAs(t, r, stream, "wf-b", "orders")
+	t.Cleanup(func() { r.leave(b) })
+	stream.feed <- orderChange("0/90", "0/100")
+	stream.feed <- orderChange("0/190", "0/200")
+
+	got := readAck(t, b)
+	defer got.Release()
+	if lsn := got.Metadata()["commit_lsn"]; lsn != "0/200" {
+		t.Errorf("returning workflow got the change committed at %s first, want 0/200: 0/100 was complete and acknowledged", lsn)
+	}
+	if acked := stream.ackedLSNs(); slices.Contains(acked, "") {
+		t.Errorf("the completion note was acknowledged: %v", acked)
 	}
 }

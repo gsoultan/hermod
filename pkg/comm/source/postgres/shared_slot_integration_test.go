@@ -124,8 +124,16 @@ func TestCDCWorkflowBackOnASharedSlotGetsWhatItMissed(t *testing.T) {
 
 	b.start(t, ctx, true)
 	t.Cleanup(b.stop)
-	if row := takeInsert(b, "the returning workflow"); row["name"] != "while stopped" {
-		t.Errorf("returning workflow got %v first, want the row inserted while it was stopped", row)
+	row := takeInsert(b, "the returning workflow")
+	if row["name"] == "before" {
+		// It may get the last transaction it had again: if it stopped
+		// before the stream said that transaction was complete, the hub
+		// cannot know it was whole, and a duplicate is safe where a skip
+		// could lose its remaining rows.
+		row = takeInsert(b, "the returning workflow")
+	}
+	if row["name"] != "while stopped" {
+		t.Errorf("returning workflow got %v, want the row inserted while it was stopped", row)
 	}
 	if again := a.collect(t, 1, 2*time.Second); len(again) != 0 {
 		t.Errorf("the running workflow got %d changes again during the replay", len(again))
