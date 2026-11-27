@@ -288,7 +288,7 @@ func (p *Pooler) Get(ctx context.Context, connString string) (*pgxpool.Pool, err
 func (p *Pooler) detectProxy(ctx context.Context, pool *pgxpool.Pool, cfg *pgxpool.Config) (*pgxpool.Pool, bool, error) {
 	proxied, err := probeProxy(ctx, pool)
 	if err != nil || !proxied {
-		return pool, false, nil
+		return pool, false, nil //nolint:nilerr // a probe that fails keeps the pool that worked
 	}
 	pool.Close()
 	safe := cfg.Copy()
@@ -311,7 +311,8 @@ func (p *Pooler) detectProxy(ctx context.Context, pool *pgxpool.Pool, cfg *pgxpo
 func (p *Pooler) Pooled(connString string) bool {
 	key, declared := stripPoolerParams(connString)
 	if v, ok := p.pooled.Load(key); ok {
-		return v.(bool)
+		pooled, _ := v.(bool)
+		return pooled
 	}
 	return declared
 }

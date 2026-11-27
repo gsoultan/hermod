@@ -1500,7 +1500,7 @@ func pollStartDelay(interval time.Duration) time.Duration {
 	if limit <= 0 {
 		return 0
 	}
-	return rand.N(limit)
+	return rand.N(limit) //nolint:gosec // G404: spreads start times, not a secret
 }
 
 func (p *PostgresSource) poll(ctx context.Context) error {
@@ -1762,13 +1762,19 @@ func (p *PostgresSource) isPooled() bool {
 // startup parameter with 08P01 ("unsupported startup parameter"); 1.23 and
 // later pass the connection through to the server unpooled.
 func explainReplicationRefusal(pooled bool, err error) error {
-	pgErr, ok := errors.AsType[*pgconn.PgError](err)
-	if !pooled || !ok || pgErr.Code != "08P01" {
+	if !pooled || !poolerRefusedReplication(err) {
 		return err
 	}
 	return fmt.Errorf("the connection pooler refused the CDC replication connection; "+
 		"PgBouncer passes replication through from version 1.23, so upgrade it, "+
 		"or give this CDC source a direct PostgreSQL connection string: %w", err)
+}
+
+// poolerRefusedReplication reports whether err is the protocol violation
+// (08P01) a pooler answers a replication startup it does not pass through.
+func poolerRefusedReplication(err error) bool {
+	pgErr, ok := errors.AsType[*pgconn.PgError](err)
+	return ok && pgErr.Code == "08P01"
 }
 
 func (p *PostgresSource) ensureConnNoLock(ctx context.Context) error {
@@ -2443,8 +2449,8 @@ func (p *PostgresSource) probeReplication(ctx context.Context) error {
 	replConn, err := pgx.ConnectConfig(probeCtx, replCfg)
 	if err != nil {
 		if pooled || p.isPooled() {
-			if explained := explainReplicationRefusal(true, err); explained != err {
-				return explained
+			if poolerRefusedReplication(err) {
+				return explainReplicationRefusal(true, err)
 			}
 		}
 		return classifyReplicationError(err, replCfg.User)
