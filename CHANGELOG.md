@@ -26,6 +26,14 @@ connections, each ran slower than the last, and every run ended in a timeout. No
 
 Sources hear how each run ended through the new optional `hermod.RunFinisher` interface. It isn't
 `Ack`: `Ack` is skipped for a failure that wasn't parked, and is sent for one that was.
+### Added — a load test for many workflows on shared databases
+
+`internal/test/scale` measures what each running workflow costs while idle, and what happens to
+delivery when thousands of workflows share the same source and sink databases: success rate,
+delay percentiles, peak connections, goroutines and heap. It runs against a real PostgreSQL (or
+PgBouncer) when `HERMOD_SCALE_DSN` is set, and CI runs a small version of both. The first numbers
+are in BENCHMARKS.md: an idle workflow costs 139 goroutines, and on one worker the delay grows
+from 0.5 s at 1,000 workflows to 13 s at 3,000 while the database is far from its limit.
 
 ### Added — Telegram setup that finds the chat for you
 
