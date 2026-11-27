@@ -179,19 +179,35 @@ export function DatabaseSourceConfig({ type, config, updateConfig, tablesInput, 
               />
               {/* A Select rather than a checkbox, so the row's two fields have the
                   same anatomy (label, description, input) and the same height. */}
+              {/* "Detect" saves no value: Hermod then asks the server which
+                  port it listens on, and a proxy in between gives itself away.
+                  Either explicit choice turns that detection off. */}
               <Select
                 label="PgBouncer"
                 description="Through PgBouncer, the simple protocol is used"
                 data={[
+                  { value: 'auto', label: 'Detect automatically' },
                   { value: 'false', label: 'Not used: direct connection' },
                   { value: 'true', label: 'Used, in transaction or statement mode' },
                 ]}
-                value={config.pgbouncer === 'true' ? 'true' : 'false'}
-                onChange={(v) => updateConfig('pgbouncer', v === 'true' ? 'true' : 'false')}
+                value={config.pgbouncer === 'true' || config.pgbouncer === 'false' ? config.pgbouncer : 'auto'}
+                onChange={(v) => updateConfig('pgbouncer', v === 'true' || v === 'false' ? v : '')}
                 allowDeselect={false}
                 mih={80}
               />
             </FormRow>
+          )}
+
+          {type === 'postgres' && (
+            <NumberInput
+              label="Max connections"
+              description="Shared by every workflow on this source, per Hermod worker. Blank keeps the default of 50."
+              placeholder="50"
+              min={1}
+              allowDecimal={false}
+              value={config.pool_max_conns ? Number(config.pool_max_conns) : ''}
+              onChange={(v) => updateConfig('pool_max_conns', v === '' ? '' : String(v))}
+            />
           )}
         </Stack>
       </Fieldset>

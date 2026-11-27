@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math/rand/v2"
 	"os"
 	"strconv"
 	"strings"
@@ -1444,6 +1445,19 @@ func (p *PostgresSource) handleDelete(lsn pglogrepl.LSN, lm *pglogrepl.DeleteMes
 
 func (p *PostgresSource) pollLoop(ctx context.Context) {
 	p.log("INFO", "Starting pollLoop", "query", p.query, "interval", p.pollInterval)
+	// Spread the first poll, and with it every tick after, across the
+	// interval: workflows started together on one source database would
+	// otherwise all query it at the same instant, every interval.
+	if delay := pollStartDelay(p.pollInterval); delay > 0 {
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
+
 	ticker := time.NewTicker(p.pollInterval)
 	defer ticker.Stop()
 
@@ -1476,6 +1490,19 @@ func (p *PostgresSource) pollLoop(ctx context.Context) {
 	}
 }
 
+// maxPollStartDelay caps the first poll's random delay, so a source polling
+// hourly still delivers its first rows promptly.
+const maxPollStartDelay = 10 * time.Second
+
+// pollStartDelay is a random delay in [0, min(interval, maxPollStartDelay)).
+func pollStartDelay(interval time.Duration) time.Duration {
+	limit := min(interval, maxPollStartDelay)
+	if limit <= 0 {
+		return 0
+	}
+	return rand.N(limit)
+}
+
 func (p *PostgresSource) poll(ctx context.Context) error {
 	if err := p.ensureConn(ctx); err != nil {
 		return err
@@ -1485,6 +1512,41 @@ func (p *PostgresSource) poll(ctx context.Context) error {
 	watermark := p.lastWatermark
 	p.mu.Unlock()
 
+	batch, err := p.fetchPollBatch(ctx, watermark)
+	if err != nil {
+		return err
+	}
+
+	// The connection is back in the pool before the first row is handed over.
+	// Delivering while the result was still open held a pooled connection for
+	// as long as the workflow took to accept the rows, and every workflow on
+	// this database shares that pool: a few slow ones starved all the others.
+	for i, row := range batch {
+		if err := p.deliverPolledRow(ctx, row); err != nil {
+			p.log("DEBUG", "Polled records", "count", i, "last_watermark", p.currentWatermark())
+			return err
+		}
+	}
+
+	if len(batch) > 0 {
+		p.log("DEBUG", "Polled records", "count", len(batch), "last_watermark", p.currentWatermark())
+	} else {
+		p.log("DEBUG", "Polled 0 records", "query", p.query, "watermark", watermark)
+	}
+	return nil
+}
+
+// polledRow is one row of a poll, read in full before any row is delivered.
+type polledRow struct {
+	record map[string]any
+	// watermark is the row's raw id value, or nil when the query has no id
+	// column. It becomes the source's watermark once the row is delivered.
+	watermark any
+}
+
+// fetchPollBatch runs the poll query and reads its whole result, so the pooled
+// connection is released before the rows are delivered.
+func (p *PostgresSource) fetchPollBatch(ctx context.Context, watermark any) ([]polledRow, error) {
 	var rows pgx.Rows
 	var err error
 	if watermark != nil {
@@ -1499,60 +1561,72 @@ func (p *PostgresSource) poll(ctx context.Context) error {
 			rows, err = p.pool.Query(ctx, p.query)
 		}
 	}
-
 	if err != nil {
-		return fmt.Errorf("poll query failed: %w", err)
+		return nil, fmt.Errorf("poll query failed: %w", err)
 	}
 	defer rows.Close()
 
 	fields := rows.FieldDescriptions()
-	count := 0
+	var batch []polledRow
 	for rows.Next() {
 		values, err := rows.Values()
 		if err != nil {
-			return fmt.Errorf("failed to get values: %w", err)
+			return nil, fmt.Errorf("failed to get values: %w", err)
 		}
 
-		record := make(map[string]any, len(fields))
+		row := polledRow{record: make(map[string]any, len(fields))}
 		for i, field := range fields {
 			val := values[i]
-			record[field.Name] = sqlutil.DecodePGXValue(val)
+			row.record[field.Name] = sqlutil.DecodePGXValue(val)
 
 			// Track watermark: if column name is 'id' or matches a configured id_field
 			if strings.ToLower(field.Name) == "id" {
-				p.mu.Lock()
-				p.lastWatermark = val
-				p.mu.Unlock()
+				row.watermark = val
 			}
 		}
-
-		msg := message.AcquireMessage()
-		afterJSON, _ := json.Marshal(message.SanitizeMap(record))
-		msg.SetOperation(hermod.OpCreate)
-		msg.SetAfter(afterJSON)
-		msg.SetMetadata("source", "postgres-polling")
-
-		if id, ok := record["id"]; ok {
-			msg.SetID(fmt.Sprintf("%v", id))
-		} else {
-			msg.SetID(uuid.New().String())
-		}
-
-		select {
-		case p.msgChan <- msg:
-			count++
-		case <-ctx.Done():
-			message.ReleaseMessage(msg)
-			return ctx.Err()
-		}
+		batch = append(batch, row)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return batch, nil
+}
 
-	if count > 0 {
-		p.log("DEBUG", "Polled records", "count", count, "last_watermark", p.lastWatermark)
+// deliverPolledRow hands one row to the workflow and only then advances the
+// watermark past it, so a poll cut short by a stop resumes from the first row
+// that was not delivered rather than skipping it.
+func (p *PostgresSource) deliverPolledRow(ctx context.Context, row polledRow) error {
+	msg := message.AcquireMessage()
+	afterJSON, _ := json.Marshal(message.SanitizeMap(row.record))
+	msg.SetOperation(hermod.OpCreate)
+	msg.SetAfter(afterJSON)
+	msg.SetMetadata("source", "postgres-polling")
+
+	if id, ok := row.record["id"]; ok {
+		msg.SetID(fmt.Sprintf("%v", id))
 	} else {
-		p.log("DEBUG", "Polled 0 records", "query", p.query, "watermark", watermark)
+		msg.SetID(uuid.New().String())
 	}
-	return rows.Err()
+
+	select {
+	case p.msgChan <- msg:
+	case <-ctx.Done():
+		message.ReleaseMessage(msg)
+		return ctx.Err()
+	}
+
+	if row.watermark != nil {
+		p.mu.Lock()
+		p.lastWatermark = row.watermark
+		p.mu.Unlock()
+	}
+	return nil
+}
+
+func (p *PostgresSource) currentWatermark() any {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.lastWatermark
 }
 
 // openMetadataConn dials a fresh, non-replication metadata connection using the
@@ -1562,6 +1636,12 @@ func (p *PostgresSource) openMetadataConn(ctx context.Context) (*pgx.Conn, error
 	config, pooled, err := pgxutil.ParseConfig(p.connString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse connection string: %w", err)
+	}
+	// A pooler the shared pool found by itself is as much a pooler as one the
+	// connection string names.
+	if !pooled && pgxutil.DefaultPooler.Pooled(p.connString) {
+		pgxutil.ApplyPoolerSafety(config)
+		pooled = true
 	}
 
 	// Update pooled status safely
@@ -1593,7 +1673,7 @@ func (p *PostgresSource) ensureConn(ctx context.Context) error {
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.pooled = pgxutil.IsPooledConnString(p.connString)
+	p.pooled = pgxutil.DefaultPooler.Pooled(p.connString)
 	p.pool = pool
 	return nil
 }
@@ -1606,17 +1686,12 @@ func (p *PostgresSource) ensureReplConn(ctx context.Context) error {
 	}
 	p.mu.Unlock()
 
-	// Logical replication establishes a long-lived session-scoped connection and
-	// uses the replication protocol, neither of which is supported by a
-	// transaction/statement pooling proxy such as PgBouncer. Fail fast with an
-	// actionable message instead of hanging until the request deadline.
+	// A replication connection through PgBouncer is passed to the server
+	// unpooled by PgBouncer 1.23 and later, so it is tried rather than
+	// refused; an older one's refusal is explained by explainReplicationRefusal.
 	p.mu.Lock()
 	isPooled := p.pooled
 	p.mu.Unlock()
-
-	if isPooled {
-		return errors.New("CDC requires a direct Postgres connection; PgBouncer transaction/statement mode does not support logical replication. Provide a direct (session-mode) connection string for CDC sources")
-	}
 
 	// Strip the custom pooler markers (pgbouncer/pool_mode) before handing the
 	// string to pgx; otherwise pgx forwards them as Postgres startup parameters
@@ -1640,7 +1715,7 @@ func (p *PostgresSource) ensureReplConn(ctx context.Context) error {
 
 	replConn, err := pgx.ConnectConfig(ctx, connConfig)
 	if err != nil {
-		return fmt.Errorf("failed to connect to postgres for replication: %w", err)
+		return fmt.Errorf("failed to connect to postgres for replication: %w", explainReplicationRefusal(isPooled, err))
 	}
 
 	p.mu.Lock()
@@ -1656,10 +1731,7 @@ func (p *PostgresSource) openReplicationConn(ctx context.Context) (*pgx.Conn, er
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse connection string for replication: %w", err)
 	}
-	if pooled {
-		return nil, errors.New("CDC requires a direct Postgres connection; PgBouncer " +
-			"transaction/statement mode does not support logical replication")
-	}
+	pooled = pooled || p.isPooled()
 	if connConfig.RuntimeParams == nil {
 		connConfig.RuntimeParams = make(map[string]string)
 	}
@@ -1672,7 +1744,31 @@ func (p *PostgresSource) openReplicationConn(ctx context.Context) (*pgx.Conn, er
 		connConfig.RuntimeParams["application_name"] = appName
 	}
 
-	return pgx.ConnectConfig(ctx, connConfig)
+	conn, err := pgx.ConnectConfig(ctx, connConfig)
+	if err != nil {
+		return nil, explainReplicationRefusal(pooled, err)
+	}
+	return conn, nil
+}
+
+func (p *PostgresSource) isPooled() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.pooled
+}
+
+// explainReplicationRefusal says what to do when a pooler refuses a
+// replication connection. PgBouncer before 1.23 answers the replication
+// startup parameter with 08P01 ("unsupported startup parameter"); 1.23 and
+// later pass the connection through to the server unpooled.
+func explainReplicationRefusal(pooled bool, err error) error {
+	pgErr, ok := errors.AsType[*pgconn.PgError](err)
+	if !pooled || !ok || pgErr.Code != "08P01" {
+		return err
+	}
+	return fmt.Errorf("the connection pooler refused the CDC replication connection; "+
+		"PgBouncer passes replication through from version 1.23, so upgrade it, "+
+		"or give this CDC source a direct PostgreSQL connection string: %w", err)
 }
 
 func (p *PostgresSource) ensureConnNoLock(ctx context.Context) error {
@@ -1685,9 +1781,6 @@ func (p *PostgresSource) ensureConnNoLock(ctx context.Context) error {
 func (p *PostgresSource) ensureReplConnNoLock(ctx context.Context) error {
 	if p.replConn != nil && !p.replConn.IsClosed() {
 		return nil
-	}
-	if p.pooled {
-		return errors.New("CDC requires a direct Postgres connection; PgBouncer transaction/statement mode does not support logical replication. Provide a direct (session-mode) connection string for CDC sources")
 	}
 	return errors.New("replication connection not established (call ensureReplConn first)")
 }
@@ -2188,15 +2281,9 @@ func (p *PostgresSource) IsReady(ctx context.Context) error {
 		return nil
 	}
 
-	// 2. CDC-specific checks
-	p.mu.Lock()
-	isPooled := p.pooled
-	p.mu.Unlock()
-
-	if isPooled {
-		return errors.New("CDC requires a direct Postgres connection; PgBouncer transaction/statement mode does not support logical replication. Provide a direct (session-mode) connection string for CDC sources")
-	}
-
+	// 2. CDC-specific checks. Through a pooler they run too: PgBouncer 1.23
+	// and later pass replication through, and probeReplication explains an
+	// older one's refusal.
 	// Consolidate metadata checks (WAL level, slot, publication) into a single query
 	var walLevel string
 	var slotExists bool
@@ -2342,7 +2429,7 @@ func (p *PostgresSource) probeReplication(ctx context.Context) error {
 	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
-	replCfg, _, err := pgxutil.ParseConfig(p.connString)
+	replCfg, pooled, err := pgxutil.ParseConfig(p.connString)
 	if err != nil {
 		return fmt.Errorf("failed to parse connection string: %w", err)
 	}
@@ -2355,6 +2442,11 @@ func (p *PostgresSource) probeReplication(ctx context.Context) error {
 
 	replConn, err := pgx.ConnectConfig(probeCtx, replCfg)
 	if err != nil {
+		if pooled || p.isPooled() {
+			if explained := explainReplicationRefusal(true, err); explained != err {
+				return explained
+			}
+		}
 		return classifyReplicationError(err, replCfg.User)
 	}
 	// Do not run SQL on a replication connection; simply close it if successful.

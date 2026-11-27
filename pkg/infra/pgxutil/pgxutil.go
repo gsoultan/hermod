@@ -213,7 +213,10 @@ var DefaultPooler = NewPooler()
 // same underlying connection pool, reducing the load on the database or proxy.
 type Pooler struct {
 	pools sync.Map // map[string]*pgxpool.Pool
-	calls sharedcall.Group
+	// pooled records, per cache key, whether the pool goes through a
+	// transaction/statement pooler, declared or detected.
+	pooled sync.Map // map[string]bool
+	calls  sharedcall.Group
 }
 
 // NewPooler creates a new connection pooler.
@@ -224,7 +227,7 @@ func NewPooler() *Pooler {
 // Get returns a shared pool for the given connection string. If no pool exists
 // for the string, a new one is created and cached.
 func (p *Pooler) Get(ctx context.Context, connString string) (*pgxpool.Pool, error) {
-	cleaned, _, err := ParsePoolConfig(connString)
+	cleaned, declaredPooled, err := ParsePoolConfig(connString)
 	if err != nil {
 		return nil, err
 	}
@@ -260,6 +263,15 @@ func (p *Pooler) Get(ctx context.Context, connString string) (*pgxpool.Pool, err
 			return nil, err
 		}
 
+		pooled := declaredPooled
+		if !declaresPooler(connString) {
+			pool, pooled, err = p.detectProxy(ctx, pool, cleaned)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		p.pooled.Store(key, pooled)
 		p.pools.Store(key, pool)
 		return pool, nil
 	})
@@ -270,6 +282,40 @@ func (p *Pooler) Get(ctx context.Context, connString string) (*pgxpool.Pool, err
 	return val.(*pgxpool.Pool), nil
 }
 
+// detectProxy finds a pooler the connection string did not declare, and if
+// there is one, replaces pool with one in the pooler-safe query mode. A probe
+// that fails leaves the pool as it is: it is the pool that worked.
+func (p *Pooler) detectProxy(ctx context.Context, pool *pgxpool.Pool, cfg *pgxpool.Config) (*pgxpool.Pool, bool, error) {
+	proxied, err := probeProxy(ctx, pool)
+	if err != nil || !proxied {
+		return pool, false, nil
+	}
+	pool.Close()
+	safe := cfg.Copy()
+	ApplyPoolerSafety(safe.ConnConfig)
+	pool, err = pgxpool.NewWithConfig(ctx, safe)
+	if err != nil {
+		return nil, true, err
+	}
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return nil, true, err
+	}
+	return pool, true, nil
+}
+
+// Pooled reports whether the shared pool for connString goes through a
+// transaction/statement pooler, whether the connection string said so or
+// Get found it. Before Get has opened that pool, it reports what the
+// connection string declares.
+func (p *Pooler) Pooled(connString string) bool {
+	key, declared := stripPoolerParams(connString)
+	if v, ok := p.pooled.Load(key); ok {
+		return v.(bool)
+	}
+	return declared
+}
+
 // Close closes all cached pools and clears the cache.
 func (p *Pooler) Close() {
 	p.pools.Range(func(key, value any) bool {
@@ -277,6 +323,7 @@ func (p *Pooler) Close() {
 			pool.Close()
 		}
 		p.pools.Delete(key)
+		p.pooled.Delete(key)
 		return true
 	})
 }

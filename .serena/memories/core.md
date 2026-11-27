@@ -96,6 +96,9 @@ find a claim that outruns the code, fix the claim.
   reachable from JavaScript; streams authenticate by cookie; logout is real.
 - [Missing secrets in a step](step_missing_secrets.md) — `checkStepSecrets` refuses to start a
   workflow whose step reads a secret with no value and no fallback; `secrets.RequiredReferences`.
+- [Many workflows on one PostgreSQL source](shared_postgres_source_pool.md) — one
+  shared pool per DSN per worker, poll releases its connection before delivering,
+  first-poll jitter, PgBouncer/proxy detection by server port, CDC tried through PgBouncer.
 - [Postgres sink and polling](postgres_sink_and_polling_updates.md) — singleflight
   connection dedup, non-CDC polling, PgBouncer compatibility.
 - [Postgres source: stop inside a transaction](postgres_source_stop_inside_transaction.md) —

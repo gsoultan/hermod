@@ -459,7 +459,7 @@ func (s *PostgresSink) init(ctx context.Context) error {
 	s.connMu.Lock()
 	defer s.connMu.Unlock()
 	s.pool = pool
-	s.pooled = pgxutil.IsPooledConnString(s.connString)
+	s.pooled = pgxutil.DefaultPooler.Pooled(s.connString)
 	return nil
 }
 
