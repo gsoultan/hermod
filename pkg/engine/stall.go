@@ -314,7 +314,16 @@ func (e *Engine) progressSample() (processed uint64, workPending bool) {
 			}
 		}
 	}
-	return status.ProcessedCount, workPending
+	// Work held back on purpose is not stuck work. While a write is waiting
+	// out a destination that answered busy (busy.go), the pipeline is doing
+	// what it should, and restarting it would only add a reconnect to a
+	// destination with no room. Its backoff can outlast the threshold, so the
+	// answers alone are not enough to show it is alive. A destination that
+	// does not answer at all is still a stall.
+	if e.busy.any() {
+		workPending = false
+	}
+	return status.ProcessedCount + e.busy.answers.Load(), workPending
 }
 
 // hasSinks reports whether this workflow has any sink writers at all. Used to
