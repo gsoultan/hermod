@@ -159,9 +159,12 @@ export function ConnectivityTab({ ctx }: { ctx: SettingsController }) {
                   }
                   chatLabel="Default Chat ID"
                   chatId={notifSettings.telegram_chat_id || ''}
-                  onChatIdChange={(v) => setNotifSettings({ ...notifSettings, telegram_chat_id: v })}
+                  // Functional updates: picking a chat writes the chat and clears
+                  // the topic in one go, and a copy of this render's settings
+                  // in the second write would put back the old chat ID.
+                  onChatIdChange={(v) => setNotifSettings((s) => ({ ...s, telegram_chat_id: v }))}
                   topicId={notifSettings.telegram_message_thread_id || ''}
-                  onTopicIdChange={(v) => setNotifSettings({ ...notifSettings, telegram_message_thread_id: v })}
+                  onTopicIdChange={(v) => setNotifSettings((s) => ({ ...s, telegram_message_thread_id: v }))}
                 />
                 <Checkbox
                   label="Send every dead-lettered message to Telegram"
