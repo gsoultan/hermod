@@ -524,7 +524,7 @@ func (r *Registry) runWorkflowNode(root context.Context, workflowID string, node
 		// Default/Fallback behavior (merging, sink, source, etc.)
 		return []hermod.Message{msg}, "", nil
 	}
-	msgs, branch, err := execute()
+	msgs, branch, err := waitOutBusyStep(ctx, node.ID, msg, execute)
 	if err != nil && noderetry.Configured(node.Config) {
 		msgs, branch, err = r.retryNode(ctx, workflowID, node, msg, msgs, branch, err, execute)
 	}
@@ -542,6 +542,56 @@ func (r *Registry) runWorkflowNode(root context.Context, workflowID string, node
 	inheritVHost(msg, msgs)
 
 	return msgs, branch, err
+}
+
+// waitOutBusyStep runs a node, and when it answers busy -- its database or API
+// is up and has no room right now -- has the engine running the workflow wait
+// it out, so heavy traffic makes the step slower rather than failing the
+// message. Only a busy answer is repeated, and a step only answers busy when
+// nothing was done (see hermod.ErrBusy), so repeating it is safe. Ordinary
+// errors go on to the node's retry policy as before.
+//
+// With no waiter in the context -- a preview, a test run -- the busy answer is
+// returned as it is.
+func waitOutBusyStep(ctx context.Context, nodeID string, in hermod.Message,
+	execute func() ([]hermod.Message, string, error),
+) ([]hermod.Message, string, error) {
+	msgs, branch, err := execute()
+	if !errors.Is(err, hermod.ErrBusy) {
+		return msgs, branch, err
+	}
+	w, ok := hermod.BusyWaiterFrom(ctx)
+	if !ok {
+		return msgs, branch, err
+	}
+	first, last := true, err
+	err = w.WaitOutBusy(ctx, "step:"+nodeID, func() error {
+		if first {
+			first = false
+			return last
+		}
+		releaseAttempt(msgs, in)
+		msgs, branch, last = execute()
+		return last
+	})
+	if errors.Is(last, hermod.ErrBusy) {
+		// The wait ended before the step had room (a stop, a drain): the last
+		// attempt's answer is not what the step returns.
+		releaseAttempt(msgs, in)
+		return nil, "", err
+	}
+	return msgs, branch, err
+}
+
+// releaseAttempt releases the messages a discarded attempt produced. The input
+// is not: runWorkflowNode retains it for the caller only when it is returned,
+// which a discarded attempt never is.
+func releaseAttempt(msgs []hermod.Message, in hermod.Message) {
+	for _, m := range msgs {
+		if m != nil && m != in {
+			m.Release()
+		}
+	}
 }
 
 // retryNode applies a node's retry policy after its first attempt failed.

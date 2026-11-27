@@ -22,5 +22,20 @@ destination named a wait. `hermod.RetryAfter(err)` reads it.
   PostgreSQL sink SQLSTATE 53300 and 57P03 (`pkg/comm/sink/postgres/busy.go`).
   Classify by code, never by message text.
 
-Not yet covered: transformation steps (`db_lookup`, `execute_sql`) and pool
-acquisition waits, which still surface as timeouts.
+Steps (transformation nodes) too:
+
+- The engine offers itself to the steps it runs as a `hermod.BusyWaiter`
+  (`hermod.WithBusyWaiter` on the runner's base context, `busy_waiter.go`).
+  `Engine.WaitOutBusy(ctx, "step:<node id>", attempt)` shares the loop
+  (`waitOut`) and the stall exemption with sinks, without a sink status.
+- `Registry.runWorkflowNode` runs every node through `waitOutBusyStep` before
+  the node's retry policy. No waiter in the context (preview, test run) means
+  the busy answer is returned as it is.
+- A step answers busy only when nothing was done, so repeating it is safe:
+  `sqlutil.MarkBusy` (SQLSTATE 53300/57P03 via a `SQLState()` interface, no
+  driver import) on `db_lookup` and `execute_sql`, and for `db_lookup` only a
+  deadline hit while all of Hermod's connections to the source were in use
+  (`poolUse.explain`). Never mark a write busy after it may have run.
+
+Not yet covered: API steps (429), the batched lookup path, and the UI word
+for `waiting`.
