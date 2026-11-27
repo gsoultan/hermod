@@ -173,26 +173,47 @@ func TestE2E_PgBouncer_Real(t *testing.T) {
 	}
 }
 
-func TestE2E_CDC_PgBouncer_Failure(t *testing.T) {
+// A connection string that says pgbouncer=true no longer turns CDC away
+// before trying. PgBouncer 1.23 and later pass logical replication through,
+// so the source tries it and explains an older PgBouncer's refusal instead.
+// This test used to expect that up-front refusal. Here the marker points at
+// PostgreSQL itself, so replication works and the source is ready.
+func TestE2E_CDC_PgBouncerMarkerIsTriedNotRefused(t *testing.T) {
 	requireIntegrationInfra(t)
-	// Verify that CDC fails fast when pgbouncer=true is used
-	sourceDSN := "postgres://postgres:postgres@localhost:5432/hermod_test_source?sslmode=disable&pgbouncer=true"
+	directDSN := "postgres://postgres:postgres@localhost:5432/hermod_test_source?sslmode=disable"
+	db := requireIntegrationDB(t, directDSN)
+	defer db.Close()
+
+	const table, pub, slot = "pgbouncer_marker_cdc", "pgbouncer_marker_pub", "pgbouncer_marker_slot"
+	for _, q := range []string{
+		"DROP PUBLICATION IF EXISTS " + pub,
+		"DROP TABLE IF EXISTS " + table,
+		"CREATE TABLE " + table + " (id int PRIMARY KEY)",
+		"CREATE PUBLICATION " + pub + " FOR TABLE " + table,
+	} {
+		if _, err := db.ExecContext(t.Context(), q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	t.Cleanup(func() {
+		ctx := context.Background()
+		_, _ = db.ExecContext(ctx, "SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = $1", slot)
+		_, _ = db.ExecContext(ctx, "DROP PUBLICATION IF EXISTS "+pub)
+		_, _ = db.ExecContext(ctx, "DROP TABLE IF EXISTS "+table)
+	})
 
 	reg := NewRegistry(nil)
 	cfg := factory.SourceConfig{
 		Type: "postgres",
 		Config: map[string]string{
-			"connection_string": sourceDSN,
+			"connection_string": directDSN + "&pgbouncer=true",
 			"use_cdc":           "true",
+			"slot_name":         slot,
+			"publication_name":  pub,
+			"tables":            table,
 		},
 	}
-
-	err := reg.TestSource(context.Background(), cfg)
-	if err == nil {
-		t.Fatal("Expected error when using CDC behind PgBouncer, got nil")
-	}
-
-	if !strings.Contains(err.Error(), "PgBouncer") {
-		t.Errorf("Expected error to mention PgBouncer, got: %v", err)
+	if err := reg.TestSource(context.Background(), cfg); err != nil {
+		t.Fatalf("TestSource with a pgbouncer=true marker on a direct connection = %v, want nil", err)
 	}
 }
