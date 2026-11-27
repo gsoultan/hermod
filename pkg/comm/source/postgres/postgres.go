@@ -97,13 +97,20 @@ type PostgresSource struct {
 	connString      string
 	slotName        string
 	publicationName string
-	tables          []string
+	tables          []string // guarded by tablesMu; read it with tableList
+	tablesMu        sync.RWMutex
 	useCDC          bool
-	pooled          bool          // Whether connString targets a transaction/statement pooler (PgBouncer)
-	persistentSlot  bool          // Whether to keep the slot on Close
-	appName         string        // Stable, instance-unique application_name for the replication connection
-	pool            *pgxpool.Pool // Shared connection pool for metadata
-	replConn        *pgx.Conn     // Replication connection for streaming
+	pooled          bool   // Whether connString targets a transaction/statement pooler (PgBouncer)
+	persistentSlot  bool   // Whether to keep the slot on Close
+	appName         string // Stable, instance-unique application_name for the replication connection
+	// sub is this workflow's place on the hub that streams its slot, once
+	// Read has started it. Guarded by mu. See slotHub.
+	sub *hubSubscription
+	// hubOwned marks the PostgresSource a hub streams through: it holds the
+	// replication connection itself instead of joining a hub.
+	hubOwned bool
+	pool     *pgxpool.Pool // Shared connection pool for metadata
+	replConn *pgx.Conn     // Replication connection for streaming
 
 	// initialLoad asks for the rows already in the watched tables to be carried
 	// across before streaming begins. Off by default: turning it on for an
@@ -212,6 +219,26 @@ func (p *PostgresSource) SetPersistentSlot(persistent bool) {
 	p.persistentSlot = persistent
 }
 
+// tableList is a copy of the configured tables. A shared slot's stream has
+// its tables changed while it runs (setTables), so they are read under a lock.
+func (p *PostgresSource) tableList() []string {
+	p.tablesMu.RLock()
+	defer p.tablesMu.RUnlock()
+	return append([]string(nil), p.tables...)
+}
+
+// setTables replaces the tables the publication covers and brings the
+// publication in line. pgoutput picks the change up on the running stream.
+func (p *PostgresSource) setTables(ctx context.Context, tables []string) error {
+	p.tablesMu.Lock()
+	p.tables = append([]string(nil), tables...)
+	p.tablesMu.Unlock()
+	if err := p.ensureConn(ctx); err != nil {
+		return err
+	}
+	return p.ensurePublication(ctx)
+}
+
 func (p *PostgresSource) SetLogger(logger hermod.Logger) {
 	p.logMu.Lock()
 	defer p.logMu.Unlock()
@@ -277,10 +304,11 @@ func (p *PostgresSource) publicationExists(ctx context.Context) (bool, error) {
 // createPublication creates the publication, covering either the configured
 // table list or ALL TABLES, with a non-superuser fallback for the latter.
 func (p *PostgresSource) createPublication(ctx context.Context, quotedPub string) error {
+	tables := p.tableList()
 	tablesClause := "ALL TABLES"
-	if len(p.tables) > 0 {
-		quotedTables := make([]string, len(p.tables))
-		for i, t := range p.tables {
+	if len(tables) > 0 {
+		quotedTables := make([]string, len(tables))
+		for i, t := range tables {
 			qt, err := sqlutil.QuoteIdent("postgres", t)
 			if err != nil {
 				return fmt.Errorf("invalid table name %q: %w", t, err)
@@ -292,7 +320,7 @@ func (p *PostgresSource) createPublication(ctx context.Context, quotedPub string
 	query := fmt.Sprintf("CREATE PUBLICATION %s FOR %s", quotedPub, tablesClause)
 	if _, err := p.pool.Exec(ctx, query); err != nil {
 		// Fallback for non-superuser if ALL TABLES failed.
-		if len(p.tables) == 0 && (strings.Contains(err.Error(), "superuser") || strings.Contains(err.Error(), "permission")) {
+		if len(tables) == 0 && (strings.Contains(err.Error(), "superuser") || strings.Contains(err.Error(), "permission")) {
 			p.log("WARN", "Failed to create publication FOR ALL TABLES (need superuser), falling back to listing all tables", "error", err)
 			return p.createPublicationWithAllTables(ctx, quotedPub)
 		}
@@ -305,6 +333,7 @@ func (p *PostgresSource) createPublication(ctx context.Context, quotedPub string
 // reconcileExistingPublication aligns an already-existing publication with the
 // configured table list, without ever dropping an externally-managed one.
 func (p *PostgresSource) reconcileExistingPublication(ctx context.Context, quotedPub string) error {
+	tables := p.tableList()
 	var pubAllTables bool
 	err := p.pool.QueryRow(ctx, "SELECT puballtables FROM pg_publication WHERE pubname = $1", p.publicationName).Scan(&pubAllTables)
 	if err != nil {
@@ -317,7 +346,7 @@ func (p *PostgresSource) reconcileExistingPublication(ctx context.Context, quote
 	// ...). Dropping it here would silently stop all CDC and is the most common
 	// cause of a source that "receives no data". Instead we adopt the existing
 	// publication exactly as it is and stream whatever it already covers.
-	if len(p.tables) == 0 {
+	if len(tables) == 0 {
 		if !pubAllTables {
 			p.log("INFO",
 				"Adopting existing publication as-is; no table list configured so Hermod will not modify it",
@@ -351,6 +380,7 @@ func (p *PostgresSource) reconcileExistingPublication(ctx context.Context, quote
 // publicationNeedsTableUpdate reports whether the publication's current table
 // set differs from the configured table list.
 func (p *PostgresSource) publicationNeedsTableUpdate(ctx context.Context) (bool, error) {
+	tables := p.tableList()
 	rows, err := p.pool.Query(ctx, "SELECT schemaname, tablename FROM pg_publication_tables WHERE pubname = $1", p.publicationName)
 	if err != nil {
 		return false, fmt.Errorf("failed to get publication tables: %w", err)
@@ -372,10 +402,10 @@ func (p *PostgresSource) publicationNeedsTableUpdate(ctx context.Context) (bool,
 		return false, fmt.Errorf("failed to read publication tables: %w", err)
 	}
 
-	if numInPub != len(p.tables) {
+	if numInPub != len(tables) {
 		return true, nil
 	}
-	for _, t := range p.tables {
+	for _, t := range tables {
 		if !existingTables[t] {
 			return true, nil
 		}
@@ -386,15 +416,16 @@ func (p *PostgresSource) publicationNeedsTableUpdate(ctx context.Context) (bool,
 // setPublicationTables sets the publication to cover exactly the configured
 // table list, logging the provided message on success.
 func (p *PostgresSource) setPublicationTables(ctx context.Context, quotedPub, logMsg string) error {
-	quotedTables := make([]string, len(p.tables))
-	for i, t := range p.tables {
+	tables := p.tableList()
+	quotedTables := make([]string, len(tables))
+	for i, t := range tables {
 		quotedTables[i], _ = sqlutil.QuoteIdent("postgres", t)
 	}
 	query := fmt.Sprintf("ALTER PUBLICATION %s SET TABLE %s", quotedPub, strings.Join(quotedTables, ", "))
 	if _, err := p.pool.Exec(ctx, query); err != nil {
 		return fmt.Errorf("failed to update publication tables: %w", err)
 	}
-	p.log("INFO", logMsg, "publication", p.publicationName, "tables", strings.Join(p.tables, ", "))
+	p.log("INFO", logMsg, "publication", p.publicationName, "tables", strings.Join(tables, ", "))
 	return nil
 }
 
@@ -624,6 +655,9 @@ func (p *PostgresSource) createSlotWithExportedSnapshot(ctx context.Context) err
 func (p *PostgresSource) Read(ctx context.Context) (hermod.Message, error) {
 	if err := p.init(ctx); err != nil {
 		return nil, err
+	}
+	if sub := p.subscription(); sub != nil {
+		return sub.read(ctx)
 	}
 
 	if !p.useCDC && p.query != "" {
@@ -982,6 +1016,9 @@ func (p *PostgresSource) PendingWork() (pending bool, known bool) {
 	if !p.useCDC {
 		return false, false
 	}
+	if sub := p.subscription(); sub != nil {
+		return sub.pending(), true
+	}
 	p.mu.Lock()
 	acked := p.lastAckedLSN
 	outstanding := p.acks.pending()
@@ -991,6 +1028,9 @@ func (p *PostgresSource) PendingWork() (pending bool, known bool) {
 
 // LastStreamActivity implements hermod.StreamLivenessReporter.
 func (p *PostgresSource) LastStreamActivity() time.Time {
+	if stream := p.hubSource(); stream != nil {
+		return stream.LastStreamActivity()
+	}
 	ns := p.lastStreamActivity.Load()
 	if ns == 0 {
 		return time.Time{}
@@ -1011,6 +1051,9 @@ const streamSilenceFactor = 3
 func (p *PostgresSource) StreamSilenceThreshold() time.Duration {
 	if !p.useCDC {
 		return 0
+	}
+	if stream := p.hubSource(); stream != nil {
+		return stream.StreamSilenceThreshold()
 	}
 	timeout := time.Duration(p.walSenderTimeout.Load())
 	if timeout <= 0 {
@@ -1820,6 +1863,10 @@ func (p *PostgresSource) init(ctx context.Context) error {
 		return err
 	}
 
+	if p.useCDC && !p.hubOwned {
+		return p.joinHub(ctx)
+	}
+
 	// Perform the actual initialization logic.
 	if err := p.initialize(ctx); err != nil {
 		// Surface startup/permission failures (wrong connection mode, missing
@@ -1904,7 +1951,7 @@ func (p *PostgresSource) initialize(ctx context.Context) error {
 	streamCtx, cancel := context.WithCancel(context.Background())
 	p.cancel = cancel
 	backfill := p.exportedSnapshot
-	tables := append([]string(nil), p.tables...)
+	tables := p.tableList()
 	p.wg.Go(func() {
 		// The backfill runs before streaming and on the same goroutine, so the
 		// rows already in the tables reach the pipeline ahead of any change to
@@ -2232,6 +2279,9 @@ func (p *PostgresSource) Ack(ctx context.Context, msg hermod.Message) error {
 	if msg == nil {
 		return nil
 	}
+	if sub := p.subscription(); sub != nil {
+		return sub.ack(ctx, msg)
+	}
 	lsnStr := msg.Metadata()["lsn"]
 	if lsnStr == "" {
 		return nil
@@ -2379,14 +2429,15 @@ func (p *PostgresSource) wrapError(err error, duration time.Duration) error {
 }
 
 func (p *PostgresSource) checkTrackingTables(ctx context.Context) error {
-	if len(p.tables) == 0 {
+	tables := p.tableList()
+	if len(tables) == 0 {
 		return nil
 	}
 
 	// Split tables into schema and name parts for the query
-	schemas := make([]string, len(p.tables))
-	names := make([]string, len(p.tables))
-	for i, table := range p.tables {
+	schemas := make([]string, len(tables))
+	names := make([]string, len(tables))
+	for i, table := range tables {
 		parts := strings.Split(table, ".")
 		if len(parts) == 2 {
 			schemas[i] = parts[0]
@@ -2420,7 +2471,7 @@ func (p *PostgresSource) checkTrackingTables(ctx context.Context) error {
 		found[s+"."+t] = true
 	}
 
-	for i, table := range p.tables {
+	for i, table := range tables {
 		key := schemas[i] + "." + names[i]
 		if !found[key] {
 			return fmt.Errorf("tracking table %q does not exist", table)
@@ -2480,6 +2531,12 @@ func classifyReplicationError(err error, user string) error {
 
 func (p *PostgresSource) Close() error {
 	p.log("INFO", "Closing PostgresSource", "slot", p.slotName, "publication", p.publicationName)
+	if sub := p.leaveHub(); sub != nil {
+		// The hub's own stream confirms the slot's position and, once the last
+		// workflow leaves, drops a slot that is not persistent.
+		slotHubs.leave(sub)
+		return nil
+	}
 	p.mu.Lock()
 
 	// Even when the source was never fully initialized for CDC streaming, the
@@ -2846,9 +2903,7 @@ func (p *PostgresSource) Snapshot(ctx context.Context, tables ...string) error {
 		return err
 	}
 
-	p.mu.Lock()
-	pTables := p.tables
-	p.mu.Unlock()
+	pTables := p.tableList()
 
 	targetTables := tables
 	if len(targetTables) == 0 {
