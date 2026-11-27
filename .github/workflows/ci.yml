@@ -122,6 +122,21 @@ jobs:
             -run 'HeavySyncLoad|FailbackUnderLoad|RestartCycles|DoesNotLeakGoroutines|SurvivesControlPlaneOutage|TestHeavyLoad|AcrossRandomTopologies' \
             ./internal/engine/worker/ ./internal/engine/registry/
 
+      # internal/test/scale: what one more workflow costs, and what thousands
+      # of workflows on shared sources and sinks do to delivery. Kept small
+      # here so it guards against regressions without becoming the slowest
+      # step; BENCHMARKS.md has the full-size numbers and how to reproduce
+      # them. The runner image ships PostgreSQL stopped, so it is started for
+      # the shared-database test, which otherwise skips.
+      - name: Test (scale)
+        run: |
+          sudo systemctl start postgresql.service
+          sudo -u postgres psql -qc "ALTER USER postgres PASSWORD 'postgres'"
+          HERMOD_SCALE_IDLE_STEPS=2000 \
+          HERMOD_SCALE_DSN='postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable' \
+          HERMOD_SCALE_STEPS=200 HERMOD_SCALE_DURATION=10s HERMOD_SCALE_DRAIN=60s HERMOD_SCALE_MIN_SUCCESS=1 \
+          go test -count=1 -timeout 15m -run 'TestScaleIdleFootprint|TestScaleSharedDatabase' ./internal/test/scale/
+
       # The step above cannot turn the detector on: all five worker load tests
       # in one process is the 8.73 GB that killed the runner. One test per
       # process can. Measured peaks, /usr/bin/time -l, one process each:
