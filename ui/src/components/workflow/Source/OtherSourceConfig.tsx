@@ -65,6 +65,19 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
           minRows={10}
           formatOnBlur
         />
+        <Text size="sm" c="dimmed">
+          The schedule starts one run at a time: a tick that comes while the last run is still going is skipped.
+          Each run knows when the last successful run was due, as <Code>{'{{meta.last_success_at}}'}</Code> (empty
+          before the first). Read what changed since then instead of a fixed window, so a failed run loses nothing,
+          for example <Code>{'"LastUpdated" >= COALESCE(NULLIF({{meta.last_success_at}}, \'\')::timestamptz, now() - interval \'1 day\')'}</Code>.
+        </Text>
+        <TextInput
+          label="Longest a run may take"
+          placeholder="1h"
+          value={config.max_run_duration ?? ''}
+          onChange={(e) => updateConfig('max_run_duration', e.target.value)}
+          description="After this the schedule stops waiting for a run it never heard back about and starts the next one. Steps keep their own time limits. Default 1h."
+        />
       </Stack>
     );
   }
