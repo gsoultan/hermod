@@ -211,12 +211,14 @@ func TestLookupsNeverFailBehindSQLStepsOnASmallPgBouncerPool(t *testing.T) {
 	if ok.Load() == 0 {
 		t.Error("no lookup succeeded")
 	}
-	// Hermod found it was queueing, and keeps connections free for lookups
-	// below whatever share it learned. With a reserve pool the share is not a
+	// Long queries are held below what the database can serve, so lookups
+	// keep connections of their own. With a reserve pool the share is not a
 	// fixed number -- PgBouncer adds reserve connections once a client has
-	// waited -- so only that relation is asserted, not a value.
-	if l, lim := d.Learned(), d.Limit(); l == 0 || lim == 0 || lim >= l {
-		t.Errorf("learned share %d, bulk limit %d: want a learned share with connections kept free below it", l, lim)
+	// waited -- so the canary may never queue and nothing is learned; the
+	// bound then comes from Hermod's own pool size. Either way there must be
+	// a bound, and it must sit below whatever share was learned.
+	if l, lim := d.Learned(), d.Limit(); lim == 0 || (l > 0 && lim >= l) {
+		t.Errorf("learned share %d, bulk limit %d: want long queries bounded below what the database serves", l, lim)
 	}
 }
 
