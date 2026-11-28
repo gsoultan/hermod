@@ -55,14 +55,16 @@ type busyWaits struct {
 	waiting map[string]int
 }
 
-// begin records that a write to sinkID has started waiting.
-func (b *busyWaits) begin(sinkID string) {
+// begin records that a write to sinkID has started waiting, and reports
+// whether it is the first one waiting on sinkID now.
+func (b *busyWaits) begin(sinkID string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.waiting == nil {
 		b.waiting = make(map[string]int)
 	}
 	b.waiting[sinkID]++
+	return b.waiting[sinkID] == 1
 }
 
 // end records that a write to sinkID has stopped waiting.
@@ -93,7 +95,7 @@ func (b *busyWaits) any() bool {
 // base is the sink's retry interval, where the waits start. While it waits,
 // the sink shows "waiting".
 func (e *Engine) waitOutBusy(ctx context.Context, sinkID string, base time.Duration, attempt func() error) error {
-	return e.waitOut(ctx, sinkID, base, attempt, func(waiting bool, err error) {
+	return e.waitOut(ctx, sinkID, base, attempt, func(waiting, _ bool, err error) {
 		e.setSinkStatus(sinkID, sinkStatusWhenUp(waiting))
 		if waiting {
 			e.logger.Warn("Sink is busy; waiting for room rather than failing the write",
@@ -107,24 +109,30 @@ func (e *Engine) waitOutBusy(ctx context.Context, sinkID string, base time.Durat
 // slower, it is not failed, and the stall watchdog does not count the wait as
 // being stuck. The engine offers itself to the steps it runs through the
 // context (hermod.WithBusyWaiter). It implements hermod.BusyWaiter.
+//
+// A waiting step is how heavy traffic is meant to look, not a problem, so it
+// is logged as information, once while the step has messages waiting rather
+// than once for each of them: under heavy traffic the log would otherwise grow
+// with the very load that made the step wait.
 func (e *Engine) WaitOutBusy(ctx context.Context, name string, attempt func() error) error {
-	return e.waitOut(ctx, name, busyBackoffFloor, attempt, func(waiting bool, err error) {
-		if waiting {
-			e.logger.Warn("Step is busy; waiting for room rather than failing the message",
+	return e.waitOut(ctx, name, busyBackoffFloor, attempt, func(waiting, first bool, err error) {
+		if waiting && first {
+			e.logger.Info("Step is busy; waiting for room rather than failing the message",
 				"workflow_id", e.workflowID, "step", name, "error", err)
 		}
 	})
 }
 
 // waitOut is the loop behind both: it repeats attempt while it answers busy,
-// with backoff, and calls changed when the wait starts (true) and ends.
-func (e *Engine) waitOut(ctx context.Context, key string, base time.Duration, attempt func() error, changed func(waiting bool, err error)) error {
+// with backoff, and calls changed when the wait starts (true) and ends. first
+// says whether no other wait on key was under way when this one started.
+func (e *Engine) waitOut(ctx context.Context, key string, base time.Duration, attempt func() error, changed func(waiting, first bool, err error)) error {
 	wait := max(base, busyBackoffFloor)
 	waiting := false
 	defer func() {
 		if waiting {
 			e.busy.end(key)
-			changed(false, nil)
+			changed(false, false, nil)
 		}
 	}()
 	for {
@@ -135,8 +143,7 @@ func (e *Engine) waitOut(ctx context.Context, key string, base time.Duration, at
 		e.busy.answers.Add(1)
 		if !waiting {
 			waiting = true
-			e.busy.begin(key)
-			changed(true, err)
+			changed(true, e.busy.begin(key), err)
 		}
 		delay := busyDelay(err, wait)
 		wait = min(wait*2, busyBackoffCap)

@@ -21,6 +21,11 @@ their own few retries give up on a 429, 503 or Anthropic's 529 overloaded. One 4
 OpenAI's `insufficient_quota`, sent when an account is out of credit. Waiting would not end it, so it
 is neither retried nor waited out, and the message fails naming it.
 
+A step that waits for room is logged once as information while it has messages waiting, not as a
+warning for every message that waits. An API refusing one request in fifty used to fill the log with
+warnings for a workflow that lost nothing, and under heavy traffic those log writes grew with the very
+load that made the step wait.
+
 ### Fixed — a lookup that waited its turn showed as a failed run, and could still fail
 
 On v1.27.1, behind a small PgBouncer pool (`default_pool_size = 5` with a reserve pool) and with

@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -81,5 +82,51 @@ func TestABusyStepIsWaitedOutByTheEngineWithoutAStall(t *testing.T) {
 	}
 	if n := stalls.Load(); n != 0 {
 		t.Errorf("the workflow was reported stalled %d times while a step waited for room", n)
+	}
+}
+
+// A step that waits for room is how heavy traffic is meant to look, not a
+// problem, so it is logged as information, and once for the step while it is
+// waiting rather than once for every message that waits.
+//
+// It was a warning for every message: an API that refused one order in fifty
+// with a 503 filled the log with warnings for a workflow that lost nothing,
+// and under heavy traffic the log writes grew with the very load that made the
+// step wait.
+func TestAWaitingStepIsLoggedOnceAsInformation(t *testing.T) {
+	log := &testLogger{}
+	eng := NewEngine(&mockSourceWithLimit{limit: 1}, nil, buffer.NewRingBuffer(8))
+	eng.SetLogger(log)
+
+	const messages = 20
+	release := make(chan struct{})
+	var started, done sync.WaitGroup
+	for range messages {
+		started.Add(1)
+		done.Go(func() {
+			first := true
+			_ = eng.WaitOutBusy(t.Context(), "step:lookup", func() error {
+				if first {
+					first = false
+					started.Done()
+					return fmt.Errorf("429: %w", hermod.ErrBusy)
+				}
+				<-release
+				return nil
+			})
+		})
+	}
+	started.Wait()
+	close(release)
+	done.Wait()
+
+	log.mu.Lock()
+	defer log.mu.Unlock()
+	if len(log.warns) != 0 || len(log.errs) != 0 {
+		t.Errorf("a step waiting for room logged %d warnings and %d errors: %v %v",
+			len(log.warns), len(log.errs), log.warns, log.errs)
+	}
+	if len(log.infos) != 1 {
+		t.Errorf("%d messages waiting on one step logged %d lines, want 1: %v", messages, len(log.infos), log.infos)
 	}
 }

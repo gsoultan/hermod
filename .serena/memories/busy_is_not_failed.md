@@ -52,4 +52,8 @@ Steps (transformation nodes) too:
   `llm.OutOfQuota(body)` is the same rule for callers reading bodies
   themselves (the AI step's direct OpenAI call).
 
+- A waiting step logs at INFO, once per step while any message waits on it
+  (`busyWaits.begin` reports the first). Not WARN: waiting is normal under
+  load, and the branching load test fails on any WARN Hermod logs.
+
 Not yet covered: the batched lookup path, and the UI word for `waiting`.
