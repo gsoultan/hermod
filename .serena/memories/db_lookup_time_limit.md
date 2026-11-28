@@ -27,7 +27,18 @@ so tests can shorten it). A bad value fails before any query is sent.
   query and appends "all N of Hermod's connections ... were busy" (queued in Hermod, invisible
   to SHOW POOLS) or "M of N ... so the wait was in the database or PgBouncer". Skipped in a
   preview (sandbox connection, not the pool).
-- Tests: `db_lookup_timeout_test.go` (hanging database/sql driver), `db_lookup_pool_wait_test.go`,
+- **Proof when nothing was in the way:** `explain`'s last branch calls `poolUse.prove`
+  (`slow_query.go`): `PingContext` (3s) then, if it answered, `SlowLookupPlanner.PlanSlowLookup`
+  from the registry in ctx (`internal/engine/registry/slow_lookup_plan.go` ->
+  `queryplan.Run` + `Check.Summary`). `queryplan` sets `lock_timeout` 1s, so a plan blocked by
+  an ACCESS EXCLUSIVE lock answers 55P03 and the verdict names the holders from `pg_locks`
+  (table, pid, state, transaction age; never query text). `lookupTimeoutError` picks the
+  headline from `*slowLookup`: "the time went on the lookup's own query" or "did not answer a
+  ping either". One check per (pool, query) per minute, shared by concurrent timeouts
+  (`proofs`). Never Busy: a slow query would be waited on forever.
+- Tests: `db_lookup_slow_query_test.go` (fake drivers), registry
+  `slow_lookup_proof_integration_test.go` (`PGBOUNCER_SMALL_POOL_DSN`, optional
+  `PGBOUNCER_DOWN_DB_DSN` = a PgBouncer db whose server is down), `db_lookup_timeout_test.go` (hanging database/sql driver), `db_lookup_pool_wait_test.go`,
   `db_lookup_timeout_integration_test.go` (`-tags=integration`, `POSTGRES_DSN` and
   optional `PGBOUNCER_DSN` with `default_pool_size = 1`: lock wait direct and via
   PgBouncer, and PgBouncer pool exhausted). UI: `dbLookupTimeLimit.test.tsx`.

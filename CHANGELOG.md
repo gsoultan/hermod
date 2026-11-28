@@ -28,6 +28,10 @@ Runs tab.
   now name their workflow and step.
 - The error asked you to copy PgBouncer's `pool_size` into the source. It now says what Hermod
   is doing about the wait instead.
+- A lookup that ran out of time with nothing of Hermod's in the way said only "raise the step's
+  time limit". Hermod now checks straight away and the error says which it was: the query is
+  slow, with what its plan reads and the index or rewrite that fixes it; it waited on a lock,
+  with the table and the session holding it; or the database did not answer a ping either.
 
 ### Added — the Tuning tab says what Hermod fixed on each database, and what needs you
 

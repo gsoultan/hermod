@@ -33,6 +33,13 @@ var ErrUnsupported = errors.New("queryplan: only PostgreSQL databases can be che
 // only, so it takes milliseconds; the bound is for a table locked by DDL.
 const PlanTimeout = 5 * time.Second
 
+// LockTimeout bounds the wait for a lock on a table the query reads. Planning
+// takes the lock a SELECT does, which only an ACCESS EXCLUSIVE lock blocks, so
+// a plan that waits longer than this is waiting on one: the server answers
+// SQLSTATE 55P03 and the caller can say so, instead of the check running out
+// its whole PlanTimeout and reporting a timeout that names nothing.
+const LockTimeout = time.Second
+
 // Check is one query's plan read against its tables.
 type Check struct {
 	Scans    []Scan    `json:"scans"`
@@ -75,8 +82,8 @@ func Run(ctx context.Context, db *sql.DB, query string) (Check, error) {
 func run(ctx context.Context, c *pgx.Conn, query string) (out Check, err error) {
 	pc := c.PgConn()
 	if _, err := pc.Exec(ctx, fmt.Sprintf(
-		"BEGIN READ ONLY; SET LOCAL statement_timeout = %d; SET LOCAL plan_cache_mode = force_generic_plan",
-		PlanTimeout.Milliseconds())).ReadAll(); err != nil {
+		"BEGIN READ ONLY; SET LOCAL statement_timeout = %d; SET LOCAL lock_timeout = %d; SET LOCAL plan_cache_mode = force_generic_plan",
+		PlanTimeout.Milliseconds(), LockTimeout.Milliseconds())).ReadAll(); err != nil {
 		return out, err
 	}
 	defer func() {

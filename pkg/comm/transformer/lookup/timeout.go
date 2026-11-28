@@ -74,6 +74,9 @@ func lookupTimeoutError(parent context.Context, timeout time.Duration, err error
 		// is not what to change, and the engine waits it out.
 		return fmt.Errorf("db_lookup: no free connection to the database within %s: %w", timeout, err)
 	}
+	if s, ok := errors.AsType[*slowLookup](err); ok {
+		return s.headline(timeout, err)
+	}
 	return fmt.Errorf("db_lookup: no answer from the database within %s; "+
 		"raise the step's time limit if the query is legitimately slow: %w", timeout, err)
 }
@@ -94,6 +97,11 @@ type poolUse struct {
 	activity *dbactivity.Database
 	// asked is when the lookup asked for its connection.
 	asked time.Time
+	// pool and query are what a timed-out lookup is checked against, and
+	// planner reads the query's plan; see prove.
+	pool    *sql.DB
+	query   string
+	planner SlowLookupPlanner
 }
 
 // holderMinAge is how long a query must have run to be named as one a lookup
@@ -105,12 +113,14 @@ const holdersNamed = 3
 
 // A preview runs on its own transaction's connection, not the pool, so it gets
 // no note.
-func poolUseOf(ctx context.Context, db *sql.DB) poolUse {
+func poolUseOf(ctx context.Context, db *sql.DB, query string) poolUse {
 	if db == nil || sqlutil.Sandboxed(ctx) {
 		return poolUse{}
 	}
 	st := db.Stats()
-	return poolUse{inUse: st.InUse, max: st.MaxOpenConnections, activity: dbactivity.OfPool(db), asked: time.Now()}
+	planner, _ := ctx.Value(hermod.RegistryKey).(SlowLookupPlanner)
+	return poolUse{inUse: st.InUse, max: st.MaxOpenConnections, activity: dbactivity.OfPool(db), asked: time.Now(),
+		pool: db, query: query, planner: planner}
 }
 
 // track records the lookup as running on the source's database until the
@@ -211,6 +221,9 @@ func (u poolUse) explain(err error) error {
 			"while Hermod holds its long queries to %s: %w", u.inUse, u.max, holdersText(qs, now), u.shareText(), err),
 			Holders: dbactivity.Holders(qs, now)}
 	}
-	return fmt.Errorf("when the lookup asked, %d of Hermod's %d connections to this source were busy, "+
-		"so the wait was in the database or PgBouncer%s: %w", u.inUse, u.max, holdersText(qs, now), err)
+	// Neither Hermod's pool nor its own queries were in the way, so either the
+	// query is slow or the database is not answering. Hermod checks which,
+	// rather than leave the operator to guess.
+	return u.prove(fmt.Errorf("when the lookup asked, %d of Hermod's %d connections to this source were busy, "+
+		"so the wait was in the database or PgBouncer%s: %w", u.inUse, u.max, holdersText(qs, now), err))
 }
