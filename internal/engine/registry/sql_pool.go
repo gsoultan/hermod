@@ -12,14 +12,21 @@ package registry
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/infra/dbactivity"
 	"github.com/gsoultan/hermod/pkg/infra/pgxutil"
+	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 )
@@ -195,4 +202,102 @@ func probeSQLProxy(ctx context.Context, db *sql.DB) bool {
 		return err
 	})
 	return err == nil && proxied
+}
+
+// bindSQLPool records which physical database db reaches (dbactivity), so DB
+// Lookup and Execute SQL can find what else Hermod is running there, and
+// applies the bulk limit the connection string implies. A Postgres string is
+// keyed by what the server sees; any other driver by its whole string, which
+// still joins every pool opened with the same one.
+func bindSQLPool(db *sql.DB, driverName, connStr string) {
+	if driverName == "pgx" {
+		if d, limit, err := pgxutil.Database(connStr); err == nil {
+			if limit > 0 {
+				d.SetLimit(limit)
+			}
+			dbactivity.Bind(db, d)
+			reserve, _ := pgxutil.LookupReserve(connStr)
+			startTuner(db, connStr, d, reserve)
+			return
+		}
+	}
+	sum := sha256.Sum256([]byte(connStr))
+	dbactivity.Bind(db, dbactivity.For(dbactivity.Key(driverName, "", "", "", hex.EncodeToString(sum[:8]))))
+}
+
+// closeSQLPool closes a pool, stopping its tuner and forgetting its
+// dbactivity binding.
+func closeSQLPool(db *sql.DB) {
+	if v, ok := tuners.LoadAndDelete(db); ok {
+		if stop, ok := v.(func()); ok {
+			stop()
+		}
+	}
+	dbactivity.Unbind(db)
+	_ = db.Close()
+}
+
+// tunerInterval overrides how often the canary runs; tests shorten it.
+var tunerInterval time.Duration
+
+// tuners holds, per open Postgres pool, the func that stops its tuner.
+var tuners sync.Map
+
+// startTuner starts the goroutine that learns how many server connections
+// Hermod really gets on d (see dbactivity.Tuner), so lookups keep connections
+// free behind PgBouncer without anyone copying its pool_size into the source.
+// The pool owns it: closeSQLPool stops it and waits for it.
+//
+// The canary has a connection of its own, outside the pool: when the pool is
+// full the canary would otherwise queue inside Hermod and learn nothing about
+// PgBouncer. A Postgres string the canary cannot open gets no tuner.
+func startTuner(db *sql.DB, connStr string, d *dbactivity.Database, reserve int) {
+	probeDB, err := openCanary(connStr)
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	tu := dbactivity.NewTuner(d, canary(probeDB), db.Stats().MaxOpenConnections, reserve)
+	if tunerInterval > 0 {
+		tu.Interval = tunerInterval
+	}
+	go func() {
+		defer close(done)
+		defer func() { _ = probeDB.Close() }()
+		tu.Run(ctx)
+	}()
+	tuners.Store(db, func() { cancel(); <-done })
+}
+
+// openCanary is a one-connection pool for the canary. It never prepares a
+// statement, so it is safe through transaction pooling whatever the
+// connection string says.
+func openCanary(connStr string) (*sql.DB, error) {
+	cfg, _, err := pgPoolConnConfig(connStr)
+	if err != nil {
+		return nil, err
+	}
+	pgxutil.ApplyPoolerSafety(cfg)
+	probeDB := stdlib.OpenDB(*cfg)
+	probeDB.SetMaxOpenConns(1)
+	probeDB.SetMaxIdleConns(1)
+	return probeDB, nil
+}
+
+// canary is the tuner's probe: SELECT 1 on its own connection. It costs the
+// server nothing, so a slow answer was a wait for a server connection.
+func canary(probeDB *sql.DB) dbactivity.Probe {
+	return func(ctx context.Context) dbactivity.ProbeResult {
+		var one int
+		err := probeDB.QueryRowContext(ctx, "SELECT 1").Scan(&one)
+		switch {
+		case err == nil, errors.Is(err, context.DeadlineExceeded):
+			return dbactivity.ProbeAnswered
+		case errors.Is(sqlutil.MarkBusy(err), hermod.ErrBusy):
+			return dbactivity.ProbeRefused
+		default:
+			return dbactivity.ProbeSkipped
+		}
+	}
 }

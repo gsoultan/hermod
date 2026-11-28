@@ -29,6 +29,7 @@ import (
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/message"
 	sourcebuf "github.com/gsoultan/hermod/pkg/comm/source"
+	"github.com/gsoultan/hermod/pkg/infra/dbactivity"
 	"github.com/gsoultan/hermod/pkg/infra/pgxutil"
 	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
 	"github.com/jackc/pglogrepl"
@@ -111,6 +112,9 @@ type PostgresSource struct {
 	hubOwned bool
 	// member names the workflow on a shared slot. See SetSharedSlotMember.
 	member hubMember
+	// activity is the database this source polls, shared with every other
+	// Hermod pool that reaches it; nil until ensureConn. See pollGate.
+	activity *dbactivity.Database
 	// hold caps the position confirmed to the slot while holding, so the
 	// slot can replay to a workflow that stopped. Guarded by mu. See slotHub.
 	hold    pglogrepl.LSN
@@ -1617,7 +1621,7 @@ func (p *PostgresSource) poll(ctx context.Context) error {
 	watermark := p.lastWatermark
 	p.mu.Unlock()
 
-	batch, err := p.fetchPollBatch(ctx, watermark)
+	batch, err := p.gatedPollBatch(ctx, watermark)
 	if err != nil {
 		return err
 	}
@@ -1647,6 +1651,26 @@ type polledRow struct {
 	// watermark is the row's raw id value, or nil when the query has no id
 	// column. It becomes the source's watermark once the row is delivered.
 	watermark any
+}
+
+// gatedPollBatch is fetchPollBatch under the database's bulk gate: when the
+// source's Max connections is set, a poll first waits for one of the bulk
+// slots, so long poll queries on this database cannot take the connections
+// DB Lookups need. The poll is tracked while it runs, so a lookup that times
+// out can name it.
+func (p *PostgresSource) gatedPollBatch(ctx context.Context, watermark any) ([]polledRow, error) {
+	p.mu.Lock()
+	activity, member := p.activity, string(p.member)
+	p.mu.Unlock()
+	if activity == nil {
+		return p.fetchPollBatch(ctx, watermark)
+	}
+	end, err := activity.Begin(ctx, dbactivity.Query{Kind: dbactivity.SourcePoll, WorkflowID: member})
+	if err != nil {
+		return nil, fmt.Errorf("waiting for a free connection to poll: %w", err)
+	}
+	defer end()
+	return p.fetchPollBatch(ctx, watermark)
 }
 
 // fetchPollBatch runs the poll query and reads its whole result, so the pooled
@@ -1776,11 +1800,32 @@ func (p *PostgresSource) ensureConn(ctx context.Context) error {
 		return fmt.Errorf("failed to get shared postgres pool: %w", err)
 	}
 
+	activity := databaseActivity(p.connString, pool)
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.pooled = pgxutil.DefaultPooler.Pooled(p.connString)
 	p.pool = pool
+	p.activity = activity
 	return nil
+}
+
+// databaseActivity is the dbactivity tracker for the database connString
+// reaches, with its bulk limit applied when the string sets Max connections.
+// A string Hermod cannot read for this has no tracker, and its polls are not
+// gated: the pool itself already parsed it, so that does not happen.
+func databaseActivity(connString string, pool any) *dbactivity.Database {
+	d, limit, err := pgxutil.Database(connString)
+	if err != nil {
+		return nil
+	}
+	// Only a known limit is applied: a source that says nothing must not lift
+	// the limit another source on the same database set.
+	if limit > 0 {
+		d.SetLimit(limit)
+	}
+	dbactivity.Bind(pool, d)
+	return d
 }
 
 func (p *PostgresSource) ensureReplConn(ctx context.Context) error {
