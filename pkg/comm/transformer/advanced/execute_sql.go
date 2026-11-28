@@ -22,6 +22,7 @@ import (
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/transformer/core"
+	"github.com/gsoultan/hermod/pkg/infra/dbactivity"
 	"github.com/gsoultan/hermod/pkg/infra/evaluator"
 	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
 )
@@ -72,7 +73,9 @@ func (t *ExecuteSQLTransformer) Transform(ctx context.Context, msg hermod.Messag
 		defer cancel()
 	}
 	out, err := t.run(ctx, registry, msg, config, sourceID, queryTemplate)
-	if timeout > 0 && errors.Is(err, context.DeadlineExceeded) {
+	// A step that waited for a slot never reached the database, and its own
+	// error says so; "no answer from the database" would be wrong about it.
+	if timeout > 0 && errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, hermod.ErrBusy) {
 		err = fmt.Errorf("execute_sql: no answer from the database within %s: %w", timeout, err)
 	}
 	return out, err
@@ -148,6 +151,12 @@ func (t *ExecuteSQLTransformer) run(ctx context.Context, registry dbByID, msg he
 	if strings.TrimSpace(sqlText) == "" {
 		return msg, errors.New("empty queryTemplate after processing")
 	}
+
+	end, err := beginStatement(ctx, pool)
+	if err != nil {
+		return msg, err
+	}
+	defer end()
 
 	// A statement that hands rows back -- INSERT ... RETURNING, UPDATE ... OUTPUT
 	// -- has to be run as a query, because ExecContext has nowhere to put them.
@@ -226,4 +235,35 @@ func (t *ExecuteSQLTransformer) queryInto(ctx context.Context, db sqlutil.Querie
 	}
 
 	return nil
+}
+
+// beginStatement takes one of the bulk slots the source's database allows, so
+// the rest of its connections stay free for lookups, and records the step as
+// running there. A preview runs on its own transaction, not the pool, and a
+// database Hermod does not track has no gate; both get a no-op.
+//
+// Running out of time while waiting is busy: the statement never reached the
+// database, so it is safe to wait out and run again, unlike a statement that
+// timed out while running.
+func beginStatement(ctx context.Context, pool *sql.DB) (func(), error) {
+	d := dbactivity.OfPool(pool)
+	if d == nil || sqlutil.Sandboxed(ctx) {
+		return func() {}, nil
+	}
+	end, err := d.Begin(ctx, dbactivity.Query{
+		Kind:       dbactivity.SQLStep,
+		WorkflowID: contextString(ctx, hermod.WorkflowIDKey),
+		NodeID:     contextString(ctx, hermod.NodeIDKey),
+	})
+	if err != nil {
+		return nil, &hermod.Busy{Err: fmt.Errorf("execute_sql: waited for one of the %d connections this source lets "+
+			"source polls and SQL steps use at once, the rest being kept free for lookups; "+
+			"raise Max connections on the source if the database has room: %w", d.Limit(), err)}
+	}
+	return end, nil
+}
+
+func contextString(ctx context.Context, key any) string {
+	s, _ := ctx.Value(key).(string)
+	return s
 }

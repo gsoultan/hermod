@@ -517,7 +517,7 @@ func (r *Registry) Close() {
 	defer r.dbPoolMu.Unlock()
 	for _, entry := range r.dbPool {
 		r.logger.Info("Closing database connection pool", "source_id", entry.sourceID)
-		_ = entry.db.Close()
+		closeSQLPool(entry.db)
 	}
 	r.dbPool = make(map[string]pooledDB)
 }
@@ -828,7 +828,7 @@ func (r *Registry) CloseSourcePools(sourceID string) {
 			continue
 		}
 		r.logger.Info("Closing database connection pool of a deleted source", "source_id", sourceID)
-		_ = entry.db.Close()
+		closeSQLPool(entry.db)
 		delete(r.dbPool, key)
 	}
 }
@@ -1237,7 +1237,7 @@ func (r *Registry) getOrOpenDB(ctx context.Context, src storage.Source) (*sql.DB
 				return entry.db, nil
 			}
 			// Ping failed: close the stale pool and prepare to reopen
-			_ = entry.db.Close()
+			closeSQLPool(entry.db)
 		}
 
 		return r.openPool(src, poolKey)
@@ -1303,10 +1303,11 @@ func (r *Registry) openPool(src storage.Source, poolKey string) (*sql.DB, error)
 	// instead of letting an edited source leak one pool per edit.
 	for key, stale := range r.dbPool {
 		if key != poolKey && stale.sourceID == src.ID {
-			_ = stale.db.Close()
+			closeSQLPool(stale.db)
 			delete(r.dbPool, key)
 		}
 	}
+	bindSQLPool(newDB, driverName, connStr)
 	r.dbPool[poolKey] = newPooledDB(src.ID, newDB)
 	r.dbPoolMu.Unlock()
 

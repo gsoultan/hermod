@@ -26,6 +26,13 @@ finds the pool busy waits for a connection.
   them to the workflow, so a slow sink never holds a database connection. The first poll
   waits a random part of the poll interval, at most 10 seconds, so workflows started
   together do not all query the source at the same instant.
+- **Lookups keep connections free.** Hermod learns how many server connections it really
+  gets: a `SELECT 1` canary runs every 5 seconds on a connection of its own, and when it has
+  to queue, the queries Hermod has running are its share. Source polls and Execute SQL steps
+  then use at most three quarters of that share, so DB Lookups always find a connection. A
+  lookup that still has to wait for one waits its turn instead of failing the message, and
+  its error names the workflows holding the database. `pool_lookup_reserve=N` in the
+  connection string sets the reserve explicitly.
 - **PgBouncer is found automatically.** When the pool opens, Hermod asks the server which
   port it listens on. A server on a different port from the one dialled means a proxy in
   between (PgBouncer, Pgpool-II or a forwarded port), and the pool then runs without
