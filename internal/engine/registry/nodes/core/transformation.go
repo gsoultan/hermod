@@ -13,6 +13,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 
@@ -35,6 +36,10 @@ func (n *TransformationNode) Execute(ctx context.Context, nctx interfaces.NodeCo
 	// AI steps run in their workflow's scope, which the per-workflow AI
 	// spending caps are checked against. Only they read it, and the context
 	// value is an allocation per message, so other steps go without.
+	// Every step is named by its workflow, so a database's long queries and
+	// what a lookup waited behind say whose they are. Set before the pipeline
+	// branches so a pipeline's own steps carry it too.
+	ctx = context.WithValue(ctx, hermod.StepWorkflowKey, workflowID)
 	if transType == "pipeline" || transType == "parallel_pipeline" || strings.HasPrefix(transType, "ai_") {
 		ctx = genai.WithWorkflow(ctx, workflowID)
 	}
@@ -57,7 +62,12 @@ func (n *TransformationNode) Execute(ctx context.Context, nctx interfaces.NodeCo
 	}
 	res, err := nctx.ApplyTransformation(tctx, msg, transType, node.Config)
 	if err != nil {
-		nctx.BroadcastLiveMessage(workflowID, node.ID, msg, true, err.Error())
+		// A busy answer the engine will wait out is not an error yet: the
+		// step is waiting its turn, and the live view should not show it
+		// failing.
+		if _, waits := hermod.BusyWaiterFrom(ctx); !waits || !errors.Is(err, hermod.ErrBusy) {
+			nctx.BroadcastLiveMessage(workflowID, node.ID, msg, true, err.Error())
+		}
 		return nil, "", err
 	}
 	if res == nil {

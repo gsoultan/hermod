@@ -77,14 +77,14 @@ func (e *Engine) RecordTraceStepSnapshot(ctx context.Context, msg hermod.Message
 // payload back to its timestamp. A node *is* one, so it moves its timestamp
 // forward to its payload.
 func (e *Engine) RecordCompletedTraceStep(ctx context.Context, msg hermod.Message, nodeID string, start, done time.Time, before map[string]any, err error) {
-	e.recordTraceStepAt(msg, nodeID, start, done, before, nil, err)
+	e.recordTraceStepAt(msg, nodeID, start, done, before, nil, err, hermod.StepWaitFrom(ctx))
 }
 
 func (e *Engine) recordTraceStep(msg hermod.Message, nodeID string, start time.Time, before, after map[string]any, err error) {
-	e.recordTraceStepAt(msg, nodeID, start, start, before, after, err)
+	e.recordTraceStepAt(msg, nodeID, start, start, before, after, err, nil)
 }
 
-func (e *Engine) recordTraceStepAt(msg hermod.Message, nodeID string, start, at time.Time, before, after map[string]any, err error) {
+func (e *Engine) recordTraceStepAt(msg hermod.Message, nodeID string, start, at time.Time, before, after map[string]any, err error, wait *hermod.StepWait) {
 	if !e.WillTrace(msg) {
 		return
 	}
@@ -120,6 +120,7 @@ func (e *Engine) recordTraceStepAt(msg hermod.Message, nodeID string, start, at 
 		Before:    before,
 		After:     after,
 		Lineage:   lineage,
+		Wait:      wait,
 	}
 	if err != nil {
 		step.Error = err.Error()

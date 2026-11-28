@@ -245,6 +245,9 @@ func (t *ExecuteSQLTransformer) queryInto(ctx context.Context, db sqlutil.Querie
 // Running out of time while waiting is busy: the statement never reached the
 // database, so it is safe to wait out and run again, unlike a statement that
 // timed out while running.
+// slotHoldersNamed is how many of the bulk slots' holders a refused step names.
+const slotHoldersNamed = 3
+
 func beginStatement(ctx context.Context, pool *sql.DB) (func(), error) {
 	d := dbactivity.OfPool(pool)
 	if d == nil || sqlutil.Sandboxed(ctx) {
@@ -252,15 +255,25 @@ func beginStatement(ctx context.Context, pool *sql.DB) (func(), error) {
 	}
 	end, err := d.Begin(ctx, dbactivity.Query{
 		Kind:       dbactivity.SQLStep,
-		WorkflowID: contextString(ctx, hermod.WorkflowIDKey),
+		WorkflowID: stepWorkflow(ctx),
 		NodeID:     contextString(ctx, hermod.NodeIDKey),
 	})
 	if err != nil {
-		return nil, &hermod.Busy{Err: fmt.Errorf("execute_sql: waited for one of the %d connections this source lets "+
-			"source polls and SQL steps use at once, the rest being kept free for lookups; "+
-			"raise Max connections on the source if the database has room: %w", d.Limit(), err)}
+		return nil, &hermod.Busy{Err: fmt.Errorf("execute_sql: waited for one of the %d connections Hermod lets "+
+			"source polls and SQL steps hold on this database at once, the rest being kept free for lookups; "+
+			"it waits its turn and runs once one is free: %w", d.Limit(), err),
+			Holders: dbactivity.Holders(d.LongestBulk(slotHoldersNamed, 0), time.Now())}
 	}
 	return end, nil
+}
+
+// stepWorkflow is the workflow the step runs for: StepWorkflowKey, which
+// every transformation carries, or WorkflowIDKey where only that is set.
+func stepWorkflow(ctx context.Context) string {
+	if wf := contextString(ctx, hermod.StepWorkflowKey); wf != "" {
+		return wf
+	}
+	return contextString(ctx, hermod.WorkflowIDKey)
 }
 
 func contextString(ctx context.Context, key any) string {

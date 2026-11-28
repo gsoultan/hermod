@@ -7,6 +7,28 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — a lookup that waited its turn showed as a failed run, and could still fail
+
+On v1.27.1, behind a small PgBouncer pool (`default_pool_size = 5` with a reserve pool) and with
+the source's **Max connections** left blank, a DB Lookup next to long Execute SQL steps showed
+"no answer from the database within 30s ... an unnamed workflow (SQL step, running 30s)" on the
+Runs tab.
+
+- Each busy attempt was saved as a failed step, even when the engine waited and the lookup then
+  succeeded. Only the step's final result is saved now. The run shows how long the step waited
+  for a free connection and which workflows' steps held the database, by name.
+- A lookup could still fail. It decided whether to wait by asking if the database was queueing,
+  and Hermod only noticed the queue once its own test query came back, which could be after the
+  lookup had given up. The queue is now noticed while that test query is still waiting.
+- Hermod could raise the share of connections it had learned while the database was still
+  queueing. A further queue now only lowers it.
+- With Max connections blank, Execute SQL steps and source polls had no ceiling at all. They now
+  keep a quarter of the pool's 20 connections free for lookups.
+- SQL steps were not tagged with their workflow, so they showed as "an unnamed workflow". They
+  now name their workflow and step.
+- The error asked you to copy PgBouncer's `pool_size` into the source. It now says what Hermod
+  is doing about the wait instead.
+
 ### Added — the Tuning tab says what Hermod fixed on each database, and what needs you
 
 A new **Databases** section on the Tuning tab lists each PostgreSQL database a flow reaches.

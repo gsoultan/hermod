@@ -15,7 +15,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/storage"
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/genai"
 )
@@ -217,5 +219,60 @@ func TestExecutionsAccess(t *testing.T) {
 	}
 	if n := len(e.sink.received()); n != 1 {
 		t.Fatalf("sink received %d messages; a refused replay must not run", n)
+	}
+}
+
+// A run whose step waited names the workflows it waited behind -- but only
+// those the caller may see: another vhost's workflow keeps its id unnamed.
+func TestGetExecutionNamesWhatAStepWaitedBehind(t *testing.T) {
+	e := newEnv(t)
+	ctx := t.Context()
+	for _, wf := range []storage.Workflow{
+		{ID: "wf-report", Name: "Nightly report", VHost: "team-a",
+			Nodes: []storage.WorkflowNode{{ID: "n3", Type: "transformation", Config: map[string]any{"label": "Store totals"}}}},
+		{ID: "wf-secret", Name: "Payroll export", VHost: "team-b"},
+	} {
+		if err := e.store.CreateWorkflow(ctx, wf); err != nil {
+			t.Fatal(err)
+		}
+	}
+	at := time.Now().UTC()
+	if err := e.store.RecordTraceStep(ctx, "wf-1", "run-w", hermod.TraceStep{NodeID: "greet", Timestamp: at, Duration: 9 * time.Second,
+		Wait: &hermod.StepWait{For: 8 * time.Second, Holders: []hermod.Holder{
+			{WorkflowID: "wf-report", NodeID: "n3", Kind: "SQL step", Running: 25 * time.Second},
+			{WorkflowID: "wf-secret", Kind: "source poll", Running: time.Minute},
+		}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := e.do(t, http.MethodGet, "/api/workflows/wf-1/executions/run-w", "", storage.RoleViewer, "team-a")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var ex struct {
+		WaitMs int64 `json:"wait_ms"`
+		Steps  []struct {
+			Wait *struct {
+				ForMs   int64 `json:"for_ms"`
+				Holders []struct {
+					WorkflowID string `json:"workflow_id"`
+					Workflow   string `json:"workflow"`
+					Node       string `json:"node"`
+				} `json:"holders"`
+			} `json:"wait"`
+		} `json:"steps"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &ex); err != nil {
+		t.Fatal(err)
+	}
+	if ex.WaitMs != 8000 || len(ex.Steps) != 1 || ex.Steps[0].Wait == nil || len(ex.Steps[0].Wait.Holders) != 2 {
+		t.Fatalf("execution = %s", rec.Body.String())
+	}
+	hs := ex.Steps[0].Wait.Holders
+	if hs[0].Workflow != "Nightly report" || hs[0].Node != "Store totals" {
+		t.Errorf("holder in the caller's vhost = %+v, want named", hs[0])
+	}
+	if hs[1].Workflow != "" || hs[1].WorkflowID != "wf-secret" {
+		t.Errorf("holder in another vhost = %+v, want its id and no name", hs[1])
 	}
 }

@@ -312,6 +312,15 @@ for a server connection (`SHOW POOLS`, column `cl_waiting`) or blocked by a lock
 its message until the stall watchdog restarted the workflow after 60 seconds, and every
 message in flight then failed with `failed to execute lookup query: context canceled`.
 
+When the wait was for a free connection rather than for the query, the lookup does not fail.
+That covers Hermod's own long queries holding the database, and PgBouncer queueing for a
+server connection. Hermod waits its turn and asks again, as it does for a busy sink, and the
+**Runs** tab shows the step as having waited: for how long, and which workflows' steps held the
+database at the time, each named when you can see that workflow. Only the step's final result
+is saved, so a run whose lookup waited and then succeeded is not shown as failed. A lookup that
+ran out of time with no sign of queueing still fails, because the query itself may be what is
+slow.
+
 Execute SQL has the same **Timeout** setting (its step 5, *Time limit*). It has no
 default: empty means no limit.
 

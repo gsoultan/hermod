@@ -121,6 +121,16 @@ func (d *Database) MarkQueued(at time.Time) {
 	d.queuedAt = at
 }
 
+// unmarkQueued takes back a MarkQueued(at) that turned out to be no queue,
+// unless the database has been marked since.
+func (d *Database) unmarkQueued(at time.Time) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.queuedAt.Equal(at) {
+		d.queuedAt = time.Time{}
+	}
+}
+
 // QueuedSince reports whether the database was seen with no connection free
 // at or after t.
 func (d *Database) QueuedSince(t time.Time) bool {

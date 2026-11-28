@@ -47,6 +47,10 @@ var (
 type Busy struct {
 	Err        error
 	RetryAfter time.Duration
+	// Holders are Hermod's own queries that held the database's connections
+	// when the answer was given, for the run to show what a step waited
+	// behind. Empty when the answer cannot tell.
+	Holders []Holder
 }
 
 func (b *Busy) Error() string {
@@ -442,6 +446,9 @@ type TraceStep struct {
 	After     map[string]any `json:"after,omitempty" omitzero:"true"`
 	Error     string         `json:"error,omitempty"`
 	Lineage   string         `json:"lineage,omitempty"`
+	// Wait is how long the step waited for room on its database or API, and
+	// behind whom; nil when it did not wait.
+	Wait *StepWait `json:"wait,omitempty"`
 }
 
 // TraceRecorder defines the interface for recording message traces.
@@ -478,6 +485,12 @@ const (
 	WorkflowIDKey        contextKey = "workflow_id"
 	NodeIDKey            contextKey = "node_id"
 	LastTraceSnapshotKey contextKey = "lastTraceSnapshot"
+	// StepWorkflowKey is the workflow a step runs for, set on every
+	// transformation. It is for naming the step -- what Hermod is running on a
+	// database, and who holds it -- and nothing keys state by it.
+	// WorkflowIDKey is kept apart because transformers that key their state by
+	// it (rolling, aggregate, sampling) must not have that state moved.
+	StepWorkflowKey contextKey = "step_workflow_id"
 )
 
 // Handler is a function type for processing received messages.

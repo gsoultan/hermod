@@ -3079,6 +3079,13 @@ func (s *sqlStorage) RecordTraceStep(ctx context.Context, workflowID, messageID 
 	if step.Error != "" {
 		errCount = 1
 	}
+	// NULL for a step that did not wait, which is nearly every step.
+	var waitData any
+	if step.Wait != nil {
+		if b, err := json.Marshal(step.Wait); err == nil {
+			waitData = string(b)
+		}
+	}
 
 	exec := func() error {
 		if s.traceStepsKeepsLegacyID {
@@ -3086,12 +3093,12 @@ func (s *sqlStorage) RecordTraceStep(ctx context.Context, workflowID, messageID 
 			// needs a value; nothing reads it.
 			if _, err := s.exec(ctx, s.queries.get(QueryRecordTraceStepLegacyID),
 				uuid.New().String(), messageID, workflowID, step.NodeID, step.Timestamp,
-				step.Duration.Milliseconds(), afterHash, afterBlob, step.Error); err != nil {
+				step.Duration.Milliseconds(), afterHash, afterBlob, step.Error, waitData); err != nil {
 				return err
 			}
 		} else if _, err := s.exec(ctx, s.queries.get(QueryRecordTraceStep),
 			messageID, workflowID, step.NodeID, step.Timestamp,
-			step.Duration.Milliseconds(), afterHash, afterBlob, step.Error); err != nil {
+			step.Duration.Milliseconds(), afterHash, afterBlob, step.Error, waitData); err != nil {
 			return err
 		}
 
@@ -3134,12 +3141,18 @@ func (s *sqlStorage) GetMessageTrace(ctx context.Context, workflowID, messageID 
 	carriers := make(map[string]map[string]any, 8)
 	for rows.Next() {
 		var step hermod.TraceStep
-		var afterStr, errorStr sql.NullString
+		var afterStr, errorStr, waitStr sql.NullString
 		var afterHash, afterBlob []byte
 		var durationMs sql.NullInt64
 		if err := rows.Scan(&step.NodeID, &step.Timestamp, &durationMs,
-			&afterStr, &afterHash, &afterBlob, &errorStr); err != nil {
+			&afterStr, &afterHash, &afterBlob, &errorStr, &waitStr); err != nil {
 			return storage.MessageTrace{}, err
+		}
+		if waitStr.Valid && waitStr.String != "" {
+			var w hermod.StepWait
+			if json.Unmarshal([]byte(waitStr.String), &w) == nil {
+				step.Wait = &w
+			}
 		}
 		if durationMs.Valid {
 			step.Duration = time.Duration(durationMs.Int64) * time.Millisecond

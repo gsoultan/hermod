@@ -69,9 +69,13 @@ func lookupTimeoutError(parent context.Context, timeout time.Duration, err error
 	if err == nil || parent.Err() != nil || !errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
+	if errors.Is(err, hermod.ErrBusy) {
+		// It waited for a connection, not for its query: the step's time limit
+		// is not what to change, and the engine waits it out.
+		return fmt.Errorf("db_lookup: no free connection to the database within %s: %w", timeout, err)
+	}
 	return fmt.Errorf("db_lookup: no answer from the database within %s; "+
-		"raise the step's time limit if the query is legitimately slow, "+
-		"or check for clients waiting on the pool (PgBouncer: SHOW POOLS, cl_waiting): %w", timeout, err)
+		"raise the step's time limit if the query is legitimately slow: %w", timeout, err)
 }
 
 // poolUse is how busy the source's pool was when a lookup asked it for a
@@ -116,7 +120,10 @@ func (u poolUse) track(ctx context.Context) func() {
 	if u.activity == nil {
 		return func() {}
 	}
-	wf, _ := ctx.Value(hermod.WorkflowIDKey).(string)
+	wf, _ := ctx.Value(hermod.StepWorkflowKey).(string)
+	if wf == "" {
+		wf, _ = ctx.Value(hermod.WorkflowIDKey).(string)
+	}
 	node, _ := ctx.Value(hermod.NodeIDKey).(string)
 	end, err := u.activity.Begin(ctx, dbactivity.Query{Kind: dbactivity.Lookup, WorkflowID: wf, NodeID: node})
 	if err != nil {
@@ -137,25 +144,26 @@ func (u poolUse) queuedForConnection() bool {
 	return u.activity.QueuedSince(u.asked) || len(u.activity.LongestBulk(1, holderMinAge)) > 0
 }
 
-// holders names Hermod's own long-running queries on the database, with what
+// holdersText names Hermod's own long-running queries on the database, with what
 // to change, or says nothing when there are none.
-func (u poolUse) holders() string {
-	if u.activity == nil {
-		return ""
-	}
-	qs := u.activity.LongestBulk(holdersNamed, holderMinAge)
+func holdersText(qs []dbactivity.Query, now time.Time) string {
 	if len(qs) == 0 {
 		return ""
 	}
 	names := make([]string, len(qs))
-	now := time.Now()
 	for i, q := range qs {
 		names[i] = describeQuery(q, now)
 	}
-	return "; Hermod's longest queries on this database right now: " + strings.Join(names, ", ") +
-		". Lookups queue behind them for a connection: set the source's Max connections to what PgBouncer " +
-		"gives this user (its pool_size), so Hermod keeps a quarter of them free for lookups, " +
-		"or put a time limit on those queries"
+	return "; Hermod's longest queries on this database right now: " + strings.Join(names, ", ")
+}
+
+// shareText is how many connections Hermod lets its long queries hold on the
+// database, in words, so the answer says what Hermod is doing about the wait.
+func (u poolUse) shareText() string {
+	if lim := u.activity.Limit(); lim > 0 {
+		return fmt.Sprintf("%d connections, keeping the rest free for lookups", lim)
+	}
+	return "what the database gives it, which it learns while it waits, keeping some free for lookups"
 }
 
 func describeQuery(q dbactivity.Query, now time.Time) string {
@@ -163,7 +171,19 @@ func describeQuery(q dbactivity.Query, now time.Time) string {
 	if q.WorkflowID != "" {
 		who = fmt.Sprintf("workflow %q", q.WorkflowID)
 	}
+	if q.NodeID != "" {
+		who += fmt.Sprintf(" step %q", q.NodeID)
+	}
 	return fmt.Sprintf("%s (%s, running %s)", who, q.Kind, now.Sub(q.Started).Round(time.Second))
+}
+
+// longQueries are Hermod's own long-running bulk queries on the database,
+// longest first, or none when the database is not tracked.
+func (u poolUse) longQueries() []dbactivity.Query {
+	if u.activity == nil {
+		return nil
+	}
+	return u.activity.LongestBulk(holdersNamed, holderMinAge)
 }
 
 // explain adds where the wait was to a lookup that ran out of time; any other
@@ -172,20 +192,25 @@ func (u poolUse) explain(err error) error {
 	if u.max <= 0 || !errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
+	now := time.Now()
+	qs := u.longQueries()
 	if u.inUse >= u.max {
 		// It never reached the database, so nothing ran: the source had no
 		// room, which is busy, and the engine waits for room rather than
 		// failing the message.
 		return &hermod.Busy{Err: fmt.Errorf("when the lookup asked, all %d of Hermod's connections to this source were busy, "+
-			"so it queued inside Hermod: raise Max connections on the source, or turn on batching%s: %w", u.max, u.holders(), err)}
+			"so it queued inside Hermod%s; it waits its turn and asks again: %w", u.max, holdersText(qs, now), err),
+			Holders: dbactivity.Holders(qs, now)}
 	}
-	err = fmt.Errorf("when the lookup asked, %d of Hermod's %d connections to this source were busy, "+
-		"so the wait was in the database or PgBouncer%s: %w", u.inUse, u.max, u.holders(), err)
 	if u.queuedForConnection() {
 		// It waited for a server connection, not for its own query, and a
 		// lookup is a read: the engine waits for room and asks again instead
 		// of failing the message.
-		return &hermod.Busy{Err: err}
+		return &hermod.Busy{Err: fmt.Errorf("when the lookup asked, %d of Hermod's %d connections to this source were busy, "+
+			"so the wait was for a server connection in the database or PgBouncer%s; it waits its turn and asks again, "+
+			"while Hermod holds its long queries to %s: %w", u.inUse, u.max, holdersText(qs, now), u.shareText(), err),
+			Holders: dbactivity.Holders(qs, now)}
 	}
-	return err
+	return fmt.Errorf("when the lookup asked, %d of Hermod's %d connections to this source were busy, "+
+		"so the wait was in the database or PgBouncer%s: %w", u.inUse, u.max, holdersText(qs, now), err)
 }

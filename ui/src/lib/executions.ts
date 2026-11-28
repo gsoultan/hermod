@@ -17,6 +17,24 @@ export interface AIUsage {
 export type ExecutionStatus = 'succeeded' | 'failed' | 'waiting'
 
 /** One node's part in a run (executions.Step). */
+/** A query a step waited behind (executions.Holder). Never its text. */
+export interface WaitHolder {
+  workflow_id?: string
+  /** The workflow's name; absent when the caller may not see it. */
+  workflow?: string
+  node_id?: string
+  node?: string
+  kind: string
+  running_ms: number
+}
+
+/** How long a step waited its turn for a connection, and behind whom. */
+export interface StepWait {
+  for_ms: number
+  reason?: string
+  holders?: WaitHolder[]
+}
+
 export interface ExecutionStep {
   node_id: string
   node_type?: string
@@ -24,6 +42,8 @@ export interface ExecutionStep {
   timestamp: string
   duration_ms: number
   error?: string
+  /** Set when the step waited its turn; waiting is not failing. */
+  wait?: StepWait
   ai?: AIUsage
   /** The message as the step left it. Only on a single run, never in the list. */
   output?: Record<string, unknown>
@@ -38,6 +58,8 @@ export interface Execution {
   status: ExecutionStatus
   step_count: number
   error_count: number
+  /** How much of the run its steps spent waiting their turn. */
+  wait_ms?: number
   ai?: AIUsage
   steps?: ExecutionStep[]
 }

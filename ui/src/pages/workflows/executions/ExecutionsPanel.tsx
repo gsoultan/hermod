@@ -93,6 +93,9 @@ export function ExecutionsPanel({ workflowId, canReplay, selectedRunId, onSelect
                         </Table.Td>
                         <Table.Td style={{ whiteSpace: 'nowrap' }}>
                           <Text size="sm">{formatDuration(run.duration_ms)}</Text>
+                          {!!run.wait_ms && (
+                            <Text size="xs" c="yellow.8">{formatDuration(run.wait_ms)} waiting</Text>
+                          )}
                         </Table.Td>
                         <Table.Td style={{ whiteSpace: 'nowrap' }}>
                           <Text size="sm">

@@ -12,10 +12,12 @@ package registry
 
 import (
 	"database/sql"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/pkg/infra/dbactivity"
 )
 
 // --- DB Lookup timed out with 1000 workflows on one database ---
@@ -152,5 +154,28 @@ func TestPgPoolConnConfig_NamesTheLookupPool(t *testing.T) {
 	}
 	if got := cfg.RuntimeParams["application_name"]; got != "mine" {
 		t.Errorf("application_name = %q, want the DSN's own", got)
+	}
+}
+
+// v1.27.1: with Max connections left blank the pool is still 20, but the bulk
+// gate was given no ceiling at all, so SQL steps could take every connection
+// the pool had and lookups were left to the tuner alone. The ceiling now comes
+// from the pool's real size: 15 of 20, a quarter kept for lookups.
+func TestBindSQLPool_ABlankMaxConnectionsStillBoundsBulkQueries(t *testing.T) {
+	connStr := "postgres://u@127.0.0.1:1/" + strings.ReplaceAll(t.Name(), "/", "_") + "?sslmode=disable"
+	db, err := sql.Open("pgx", connStr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sizeSQLPool(db, defaultSQLPoolMaxConns)
+	bindSQLPool(db, "pgx", connStr)
+	t.Cleanup(func() { closeSQLPool(db) })
+
+	d := dbactivity.OfPool(db)
+	if d == nil {
+		t.Fatal("the pool is not tracked")
+	}
+	if got := d.Limit(); got != 15 {
+		t.Errorf("bulk limit = %d with Max connections blank (pool of 20), want 15", got)
 	}
 }

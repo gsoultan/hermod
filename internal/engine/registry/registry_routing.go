@@ -613,6 +613,8 @@ func waitOutBusyStep(ctx context.Context, nodeID string, in hermod.Message,
 		return msgs, branch, err
 	}
 	first, last := true, err
+	began := time.Now()
+	defer func(firstBusy error) { hermod.AddStepWait(ctx, time.Since(began), firstBusy) }(err)
 	err = w.WaitOutBusy(ctx, "step:"+nodeID, func() error {
 		if first {
 			first = false

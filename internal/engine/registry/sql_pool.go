@@ -218,6 +218,13 @@ func probeSQLProxy(ctx context.Context, db *sql.DB) bool {
 func bindSQLPool(db *sql.DB, driverName, connStr string) {
 	if driverName == "pgx" {
 		if d, limit, err := pgxutil.Database(connStr); err == nil {
+			if limit == 0 && d.Snapshot().Ceiling == 0 {
+				// Max connections left blank: the pool still has a size, and
+				// bulk queries must not be allowed all of it. Only when no
+				// source on this database set a ceiling of its own.
+				reserve, _ := pgxutil.LookupReserve(connStr)
+				limit = dbactivity.BulkLimit(db.Stats().MaxOpenConnections, reserve)
+			}
 			if limit > 0 {
 				d.SetLimit(limit)
 			}

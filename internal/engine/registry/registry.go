@@ -1977,8 +1977,11 @@ func (r *Registry) doApplyTransformation(ctx context.Context, modifiedMsg hermod
 		tctx := r.withNodeContext(ctx)
 		res, err := t.Transform(tctx, modifiedMsg, config)
 
-		// Record trace step with before/after snapshots
-		if tracingEnabled {
+		// Record trace step with before/after snapshots. A busy answer the
+		// engine is about to wait out is not recorded: it is not the step's
+		// result, and recorded as an error it made a run whose lookup waited
+		// its turn and then succeeded read as failed on the Runs tab.
+		if tracingEnabled && !waitedOut(ctx, err) {
 			var afterData map[string]any
 			if res != nil {
 				afterData = res.ToMap()
@@ -2047,6 +2050,16 @@ func (r *Registry) doApplyTransformation(ctx context.Context, modifiedMsg hermod
 	// escape hatch: a workflow that genuinely wants a no-op can set
 	// onError: "continue".
 	return nil, fmt.Errorf("unknown transformation type %q: no transformer is registered under that name", transType)
+}
+
+// waitedOut reports whether err is a busy answer that the engine running the
+// workflow will wait out (see waitOutBusyStep), rather than the step's result.
+func waitedOut(ctx context.Context, err error) bool {
+	if !errors.Is(err, hermod.ErrBusy) {
+		return false
+	}
+	_, ok := hermod.BusyWaiterFrom(ctx)
+	return ok
 }
 
 func (r *Registry) shouldTrace(workflowID string, msg hermod.Message) bool {
