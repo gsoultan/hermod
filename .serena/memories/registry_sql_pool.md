@@ -23,6 +23,11 @@ PgBouncer detection and Max connections field reached only the pgxpool until the
   `pooledDB.checked` records the last good-or-busy ping. A ping per lookup doubled connection
   acquisitions and PgBouncer server assignments, and queued behind a saturated pool for up to
   `poolPingTimeout`. Entries built without `newPooledDB` (tests) always ping.
+- **application_name:** `pgxutil.ParseConfig`/`ParsePoolConfig` default it to `hermod`
+  (`pgxutil.ApplicationName`); this pool uses `ParseConfigAs(..., "hermod-sql-steps")`. A DSN
+  value or `PGAPPNAME` wins (pgx reads both into `RuntimeParams` first). Added after a
+  saturated customer database showed every session unnamed and nobody could say which were
+  Hermod's. PgBouncer passes it through to the server connection.
 - Tests: `sql_pool_size_test.go`; `sql_pool_pgbouncer_integration_test.go`
   (`-tags integration`, `PGBOUNCER_DSN` in transaction mode with no marker; set
   `pgbouncer=false` in it to watch the 42P05 failure come back).

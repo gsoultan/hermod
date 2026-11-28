@@ -7,6 +7,14 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — Hermod's PostgreSQL sessions are named in pg_stat_activity
+
+Hermod's PostgreSQL connections reported no `application_name`, so a DBA looking at a busy
+database could not tell Hermod's sessions from anyone else's. Sources and sinks now connect as
+`hermod`, and DB Lookup, Execute SQL and the other per-message SQL steps as `hermod-sql-steps`.
+The name also shows through PgBouncer. An `application_name` in the connection string, or
+`PGAPPNAME`, still wins.
+
 ### Changed — an idle workflow costs 11 goroutines instead of 139
 
 Each running workflow used to start 128 message workers as it started, whether or not a message

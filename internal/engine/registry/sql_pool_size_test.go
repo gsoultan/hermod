@@ -134,3 +134,23 @@ func TestPooledDB_PingsAgainOnceTheCheckIsOld(t *testing.T) {
 		t.Error("an entry with no check clock skipped its ping")
 	}
 }
+
+// The lookup pool names itself apart from the sources' and sinks' pool, so a
+// DBA reading pg_stat_activity can tell a waiting lookup from a poll.
+func TestPgPoolConnConfig_NamesTheLookupPool(t *testing.T) {
+	t.Setenv("PGAPPNAME", "")
+	cfg, _, err := pgPoolConnConfig("postgres://u:p@127.0.0.1:5432/db?sslmode=disable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.RuntimeParams["application_name"]; got != sqlStepsApplicationName {
+		t.Errorf("application_name = %q, want %q", got, sqlStepsApplicationName)
+	}
+	cfg, _, err = pgPoolConnConfig("postgres://u:p@127.0.0.1:5432/db?sslmode=disable&application_name=mine")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.RuntimeParams["application_name"]; got != "mine" {
+		t.Errorf("application_name = %q, want the DSN's own", got)
+	}
+}

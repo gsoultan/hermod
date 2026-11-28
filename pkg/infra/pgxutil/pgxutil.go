@@ -72,6 +72,12 @@ func ApplyPoolerSafety(cfg *pgx.ConnConfig) {
 // they are present. The second return value reports whether the connection was
 // detected to target a pooler.
 func ParseConfig(connString string) (*pgx.ConnConfig, bool, error) {
+	return ParseConfigAs(connString, ApplicationName)
+}
+
+// ParseConfigAs is ParseConfig for connections that name themselves appName
+// unless the DSN or PGAPPNAME already gives one.
+func ParseConfigAs(connString, appName string) (*pgx.ConnConfig, bool, error) {
 	cleaned, pooled := stripPoolerParams(connString)
 	cfg, err := pgx.ParseConfig(cleaned)
 	if err != nil {
@@ -80,7 +86,28 @@ func ParseConfig(connString string) (*pgx.ConnConfig, bool, error) {
 	if pooled {
 		ApplyPoolerSafety(cfg)
 	}
+	nameConnection(cfg, appName)
 	return cfg, pooled, nil
+}
+
+// ApplicationName is the application_name Hermod's PostgreSQL connections
+// report when the connection string does not set one.
+//
+// They used to report none. On a database saturated by long reports a DBA
+// read pg_stat_activity and could not tell which sessions were Hermod's, or
+// whether its lookups were running at all. PgBouncer passes the name through
+// to the server connection it assigns.
+const ApplicationName = "hermod"
+
+// nameConnection sets application_name unless the DSN or PGAPPNAME did:
+// pgx has already read both into RuntimeParams.
+func nameConnection(cfg *pgx.ConnConfig, appName string) {
+	if cfg.RuntimeParams == nil {
+		cfg.RuntimeParams = map[string]string{}
+	}
+	if cfg.RuntimeParams["application_name"] == "" {
+		cfg.RuntimeParams["application_name"] = appName
+	}
 }
 
 // ParsePoolConfig parses connString into a pgxpool config, applying the same
@@ -94,6 +121,7 @@ func ParsePoolConfig(connString string) (*pgxpool.Config, bool, error) {
 	if pooled {
 		ApplyPoolerSafety(cfg.ConnConfig)
 	}
+	nameConnection(cfg.ConnConfig, ApplicationName)
 
 	// Raise the pool size, but only when nobody asked for a particular one.
 	//
