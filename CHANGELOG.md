@@ -7,6 +7,27 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — lookups no longer time out when Hermod's own long queries fill PgBouncer
+
+Reported with PgBouncer giving the hermod user 12 server connections: long reporting queries run by
+Hermod held all 12, and every DB Lookup behind them failed after 30s with "the wait was in the
+database or PgBouncer". Hermod now handles this by itself:
+
+- **It learns its real share of connections.** Each Postgres source gets a canary, `SELECT 1` on a
+  connection of its own every 5 seconds. When the canary has to queue, PgBouncer has nothing free, and
+  the number of queries Hermod has running at that moment is its share. It then gives room back one
+  connection every 10 minutes while the canary stays quick. Nobody has to copy PgBouncer's pool_size
+  into the source.
+- **It keeps a quarter of that share free for lookups.** Source polls and Execute SQL steps wait for
+  one of the other three quarters (9 of 12). Max connections on the source still caps it, and
+  `pool_lookup_reserve` in the connection string sets the reserve explicitly. Queries already running
+  keep their connections until they finish; Hermod does not cancel them.
+- **A step that waits for a connection waits instead of failing.** A lookup that times out while the
+  database had no connection free, or behind Hermod's own long queries, is busy, and the engine waits
+  for room and asks again; the message is not dead-lettered. The same goes for an Execute SQL step that
+  timed out waiting for its slot, since it never reached the database.
+- **The error names who holds the database**, for example `workflow "nightly-report" (source poll,
+  running 1h57m)`.
 ### Fixed — Hermod's PostgreSQL sessions are named in pg_stat_activity
 
 Hermod's PostgreSQL connections reported no `application_name`, so a DBA looking at a busy

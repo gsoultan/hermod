@@ -184,6 +184,7 @@ func stripURLPoolerParams(connString string) (string, bool) {
 	pooled := truthyPgBouncer(q.Get(paramPgBouncer)) || poolingMode(q.Get(paramPoolMode))
 	q.Del(paramPgBouncer)
 	q.Del(paramPoolMode)
+	q.Del(ParamLookupReserve)
 	u.RawQuery = q.Encode()
 	return u.String(), pooled
 }
@@ -207,6 +208,7 @@ func stripDSNPoolerParams(connString string) (string, bool) {
 			if poolingMode(strings.Trim(val, "'\"")) {
 				pooled = true
 			}
+		case ParamLookupReserve:
 		default:
 			kept = append(kept, f)
 		}
