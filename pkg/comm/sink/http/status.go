@@ -13,11 +13,8 @@ package http
 import (
 	"fmt"
 	"net/http"
-	"strconv"
-	"strings"
-	"time"
 
-	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/infra/httpclient"
 )
 
 // statusError is the error for a response outside 2xx, or nil for one inside.
@@ -30,25 +27,5 @@ func statusError(resp *http.Response, what string) error {
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
 	}
-	err := fmt.Errorf("%s: %d", what, resp.StatusCode)
-	if resp.StatusCode != http.StatusTooManyRequests && resp.StatusCode != http.StatusServiceUnavailable {
-		return err
-	}
-	return &hermod.Busy{Err: err, RetryAfter: retryAfter(resp.Header.Get("Retry-After"), time.Now())}
-}
-
-// retryAfter reads a Retry-After value, either seconds or an HTTP date, as a
-// wait from now. Anything else, or a time already past, is zero: no advice.
-func retryAfter(v string, now time.Time) time.Duration {
-	v = strings.TrimSpace(v)
-	if v == "" {
-		return 0
-	}
-	if secs, err := strconv.Atoi(v); err == nil {
-		return max(time.Duration(secs)*time.Second, 0)
-	}
-	if at, err := http.ParseTime(v); err == nil {
-		return max(at.Sub(now), 0)
-	}
-	return 0
+	return httpclient.MarkBusy(resp, fmt.Errorf("%s: %d", what, resp.StatusCode))
 }

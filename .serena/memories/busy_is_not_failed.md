@@ -37,5 +37,23 @@ Steps (transformation nodes) too:
   deadline hit while all of Hermod's connections to the source were in use
   (`poolUse.explain`). Never mark a write busy after it may have run.
 
-Not yet covered: API steps (429), the batched lookup path, and the UI word
-for `waiting`.
+- HTTP answers: `httpclient.MarkBusy(resp, err)` (`pkg/infra/httpclient/busy.go`)
+  is the one rule, 429 or 503 with `Retry-After` (seconds or HTTP date) as
+  the wait. Used by the HTTP sink, `api_lookup`, the AI step (OpenAI, Ollama)
+  and `ai_retrieve`'s Pinecone query. `api_lookup` returns a busy answer at
+  once rather than spending its own retries, and a busy answer bypasses its
+  error policy and default value: writing the default would pass "no room"
+  off as the API's answer.
+
+- `pkg/llm`: `APIError` matches `ErrBusy` (`Is`) and yields a `*hermod.Busy`
+  (`As`, so `hermod.RetryAfter` reads it) on 429/503/529, after `WithRetry`
+  has given up. Exception by code, not text: `insufficient_quota` (OpenAI's
+  out-of-credit 429) is neither retryable nor busy -- waiting never ends it.
+  `llm.OutOfQuota(body)` is the same rule for callers reading bodies
+  themselves (the AI step's direct OpenAI call).
+
+- A waiting step logs at INFO, once per step while any message waits on it
+  (`busyWaits.begin` reports the first). Not WARN: waiting is normal under
+  load, and the branching load test fails on any WARN Hermod logs.
+
+Not yet covered: the batched lookup path, and the UI word for `waiting`.

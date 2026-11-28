@@ -442,8 +442,14 @@ func (t *APILookupTransformer) Transform(ctx context.Context, msg hermod.Message
 				if !refusalNoted {
 					refusalNote, refusalNoted = emptyTokensNote(msg, requestTemplates(config)...), true
 				}
-				lastErr = fmt.Errorf("api lookup returned status %d%s%s", resp.StatusCode, said, refusalNote)
-				if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+				lastErr = httpclient.MarkBusy(resp, fmt.Errorf("api lookup returned status %d%s%s", resp.StatusCode, said, refusalNote))
+				if errors.Is(lastErr, hermod.ErrBusy) {
+					// Up, with no room for us: not retried on the spot at a
+					// fixed delay, but handed to the engine, which waits as
+					// long as the API asked before the message tries again.
+					return nil, lastErr
+				}
+				if resp.StatusCode >= 500 {
 					continue // Retryable
 				}
 				break // Non-retryable
@@ -483,6 +489,12 @@ func (t *APILookupTransformer) Transform(ctx context.Context, msg hermod.Message
 		return resultVal, nil
 	})
 
+	if errors.Is(err, hermod.ErrBusy) {
+		// Not a failure and not a miss: the API asked us to come back later,
+		// so neither the error policy nor the default value applies. Writing
+		// the default would pass "no room right now" off as the API's answer.
+		return msg, fmt.Errorf("api lookup: %w", err)
+	}
 	if err != nil {
 		// The request itself failed. apiErrorPolicy defaults to failing where
 		// resolveMissPolicy defaults to passing through, so an existing node
