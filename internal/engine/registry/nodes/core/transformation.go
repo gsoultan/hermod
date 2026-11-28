@@ -36,10 +36,13 @@ func (n *TransformationNode) Execute(ctx context.Context, nctx interfaces.NodeCo
 	// AI steps run in their workflow's scope, which the per-workflow AI
 	// spending caps are checked against. Only they read it, and the context
 	// value is an allocation per message, so other steps go without.
-	// Every step is named by its workflow, so a database's long queries and
-	// what a lookup waited behind say whose they are. Set before the pipeline
-	// branches so a pipeline's own steps carry it too.
-	ctx = context.WithValue(ctx, hermod.StepWorkflowKey, workflowID)
+	// Database steps are named by their workflow, so a database's long
+	// queries and what a lookup waited behind say whose they are. Set before
+	// the pipeline branches so a pipeline's own steps carry it too, and only
+	// where it is read, for the same reason as the AI scope below.
+	if namesItsWorkflow(transType) {
+		ctx = context.WithValue(ctx, hermod.StepWorkflowKey, workflowID)
+	}
 	if transType == "pipeline" || transType == "parallel_pipeline" || strings.HasPrefix(transType, "ai_") {
 		ctx = genai.WithWorkflow(ctx, workflowID)
 	}
@@ -177,4 +180,15 @@ func (n *TransformationNode) runParallelPipeline(ctx context.Context, nctx inter
 	}
 
 	return []hermod.Message{merged}, "", nil
+}
+
+// namesItsWorkflow reports whether a step reads hermod.StepWorkflowKey: the
+// steps that run queries Hermod tracks per database, and pipelines, whose own
+// steps may be such.
+func namesItsWorkflow(transType string) bool {
+	switch transType {
+	case "db_lookup", "execute_sql", "pipeline", "parallel_pipeline":
+		return true
+	}
+	return false
 }

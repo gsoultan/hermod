@@ -110,6 +110,20 @@ func TestTransformation_EveryStepCarriesItsWorkflow(t *testing.T) {
 	}
 }
 
+// The workflow is a context value, an allocation per step per message, so
+// only the steps that name their database work by it get one.
+// TestWorkflowAllocationBudget caught it being set on every step.
+func TestTransformation_OnlyDatabaseStepsPayForTheirWorkflow(t *testing.T) {
+	nctx := &workflowCtx{seen: map[string]string{}}
+	msg := message.AcquireMessage()
+	defer message.ReleaseMessage(msg)
+	node := &storage.WorkflowNode{ID: "n1", Type: "transformation", Config: map[string]any{"transType": "set"}}
+	_, _, _ = (&TransformationNode{}).Execute(t.Context(), nctx, "wf-report", node, msg)
+	if got, ran := nctx.seen["set"]; !ran || got != "" {
+		t.Errorf("a set step ran with workflow %q (ran: %v), want none", got, ran)
+	}
+}
+
 // A busy answer the engine will wait out is not shown as a failure in the
 // live view; with no waiter it is the result and is shown.
 func TestTransformation_BusyIsNotBroadcastAsAnErrorWhileItIsWaitedOut(t *testing.T) {
