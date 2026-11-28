@@ -50,6 +50,12 @@ func (c *hangingConn) Begin() (driver.Tx, error) {
 	return nil, errors.New("hangingConn: no transactions")
 }
 
+// Ping hangs too: the database is not answering at all.
+func (c *hangingConn) Ping(ctx context.Context) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
 func (c *hangingConn) QueryContext(ctx context.Context, _ string, _ []driver.NamedValue) (driver.Rows, error) {
 	c.d.queries.Add(1)
 	<-ctx.Done()

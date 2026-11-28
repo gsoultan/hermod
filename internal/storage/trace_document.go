@@ -58,6 +58,8 @@ type StoredStep struct {
 	AfterKey  string        `bson:"after_key,omitempty" json:"after_key,omitempty"`
 	Error     string        `bson:"error,omitempty" json:"error,omitempty"`
 	Lineage   string        `bson:"lineage,omitempty" json:"lineage,omitempty"`
+	// Wait is what the step waited for, nil when it did not.
+	Wait *hermod.StepWait `bson:"wait,omitempty" json:"wait,omitempty"`
 
 	// Documents written before payload dedup carry the maps inline, under the
 	// field names the driver derived from hermod.TraceStep's own fields. They
@@ -75,6 +77,7 @@ func PackTraceStep(step hermod.TraceStep) (StoredStep, string, []byte) {
 		Duration:  step.Duration,
 		Error:     step.Error,
 		Lineage:   step.Lineage,
+		Wait:      step.Wait,
 	}
 	if step.After == nil {
 		return stored, "", nil
@@ -120,6 +123,7 @@ func (t StoredTrace) UnpackTrace() MessageTrace {
 			Duration:  s.Duration,
 			Error:     s.Error,
 			Lineage:   s.Lineage,
+			Wait:      s.Wait,
 		}
 		switch {
 		case s.AfterKey != "":

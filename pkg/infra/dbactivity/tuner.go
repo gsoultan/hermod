@@ -12,6 +12,7 @@ package dbactivity
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 )
 
@@ -105,8 +106,27 @@ func (t *Tuner) Run(ctx context.Context) {
 func (t *Tuner) Step(ctx context.Context) {
 	start := t.now()
 	pctx, cancel := context.WithTimeout(ctx, t.ProbeTimeout)
+	// Mark the queue as soon as the canary has waited long enough to count as
+	// queued, not when it comes back: a lookup on the same queue may give up
+	// meanwhile, and it asks whether the database was queueing to decide to
+	// wait its turn rather than fail.
+	var marked atomic.Int64
+	early := time.AfterFunc(t.QueuedAfter, func() {
+		at := time.Now()
+		marked.Store(at.UnixNano())
+		t.d.MarkQueued(at)
+	})
 	r := t.probe(pctx)
+	early.Stop()
 	cancel()
+	if r == ProbeSkipped {
+		// A canary that could not tell -- the database unreachable, say --
+		// proves no queue, and a lookup must not wait one out that is not
+		// there.
+		if at := marked.Load(); at != 0 {
+			t.d.unmarkQueued(time.Unix(0, at))
+		}
+	}
 	if ctx.Err() != nil || r == ProbeSkipped {
 		return
 	}
@@ -124,6 +144,13 @@ func (t *Tuner) queued(now time.Time) {
 	if running == 0 {
 		// The wait is not Hermod's doing; holding Hermod back would not help.
 		return
+	}
+	// A further queue only ever lowers the share. What is running counts
+	// lookups queued inside PgBouncer, so it grows with the queue itself:
+	// taking it as the share again would hand Hermod more room the busier the
+	// database got. Room comes back only through healthy.
+	if learned := t.d.Learned(); learned > 0 {
+		running = min(running, learned)
 	}
 	t.d.Learn(running, t.reserve)
 	t.lastChange = now

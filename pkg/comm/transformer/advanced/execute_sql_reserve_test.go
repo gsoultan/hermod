@@ -66,3 +66,32 @@ func TestExecuteSQLWaitsForABulkSlotAndNeverRunsWithoutOne(t *testing.T) {
 		t.Errorf("the step kept its slot after finishing: %d still held", bulk)
 	}
 }
+
+// A step that waited for a bulk slot waited behind whoever held the slots, and
+// the Runs view shows them, so the busy answer names them as data. Every
+// holder counts, however young: it is a slot, not a slow query, that the step
+// waited for.
+func TestExecuteSQLBusyAnswerNamesTheSlotHolders(t *testing.T) {
+	tr, reg := newExecSQLFixture(t)
+	d := dbactivity.For("test|" + t.Name())
+	d.SetLimit(1)
+	dbactivity.Bind(reg.db, d)
+	t.Cleanup(func() { dbactivity.Unbind(reg.db) })
+
+	held, err := d.Begin(t.Context(), dbactivity.Query{Kind: dbactivity.SourcePoll, WorkflowID: "report", NodeID: "src"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(held)
+
+	_, err = runExecSQL(t, tr, reg, map[string]any{
+		"sourceId": "src1", "queryTemplate": "INSERT INTO audit (id, note) VALUES ('1', 'x')", "timeout": "50ms",
+	}, nil)
+	var busy *hermod.Busy
+	if !errors.As(err, &busy) {
+		t.Fatalf("err = %v, want a *hermod.Busy", err)
+	}
+	if len(busy.Holders) != 1 || busy.Holders[0].WorkflowID != "report" || busy.Holders[0].Kind != "source poll" {
+		t.Errorf("Holders = %+v, want report's source poll", busy.Holders)
+	}
+}

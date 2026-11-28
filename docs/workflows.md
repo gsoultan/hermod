@@ -312,6 +312,32 @@ for a server connection (`SHOW POOLS`, column `cl_waiting`) or blocked by a lock
 its message until the stall watchdog restarted the workflow after 60 seconds, and every
 message in flight then failed with `failed to execute lookup query: context canceled`.
 
+When the wait was for a free connection rather than for the query, the lookup does not fail.
+That covers Hermod's own long queries holding the database, and PgBouncer queueing for a
+server connection. Hermod waits its turn and asks again, as it does for a busy sink, and the
+**Runs** tab shows the step as having waited: for how long, and which workflows' steps held the
+database at the time, each named when you can see that workflow. Only the step's final result
+is saved, so a run whose lookup waited and then succeeded is not shown as failed. A lookup that
+ran out of time with no sign of queueing still fails, because the query itself may be what is
+slow.
+
+Hermod does not leave that to a guess. When a lookup runs out of time with Hermod's pool free and
+none of its own long queries in the way, Hermod checks at once and the error says what it found:
+
+- **The query is slow.** The database answered a ping, so it was up with a connection to give,
+  and Hermod read the query's plan (PostgreSQL; it plans and never runs the query). The error
+  names what makes it slow, such as a full read of a large table or a function on the column
+  that stops an index being used, with the index or rewrite that fixes it.
+- **The query waited on a lock.** Even planning it had to wait, and the error names the table,
+  the session holding an `ACCESS EXCLUSIVE` lock on it, its state (for example `idle in
+  transaction`) and how long its transaction has been open. Never its query text.
+- **The database is not answering.** It did not answer a ping within 3 seconds either: it is
+  down, overloaded, or PgBouncer has no server connection to give. The step fails rather than
+  hang.
+
+A burst of timeouts on the same query shares one check, made at most once a minute, so a
+database already in trouble gets one ping and one plan read, not one per message.
+
 Execute SQL has the same **Timeout** setting (its step 5, *Time limit*). It has no
 default: empty means no limit.
 

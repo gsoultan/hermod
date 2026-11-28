@@ -544,7 +544,7 @@ func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface 
 		return nil, err
 	}
 
-	use := poolUseOf(ctx, pool)
+	use := poolUseOf(ctx, pool, query)
 	defer use.track(ctx)()
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -778,7 +778,7 @@ func (t *DBLookupTransformer) lookupSQLWithTemplate(ctx context.Context, registr
 
 	// Execute query and fetch results.
 	// We always use rows.Scan with dynamic columns because queryTemplate is user-provided.
-	use := poolUseOf(ctx, pool)
+	use := poolUseOf(ctx, pool, sqlText)
 	defer use.track(ctx)()
 	rows, err := db.QueryContext(ctx, sqlText, args...)
 	if err != nil {

@@ -1335,7 +1335,13 @@ func (r *Registry) runWorkflowNodeFromReplay(ctx context.Context, workflowID str
 	defer m.Release()
 
 	start := time.Now()
-	processedMsgs, branch, err := r.RunWorkflowNodeContext(ctx, workflowID, node, m)
+	rec := manualRunFrom(ctx)
+	// A recorded run keeps what each step waited for (hermod.StepWait).
+	stepCtx := ctx
+	if rec != nil {
+		stepCtx = hermod.WithStepWait(ctx)
+	}
+	processedMsgs, branch, err := r.RunWorkflowNodeContext(stepCtx, workflowID, node, m)
 	defer func() {
 		for _, pm := range processedMsgs {
 			if pm != m {
@@ -1343,10 +1349,9 @@ func (r *Registry) runWorkflowNodeFromReplay(ctx context.Context, workflowID str
 			}
 		}
 	}()
-	rec := manualRunFrom(ctx)
 
 	if err != nil {
-		rec.record(ctx, node, start, m, processedMsgs, branch, err)
+		rec.record(stepCtx, node, start, m, processedMsgs, branch, err)
 		r.broadcastLog(workflowID, "error", fmt.Sprintf("Node %s error: %v", r.getNodeName(*node), err))
 		if ctx.Err() != nil {
 			// Cut off by whoever started the walk, not failed by the message:
@@ -1359,10 +1364,10 @@ func (r *Registry) runWorkflowNodeFromReplay(ctx context.Context, workflowID str
 
 	if node.Type == "sink" {
 		writeErr := r.replayWriteAll(ctx, workflowID, node, eng, processedMsgs, sinks, sinkNodeToIndex)
-		rec.record(ctx, node, start, m, processedMsgs, branch, writeErr)
+		rec.record(stepCtx, node, start, m, processedMsgs, branch, writeErr)
 		return
 	}
-	rec.record(ctx, node, start, m, processedMsgs, branch, nil)
+	rec.record(stepCtx, node, start, m, processedMsgs, branch, nil)
 
 	for _, processedMsg := range processedMsgs {
 		for _, targetID := range replayTargets(wf, adj, node.ID, branch) {

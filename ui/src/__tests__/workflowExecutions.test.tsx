@@ -104,6 +104,40 @@ describe('Workflow executions', () => {
     expect(screen.getByText('snk')).toBeInTheDocument()
   })
 
+  it('shows that a step waited its turn, and behind whom, without calling it a failure', async () => {
+    const waited = {
+      node_id: 'lk', node_type: 'db_lookup', label: "Yesterday's totals", timestamp: '2026-10-09T10:00:43Z', duration_ms: 43000,
+      ai: { calls: 0, input_tokens: 0, output_tokens: 0 },
+      wait: {
+        for_ms: 42000,
+        reason: 'db_lookup: no free connection to the database within 30s',
+        holders: [
+          { workflow_id: 'wf-report', workflow: 'Nightly report', node_id: 'n3', node: 'Store totals', kind: 'SQL step', running_ms: 25000 },
+          { workflow_id: 'wf-x', kind: 'source poll', running_ms: 61000 },
+        ],
+      },
+    }
+    server.use(
+      http.get(`/api/workflows/${WF}/executions`, () => HttpResponse.json({ executions: [execution({ wait_ms: 42000 })] })),
+      http.get(`/api/workflows/${WF}/executions/run-new`, () => HttpResponse.json(execution({ wait_ms: 42000, steps: [waited] }))),
+    )
+    const user = userEvent.setup()
+    renderPanel()
+
+    const row = (await screen.findByText('run-new')).closest('tr') as HTMLElement
+    expect(within(row).getByText(/42\.00 s waiting/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /open run run-new/i }))
+    const step = (await screen.findByText("Yesterday's totals")).closest('li') as HTMLElement
+    expect(within(step).getByLabelText('Waited')).toBeInTheDocument()
+    expect(within(step).queryByLabelText('Failed')).toBeNull()
+    expect(within(step).getByText(/Waited 42\.00 s for a free connection/)).toBeInTheDocument()
+    expect(within(step).getByText(/Nightly report · Store totals/)).toBeInTheDocument()
+    expect(within(step).getByText(/SQL step, running 25\.00 s/)).toBeInTheDocument()
+    // A workflow the caller cannot see is not named.
+    expect(within(step).getByText(/another workflow/)).toBeInTheDocument()
+  })
+
   it('hides Replay from a role that cannot run workflows', async () => {
     server.use(
       http.get(`/api/workflows/${WF}/executions`, () => HttpResponse.json({ executions: [execution()] })),

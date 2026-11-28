@@ -96,8 +96,27 @@ func (h *ExecutionsHandler) GetExecution(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
+	ex := executions.FromTrace(h.withSubflowSteps(r.Context(), wf), trace, true)
+	executions.NameHolders(&ex, h.holderWorkflows(r))
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(executions.FromTrace(h.withSubflowSteps(r.Context(), wf), trace, true))
+	_ = json.NewEncoder(w).Encode(ex)
+}
+
+// holderWorkflows looks up the workflows a run's steps waited behind, for
+// their names. Only those the caller may see: another vhost's workflow keeps
+// its id and is not named.
+func (h *ExecutionsHandler) holderWorkflows(r *http.Request) func(string) (storage.Workflow, bool) {
+	role, vhosts := h.GetRoleAndVHosts(r)
+	return func(id string) (storage.Workflow, bool) {
+		if id == "" {
+			return storage.Workflow{}, false
+		}
+		wf, err := h.Storage.GetWorkflow(r.Context(), id)
+		if err != nil || (role != storage.RoleAdministrator && !h.HasVHostAccess(wf.VHost, vhosts)) {
+			return storage.Workflow{}, false
+		}
+		return wf, true
+	}
 }
 
 // ReplayExecution runs a past run's input through the workflow again, from

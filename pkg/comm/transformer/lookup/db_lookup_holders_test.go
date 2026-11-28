@@ -66,8 +66,28 @@ func TestDBLookupTimeoutNamesTheWorkflowsHoldingTheDatabase(t *testing.T) {
 	if !errors.Is(err, hermod.ErrBusy) {
 		t.Errorf("a lookup that queued behind Hermod's own queries is not marked busy: %v", err)
 	}
-	if !strings.Contains(msg, "Max connections") {
-		t.Errorf("error does not say what to change:\n%v", msg)
+	// v1.27.1 told the operator to copy PgBouncer's pool_size into the
+	// source. Hermod works its share out itself, so the answer says what it is
+	// doing about the wait, and asks nothing of the operator.
+	for _, ask := range []string{"Max connections", "pool_size", "set the source"} {
+		if strings.Contains(msg, ask) {
+			t.Errorf("error asks the operator to change a setting (%q):\n%v", ask, msg)
+		}
+	}
+	if !strings.Contains(msg, "waits its turn") {
+		t.Errorf("error does not say that Hermod waits and asks again:\n%v", msg)
+	}
+	// The Runs view shows what the step waited behind, so the busy answer
+	// carries the same queries as data, not only as text.
+	var busy *hermod.Busy
+	if !errors.As(err, &busy) {
+		t.Fatalf("not a *hermod.Busy: %T", err)
+	}
+	if len(busy.Holders) != 1 {
+		t.Fatalf("Holders = %+v, want the one long query", busy.Holders)
+	}
+	if h := busy.Holders[0]; h.WorkflowID != "nightly-report" || h.Kind != string(dbactivity.SourcePoll) || h.Running < 2*time.Hour {
+		t.Errorf("Holders[0] = %+v, want nightly-report's source poll, running 2h", h)
 	}
 }
 

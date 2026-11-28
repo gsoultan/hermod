@@ -4,13 +4,13 @@ import {
   Alert, Badge, Button, Code, Group, Loader, Paper, ScrollArea, Stack, Text, Title,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
-import { IconAlertCircle, IconCircleCheck, IconCircleX, IconPlayerPlay, IconSparkles } from '@tabler/icons-react'
+import { IconAlertCircle, IconCircleCheck, IconCircleX, IconHourglass, IconPlayerPlay, IconSparkles } from '@tabler/icons-react'
 import { useConfirm } from '@/components/common/ConfirmProvider'
 import { formatDateTime } from '@/utils/dateUtils'
 import { callDepth } from '@/lib/subflow'
 import {
   ApiRequestError, executionsKey, formatDuration, formatTokens, getExecution, replayExecution, statusMeta,
-  type ExecutionStep,
+  type ExecutionStep, type StepWait, type WaitHolder,
 } from '@/lib/executions'
 
 interface ExecutionDetailProps {
@@ -140,6 +140,8 @@ export function ExecutionDetail({ workflowId, runId, canReplay, onOpenRun }: Exe
 
 function StepCard({ step }: { step: ExecutionStep }) {
   const failed = !!step.error
+  const waited = !failed && !!step.wait
+  const accent = failed ? 'red' : waited ? 'yellow' : 'green'
   // A step inside a sub-flow sits under the Run sub-flow step that called it.
   const depth = callDepth(step.node_id)
   return (
@@ -149,13 +151,15 @@ function StepCard({ step }: { step: ExecutionStep }) {
       p="sm"
       radius="md"
       ml={depth ? `calc(${depth} * var(--mantine-spacing-lg))` : undefined}
-      style={{ borderLeft: `4px solid var(--mantine-color-${failed ? 'red' : 'green'}-filled)` }}
+      style={{ borderLeft: `4px solid var(--mantine-color-${accent}-filled)` }}
     >
       <Stack gap={6}>
         <Group justify="space-between" wrap="nowrap" align="flex-start">
           <Group gap="xs" wrap="nowrap" style={{ minWidth: 0 }}>
             {failed ? (
               <IconCircleX size="1.1rem" color="var(--mantine-color-red-filled)" aria-label="Failed" />
+            ) : waited ? (
+              <IconHourglass size="1.1rem" color="var(--mantine-color-yellow-filled)" aria-label="Waited" />
             ) : (
               <IconCircleCheck size="1.1rem" color="var(--mantine-color-green-filled)" aria-label="Succeeded" />
             )}
@@ -179,6 +183,7 @@ function StepCard({ step }: { step: ExecutionStep }) {
             {step.error}
           </Alert>
         )}
+        {step.wait && <WaitNote wait={step.wait} />}
         {step.output && (
           <ScrollArea.Autosize mah={240} type="auto">
             <Code block>{JSON.stringify(step.output, null, 2)}</Code>
@@ -187,4 +192,41 @@ function StepCard({ step }: { step: ExecutionStep }) {
       </Stack>
     </Paper>
   )
+}
+
+/**
+ * A step that waited its turn for a connection: how long, and which of
+ * Hermod's own queries held the database meanwhile. It is not a failure, so
+ * it reads as a note, not an error.
+ */
+function WaitNote({ wait }: { wait: StepWait }) {
+  const holders = wait.holders ?? []
+  return (
+    <Alert color="yellow" variant="light" p="xs" icon={<IconHourglass size="1rem" />}>
+      <Stack gap={4}>
+        <Text size="sm">
+          Waited {formatDuration(wait.for_ms)} for a free connection, then went on.
+        </Text>
+        {holders.length > 0 && (
+          <>
+            <Text size="xs" c="dimmed">Hermod&apos;s queries holding the database at the time:</Text>
+            <Stack component="ul" gap={2} m={0} pl="md">
+              {holders.map((h, i) => (
+                <Text component="li" size="xs" key={`${h.workflow_id ?? ''}-${h.node_id ?? ''}-${i}`}>
+                  {holderName(h)} ({h.kind}, running {formatDuration(h.running_ms)})
+                </Text>
+              ))}
+            </Stack>
+          </>
+        )}
+      </Stack>
+    </Alert>
+  )
+}
+
+/** "Nightly report · Store totals"; a workflow the caller cannot see is not named. */
+function holderName(h: WaitHolder): string {
+  if (!h.workflow) return 'another workflow'
+  const node = h.node || h.node_id
+  return node ? `${h.workflow} · ${node}` : h.workflow
 }

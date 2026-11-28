@@ -459,6 +459,13 @@ func (t *WorkflowTraversal) runNode(ctx context.Context, idx int, node *storage.
 			t.Telemetry.end(idx, time.Now())
 		}
 	}()
+	// The node's step records what it waited for (hermod.StepWait), which
+	// RecordCompletedTraceStep reads back from this context. Only for a
+	// message that is traced: the slot is two allocations per node per
+	// message, and nothing reads it otherwise.
+	if t.Eng.WillTrace(msg) {
+		ctx = hermod.WithStepWait(ctx)
+	}
 	msgs, branch, err := t.Registry.RunWorkflowNodeContext(ctx, t.WorkflowID, node, msg)
 
 	// Stamped when the node finished, not when it started. The step's payload is

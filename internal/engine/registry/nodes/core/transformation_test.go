@@ -60,3 +60,93 @@ func TestTransformation_AIStepsRunInTheWorkflowScope(t *testing.T) {
 		})
 	}
 }
+
+// workflowCtx records the workflow each step ran for, and can answer busy.
+type workflowCtx struct {
+	interfaces.NodeContext
+	seen      map[string]string
+	busy      bool
+	broadcast []string
+}
+
+func (c *workflowCtx) ApplyTransformation(ctx context.Context, _ hermod.Message, transType string, _ map[string]any) (hermod.Message, error) {
+	c.seen[transType], _ = ctx.Value(hermod.StepWorkflowKey).(string)
+	if c.busy {
+		return nil, hermod.ErrBusy
+	}
+	return nil, nil
+}
+
+func (c *workflowCtx) ContextWithPipelineSnapshot(ctx context.Context) context.Context { return ctx }
+
+func (c *workflowCtx) BroadcastLiveMessage(_, _ string, _ hermod.Message, isError bool, _ string) {
+	if isError {
+		c.broadcast = append(c.broadcast, "error")
+	}
+}
+
+// v1.27.1 named the SQL steps holding a database "an unnamed workflow": only
+// ml_predict had its workflow on the context. Every step, pipeline steps
+// included, now carries it under StepWorkflowKey, which nothing keys state by.
+func TestTransformation_EveryStepCarriesItsWorkflow(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		config map[string]any
+		step   string
+	}{
+		{"single node", map[string]any{"transType": "execute_sql"}, "execute_sql"},
+		{"pipeline step", map[string]any{"transType": "pipeline", "steps": `[{"transType":"db_lookup"}]`}, "db_lookup"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			nctx := &workflowCtx{seen: map[string]string{}}
+			msg := message.AcquireMessage()
+			defer message.ReleaseMessage(msg)
+			node := &storage.WorkflowNode{ID: "n1", Type: "transformation", Config: tc.config}
+			_, _, _ = (&TransformationNode{}).Execute(t.Context(), nctx, "wf-report", node, msg)
+			if got := nctx.seen[tc.step]; got != "wf-report" {
+				t.Errorf("%s ran for workflow %q, want wf-report", tc.step, got)
+			}
+		})
+	}
+}
+
+// The workflow is a context value, an allocation per step per message, so
+// only the steps that name their database work by it get one.
+// TestWorkflowAllocationBudget caught it being set on every step.
+func TestTransformation_OnlyDatabaseStepsPayForTheirWorkflow(t *testing.T) {
+	nctx := &workflowCtx{seen: map[string]string{}}
+	msg := message.AcquireMessage()
+	defer message.ReleaseMessage(msg)
+	node := &storage.WorkflowNode{ID: "n1", Type: "transformation", Config: map[string]any{"transType": "set"}}
+	_, _, _ = (&TransformationNode{}).Execute(t.Context(), nctx, "wf-report", node, msg)
+	if got, ran := nctx.seen["set"]; !ran || got != "" {
+		t.Errorf("a set step ran with workflow %q (ran: %v), want none", got, ran)
+	}
+}
+
+// A busy answer the engine will wait out is not shown as a failure in the
+// live view; with no waiter it is the result and is shown.
+func TestTransformation_BusyIsNotBroadcastAsAnErrorWhileItIsWaitedOut(t *testing.T) {
+	node := &storage.WorkflowNode{ID: "n1", Type: "transformation", Config: map[string]any{"transType": "db_lookup"}}
+	msg := message.AcquireMessage()
+	defer message.ReleaseMessage(msg)
+
+	waited := &workflowCtx{seen: map[string]string{}, busy: true}
+	ctx := hermod.WithBusyWaiter(t.Context(), noWaiter{})
+	_, _, _ = (&TransformationNode{}).Execute(ctx, waited, "wf", node, msg)
+	if len(waited.broadcast) != 0 {
+		t.Errorf("a busy attempt being waited out was broadcast as an error")
+	}
+
+	final := &workflowCtx{seen: map[string]string{}, busy: true}
+	_, _, _ = (&TransformationNode{}).Execute(t.Context(), final, "wf", node, msg)
+	if len(final.broadcast) != 1 {
+		t.Errorf("a busy answer with no waiter was not broadcast as the step's error")
+	}
+}
+
+type noWaiter struct{}
+
+func (noWaiter) WaitOutBusy(_ context.Context, _ string, attempt func() error) error {
+	return attempt()
+}

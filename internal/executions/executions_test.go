@@ -162,3 +162,44 @@ func TestInputIsTheSourceStepWithoutEngineMetadata(t *testing.T) {
 		t.Fatalf("metadata = %v: engine bookkeeping must not be replayed, the rest must", md)
 	}
 }
+
+// A lookup that waited its turn for a connection shows that it waited, how
+// long, and behind which workflow's step -- named, not by id -- and the run
+// says how much of its time was waiting. It is not a failure.
+func TestFromTraceShowsWhatAStepWaitedBehind(t *testing.T) {
+	report := storage.Workflow{ID: "wf-report", Name: "Nightly report", Nodes: []storage.WorkflowNode{
+		{ID: "n3", Type: "transformation", Config: map[string]any{"label": "Store totals"}},
+	}}
+	trace := storage.MessageTrace{MessageID: "m", WorkflowID: "wf", Steps: []hermod.TraceStep{
+		{NodeID: "src", Timestamp: time.Unix(100, 0)},
+		{NodeID: "classify", Timestamp: time.Unix(143, 0), Duration: 43 * time.Second, Wait: &hermod.StepWait{
+			For: 42 * time.Second, Reason: "no free connection",
+			Holders: []hermod.Holder{
+				{WorkflowID: "wf-report", NodeID: "n3", Kind: "SQL step", Running: 25 * time.Second},
+				{WorkflowID: "gone", Kind: "source poll", Running: time.Minute},
+			},
+		}},
+	}}
+	ex := FromTrace(supportFlow(), trace, false)
+	NameHolders(&ex, func(id string) (storage.Workflow, bool) { return report, id == "wf-report" })
+
+	if ex.Status != StatusSucceeded {
+		t.Errorf("Status = %s, want succeeded: waiting is not failing", ex.Status)
+	}
+	if ex.WaitMs != 42000 {
+		t.Errorf("WaitMs = %d, want 42000", ex.WaitMs)
+	}
+	w := ex.Steps[1].Wait
+	if w == nil || w.ForMs != 42000 || w.Reason != "no free connection" || len(w.Holders) != 2 {
+		t.Fatalf("Wait = %+v", w)
+	}
+	if h := w.Holders[0]; h.Workflow != "Nightly report" || h.Node != "Store totals" || h.RunningMs != 25000 || h.Kind != "SQL step" {
+		t.Errorf("Holders[0] = %+v, want Nightly report / Store totals, 25s", h)
+	}
+	if h := w.Holders[1]; h.Workflow != "" || h.WorkflowID != "gone" {
+		t.Errorf("a holder whose workflow is gone keeps its id and no name: %+v", h)
+	}
+	if ex.Steps[0].Wait != nil {
+		t.Errorf("a step that did not wait has %+v", ex.Steps[0].Wait)
+	}
+}

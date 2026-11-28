@@ -118,3 +118,32 @@ func TestABusyStepWithNoWaiterReportsBusy(t *testing.T) {
 		t.Fatalf("err = %v, want the busy answer", err)
 	}
 }
+
+// The run records that the step waited, how long, and behind whom, so the
+// Runs tab can say so instead of showing only a longer duration.
+func TestABusyStepRecordsItsWaitOnTheStep(t *testing.T) {
+	stepBusy.mu.Lock()
+	stepBusy.refusals, stepBusy.calls = 2, 0
+	stepBusy.mu.Unlock()
+
+	reg := NewRegistry(nil)
+	node := &storage.WorkflowNode{ID: "lookup-1", Type: "test_busy_step"}
+	m := message.AcquireMessage()
+	defer m.Release()
+
+	ctx := hermod.WithStepWait(hermod.WithBusyWaiter(t.Context(), &countingWaiter{}))
+	msgs, _, err := reg.RunWorkflowNodeContext(ctx, "wf", node, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, out := range msgs {
+		defer out.Release()
+	}
+	w := hermod.StepWaitFrom(ctx)
+	if w == nil {
+		t.Fatal("the step waited and nothing recorded it")
+	}
+	if w.Reason != "no free connection" {
+		t.Errorf("Reason = %q, want the busy answer", w.Reason)
+	}
+}

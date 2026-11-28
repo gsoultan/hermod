@@ -49,16 +49,41 @@ type Step struct {
 	AI genai.Usage `json:"ai"`
 	// Output is the message as the step left it; only on a single run.
 	Output map[string]any `json:"output,omitempty"`
+	// Wait is how long the step waited its turn for a connection, and
+	// behind whom; nil when it did not wait. Waiting is not failing.
+	Wait *Wait `json:"wait,omitempty"`
+}
+
+// Wait is a step's wait for room on its database or API.
+type Wait struct {
+	ForMs  int64  `json:"for_ms"`
+	Reason string `json:"reason,omitempty"`
+	// Holders are Hermod's own queries that held the database's connections
+	// when the step was refused, longest first.
+	Holders []Holder `json:"holders,omitempty"`
+}
+
+// Holder is one query a step waited behind: its workflow and step, by name
+// once NameHolders has run, and how long it had been running. Never its text.
+type Holder struct {
+	WorkflowID string `json:"workflow_id,omitempty"`
+	Workflow   string `json:"workflow,omitempty"`
+	NodeID     string `json:"node_id,omitempty"`
+	Node       string `json:"node,omitempty"`
+	Kind       string `json:"kind"`
+	RunningMs  int64  `json:"running_ms"`
 }
 
 // Execution is one run of a workflow.
 type Execution struct {
-	RunID      string      `json:"run_id"`
-	WorkflowID string      `json:"workflow_id"`
-	StartedAt  time.Time   `json:"started_at"`
-	DurationMs int64       `json:"duration_ms"`
-	Status     string      `json:"status"`
-	StepCount  int         `json:"step_count"`
+	RunID      string    `json:"run_id"`
+	WorkflowID string    `json:"workflow_id"`
+	StartedAt  time.Time `json:"started_at"`
+	DurationMs int64     `json:"duration_ms"`
+	Status     string    `json:"status"`
+	StepCount  int       `json:"step_count"`
+	// WaitMs is how much of the run its steps spent waiting their turn.
+	WaitMs     int64       `json:"wait_ms,omitempty"`
 	ErrorCount int         `json:"error_count"`
 	AI         genai.Usage `json:"ai"`
 	Steps      []Step      `json:"steps"`
@@ -97,6 +122,10 @@ func FromTrace(wf storage.Workflow, t storage.MessageTrace, withOutput bool) Exe
 		if withOutput {
 			step.Output = s.After
 		}
+		if s.Wait != nil {
+			step.Wait = waitOf(s.Wait)
+			ex.WaitMs += step.Wait.ForMs
+		}
 		if s.Error != "" {
 			ex.ErrorCount++
 		}
@@ -110,6 +139,52 @@ func FromTrace(wf storage.Workflow, t storage.MessageTrace, withOutput bool) Exe
 	}
 	ex.Status = status(ex)
 	return ex
+}
+
+func waitOf(w *hermod.StepWait) *Wait {
+	out := &Wait{ForMs: w.For.Milliseconds(), Reason: w.Reason}
+	for _, h := range w.Holders {
+		out.Holders = append(out.Holders, Holder{
+			WorkflowID: h.WorkflowID, NodeID: h.NodeID, Kind: h.Kind, RunningMs: h.Running.Milliseconds(),
+		})
+	}
+	return out
+}
+
+// NameHolders names the workflow and step of every query ex's steps waited
+// behind, through lookup. A holder whose workflow lookup does not find keeps
+// its ids and no names.
+func NameHolders(ex *Execution, lookup func(workflowID string) (storage.Workflow, bool)) {
+	found := map[string]*storage.Workflow{}
+	find := func(id string) *storage.Workflow {
+		if wf, seen := found[id]; seen {
+			return wf
+		}
+		var wf *storage.Workflow
+		if got, ok := lookup(id); ok {
+			wf = &got
+		}
+		found[id] = wf
+		return wf
+	}
+	for i := range ex.Steps {
+		if w := ex.Steps[i].Wait; w != nil {
+			for j := range w.Holders {
+				w.Holders[j].name(find(w.Holders[j].WorkflowID))
+			}
+		}
+	}
+}
+
+// name fills in the holder's workflow and step names from wf, when known.
+func (h *Holder) name(wf *storage.Workflow) {
+	if wf == nil {
+		return
+	}
+	h.Workflow = wf.Name
+	if i := slices.IndexFunc(wf.Nodes, func(n storage.WorkflowNode) bool { return n.ID == h.NodeID }); i >= 0 {
+		h.Node, _ = wf.Nodes[i].Config["label"].(string)
+	}
 }
 
 // index maps a workflow's nodes by id and each node to its predecessors.

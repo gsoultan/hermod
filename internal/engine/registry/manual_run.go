@@ -82,6 +82,7 @@ func (m *manualRun) record(ctx context.Context, node *storage.WorkflowNode, star
 		Duration:  time.Since(start),
 		After:     subflow.WithoutFrames(payload.ToMap()),
 		Lineage:   "manual_run",
+		Wait:      hermod.StepWaitFrom(ctx),
 	}
 	if err != nil {
 		step.Error = err.Error()
