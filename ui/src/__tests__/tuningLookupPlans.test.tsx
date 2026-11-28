@@ -22,7 +22,7 @@ const nodes: LookupPlanNode[] = [
     scans: [], tables: [],
     findings: [{
       rule: 'wrapped_column', severity: 'warn', table: 'public.sales_orders',
-      title: 'Function on the lookup key stops index use on public.sales_orders',
+      title: 'A function on the column stops index use on public.sales_orders',
       detail: 'The index so_doc on doc_no cannot be used for that.', proposal: PROPOSAL,
     }],
   },

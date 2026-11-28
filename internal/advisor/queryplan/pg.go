@@ -15,6 +15,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -37,6 +38,8 @@ type Check struct {
 	Scans    []Scan    `json:"scans"`
 	Tables   []Table   `json:"tables"`
 	Findings []Finding `json:"findings"`
+	// Cost is the planner's estimate of the query's work, in its own units.
+	Cost float64 `json:"cost"`
 }
 
 // Run plans query on db and assesses the plan. It never runs the query:
@@ -88,6 +91,9 @@ func run(ctx context.Context, c *pgx.Conn, query string) (out Check, err error) 
 		return out, err
 	}
 	if out.Scans, err = ParsePlan(plan); err != nil {
+		return out, err
+	}
+	if out.Cost, err = PlanCost(plan); err != nil {
 		return out, err
 	}
 	tables, err := loadCatalog(ctx, c, out.Scans)
@@ -158,7 +164,9 @@ SELECT n.nspname, c.relname,
        CASE WHEN c.reltuples < 0 THEN -1 ELSE c.reltuples END::float8,
        i.relname, am.amname, ix.indisunique, pg_get_indexdef(ix.indexrelid),
        ARRAY(SELECT pg_get_indexdef(ix.indexrelid, k, true)
-             FROM generate_series(1, ix.indnkeyatts) AS k ORDER BY k)
+             FROM generate_series(1, ix.indnkeyatts) AS k ORDER BY k),
+       (SELECT json_object_agg(a.attname, format_type(a.atttypid, a.atttypmod))
+        FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped)
 FROM unnest($1::text[], $2::text[]) AS want(schema, rel)
 JOIN pg_namespace n ON n.nspname = want.schema
 JOIN pg_class c ON c.relnamespace = n.oid AND c.relname = want.rel
@@ -191,11 +199,16 @@ func loadCatalog(ctx context.Context, c *pgx.Conn, scans []Scan) (map[string]Tab
 		var name, method, def *string
 		var unique *bool
 		var keys []string
-		if err := rows.Scan(&t.Schema, &t.Name, &t.Rows, &name, &method, &unique, &def, &keys); err != nil {
+		var cols []byte
+		if err := rows.Scan(&t.Schema, &t.Name, &t.Rows, &name, &method, &unique, &def, &keys, &cols); err != nil {
 			return nil, err
 		}
 		if prev, ok := out[t.Key()]; ok {
-			t.Indexes = prev.Indexes
+			t.Indexes, t.Columns = prev.Indexes, prev.Columns
+		} else if len(cols) > 0 {
+			if err := json.Unmarshal(cols, &t.Columns); err != nil {
+				return nil, err
+			}
 		}
 		if name != nil {
 			t.Indexes = append(t.Indexes, Index{Name: *name, Method: deref(method), Unique: unique != nil && *unique,

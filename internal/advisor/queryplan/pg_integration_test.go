@@ -17,6 +17,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -168,5 +169,51 @@ func TestCheckLookupsPlansEachNodeAsItRuns(t *testing.T) {
 	}
 	if got[1].Findings[0].Rule != RuleWrappedColumn || !strings.Contains(got[1].SQL, "$1") {
 		t.Fatalf("the wrapped lookup: %+v", got[1])
+	}
+}
+
+// A day filter written as date_trunc on the column reads the whole table,
+// although an index on the column exists. The finding offers the range that
+// selects the same rows, and the rewritten query really does use the index.
+func TestRunOffersARangeForADateTruncFilter(t *testing.T) {
+	db, schema := openPG(t)
+	for _, q := range []string{
+		"CREATE TABLE " + schema + ".sales (id int, created_at timestamp)",
+		"INSERT INTO " + schema + ".sales SELECT g, now() - g * interval '1 minute' FROM generate_series(1, 30000) g",
+		"CREATE INDEX sales_created ON " + schema + ".sales (created_at)",
+		"ANALYZE " + schema + ".sales",
+	} {
+		if _, err := db.ExecContext(t.Context(), q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	query := "SELECT id FROM " + schema + ".sales s WHERE date_trunc('day', s.created_at) = $1"
+	got, err := Run(t.Context(), db, query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var f *Finding
+	for i := range got.Findings {
+		if got.Findings[i].Rewrite != "" {
+			f = &got.Findings[i]
+		}
+	}
+	if f == nil || !strings.Contains(f.Detail, "sales_created") {
+		t.Fatalf("findings = %+v", got.Findings)
+	}
+	// The query and the condition alike, rewritten with the column's type
+	// from the catalog, plan, and read the index.
+	better, ok := RewriteTruncEquality(query, got.Tables[0].ColumnType)
+	if !ok {
+		t.Fatal("the query was not rewritten")
+	}
+	for _, q := range []string{better, "SELECT id FROM " + schema + ".sales s WHERE " + f.Rewrite} {
+		again, err := Run(t.Context(), db, q)
+		if err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+		if !slices.ContainsFunc(again.Scans, func(s Scan) bool { return s.Index == "sales_created" }) {
+			t.Errorf("%q does not use the index: %+v", q, again.Scans)
+		}
 	}
 }

@@ -36,6 +36,27 @@ finds the pool busy waits for a connection.
   replication connection to the server unpooled. An older PgBouncer refuses it, and
   Hermod says so: upgrade it, or give the CDC source a direct connection string.
 
+### Diagnosing a source database
+
+A PostgreSQL source's page has a **Diagnosis** tab (`POST /api/sources/{id}/diagnosis`, Editor
+and up, audit `SOURCE_DIAGNOSIS`). It only reads, in a read-only transaction with a 5 second
+statement timeout, and shows:
+
+- how Hermod reaches the database: directly, or through a pooler, found by itself when the
+  server's `port` differs from the port Hermod dials;
+- Hermod's own queries on the database right now, by `application_name` (`hermod`,
+  `hermod-sql-steps`), with what each waits on and for how long;
+- checks for locks (who blocks whom), queries running over 5 minutes, sessions idle in a
+  transaction over a minute, wait events, and how close the server, role and database are to
+  their connection limits;
+- PgBouncer's own pool figures (`SHOW POOLS`, `SHOW DATABASES`) when the source goes through
+  PgBouncer and its user is in `stats_users` or `admin_users`. When PgBouncer refuses, the check
+  says so with the SQLSTATE and nothing else depends on it.
+
+Query text is never shown: only its first SQL keywords, because query text can hold personal
+data. Without `pg_read_all_stats` (or `pg_monitor`) PostgreSQL hides other users' sessions; the
+tab then says which grant would show them.
+
 ### Many CDC workflows on one slot
 
 A replication slot admits one reader, PostgreSQL allows ten slots and ten walsenders by

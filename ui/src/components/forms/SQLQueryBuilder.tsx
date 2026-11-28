@@ -8,12 +8,14 @@ import { notifications } from '@mantine/notifications';
 import { apiFetch } from '@/api';
 import {
   IconAlertCircle, IconCopy, IconDatabase, IconPlayerPlay, IconTable,
-  IconArrowsMaximize, IconArrowsMinimize, IconWand, IconBraces, IconTemplate,
+  IconArrowsMaximize, IconArrowsMinimize, IconWand, IconBraces, IconTemplate, IconGauge,
 } from '@tabler/icons-react';
 import { SqlEditor } from './sqlBuilder/SqlEditor';
 import { VariablesPanel } from './sqlBuilder/VariablesPanel';
 import { SchemaExplorer } from './sqlBuilder/SchemaExplorer';
 import { TemplatesPanel } from './sqlBuilder/TemplatesPanel';
+import { SpeedCheckPanel } from './sqlBuilder/SpeedCheckPanel';
+import { checkSpeed, type SpeedCheck } from '@/lib/speedCheck';
 import { ResultsTable } from './sqlBuilder/ResultsTable';
 import { extractVariables, formatSQL } from './sqlBuilder/sqlText';
 import { buildTemplates, keywordsFor, type SqlColumn, type SqlIntent } from './sqlBuilder/templates';
@@ -44,7 +46,7 @@ const DEFAULT_QUERY = 'SELECT * FROM tables LIMIT 10';
 // column into a 250px editor and a 130px schema list.
 const CONTAINER_BREAKPOINTS = { xs: '360px', sm: '560px', md: '860px', lg: '1180px', xl: '1500px' };
 
-type ReferenceTab = 'variables' | 'schema' | 'templates';
+type ReferenceTab = 'variables' | 'schema' | 'templates' | 'speed';
 
 // normalizeRows coerces an API response into an array. The Go backend returns
 // `null` for a zero-row result, which would otherwise hide the results preview.
@@ -76,8 +78,15 @@ export function SQLQueryBuilder({
   const [columns, setColumns] = useState<SqlColumn[]>([]);
   const [fetchingColumns, setFetchingColumns] = useState(false);
   const [tab, setTab] = useState<ReferenceTab>('variables');
-  // The statement a template replaced, kept so it can be put back.
+  // The statement a template or the speed check replaced, kept so it can be
+  // put back, and which of the two replaced it.
   const [replaced, setReplaced] = useState<string | null>(null);
+  const [replacedBy, setReplacedBy] = useState<'template' | 'speed check'>('template');
+  // The last speed check, and the statement it checked.
+  const [speed, setSpeed] = useState<{ result: SpeedCheck; query: string } | null>(null);
+  const [checkingSpeed, setCheckingSpeed] = useState(false);
+  const [speedError, setSpeedError] = useState<string | null>(null);
+  const speedAbort = useRef<AbortController | null>(null);
   const [expanded, { open: openExpanded, close: closeExpanded }] = useDisclosure(false);
 
   // activeEditorRef points at the textarea that last had focus, so an insert
@@ -99,7 +108,10 @@ export function SQLQueryBuilder({
   }, [initialQuery]);
 
   // Abort any pending request on unmount.
-  useEffect(() => () => abortRef.current?.abort(), []);
+  useEffect(() => () => {
+    abortRef.current?.abort();
+    speedAbort.current?.abort();
+  }, []);
 
   const handleQueryChange = (val: string) => {
     setQuery(val);
@@ -261,6 +273,39 @@ export function SQLQueryBuilder({
 
   const useTemplate = (sql: string) => {
     setReplaced(query.trim() ? query : null);
+    setReplacedBy('template');
+    handleQueryChange(sql);
+  };
+
+  // runSpeedCheck plans the statement on the database without running it.
+  // It opens the Speed tab, so the toolbar button shows where the answer is.
+  const runSpeedCheck = async () => {
+    if (!query.trim()) return;
+    setTab('speed');
+    speedAbort.current?.abort();
+    const controller = new AbortController();
+    speedAbort.current = controller;
+    const checked = query;
+    setCheckingSpeed(true);
+    setSpeedError(null);
+    try {
+      const result = await checkSpeed({ config: buildConfigPayload(), query: checked }, controller.signal);
+      setSpeed({ result, query: checked });
+    } catch (e: any) {
+      if (e?.name === 'AbortError') return;
+      setSpeed(null);
+      setSpeedError(e?.message || 'The statement could not be checked');
+    } finally {
+      if (speedAbort.current === controller) {
+        setCheckingSpeed(false);
+        speedAbort.current = null;
+      }
+    }
+  };
+
+  const applyRewrite = (sql: string) => {
+    setReplaced(query);
+    setReplacedBy('speed check');
     handleQueryChange(sql);
   };
 
@@ -311,6 +356,11 @@ export function SQLQueryBuilder({
             <IconCopy size={16} />
           </ActionIcon>
         </Tooltip>
+        <Tooltip label="Check speed: plan the statement on the database without running it">
+          <ActionIcon variant="default" size="md" onClick={runSpeedCheck} loading={checkingSpeed} aria-label="Check speed">
+            <IconGauge size={16} />
+          </ActionIcon>
+        </Tooltip>
         <Tooltip label={expanded ? 'Back to the form' : 'Open the workspace: editor, schema and results side by side'}>
           <ActionIcon
             variant="default"
@@ -336,13 +386,16 @@ export function SQLQueryBuilder({
 
   const reference = (large: boolean) => (
     <Paper withBorder radius="md" p="xs">
-      <Tabs value={tab} onChange={changeTab}>
+      {/* Four tabs share a column a third of a drawer wide: tighter padding
+          keeps them on one row there, and a phone wraps the last one. */}
+      <Tabs value={tab} onChange={changeTab} styles={{ tab: { paddingInline: 8 } }}>
         <Tabs.List grow>
           <Tabs.Tab value="variables" leftSection={<IconBraces size={14} />}>
             Variables{queryVariables.length > 0 ? ` (${queryVariables.length})` : ''}
           </Tabs.Tab>
           <Tabs.Tab value="schema" leftSection={<IconTable size={14} />}>Schema</Tabs.Tab>
           <Tabs.Tab value="templates" leftSection={<IconTemplate size={14} />}>Templates</Tabs.Tab>
+          <Tabs.Tab value="speed" leftSection={<IconGauge size={14} />}>Speed</Tabs.Tab>
         </Tabs.List>
 
         <ScrollArea.Autosize mah={large ? '64vh' : 340} type="auto" offsetScrollbars pt="sm">
@@ -378,6 +431,18 @@ export function SQLQueryBuilder({
               onUseTemplate={useTemplate}
               onInsert={insertText}
               onClear={() => handleQueryChange('')}
+            />
+          </Tabs.Panel>
+          <Tabs.Panel value="speed">
+            <SpeedCheckPanel
+              engine={sourceType}
+              result={speed?.result ?? null}
+              loading={checkingSpeed}
+              error={speedError}
+              stale={speed !== null && speed.query !== query}
+              hasStatement={query.trim() !== ''}
+              onCheck={runSpeedCheck}
+              onApply={applyRewrite}
             />
           </Tabs.Panel>
         </ScrollArea.Autosize>
@@ -417,7 +482,7 @@ export function SQLQueryBuilder({
 
             {replaced !== null && (
               <Group gap="xs">
-                <Text size="xs" c="dimmed">The template replaced your statement.</Text>
+                <Text size="xs" c="dimmed">The {replacedBy} replaced your statement.</Text>
                 <Anchor component="button" type="button" size="xs" onClick={undoTemplate}>
                   Undo
                 </Anchor>

@@ -192,6 +192,7 @@ What it flags, on a table of 10,000 rows or more (a smaller one is read whole as
 | A range (`<`, `>=`, ...) on a column whose only index is a hash index | A btree index. A hash index answers equality only. |
 | Equality and range conditions no index serves | One btree index, equality columns first and range columns last. |
 | An index that fits, which the planner still did not use | Nothing to create. It expects too many rows to match; if the value is rare, run `ANALYZE` on the table. |
+| `date_trunc('day', col) = value` where `col` has an index | No index. The range `col >= value AND col < value + interval '1 day'`, which selects the same rows and uses the existing index. For a message value the upper bound is cast to the column's type, because a parameter added to an interval would otherwise be taken for an interval. |
 
 How the check reaches the database: the query is prepared and planned with
 `EXPLAIN (VERBOSE) EXECUTE` under `plan_cache_mode = force_generic_plan`, in a `READ ONLY`
@@ -207,6 +208,24 @@ Limits:
 - The plan is the *generic* one, made without the message's values, because a check has no
   message. A running lookup may get a plan made for its actual values, which can differ when
   values are very unevenly spread.
+
+#### Checking a query's speed while writing it
+
+The SQL builder of DB Lookup, Execute SQL and Batch SQL has a **Speed** tab and a **Check speed**
+button in its toolbar (`POST /api/sources/query/speed-check`, Editor and up, written to the
+audit log as `SQL_SPEED_CHECK`). It plans the statement in the editor exactly as the check above
+plans a lookup: `{{.path}}` templates become bound parameters, nothing is executed, and a write
+statement is safe to check because the transaction is read-only and rolled back. It shows the
+same findings, and the planner's estimated cost of the statement.
+
+When a finding comes with a rewrite (today, a `date_trunc` equality), the builder also shows the
+whole statement rewritten in its own terms, templates included, with **Apply to the query** and
+**Copy**. The rewrite is planned before it is offered, so one the database refuses is never
+shown, and the page says how many times less work the planner estimates for it. The cost is the
+planner's estimate in its own units, not a duration: the page never shows a time it did not
+measure. **Undo** under the editor puts the original statement back.
+
+PostgreSQL only, for now; on another database the tab says so.
 
 ## Workflows as MCP tools
 

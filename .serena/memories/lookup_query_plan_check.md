@@ -34,3 +34,18 @@ Tuning tab → "Lookup queries and indexes" → `POST /api/workflows/{id}/insigh
 Unit fixtures are real PG16 plans in `internal/advisor/queryplan/testdata/`. Integration:
 `POSTGRES_DSN=... go test -tags integration ./internal/advisor/queryplan/` (through PgBouncer add
 `default_query_exec_mode=exec`). UI: `ui/src/__tests__/tuningLookupPlans.test.tsx`.
+
+## date_trunc range rewrite and the SQL builder speed check
+- `truncRange` (assess.go) turns `date_trunc('unit', col) = v` into `col >= (v) AND col < v' + interval '1 unit'`
+  when an index on `col` is defeated; `Finding.Rewrite`. A parameter `v` ($n or {{tmpl}}) MUST be
+  `CAST(v AS <col type>)` in the upper bound: `$2 + interval` makes PG type $2 as interval
+  ("operator does not exist: timestamp < interval"). Column types come from `Table.Columns`
+  (json_object_agg in catalogQuery, `json:"-"`). No type → no rewrite.
+- `rewrite.go` `RewriteTruncEquality(query, typeOf)` rewrites the text as written (templates kept,
+  literals/comments/{{}} skipped, RHS ends at top-level AND/OR/ORDER/... or unmatched `)`),
+  parenthesised so NOT/OR around it still hold.
+- `Check.Cost` = root Total Cost (planner units, not time).
+- `POST /api/sources/query/speed-check` (advisor/transport/http/speedcheck.go): same body as
+  `/api/sources/query`; offers `rewritten` only if a finding has a Rewrite AND the rewritten
+  statement plans; returns `rewritten_cost`. UI: `sqlBuilder/SpeedCheckPanel.tsx`, shared
+  `components/queryplan/PlanFinding.tsx`.
