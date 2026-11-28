@@ -24,6 +24,7 @@ import (
 	"github.com/gsoultan/hermod/internal/advisor/queryplan"
 	"github.com/gsoultan/hermod/internal/api/handlers"
 	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/pkg/infra/dbactivity"
 	"github.com/gsoultan/hermod/pkg/llm"
 )
 
@@ -40,6 +41,8 @@ type InsightsHandler struct {
 	explainer func() *advisor.Explainer
 	// lookupChecks is set by tests; nil checks against the registry's sources.
 	lookupChecks func(ctx context.Context, wf storage.Workflow) []queryplan.NodeCheck
+	// snapshot is set by tests; nil reads what the registry tracks.
+	snapshot func(ctx context.Context, src storage.Source) (dbactivity.Snapshot, bool)
 
 	envOnce      sync.Once
 	envExplainer *advisor.Explainer
@@ -60,6 +63,7 @@ func (h *InsightsHandler) RegisterInsightsRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/workflows/{id}/insights", h.GetInsights)
 	mux.Handle("POST /api/workflows/{id}/insights/explain", h.EditorOnly(h.Explain))
 	mux.Handle("POST /api/workflows/{id}/insights/lookup-plans", h.EditorOnly(h.LookupPlans))
+	mux.HandleFunc("GET /api/workflows/{id}/insights/databases", h.Databases)
 }
 
 // ai returns the explainer, or nil when AI explanations are off.

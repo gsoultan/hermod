@@ -29,3 +29,15 @@ Pools register with `Bind(pool, d)` / `Unbind`; steps find it with `OfPool(pool)
 Integration check: `PGBOUNCER12_DSN=… go test -tags integration -run
 TestSQLPool_LookupsGetThroughWhenLongQueriesFillPgBouncer ./internal/engine/registry/` (PgBouncer
 default_pool_size 12): learned 12, limit 9, lookups ~1 ms.
+
+## Tuning "Databases" cards
+- `dbactivity.Database.Snapshot()` — one locked read (Ceiling, Learned, Limit, Running, InBulk,
+  QueuedAt, Queries oldest first).
+- `Registry.DatabaseSnapshot(ctx, src)` → SourceConnString + `pgxutil.Database(connStr)` (same key
+  as the pools); memory only; false for non-pgx.
+- `advisor.ReadDatabase` (internal/advisor/database.go): Fixed = learned_share, kept_lookups_moving
+  (QueuedAt within 1h and Limit>0); NeedsYou = long_query (this flow's bulk ≥5 min, NodeID),
+  other_flows (other flows' bulk ≥5 min, named), pool_smaller_than_set (Learned>0, Limit<Ceiling).
+  No card invented for a quiet database. Times are "N min ago", never server clock times.
+- `GET /api/workflows/{id}/insights/databases` (vhost access; flowSourceIDs = source nodes' RefID +
+  transformations' `sourceId`). UI `pages/workflows/tuning/DatabaseCards.tsx`.

@@ -121,3 +121,46 @@ export interface LookupPlanNode {
 export function checkLookupPlans(workflowId: string): Promise<{ nodes: LookupPlanNode[] }> {
   return requestJson<{ nodes: LookupPlanNode[] }>(`/api/workflows/${encodeURIComponent(workflowId)}/insights/lookup-plans`, { method: 'POST' })
 }
+
+/** advisor.Card: something Hermod did about a database, or that needs a person. */
+export interface DatabaseCard {
+  rule: string
+  title: string
+  detail: string
+  /** The step of this flow the card is about. */
+  node_id?: string
+  evidence?: InsightEvidence[]
+}
+
+/** advisor.DatabaseView: one database a flow reaches. */
+export interface DatabaseView {
+  source_id: string
+  source: string
+  /** Connections Hermod found it gets; 0 when it found no limit. */
+  learned: number
+  /** Long queries Hermod runs here at once; 0 for no bound. */
+  limit: number
+  /** Hermod's queries here now, from every flow, and the long ones among them. */
+  running: number
+  long: number
+  fixed: DatabaseCard[]
+  needs_you: DatabaseCard[]
+}
+
+export const databasesKey = (workflowId: string) => ['insights', workflowId, 'databases'] as const
+
+/** How often the databases read refreshes: it is memory only, so it is cheap. */
+export const DATABASES_REFRESH_MS = 10_000
+
+export function getDatabases(workflowId: string, signal?: AbortSignal): Promise<{ databases: DatabaseView[] }> {
+  return requestJson<{ databases: DatabaseView[] }>(`/api/workflows/${encodeURIComponent(workflowId)}/insights/databases`, { signal })
+}
+
+export function useDatabases(workflowId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: databasesKey(workflowId),
+    queryFn: ({ signal }) => getDatabases(workflowId, signal),
+    enabled: enabled && Boolean(workflowId),
+    refetchInterval: DATABASES_REFRESH_MS,
+  })
+}
