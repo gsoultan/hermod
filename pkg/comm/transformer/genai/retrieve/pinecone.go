@@ -20,6 +20,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/gsoultan/hermod/pkg/infra/httpclient"
 )
 
 // maxPineconeReply bounds what is read from a query reply. topK is at most
@@ -72,7 +74,7 @@ func (p *pinecone) query(ctx context.Context, vector []float32, k int) ([]Doc, e
 		if len(excerpt) > 200 {
 			excerpt = excerpt[:200] + "..."
 		}
-		return nil, fmt.Errorf("pinecone query: status %d: %s", resp.StatusCode, excerpt)
+		return nil, httpclient.MarkBusy(resp, fmt.Errorf("pinecone query: status %d: %s", resp.StatusCode, excerpt))
 	}
 	var reply struct {
 		Matches []struct {

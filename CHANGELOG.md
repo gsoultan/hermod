@@ -7,6 +7,15 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Changed — an API that says "slow down" makes a step slower, never failed
+
+An API Lookup, an AI step and an AI Retrieve step treated a 429 Too Many Requests or a 503 Service
+Unavailable as a failure. The lookup also spent its own retries on it at a fixed delay, ignoring the
+`Retry-After` the API sent, and then failed the message, or wrote its default value into it as if the
+API had answered. These answers now count as busy, the way they already did for the HTTP sink: the
+step stops at once, and the engine waits as long as the API asked before trying the message again.
+An API Lookup's default value and error policy no longer apply to a busy answer.
+
 ### Fixed — a lookup that waited its turn showed as a failed run, and could still fail
 
 On v1.27.1, behind a small PgBouncer pool (`default_pool_size = 5` with a reserve pool) and with

@@ -37,5 +37,14 @@ Steps (transformation nodes) too:
   deadline hit while all of Hermod's connections to the source were in use
   (`poolUse.explain`). Never mark a write busy after it may have run.
 
-Not yet covered: API steps (429), the batched lookup path, and the UI word
-for `waiting`.
+- HTTP answers: `httpclient.MarkBusy(resp, err)` (`pkg/infra/httpclient/busy.go`)
+  is the one rule, 429 or 503 with `Retry-After` (seconds or HTTP date) as
+  the wait. Used by the HTTP sink, `api_lookup`, the AI step (OpenAI, Ollama)
+  and `ai_retrieve`'s Pinecone query. `api_lookup` returns a busy answer at
+  once rather than spending its own retries, and a busy answer bypasses its
+  error policy and default value: writing the default would pass "no room"
+  off as the API's answer.
+
+Not yet covered: `pkg/llm` providers (their `APIError` keeps its own retry
+middleware and is not busy once it gives up), the batched lookup path, and the
+UI word for `waiting`.

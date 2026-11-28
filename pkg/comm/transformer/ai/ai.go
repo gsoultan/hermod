@@ -25,6 +25,7 @@ import (
 	"github.com/gsoultan/hermod/pkg/infra/evaluator"
 
 	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/infra/httpclient"
 )
 
 func init() {
@@ -153,7 +154,7 @@ func (t *AITransformer) callOpenAI(ctx context.Context, endpoint, apiKey, model,
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("openai error (status %d): %s", resp.StatusCode, errorBody(resp.Body))
+		return "", httpclient.MarkBusy(resp, fmt.Errorf("openai error (status %d): %s", resp.StatusCode, errorBody(resp.Body)))
 	}
 
 	var res struct {
@@ -201,7 +202,7 @@ func (t *AITransformer) callOllama(ctx context.Context, endpoint, model, prompt 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("ollama error (status %d): %s", resp.StatusCode, errorBody(resp.Body))
+		return "", httpclient.MarkBusy(resp, fmt.Errorf("ollama error (status %d): %s", resp.StatusCode, errorBody(resp.Body)))
 	}
 
 	var res struct {
