@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/infra/dbactivity"
 	"github.com/gsoultan/hermod/pkg/infra/pgxutil"
 	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
@@ -305,4 +306,20 @@ func canary(probeDB *sql.DB) dbactivity.Probe {
 			return dbactivity.ProbeSkipped
 		}
 	}
+}
+
+// DatabaseSnapshot is what Hermod is running on the database src reaches,
+// and what it learned about it, as dbactivity tracks it. It reads memory
+// only; nothing connects. False for a source that is not PostgreSQL, whose
+// activity is not tracked by server identity.
+func (r *Registry) DatabaseSnapshot(ctx context.Context, src storage.Source) (dbactivity.Snapshot, bool) {
+	connStr, driver, err := r.SourceConnString(ctx, src)
+	if err != nil || driver != "pgx" {
+		return dbactivity.Snapshot{}, false
+	}
+	d, _, err := pgxutil.Database(connStr)
+	if err != nil {
+		return dbactivity.Snapshot{}, false
+	}
+	return d.Snapshot(), true
 }

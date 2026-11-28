@@ -169,3 +169,27 @@ func TestLongestBulkLeavesOutLookups(t *testing.T) {
 		t.Fatalf("LongestBulk = %+v, want only the poll: a lookup is never what another lookup waits behind", got)
 	}
 }
+
+// The Tuning page says what Hermod did about a database: its configured bulk
+// ceiling, the share it learned, the limit in force and when it last saw
+// the database with no connection free. One read gives all of it at once,
+// so the numbers it shows agree with each other.
+func TestSnapshotIsOneConsistentReading(t *testing.T) {
+	d := newDatabase("k")
+	d.SetLimit(15)
+	d.Learn(12, -1)
+	at := time.Date(2026, 11, 28, 6, 12, 0, 0, time.UTC)
+	d.MarkQueued(at)
+	end, err := d.Begin(t.Context(), Query{Kind: SQLStep, WorkflowID: "wf-1", NodeID: "n1", Started: at})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer end()
+	s := d.Snapshot()
+	if s.Ceiling != 15 || s.Learned != 12 || s.Limit != 9 || s.Running != 1 || s.InBulk != 1 || !s.QueuedAt.Equal(at) {
+		t.Errorf("snapshot = %+v", s)
+	}
+	if len(s.Queries) != 1 || s.Queries[0].NodeID != "n1" {
+		t.Errorf("queries = %+v", s.Queries)
+	}
+}

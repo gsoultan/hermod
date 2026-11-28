@@ -235,3 +235,38 @@ func (d *Database) Running() (all, bulk int) {
 	defer d.mu.Unlock()
 	return len(d.running), d.inBulk
 }
+
+// Snapshot is one reading of a Database, taken under one lock so its numbers
+// agree with each other.
+type Snapshot struct {
+	// Ceiling is the bulk limit the configuration allows, 0 for none.
+	Ceiling int
+	// Learned is the share of server connections Hermod found it gets, 0
+	// when it has found none.
+	Learned int
+	// Limit is the bulk limit in force: the lower of Ceiling and what
+	// Learned leaves after the lookup reserve.
+	Limit int
+	// Running is every query Hermod has running here, InBulk the bulk ones.
+	Running, InBulk int
+	// QueuedAt is when the database was last seen with no connection free.
+	QueuedAt time.Time
+	// Queries are the running queries, oldest first.
+	Queries []Query
+}
+
+// Snapshot reads the database's state.
+func (d *Database) Snapshot() Snapshot {
+	d.mu.Lock()
+	s := Snapshot{
+		Ceiling: d.ceiling, Learned: d.learned, Limit: d.limitLocked(),
+		Running: len(d.running), InBulk: d.inBulk, QueuedAt: d.queuedAt,
+		Queries: make([]Query, 0, len(d.running)),
+	}
+	for _, q := range d.running {
+		s.Queries = append(s.Queries, q)
+	}
+	d.mu.Unlock()
+	slices.SortFunc(s.Queries, func(a, b Query) int { return a.Started.Compare(b.Started) })
+	return s
+}

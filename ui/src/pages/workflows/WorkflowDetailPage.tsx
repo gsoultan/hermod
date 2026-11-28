@@ -50,6 +50,7 @@ import { ProposalsPanel } from './proposals/ProposalsPanel';
 import { TuningMetrics } from './tuning/TuningMetrics';
 import { Recommendations } from './tuning/Recommendations';
 import { LookupPlans } from './tuning/LookupPlans';
+import { DatabaseCards } from './tuning/DatabaseCards';
 import { useInsights } from '@/lib/insights';
 import { ReleaseDialog } from '../environments/ReleaseDialog';
 import { useInstance } from '@/lib/environments';
@@ -778,6 +779,12 @@ export function WorkflowDetailPage() {
                     <Title order={4} mb="xs">Recommendations</Title>
                     <Text size="sm" c="dimmed" mb="md">What Hermod would change to make this flow faster or steadier, read from its recent readings. Nothing changes on its own.</Text>
                     <Recommendations workflowId={id} canApply={canEdit} report={insights.data} isLoading={insights.isLoading} error={insights.error as Error | null} />
+                  </Box>
+                  <Divider />
+                  <Box>
+                    <Title order={4} mb="xs">Databases</Title>
+                    <Text size="sm" c="dimmed" mb="md">What Hermod did by itself on each database this flow reaches, and what only you can change.</Text>
+                    <DatabaseCards workflowId={id} nodeNames={nodeNameById} enabled={activeTab === 'tuning'} />
                   </Box>
                   <Divider />
                   <Box>

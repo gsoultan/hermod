@@ -168,6 +168,25 @@ When it is on, editors see an "Explain in plain words" button above the recommen
   [AI budget](ai-automation.md), and answers `429` when the budget is spent. The answer is capped
   at 600 tokens. Each call is written to the audit log as `AI_EXPLAIN_INSIGHTS`.
 
+#### What Hermod did about each database, and what needs you
+
+The Tuning tab's **Databases** section lists each PostgreSQL database the flow reaches (its source
+nodes, and the sources its DB Lookup and Execute SQL steps query), from
+`GET /api/workflows/{id}/insights/databases`. It reads what Hermod tracks in memory, refreshes
+every 10 seconds and connects to nothing, so anyone who can see the workflow can read it.
+
+Each database has two columns:
+
+- **Fixed by Hermod**: what Hermod already did by itself. When a test query waits for a
+  connection, Hermod learns how many connections it really gets there, through PgBouncer or not,
+  and keeps a quarter of them free for lookups (see [PostgreSQL CDC](postgres-cdc.md)). When the
+  database had no connection free in the last hour, it says that lookups were kept moving.
+- **Needs you**: only what Hermod cannot change itself, each saying what Hermod already does
+  about it. A long query (5 minutes or more) of this flow names its step and points to the SQL
+  builder's Speed check. Other flows' long queries on the same database are named. When the
+  database gives Hermod fewer connections than it is set to use, it says to raise PgBouncer's
+  `pool_size` or the role's connection limit, and that until then Hermod runs safely, only slower.
+
 #### Checking a DB Lookup's query and indexes
 
 The Tuning tab's **Lookup queries and indexes** section checks each DB Lookup step's query on

@@ -7,6 +7,15 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — the Tuning tab says what Hermod fixed on each database, and what needs you
+
+A new **Databases** section on the Tuning tab lists each PostgreSQL database a flow reaches.
+Under **Fixed by Hermod** it shows how many connections Hermod found it really gets there and how
+many it keeps free for lookups, and when it held long queries back so lookups kept moving. Under
+**Needs you** it lists only what Hermod cannot change: a long query in one of the flow's steps,
+other flows' long queries on the same database, and a PgBouncer pool smaller than Hermod is set
+to use.
+
 ### Added — a source database's Diagnosis tab, and a speed check in the SQL builder
 
 A PostgreSQL source's page has a **Diagnosis** tab: how Hermod reaches the database (directly or
