@@ -53,6 +53,7 @@ type planNode struct {
 	MergeCond   string     `json:"Merge Cond"`
 	JoinFilter  string     `json:"Join Filter"`
 	PlanRows    float64    `json:"Plan Rows"`
+	TotalCost   float64    `json:"Total Cost"`
 	Plans       []planNode `json:"Plans"`
 }
 
@@ -73,6 +74,22 @@ func ParsePlan(raw []byte) ([]Scan, error) {
 	w.walk(doc[0].Plan)
 	w.attachJoins()
 	return w.scans, nil
+}
+
+// PlanCost reads the total cost of the plan's root from the output of
+// EXPLAIN (FORMAT JSON): the planner's estimate of the whole query's work, in
+// its own units. Two plans' costs compare; a cost is not a duration.
+func PlanCost(raw []byte) (float64, error) {
+	var doc []struct {
+		Plan *planNode `json:"Plan"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return 0, err
+	}
+	if len(doc) == 0 || doc[0].Plan == nil {
+		return 0, errors.New("queryplan: the plan is empty")
+	}
+	return doc[0].Plan.TotalCost, nil
 }
 
 // planWalk gathers a plan's scans and its join conditions.

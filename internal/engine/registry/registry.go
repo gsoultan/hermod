@@ -1250,35 +1250,41 @@ func (r *Registry) getOrOpenDB(ctx context.Context, src storage.Source) (*sql.DB
 	return db, nil
 }
 
-// openPool opens a new pool for src, caches it under poolKey and closes the
-// pools the source held under connection details it no longer has.
-func (r *Registry) openPool(src storage.Source, poolKey string) (*sql.DB, error) {
-	sourceType := src.Type
-	config := src.Config
-	vhost := src.VHost
-
+// SourceConnString is the connection string GetOrOpenDB opens for src, with
+// its secret references resolved, and the database/sql driver it uses. A
+// batch_sql source answers for the database it reads. The string carries the
+// password: it must never be logged or put in an error.
+func (r *Registry) SourceConnString(ctx context.Context, src storage.Source) (connStr, driverName string, err error) {
+	sourceType, config, vhost := src.Type, src.Config, src.VHost
 	if sourceType == "batch_sql" {
 		// Resolve the underlying database source
 		underlyingID := config["source_id"]
-		if underlying, err := r.GetSourceConfig(context.Background(), underlyingID); err == nil {
+		if underlying, err := r.GetSourceConfig(ctx, underlyingID); err == nil {
 			sourceType = underlying.Type
 			config = underlying.Config
 			// Its references are its own vhost's to answer.
 			vhost = underlying.VHost
 		}
 	}
-
-	resolvedConfig, err := r.resolveSecrets(context.Background(), vhost, config)
+	resolvedConfig, err := r.resolveSecrets(ctx, vhost, config)
 	if err != nil {
-		return nil, err
+		return "", "", err
 	}
-	connStr := factory.BuildConnectionString(resolvedConfig, sourceType)
-
 	// Resolve the actual database/sql driver name from the user-facing type using
 	// the single source of truth shared with placeholder generation.
 	driverName, ok := sqlutil.CanonicalDriver(sourceType)
 	if !ok {
-		return nil, fmt.Errorf("unsupported source type for generic sql: %s", sourceType)
+		return "", "", fmt.Errorf("unsupported source type for generic sql: %s", sourceType)
+	}
+	return factory.BuildConnectionString(resolvedConfig, sourceType), driverName, nil
+}
+
+// openPool opens a new pool for src, caches it under poolKey and closes the
+// pools the source held under connection details it no longer has.
+func (r *Registry) openPool(src storage.Source, poolKey string) (*sql.DB, error) {
+	connStr, driverName, err := r.SourceConnString(context.Background(), src)
+	if err != nil {
+		return nil, err
 	}
 
 	var newDB *sql.DB

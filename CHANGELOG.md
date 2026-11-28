@@ -7,6 +7,21 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — a source database's Diagnosis tab, and a speed check in the SQL builder
+
+A PostgreSQL source's page has a **Diagnosis** tab: how Hermod reaches the database (directly or
+through PgBouncer, found by itself), Hermod's own queries on it now and what they wait on, who
+holds locks, long queries, idle transactions, how close the connection limits are, and PgBouncer's
+pool figures when its user may read them. It only reads, and never shows query text beyond its
+first keywords.
+
+The SQL builder has a **Speed** tab. It plans the statement without running it and reads the plan
+against the tables' indexes. For `date_trunc('day', col) = value`, which reads the whole table
+although `col` has an index, it offers the whole statement rewritten as a range on the column,
+which selects the same rows through that index, with **Apply to the query** and the planner's
+estimate of how much less work it is. The rewrite is planned before it is offered. The Tuning
+tab's lookup check shows the same rewrite.
+
 ### Fixed — lookups no longer time out when Hermod's own long queries fill PgBouncer
 
 Reported with PgBouncer giving the hermod user 12 server connections: long reporting queries run by

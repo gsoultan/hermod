@@ -181,3 +181,45 @@ func TestNeverAnalyzedTableIsNotCalledSmall(t *testing.T) {
 		}
 	}
 }
+
+// --- The nightly report that ran for two hours ------------------------------
+//
+// Its filter was date_trunc('day', created_at) = current_date - 1: every row of
+// the table was read and truncated, and the index on created_at sat unused. An
+// expression index would work, but the better fix needs no new index at all: a
+// range on the column itself means the same thing and the existing index
+// serves it. The finding now offers that rewrite.
+func TestDateTruncEqualityOffersARangeRewrite(t *testing.T) {
+	scans := []Scan{{Node: "Seq Scan", Schema: "public", Relation: "sl", Alias: "l", Rows: 250,
+		Conds: []string{"(date_trunc('day'::text, l.created_at) = (CURRENT_DATE - 1))"}}}
+	tables := map[string]Table{"public.sl": {Schema: "public", Name: "sl", Rows: 50_000,
+		Indexes: []Index{{Name: "sl_created_idx", Method: "btree", Keys: []string{"created_at"}}}}}
+	f := only(t, Assess(scans, tables), RuleWrappedColumn)
+	want := "l.created_at >= (CURRENT_DATE - 1) AND l.created_at < (CURRENT_DATE - 1) + interval '1 day'"
+	if f.Rewrite != want {
+		t.Fatalf("rewrite\n got %q\nwant %q", f.Rewrite, want)
+	}
+	if !strings.Contains(f.Detail, "sl_created_idx") || !strings.Contains(f.Detail, "same rows") {
+		t.Fatalf("detail = %q", f.Detail)
+	}
+}
+
+// A lookup compares to a message value, a parameter. Added to an interval,
+// a parameter is taken for an interval, so the upper bound is cast to the
+// column's type; without the type no rewrite is offered.
+func TestDateTruncEqualityOnAParameterCastsTheUpperBound(t *testing.T) {
+	scans := []Scan{{Node: "Seq Scan", Schema: "public", Relation: "sl", Alias: "sl", Rows: 250,
+		Conds: []string{"(date_trunc('day'::text, sl.created_at) = $1)"}}}
+	tables := map[string]Table{"public.sl": {Schema: "public", Name: "sl", Rows: 50_000,
+		Indexes: []Index{{Name: "sl_created_idx", Method: "btree", Keys: []string{"created_at"}}},
+		Columns: map[string]string{"created_at": "timestamp with time zone"}}}
+	f := only(t, Assess(scans, tables), RuleWrappedColumn)
+	want := "sl.created_at >= ($1) AND sl.created_at < CAST($1 AS timestamp with time zone) + interval '1 day'"
+	if f.Rewrite != want {
+		t.Fatalf("rewrite\n got %q\nwant %q", f.Rewrite, want)
+	}
+	tables["public.sl"] = Table{Schema: "public", Name: "sl", Rows: 50_000, Indexes: tables["public.sl"].Indexes}
+	if f := only(t, Assess(scans, tables), RuleWrappedColumn); f.Rewrite != "" {
+		t.Errorf("rewrite without the type: %q", f.Rewrite)
+	}
+}

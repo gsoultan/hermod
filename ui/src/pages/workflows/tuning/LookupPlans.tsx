@@ -1,7 +1,8 @@
 import { useMutation } from '@tanstack/react-query'
-import { ActionIcon, Alert, Badge, Box, Button, Code, CopyButton, Group, Paper, Stack, Text, Title, Tooltip } from '@mantine/core'
-import { IconAlertCircle, IconCheck, IconCopy, IconDatabase } from '@tabler/icons-react'
-import { checkLookupPlans, type LookupPlanFinding, type LookupPlanNode, type LookupPlanSeverity } from '@/lib/insights'
+import { Alert, Box, Button, Code, Paper, Stack, Text, Title } from '@mantine/core'
+import { IconAlertCircle, IconDatabase } from '@tabler/icons-react'
+import { checkLookupPlans, type LookupPlanNode } from '@/lib/insights'
+import { PlanFinding, planCodeStyle as codeStyle, sortFindings } from '@/components/queryplan/PlanFinding'
 
 interface LookupPlansProps {
   workflowId: string
@@ -9,51 +10,8 @@ interface LookupPlansProps {
   canCheck: boolean
 }
 
-const severity: Record<LookupPlanSeverity, { label: string; color: string }> = {
-  warn: { label: 'Can improve', color: 'orange' },
-  info: { label: 'Note', color: 'gray' },
-  ok: { label: 'Good', color: 'green' },
-}
-const rank: Record<LookupPlanSeverity, number> = { warn: 0, info: 1, ok: 2 }
-
-const codeStyle = { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } as const
-
-function Proposal({ sql }: { sql: string }) {
-  return (
-    <Stack gap={4}>
-      <Group justify="space-between" align="center" wrap="nowrap">
-        <Text size="xs" c="dimmed">Proposed index</Text>
-        <CopyButton value={sql}>
-          {({ copied, copy }) => (
-            <Tooltip label={copied ? 'Copied' : 'Copy'}>
-              <ActionIcon variant="subtle" color={copied ? 'teal' : 'gray'} size="sm" onClick={copy} aria-label="Copy the SQL for this index">
-                {copied ? <IconCheck size="0.9rem" /> : <IconCopy size="0.9rem" />}
-              </ActionIcon>
-            </Tooltip>
-          )}
-        </CopyButton>
-      </Group>
-      <Code block style={codeStyle}>{sql}</Code>
-    </Stack>
-  )
-}
-
-function FindingRow({ finding }: { finding: LookupPlanFinding }) {
-  const sev = severity[finding.severity] ?? severity.info
-  return (
-    <Stack gap={6} data-plan-finding={finding.rule}>
-      <Group justify="space-between" align="flex-start" gap="xs" wrap="nowrap">
-        <Text size="sm" fw={600} style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{finding.title}</Text>
-        <Badge variant="light" color={sev.color} size="sm" style={{ flexShrink: 0 }}>{sev.label}</Badge>
-      </Group>
-      <Text size="sm" c="dimmed" style={{ overflowWrap: 'anywhere' }}>{finding.detail}</Text>
-      {finding.proposal && <Proposal sql={finding.proposal} />}
-    </Stack>
-  )
-}
-
 function NodeCard({ node }: { node: LookupPlanNode }) {
-  const findings = [...(node.findings ?? [])].sort((a, b) => (rank[a.severity] ?? 1) - (rank[b.severity] ?? 1))
+  const findings = sortFindings(node.findings)
   return (
     <Paper withBorder p={{ base: 'sm', sm: 'md' }} radius="md" data-lookup-node={node.node_id}>
       <Stack gap="xs">
@@ -67,7 +25,7 @@ function NodeCard({ node }: { node: LookupPlanNode }) {
             {node.error}
           </Alert>
         ) : (
-          findings.map((f, i) => <FindingRow key={`${f.rule}:${f.table ?? ''}:${i}`} finding={f} />)
+          findings.map((f, i) => <PlanFinding key={`${f.rule}:${f.table ?? ''}:${i}`} finding={f} />)
         )}
       </Stack>
     </Paper>

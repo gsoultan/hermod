@@ -80,6 +80,8 @@ export interface LookupPlanFinding {
   detail: string
   /** SQL for a person to review and run. Hermod never runs it. */
   proposal?: string
+  /** A condition meaning the same as the query's, that an existing index can serve. */
+  rewrite?: string
 }
 
 export interface LookupPlanIndex {

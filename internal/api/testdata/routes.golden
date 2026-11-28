@@ -250,9 +250,11 @@ POST /api/sources/discover/databases
 POST /api/sources/discover/replication
 POST /api/sources/discover/tables
 POST /api/sources/query
+POST /api/sources/query/speed-check
 POST /api/sources/sample
 POST /api/sources/test
 POST /api/sources/upload
+POST /api/sources/{id}/diagnosis
 POST /api/sources/{id}/snapshot
 POST /api/system/updates/check
 POST /api/system/updates/install

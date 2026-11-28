@@ -59,7 +59,13 @@ type Table struct {
 	// Rows is the catalog's estimate, or -1 when the table was never analyzed.
 	Rows    float64 `json:"rows"`
 	Indexes []Index `json:"indexes"`
+	// Columns maps each column's name to its type, as format_type prints it.
+	Columns map[string]string `json:"-"`
 }
+
+// ColumnType is the type of col as a query writes it, qualified or quoted,
+// or "" when the table has no such column.
+func (t Table) ColumnType(col string) string { return t.Columns[unquoteName(lastPart(col))] }
 
 // Key is how a table is found in a catalog map: "schema.name", unquoted.
 func (t Table) Key() string { return t.Schema + "." + t.Name }
@@ -84,6 +90,9 @@ type Finding struct {
 	Detail string `json:"detail"`
 	// Proposal is SQL a person can review and run. Hermod never runs it.
 	Proposal string `json:"proposal,omitempty"`
+	// Rewrite is a condition that means the same as the one the query has
+	// and that an existing index can serve, to put in its place.
+	Rewrite string `json:"rewrite,omitempty"`
 }
 
 // Assess reads each scan against its table's indexes.
@@ -128,6 +137,7 @@ func indexUsed(s Scan, tables map[string]Table) Finding {
 
 // predicate is one comparison on a scanned table's column or expression.
 type predicate struct {
+	alias string // the scan's alias, to write a rewrite as the query does
 	expr  string // the scanned side, unqualified
 	cols  []string
 	op    string
@@ -155,7 +165,7 @@ func predicates(s Scan) []predicate {
 				lhs, rhs = rhs, lhs
 				op = flip(op)
 			}
-			p := predicate{op: op, other: stripOuter(rhs)}
+			p := predicate{alias: s.Alias, op: op, other: stripOuter(rhs)}
 			for _, m := range ref.FindAllStringSubmatch(lhs, -1) {
 				p.cols = append(p.cols, m[2])
 			}
@@ -291,7 +301,7 @@ func sameExpr(a, b string) bool {
 
 func wrapped(t Table, p predicate) Finding {
 	f := Finding{Rule: RuleWrappedColumn, Severity: SeverityWarn, Table: t.Key(),
-		Title: "Function on the lookup key stops index use on " + t.Key()}
+		Title: "A function on the column stops index use on " + t.Key()}
 	if ix := leading(t, p.expr, "btree", "hash"); ix != nil {
 		f.Rule, f.Severity = RuleIndexNotChosen, SeverityInfo
 		f.Title = "Expression index exists but the planner read the whole table"
@@ -308,9 +318,42 @@ func wrapped(t Table, p predicate) Finding {
 	if len(defeated) > 0 {
 		f.Detail += " The index " + strings.Join(defeated, ", ") + " cannot be used for that."
 	}
+	if rw := truncRange(t, p); rw != "" && len(defeated) > 0 {
+		f.Rewrite = rw
+		f.Detail += " Comparing a range of the column instead gives the same rows and uses that index, with no new index needed."
+		return f
+	}
 	f.Detail += " Either compare the plain column (clean the values once, when they are written), or index the expression exactly as the query writes it."
 	f.Proposal = createIndex(t, "btree", []string{"(" + p.expr + ")"}, "")
 	return f
+}
+
+// truncExpr is date_trunc('<unit>'::text, <column>) as PostgreSQL prints it.
+var truncExpr = regexp.MustCompile(`^date_trunc\('(microseconds|milliseconds|second|minute|hour|day|week|month|quarter|year)'::text, ("(?:[^"]|"")+"|[A-Za-z_][\w$]*)\)$`)
+
+// truncRange rewrites date_trunc('unit', col) = v as the range of col that
+// truncates to v: col >= v AND col < v + interval '1 unit'. Both select the
+// same rows, and the range can use an index on col. Only equality is
+// rewritten, and only a plain column; anything else is left to the index.
+// A parameter v is cast to the column's type in the upper bound, where an
+// interval beside it would make it an interval (see RewriteTruncEquality).
+func truncRange(t Table, p predicate) string {
+	if p.op != "=" {
+		return ""
+	}
+	m := truncExpr.FindStringSubmatch(p.expr)
+	if m == nil {
+		return ""
+	}
+	col := m[2]
+	if p.alias != "" {
+		col = p.alias + "." + col
+	}
+	upper := upperBound(p.other, col, t.ColumnType)
+	if upper == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s >= (%s) AND %s < %s + interval '1 %s'", col, p.other, col, upper, m[1])
 }
 
 func wildcard(t Table, p predicate) Finding {
