@@ -37,6 +37,11 @@ import (
 // connections). It is per source, per worker process.
 const defaultSQLPoolMaxConns = 20
 
+// sqlStepsApplicationName is the application_name of this pool's
+// connections, apart from the sources' and sinks' "hermod", so pg_stat_activity
+// tells a lookup or SQL step from a poll or a write.
+const sqlStepsApplicationName = "hermod-sql-steps"
+
 // sqlPoolMaxIdleConns caps the idle connections a pool keeps between bursts.
 const sqlPoolMaxIdleConns = 10
 
@@ -102,7 +107,7 @@ func sizeSQLPool(db *sql.DB, maxConns int) {
 // out here: pool_max_conns sizes the pool, the rest describe a pgxpool this is
 // not.
 func pgPoolConnConfig(connStr string) (*pgx.ConnConfig, int, error) {
-	cfg, _, err := pgxutil.ParseConfig(connStr)
+	cfg, _, err := pgxutil.ParseConfigAs(connStr, sqlStepsApplicationName)
 	if err != nil {
 		return nil, 0, fmt.Errorf("parse postgres connection config: %w", err)
 	}

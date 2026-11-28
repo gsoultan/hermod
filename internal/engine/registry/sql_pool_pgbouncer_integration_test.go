@@ -74,3 +74,27 @@ func TestSQLPool_ThroughPgBouncer(t *testing.T) {
 		t.Fatalf("query through PgBouncer failed: %v", err)
 	}
 }
+
+// Through PgBouncer, the server connection a lookup runs on reports the
+// lookup pool's name, so pg_stat_activity can tell it from anyone else's.
+func TestSQLPool_ThroughPgBouncerIsNamed(t *testing.T) {
+	dsn := os.Getenv("PGBOUNCER_DSN")
+	if dsn == "" {
+		t.Skip("integration: set PGBOUNCER_DSN to run")
+	}
+	t.Setenv("PGAPPNAME", "")
+	src := storage.Source{ID: "pgb-name", Type: "postgres", Config: map[string]string{"connection_string": dsn}}
+	r := NewRegistry(&mockStorage{})
+	t.Cleanup(r.Close)
+	db, err := r.GetOrOpenDB(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var name string
+	if err := db.QueryRowContext(context.Background(), "SELECT current_setting('application_name')").Scan(&name); err != nil {
+		t.Fatal(err)
+	}
+	if name != sqlStepsApplicationName {
+		t.Errorf("the server sees application_name %q, want %q", name, sqlStepsApplicationName)
+	}
+}

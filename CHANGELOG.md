@@ -28,6 +28,13 @@ database or PgBouncer". Hermod now handles this by itself:
   timed out waiting for its slot, since it never reached the database.
 - **The error names who holds the database**, for example `workflow "nightly-report" (source poll,
   running 1h57m)`.
+### Fixed — Hermod's PostgreSQL sessions are named in pg_stat_activity
+
+Hermod's PostgreSQL connections reported no `application_name`, so a DBA looking at a busy
+database could not tell Hermod's sessions from anyone else's. Sources and sinks now connect as
+`hermod`, and DB Lookup, Execute SQL and the other per-message SQL steps as `hermod-sql-steps`.
+The name also shows through PgBouncer. An `application_name` in the connection string, or
+`PGAPPNAME`, still wins.
 
 ### Changed — an idle workflow costs 11 goroutines instead of 139
 
