@@ -31,13 +31,15 @@ import (
 //
 //   - a query that is slow because no index serves it: the database answers a
 //     ping, and the plan names the full scan and the index that fixes it;
+//
 //   - a query waiting on a lock another session holds: the database answers a
 //     ping, and the plan says it is not the plan but a lock;
+//
 //   - a database that is down behind a PgBouncer that is up: no ping answers.
 //
-//	PGBOUNCER_SMALL_POOL_DSN='postgres://postgres@127.0.0.1:6433/postgres?sslmode=disable' \
-//	PGBOUNCER_DOWN_DB_DSN='postgres://postgres@127.0.0.1:6433/downdb?sslmode=disable' \
-//	go test -tags integration -run TestLookupTimeoutProves ./internal/engine/registry/
+//     PGBOUNCER_SMALL_POOL_DSN='postgres://postgres@127.0.0.1:6433/postgres?sslmode=disable' \
+//     PGBOUNCER_DOWN_DB_DSN='postgres://postgres@127.0.0.1:6433/downdb?sslmode=disable' \
+//     go test -tags integration -run TestLookupTimeoutProves ./internal/engine/registry/
 func TestLookupTimeoutProvesWhereTheTimeWent(t *testing.T) {
 	dsn := os.Getenv("PGBOUNCER_SMALL_POOL_DSN")
 	if dsn == "" {
@@ -140,4 +142,3 @@ func wantAll(t *testing.T, err error, wants ...string) {
 		}
 	}
 }
-
