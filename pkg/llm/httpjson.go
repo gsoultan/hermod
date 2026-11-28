@@ -65,11 +65,13 @@ func PostJSON(ctx context.Context, client *http.Client, provider, url string, he
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
+		code := errorCode(raw)
 		return resp.Header, &APIError{
 			Provider:   provider,
 			Status:     resp.StatusCode,
+			Code:       code,
 			Message:    errorMessage(raw),
-			Retryable:  RetryableStatus(resp.StatusCode),
+			Retryable:  RetryableStatus(resp.StatusCode) && !lasting(code),
 			RetryAfter: RetryAfter(resp.Header),
 		}
 	}
@@ -78,6 +80,28 @@ func PostJSON(ctx context.Context, client *http.Client, provider, url string, he
 		return resp.Header, fmt.Errorf("%s: decode response: %w", provider, err)
 	}
 	return resp.Header, nil
+}
+
+// errorCode is the machine-readable code of an {"error":{"code":...}} body,
+// empty when there is none or it is not a string.
+func errorCode(raw []byte) string {
+	var shaped struct {
+		Error struct {
+			Code any `json:"code"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(raw, &shaped) != nil {
+		return ""
+	}
+	code, _ := shaped.Error.Code.(string)
+	return code
+}
+
+// lasting reports whether code names a refusal that waiting does not end.
+// OpenAI sends an account out of credit a 429 like a rate limit, with this
+// code: retrying it, or waiting it out, only hides that someone has to pay.
+func lasting(code string) bool {
+	return code == "insufficient_quota"
 }
 
 // errorMessage pulls the human-readable message out of the common error

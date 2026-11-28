@@ -16,6 +16,11 @@ API had answered. These answers now count as busy, the way they already did for 
 step stops at once, and the engine waits as long as the API asked before trying the message again.
 An API Lookup's default value and error policy no longer apply to a busy answer.
 
+AI steps on a model provider (OpenAI, Anthropic and the other `pkg/llm` adapters) do the same once
+their own few retries give up on a 429, 503 or Anthropic's 529 overloaded. One 429 stays a failure:
+OpenAI's `insufficient_quota`, sent when an account is out of credit. Waiting would not end it, so it
+is neither retried nor waited out, and the message fails naming it.
+
 ### Fixed — a lookup that waited its turn showed as a failed run, and could still fail
 
 On v1.27.1, behind a small PgBouncer pool (`default_pool_size = 5` with a reserve pool) and with

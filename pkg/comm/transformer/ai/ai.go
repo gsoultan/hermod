@@ -26,6 +26,7 @@ import (
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/infra/httpclient"
+	"github.com/gsoultan/hermod/pkg/llm"
 )
 
 func init() {
@@ -154,7 +155,13 @@ func (t *AITransformer) callOpenAI(ctx context.Context, endpoint, apiKey, model,
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", httpclient.MarkBusy(resp, fmt.Errorf("openai error (status %d): %s", resp.StatusCode, errorBody(resp.Body)))
+		body := errorBody(resp.Body)
+		err := fmt.Errorf("openai error (status %d): %s", resp.StatusCode, body)
+		if llm.OutOfQuota([]byte(body)) {
+			// A 429 like a rate limit, but waiting will not end it.
+			return "", err
+		}
+		return "", httpclient.MarkBusy(resp, err)
 	}
 
 	var res struct {

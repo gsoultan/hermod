@@ -49,3 +49,23 @@ func TestAITransformerReportsARateLimitAsBusy(t *testing.T) {
 		})
 	}
 }
+
+// OpenAI also sends an account out of credit a 429, code insufficient_quota.
+// Waiting that out would stall the workflow until someone pays, saying
+// nothing, so it stays a failure that names itself.
+func TestAITransformerReportsAnOutOfQuotaAnswerAsAFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"message":"You exceeded your current quota","code":"insufficient_quota"}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	msg := message.AcquireMessage()
+	t.Cleanup(msg.Release)
+	_, err := (&AITransformer{}).Transform(t.Context(), msg, map[string]any{
+		"provider": "openai", "endpoint": srv.URL, "model": "m", "prompt": "p",
+	})
+	if err == nil || errors.Is(err, hermod.ErrBusy) {
+		t.Fatalf("err = %v, want a failure that is not busy", err)
+	}
+}

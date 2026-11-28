@@ -45,6 +45,11 @@ Steps (transformation nodes) too:
   error policy and default value: writing the default would pass "no room"
   off as the API's answer.
 
-Not yet covered: `pkg/llm` providers (their `APIError` keeps its own retry
-middleware and is not busy once it gives up), the batched lookup path, and the
-UI word for `waiting`.
+- `pkg/llm`: `APIError` matches `ErrBusy` (`Is`) and yields a `*hermod.Busy`
+  (`As`, so `hermod.RetryAfter` reads it) on 429/503/529, after `WithRetry`
+  has given up. Exception by code, not text: `insufficient_quota` (OpenAI's
+  out-of-credit 429) is neither retryable nor busy -- waiting never ends it.
+  `llm.OutOfQuota(body)` is the same rule for callers reading bodies
+  themselves (the AI step's direct OpenAI call).
+
+Not yet covered: the batched lookup path, and the UI word for `waiting`.

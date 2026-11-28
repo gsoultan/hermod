@@ -151,8 +151,10 @@ var ErrUnsupported = errors.New("llm: not supported by this provider")
 // APIError is a failed provider call. Retryable says whether the same request
 // may succeed later (rate limits, overload, server errors, network errors).
 type APIError struct {
-	Provider   string
-	Status     int
+	Provider string
+	Status   int
+	// Code is the provider's machine-readable error code, when it sent one.
+	Code       string
 	Message    string
 	Retryable  bool
 	RetryAfter time.Duration
